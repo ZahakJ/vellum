@@ -1,0 +1,105 @@
+# Vellum design spec — the bar is "people ditch Obsidian for this"
+
+Reference quality: Obsidian's default theme + Linear's polish. Identity: illuminated manuscript —
+iron-gall dark default, parchment light, gold-leaf accent. Everything below is normative.
+
+## Layout (CSS grid, full viewport, no page scroll)
+
+```
+┌──────────┬─────────────────────────────┬───────────┐
+│ sidebar  │ tab bar                     │ backlinks │
+│ 280px    ├─────────────────────────────┤ 300px     │
+│          │ center content (editor OR   │ (collaps- │
+│          │ graph), own scroll          │  ible)    │
+├──────────┴─────────────────────────────┴───────────┤
+│ status bar 28px                                    │
+└────────────────────────────────────────────────────┘
+```
+
+- Sidebar and backlinks panel have `--bg-raised`; center is `--bg`; 1px `--border` separators.
+- Backlinks collapse: chevron button in the panel header; collapsed = 0 width, and a small floating
+  reopen button top-right of center. Animate width 180ms ease.
+- Never let any panel's content overflow the viewport horizontally.
+
+## Sidebar
+
+- Header: wordmark `✦ Vellum` — serif (--font-serif), small-caps feel, gold accent star, 15px,
+  letter-spacing 0.08em; right side: "new note" (+) and "new folder" icon buttons (inline SVG,
+  16px, --text-muted, hover --accent).
+- Search input: subtle raised field, 13px, rounded --radius, focus ring in --accent-soft; search
+  hits list replaces the tree while active: each hit = title line (serif, 14px) + snippet line
+  (12px --text-muted, `<mark>` = gold text, no bg block).
+- Tree: 13px UI font, 26px row height, rows full-width hover --bg-hover rounded 4px, 8px left pad
+  per depth. Folders: chevron (▸ rotates 90° when open, 150ms) + name; files: no icon clutter —
+  just the name minus `.md`; active note row: --accent-soft bg + --accent 2px left bar. Smooth.
+- Tags section pinned under tree: header "Tags" 11px uppercase --text-faint letterspaced; pills:
+  12px, 3px 8px, --bg-hover bg, rounded-full, `#` in --accent, count in --text-faint; hover fills
+  --accent-soft.
+- Sidebar footer: "N notes" 11px --text-faint.
+
+## Tab bar
+
+- 36px tall, tabs are 13px, max-width 180px ellipsis, padding 0 12px, separated by 1px border;
+  active tab: --bg (merges into content), inactive: --bg-raised + --text-muted; dirty dot: 6px
+  gold circle replacing the × until hover; × appears on hover, 14px hit area.
+
+## Editor column
+
+- Content max-width 760px, centered, padding 48px 56px 120px. Line-height 1.7, editor font 16px
+  --font-serif for prose. THE TEXT IS SERIF — this is the manuscript feel. Code/inline-code in
+  --font-mono 85%.
+- Headings (live preview rendered): h1 1.9em serif + hairline bottom border --border padding 0.2em;
+  h2 1.5em; h3 1.25em; all --text with h1 slightly gold-tinted (color-mix 15% accent). The `#`
+  marks when cursor is on the line render --text-faint.
+- Blockquote: 3px gold left bar + --text-muted italic. Lists: gold `•`. Checkboxes: 15px rounded
+  square, gold fill + white ✓ when checked, text of done items --text-faint strikethrough.
+- Wikilinks: --accent, no underline, hover underline; broken links (unresolvable): dashed
+  underline --danger tint. Tags in text: same pill style as sidebar, smaller.
+- Empty state (no note open): centered, the ✦ glyph large in --text-faint, "The vault is open."
+  serif 18px, then keymap hints in a neat 2-col grid of kbd chips.
+
+## Backlinks panel
+
+- Header: "Backlinks" 11px uppercase --text-faint + count badge pill; collapse chevron right.
+- Each backlink: card (--bg-hover, rounded --radius, 10px padding, 8px gap): note title serif 13px
+  --text, then context line 12px --text-muted with the matching `[[link]]` rendered as a gold span
+  (never raw brackets). Hover: border --accent-soft. Click opens note.
+- Empty: "No backlinks yet — link to this note with [[...]]" 12px --text-faint.
+
+## Status bar
+
+- 28px, --bg-raised, top border, 12px --text-muted. Left: breadcrumb path of open note
+  (folder › note). Right segments separated by dots: "N words · M chars", vim badge (gold when on),
+  theme toggle (☾/☀ icon button), graph toggle. All hover --text.
+
+## Command palette
+
+- Backdrop: rgba(0,0,0,.4) + slight blur. Panel: 560px, top 18vh centered, --bg-raised, 1px
+  --border, radius 10px, shadow 0 24px 64px rgba(0,0,0,.5). Input 15px serif, borderless, 14px
+  padding, bottom border. Rows 34px: icon (inline SVG 14px: file/command glyphs), name, right-side
+  kbd hint or folder path --text-faint; selected row --accent-soft with gold left bar. Section
+  labels ("Commands", "Notes") 10px uppercase --text-faint.
+
+## Graph view
+
+- Fills center. Canvas bg --bg with a very faint radial vignette. Edges: --border color, 1px,
+  opacity .5. Nodes: gold-tinted discs (lightness varies by degree), 1px rim; label 11px --font-ui
+  --text-muted under node, hidden below zoom 0.7 except hovered/neighbors. Hover: node + neighbors
+  full opacity + labels, rest dimmed to .15. Active-note node: ring in --accent. Bottom-left HUD:
+  "N notes · M links" 11px faint; bottom-right: zoom +/− and ⌖ reset buttons (icon buttons, raised).
+
+## Motion & finish
+
+- All interactive elements: 150ms ease transitions on color/bg/transform. `:focus-visible`: 2px
+  --accent ring, radius-matched. Custom scrollbars: 8px, thumb --border hover --text-faint,
+  transparent track. ::selection --accent-soft. No layout shift on hover anywhere.
+- Both themes must pass: contrast ≥ 4.5:1 body text, ≥ 3:1 muted; gold accent adjusted per theme
+  (#c9a227 dark / #8a6d1a light).
+
+## Hard rules
+
+- No component may render raw markdown syntax to the user outside the editor (backlinks, search
+  snippets strip/render `[[ ]]`, `#`, `**`).
+- Every CONTRACTS.md class name stays; new classes stay `s-` prefixed; zero inline style colors.
+- Screenshot gate: a change ships only if the 1440×900 screenshots (dark+light, editor+graph+
+  palette) look like a product someone would pay for.

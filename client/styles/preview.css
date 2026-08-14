@@ -1,0 +1,376 @@
+/* Vellum — live-preview widget styles (round B2: embeds, callouts, math,
+   highlights, comments, footnotes). Imported by client/editor/livePreview.ts.
+   Everything reads tokens from tokens.css — no hard-coded colors beyond the
+   --callout-* / --syn-* tokens defined there. */
+
+/* ── Image embeds ─────────────────────────────────────────────────────── */
+
+.s-editor .cm-s-embed-image {
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  vertical-align: text-bottom;
+}
+
+.s-editor .cm-s-embed-image img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  display: inline-block;
+}
+
+.s-editor .cm-s-embed-src {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+.s-editor .cm-s-embed-broken {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.35em 0.8em;
+  border: 1px dashed color-mix(in srgb, var(--danger) 55%, var(--border));
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  line-height: 1.4;
+  vertical-align: baseline;
+}
+
+.s-editor .cm-s-embed-broken__icon {
+  color: color-mix(in srgb, var(--danger) 70%, var(--text));
+  font-size: 1.1em;
+}
+
+/* ── Attachment card (pdf & friends) ──────────────────────────────────── */
+
+.s-editor .cm-s-embed-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55em;
+  padding: 0.4em 0.9em;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.82em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+  vertical-align: baseline;
+  line-height: 1.4;
+}
+
+.s-editor .cm-s-embed-file:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.s-editor .cm-s-embed-file__icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.s-editor .cm-s-embed-file__badge {
+  font-size: 0.78em;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 0.1em 0.6em;
+}
+
+/* ── Note transclusion card ───────────────────────────────────────────── */
+
+.s-editor .cm-s-transclude {
+  display: block;
+  margin: 0.35em 0;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  overflow: hidden;
+  font-family: var(--font-serif);
+}
+
+.s-editor .cm-s-transclude__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.45em 1em 0.4em;
+  font-family: var(--font-serif);
+  font-size: 0.85em;
+  font-weight: 700;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.s-editor .cm-s-transclude__title::before {
+  content: "✦";
+  font-size: 0.8em;
+  opacity: 0.7;
+}
+
+.s-editor .cm-s-transclude__title:hover {
+  background: var(--accent-soft);
+}
+
+.s-editor .cm-s-transclude__body {
+  display: block;
+  padding: 0.55em 1em 0.7em;
+  font-size: 0.9em;
+  line-height: 1.55;
+  max-height: 420px;
+  overflow-y: auto;
+  color: var(--text);
+}
+
+.s-editor .cm-s-transclude--broken {
+  border-left-color: color-mix(in srgb, var(--danger) 65%, var(--border));
+}
+
+.s-editor .cm-s-transclude--broken .cm-s-transclude__title {
+  color: color-mix(in srgb, var(--danger) 70%, var(--text));
+  cursor: default;
+}
+
+.s-editor .cm-s-transclude__note {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* overflow affordance: fade + "Open note" footer when the body is capped */
+.s-editor .cm-s-transclude--overflow .cm-s-transclude__body::after {
+  content: "";
+  position: sticky;
+  display: block;
+  bottom: 0;
+  height: 2.4em;
+  margin-top: -2.4em;
+  background: linear-gradient(to bottom, transparent, var(--bg-raised));
+  pointer-events: none;
+}
+
+.s-editor .cm-s-transclude__more {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  padding: 0.4em 0.8em;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.78em;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+.s-editor .cm-s-transclude__more:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* reading-renderer content embedded in the card: tighten the outer margins */
+.s-editor .cm-s-transclude__body .s-rv > :first-child {
+  margin-top: 0;
+}
+
+.s-editor .cm-s-transclude__body .s-rv > :last-child {
+  margin-bottom: 0;
+}
+
+/* ── Callouts ─────────────────────────────────────────────────────────── */
+
+.s-editor .cm-line.cm-s-callout {
+  --co: var(--callout-note);
+  background: color-mix(in srgb, var(--co) 9%, transparent);
+  border-left: 3px solid var(--co);
+  padding-left: 1em;
+  padding-right: 0.8em;
+}
+
+.s-editor .cm-line.cm-s-callout--note { --co: var(--callout-note); }
+.s-editor .cm-line.cm-s-callout--info { --co: var(--callout-info); }
+.s-editor .cm-line.cm-s-callout--todo { --co: var(--callout-todo); }
+.s-editor .cm-line.cm-s-callout--abstract { --co: var(--callout-abstract); }
+.s-editor .cm-line.cm-s-callout--tip { --co: var(--callout-tip); }
+.s-editor .cm-line.cm-s-callout--success { --co: var(--callout-success); }
+.s-editor .cm-line.cm-s-callout--question { --co: var(--callout-question); }
+.s-editor .cm-line.cm-s-callout--warning { --co: var(--callout-warning); }
+.s-editor .cm-line.cm-s-callout--failure { --co: var(--callout-failure); }
+.s-editor .cm-line.cm-s-callout--danger { --co: var(--callout-danger); }
+.s-editor .cm-line.cm-s-callout--bug { --co: var(--callout-bug); }
+.s-editor .cm-line.cm-s-callout--example { --co: var(--callout-example); }
+.s-editor .cm-line.cm-s-callout--quote { --co: var(--callout-quote); }
+
+.s-editor .cm-line.cm-s-callout--first {
+  border-top-left-radius: var(--radius);
+  border-top-right-radius: var(--radius);
+  padding-top: 0.45em;
+  margin-top: 0.3em;
+}
+
+.s-editor .cm-line.cm-s-callout--last {
+  border-bottom-left-radius: var(--radius);
+  border-bottom-right-radius: var(--radius);
+  padding-bottom: 0.45em;
+  margin-bottom: 0.3em;
+}
+
+/* title bar widget (replaces "> [!type] Title") */
+.s-editor .cm-s-callout__title {
+  --co: var(--callout-note);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  color: var(--co);
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.s-editor .cm-s-callout__title--foldable {
+  cursor: pointer;
+}
+
+.s-editor .cm-s-callout__icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.s-editor .cm-s-callout__chevron {
+  display: inline-flex;
+  color: var(--co);
+  opacity: 0.7;
+  transition: transform 150ms ease;
+}
+
+.s-editor .cm-s-callout__chevron--open {
+  transform: rotate(90deg);
+}
+
+.s-editor .cm-s-callout__title--foldable:hover .cm-s-callout__chevron {
+  opacity: 1;
+}
+
+/* callout body text drops the plain-quote italics */
+.s-editor .cm-line.cm-s-callout {
+  font-style: normal;
+  color: var(--text);
+}
+
+/* ── Highlights, comments, footnotes ──────────────────────────────────── */
+
+.s-editor .cm-s-highlight {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  color: var(--text);
+  border-radius: 3px;
+  padding: 0.05em 0.1em;
+  box-decoration-break: clone;
+}
+
+.s-editor .cm-s-comment {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.s-editor .cm-s-footnote {
+  color: var(--accent);
+  font-size: 0.72em;
+  vertical-align: super;
+  line-height: 1;
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+
+.s-editor .cm-s-footnote:hover {
+  text-decoration: underline;
+}
+
+.s-editor .cm-s-footnote--src {
+  font-size: 1em;
+  vertical-align: baseline;
+  font-family: inherit;
+}
+
+.s-editor .cm-s-footnote-def {
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
+/* ── Math (KaTeX) ─────────────────────────────────────────────────────── */
+
+.s-editor .cm-s-math .katex {
+  font-size: 1.05em;
+}
+
+.s-editor .cm-s-math-block {
+  display: block;
+  padding: 0.6em 0 0.7em;
+  text-align: center;
+  cursor: pointer;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.s-editor .cm-s-math-block:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-radius: var(--radius);
+}
+
+.s-editor .cm-s-math-block .katex-display {
+  margin: 0;
+}
+
+.s-editor .cm-s-math-src,
+.s-editor .cm-line.cm-s-math-srcline,
+.s-editor .cm-s-math-pending {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
+
+/* clickable frontmatter tag pills are <button>s now — keep the pill look */
+.s-editor .cm-s-props__tag {
+  cursor: pointer;
+  border: none;
+  font: inherit;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.s-editor .cm-s-props__tag:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ── Raw HTML blocks (rendered, sanitized, cursor-outside) ─────────────── */
+
+.s-editor .cm-s-htmlblock {
+  margin: 0.4em 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.s-editor .cm-s-htmlblock img,
+.s-editor .cm-s-htmlblock svg,
+.s-editor .cm-s-htmlblock video {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ── Empty-note placeholder ────────────────────────────────────────────── */
+
+.s-editor .cm-placeholder {
+  color: var(--text-faint);
+  font-style: italic;
+}

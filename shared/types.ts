@@ -32,4 +32,14 @@ export interface VaultEvent {
   kind: "created" | "changed" | "deleted" | "renamed";
   path: string;
   toPath?: string; // renamed only
+  dir?: boolean;   // true when the event is about a folder
+}
+
+export interface ResolveResult { path: string | null } // GET /api/resolve?name= (null = known miss, 200 not 404 so expected misses stay quiet in devtools)
+
+export interface MeData {
+  admin: boolean;      // this session may mutate the vault
+  public: boolean;     // reads are open without a session (PUBLIC != false)
+  protected: boolean;  // an ADMIN_PASSWORD_HASH is configured (sign in/out is meaningful)
+  homeNote?: string;   // note opened for fresh visitors (HOME_NOTE)
 }

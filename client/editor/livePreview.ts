@@ -6,9 +6,17 @@
 //   - Decoration.mark / Decoration.line / widgets to style headings, emphasis,
 //     code, blockquotes, bullets, task checkboxes, wikilinks, tags and urls.
 //
-// Class names (cm-s-*) are styled in theme.ts using the CSS token vars.
+// Round B2 adds: image/file/note embeds (widgets.ts), callouts (callouts.ts),
+// KaTeX math (math.ts), ==highlights==, %%comments%%, footnotes, and the
+// clickable frontmatter properties card. Block-level widgets (frontmatter
+// card, hidden fence lines, $$ math, folded callout bodies) live in a
+// StateField because block decorations can't come from a ViewPlugin.
+//
+// Class names (cm-s-*) are styled in theme.ts and styles/preview.css using
+// the CSS token vars.
 
-import { RangeSet, type Range } from "@codemirror/state";
+import "../styles/preview.css";
+import { Facet, RangeSet, StateField, Transaction, type Range } from "@codemirror/state";
 import type { EditorState, Extension } from "@codemirror/state";
 import {
   Decoration,
@@ -23,6 +31,27 @@ import type { SyntaxNode } from "@lezer/common";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { parseWikilink, resolveLink, WIKILINK_RE } from "./links.ts";
+import { parseProps, TAG_RE } from "./noteMeta.ts";
+import {
+  FileCardWidget,
+  ImageWidget,
+  TransclusionWidget,
+  parseEmbed,
+  resolveRelative,
+} from "./widgets.ts";
+import {
+  calloutFoldDecos,
+  calloutFoldField,
+  calloutLineDecos,
+  findCallouts,
+} from "./callouts.ts";
+import { blockMathDecos, inlineMathDecos } from "./math.ts";
+import { sanitizeHtml } from "../reading/rawHtml.ts";
+
+/** Vault path of the note this editor shows (embeds resolve against it). */
+export const notePathFacet = Facet.define<string, string>({
+  combine: (values) => values[0] ?? "",
+});
 
 // ── Widgets ─────────────────────────────────────────────────────────────────
 
@@ -59,6 +88,23 @@ class CheckboxWidget extends WidgetType {
 
 const bulletWidget = new BulletWidget();
 
+/** "›" between note and heading in a rendered [[Note#Heading]] (the reading
+ *  view shows the same separator). */
+class LinkSepWidget extends WidgetType {
+  override eq(): boolean {
+    return true;
+  }
+  toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = "cm-s-wikilink-sep";
+    span.textContent = "›";
+    span.setAttribute("aria-hidden", "true");
+    return span;
+  }
+}
+
+const linkSepWidget = new LinkSepWidget();
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const HEADING_CLASS: Record<string, string> = {
@@ -72,7 +118,13 @@ const HEADING_CLASS: Record<string, string> = {
   SetextHeading2: "cm-s-h2",
 };
 
-const TAG_RE = /(^|[\s([{])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu;
+// TAG_RE / parseProps live in noteMeta.ts (pure, shared with the reading
+// view without pulling the CodeMirror bundle); re-exported for compatibility.
+export { TAG_RE, parseProps };
+const EMBED_RE = /!\[\[([^[\]]+?)\]\]/g;
+const COMMENT_RE = /%%([^%\n]*?)%%/g;
+const HIGHLIGHT_RE = /==([^=\n]+?)==/g;
+const FOOTNOTE_RE = /\[\^([^\]\s]+)\]/g;
 
 /** Line numbers currently touched by any selection range. */
 function activeLines(state: EditorState): Set<number> {
@@ -96,15 +148,46 @@ function overlaps(spans: Span[], from: number, to: number): boolean {
 
 // ── Decoration builder ──────────────────────────────────────────────────────
 
-function buildDecorations(view: EditorView): DecorationSet {
+/** End offset of a YAML frontmatter block opened on line 1, or -1. */
+function frontmatterEnd(doc: EditorState["doc"]): number {
+  if (doc.lines < 2 || doc.line(1).text.trim() !== "---") return -1;
+  const scanTo = Math.min(doc.lines, 60);
+  for (let n = 2; n <= scanTo; n++) {
+    const text = doc.line(n).text.trim();
+    if (text === "---" || text === "...") return doc.line(n).to;
+  }
+  return -1;
+}
+
+function buildDecorations(view: EditorView, revealActive: boolean): DecorationSet {
   const { state } = view;
   const doc = state.doc;
-  const active = activeLines(state);
+  // Until the user actually interacts (click/keystroke), no line is treated
+  // as "active": a freshly opened note renders fully pretty instead of
+  // revealing raw markdown on whatever line the initial cursor landed on.
+  const active = revealActive ? activeLines(state) : new Set<number>();
   const decos: Range<Decoration>[] = [];
-  const codeSpans: Span[] = []; // code regions to exclude from wikilink/tag scans
+  const codeSpans: Span[] = []; // code regions to exclude from inline scans
+  const claimed: Span[] = []; // ranges owned by embeds/math/comments/callouts
+  const tree = useStore.getState().tree;
+  const notePath = state.facet(notePathFacet);
 
   const isActiveAt = (pos: number): boolean =>
     active.has(doc.lineAt(pos).number);
+  const blocked = (from: number, to: number): boolean =>
+    overlaps(codeSpans, from, to) || overlaps(claimed, from, to);
+
+  // YAML frontmatter reads as a quiet mono block, not as markdown.
+  const fmEnd = frontmatterEnd(doc);
+  let fmLastLine = 0;
+  if (fmEnd > 0) {
+    fmLastLine = doc.lineAt(fmEnd).number;
+    for (let n = 1; n <= fmLastLine; n++) {
+      decos.push(
+        Decoration.line({ class: "cm-s-frontmatter" }).range(doc.line(n).from),
+      );
+    }
+  }
 
   /** Hide [from, to), optionally swallowing one trailing space. */
   const hide = (from: number, to: number, eatSpace = false): void => {
@@ -129,12 +212,45 @@ function buildDecorations(view: EditorView): DecorationSet {
     }
   };
 
+  // Callouts: line tinting + title-bar widgets. Their blockquotes are tracked
+  // so the generic Blockquote/quote styling skips them.
+  const calloutStarts = new Set<number>();
+  // Title-bar text ranges replaced by the title widget: syntax-tree styling
+  // must skip nodes inside them ("[!type]" parses as a shortcut Link whose
+  // LinkMark hide would start exactly where the widget starts — that
+  // same-start conflict can drop the widget on incremental redraws).
+  const titleSpans: Span[] = [];
+  for (const { from, to } of view.visibleRanges) {
+    for (const c of findCallouts(state, from, to)) {
+      calloutStarts.add(c.from);
+      if (!active.has(doc.lineAt(c.titleLineFrom).number)) {
+        titleSpans.push({ from: c.contentFrom, to: c.titleLineTo });
+      }
+    }
+  }
+  for (const span of calloutLineDecos(state, view.visibleRanges, active, decos)) {
+    claimed.push(span);
+  }
+
   for (const { from, to } of view.visibleRanges) {
     syntaxTree(state).iterate({
       from,
       to,
       enter: (node) => {
         const name = node.name;
+
+        // Suppress markdown styling inside the frontmatter block.
+        if (fmEnd > 0 && node.to <= fmEnd && node.from >= 0 && node.to > node.from) {
+          return false;
+        }
+
+        // Nodes fully inside a callout title bar: the title widget owns them.
+        if (
+          titleSpans.some((s) => node.from >= s.from && node.to <= s.to) &&
+          node.to > node.from
+        ) {
+          return false;
+        }
 
         const headingClass = HEADING_CLASS[name];
         if (headingClass) {
@@ -149,6 +265,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         switch (name) {
           case "HeaderMark":
             if (!isActiveAt(node.from)) hide(node.from, node.to, true);
+            else mark(node.from, node.to, "cm-s-syntax");
             return;
 
           case "StrongEmphasis":
@@ -163,6 +280,7 @@ function buildDecorations(view: EditorView): DecorationSet {
           case "EmphasisMark":
           case "StrikethroughMark":
             if (!isActiveAt(node.from)) hide(node.from, node.to);
+            else mark(node.from, node.to, "cm-s-syntax");
             return;
 
           case "InlineCode":
@@ -185,10 +303,12 @@ function buildDecorations(view: EditorView): DecorationSet {
             return;
 
           case "Blockquote":
+            if (calloutStarts.has(node.from)) return; // callouts style themselves
             lineClass(node.from, node.to, "cm-s-quote");
             return;
           case "QuoteMark":
             if (!isActiveAt(node.from)) hide(node.from, node.to, true);
+            else mark(node.from, node.to, "cm-s-syntax");
             return;
 
           case "HorizontalRule":
@@ -234,9 +354,38 @@ function buildDecorations(view: EditorView): DecorationSet {
             return;
           }
 
-          case "Link":
+          case "Image": {
+            const text = doc.sliceString(node.from, node.to);
+            if (text.startsWith("![[")) return false; // ![[embed]] scan owns it
+            const m = /^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)$/.exec(text);
+            if (m) {
+              claimed.push({ from: node.from, to: node.to });
+              if (!isActiveAt(node.from)) {
+                const src = resolveRelative(m[2], notePath);
+                decos.push(
+                  Decoration.replace({
+                    widget: new ImageWidget(m[1] || m[2], src, null),
+                  }).range(node.from, node.to),
+                );
+                return false;
+              }
+              mark(node.from, node.to, "cm-s-embed-src");
+            }
+            return;
+          }
+
+          case "Link": {
+            // [[Wikilink]] inner [text] parses as a shortcut Link — the
+            // wikilink scan below owns its styling; skip the link mark.
+            const before = doc.sliceString(Math.max(0, node.from - 1), node.from);
+            const after = doc.sliceString(node.to, node.to + 1);
+            if (before === "[" && after === "]") return;
+            // Footnote refs [^1] parse as shortcut links; the footnote scan
+            // owns them.
+            if (doc.sliceString(node.from, node.from + 2) === "[^") return false;
             mark(node.from, node.to, "cm-s-link");
             return;
+          }
           case "Autolink":
             mark(node.from, node.to, "cm-s-url");
             return;
@@ -261,46 +410,152 @@ function buildDecorations(view: EditorView): DecorationSet {
     });
   }
 
-  // Wikilinks and #tags are not markdown syntax nodes — scan visible lines.
+  // Inline features that are not markdown syntax nodes — scan visible lines.
+  // Order matters: each family claims its ranges so later scans skip them.
+  // Code regions are excluded per match (not per line), so a wikilink still
+  // renders on a line that also carries inline code.
   for (const { from, to } of view.visibleRanges) {
     for (let pos = from; pos <= to; ) {
       const line = doc.lineAt(pos);
-      if (!overlaps(codeSpans, line.from, line.to)) {
-        const lineIsActive = active.has(line.number);
-        const text = line.text;
-
-        WIKILINK_RE.lastIndex = 0;
-        for (let m = WIKILINK_RE.exec(text); m; m = WIKILINK_RE.exec(text)) {
-          const start = line.from + m.index;
-          const end = start + m[0].length;
-          if (overlaps(codeSpans, start, end)) continue;
-          if (lineIsActive) {
-            mark(start, end, "cm-s-wikilink");
-            continue;
-          }
-          const inner = m[1];
-          const { alias } = parseWikilink(inner);
-          const innerFrom = start + 2;
-          const innerTo = end - 2;
-          hide(start, innerFrom); // [[
-          if (alias !== null) {
-            const pipe = inner.indexOf("|");
-            hide(innerFrom, innerFrom + pipe + 1); // target + |
-            mark(innerFrom + pipe + 1, innerTo, "cm-s-wikilink");
-          } else {
-            mark(innerFrom, innerTo, "cm-s-wikilink");
-          }
-          hide(innerTo, end); // ]]
-        }
-
-        TAG_RE.lastIndex = 0;
-        for (let m = TAG_RE.exec(text); m; m = TAG_RE.exec(text)) {
-          const start = line.from + m.index + m[1].length;
-          const end = start + 1 + m[2].length;
-          if (!overlaps(codeSpans, start, end)) mark(start, end, "cm-s-tag");
-        }
-      }
       pos = line.to + 1;
+      if (line.number <= fmLastLine) continue; // frontmatter is not markdown
+      const lineIsActive = active.has(line.number);
+      const text = line.text;
+
+      // %%comments%% — hidden entirely off the cursor, faint ink on it.
+      COMMENT_RE.lastIndex = 0;
+      for (let m = COMMENT_RE.exec(text); m; m = COMMENT_RE.exec(text)) {
+        const start = line.from + m.index;
+        const end = start + m[0].length;
+        if (blocked(start, end)) continue;
+        if (lineIsActive) mark(start, end, "cm-s-comment");
+        else hide(start, end);
+        claimed.push({ from: start, to: end });
+      }
+
+      // ![[embeds]] — images, attachment cards, note transclusions.
+      EMBED_RE.lastIndex = 0;
+      for (let m = EMBED_RE.exec(text); m; m = EMBED_RE.exec(text)) {
+        const start = line.from + m.index;
+        const end = start + m[0].length;
+        if (blocked(start, end)) continue;
+        claimed.push({ from: start, to: end });
+        const embed = parseEmbed(m[1]);
+        if (lineIsActive) {
+          mark(start, end, "cm-s-embed-src");
+          continue;
+        }
+        let widget: WidgetType;
+        if (embed.kind === "image") {
+          widget = new ImageWidget(embed.target, null, embed.width);
+        } else if (embed.kind === "file") {
+          widget = new FileCardWidget(embed.target);
+        } else {
+          widget = new TransclusionWidget(
+            embed.target,
+            resolveLink(embed.target, tree),
+            notePath,
+          );
+        }
+        decos.push(Decoration.replace({ widget }).range(start, end));
+      }
+
+      // $inline$ math (KaTeX).
+      for (const span of inlineMathDecos(
+        text,
+        line.from,
+        lineIsActive,
+        blocked,
+        decos,
+      )) {
+        claimed.push(span);
+      }
+
+      // [[wikilinks]]
+      WIKILINK_RE.lastIndex = 0;
+      for (let m = WIKILINK_RE.exec(text); m; m = WIKILINK_RE.exec(text)) {
+        if (m.index > 0 && text[m.index - 1] === "!") continue; // embed
+        const start = line.from + m.index;
+        const end = start + m[0].length;
+        if (blocked(start, end)) continue;
+        const inner = m[1];
+        const { target, heading, alias } = parseWikilink(inner);
+        const linkClass =
+          resolveLink(target, tree) !== null
+            ? "cm-s-wikilink"
+            : "cm-s-wikilink cm-s-wikilink--broken";
+        if (lineIsActive) {
+          mark(start, end, linkClass);
+          continue;
+        }
+        const innerFrom = start + 2;
+        const innerTo = end - 2;
+        hide(start, innerFrom); // [[
+        if (alias !== null) {
+          const pipe = inner.indexOf("|");
+          hide(innerFrom, innerFrom + pipe + 1); // target + |
+          mark(innerFrom + pipe + 1, innerTo, linkClass);
+        } else if (heading !== null && inner.indexOf("#") > 0) {
+          // [[Note#Heading]] reads as "Note › Heading", like the reading view.
+          const hashPos = innerFrom + inner.indexOf("#");
+          mark(innerFrom, hashPos, linkClass);
+          decos.push(
+            Decoration.replace({ widget: linkSepWidget }).range(
+              hashPos,
+              hashPos + 1,
+            ),
+          );
+          mark(hashPos + 1, innerTo, linkClass);
+        } else {
+          mark(innerFrom, innerTo, linkClass);
+        }
+        hide(innerTo, end); // ]]
+      }
+
+      // ==highlights==
+      HIGHLIGHT_RE.lastIndex = 0;
+      for (let m = HIGHLIGHT_RE.exec(text); m; m = HIGHLIGHT_RE.exec(text)) {
+        const start = line.from + m.index;
+        const end = start + m[0].length;
+        if (blocked(start, end)) continue;
+        if (lineIsActive) {
+          mark(start, start + 2, "cm-s-syntax");
+          mark(start + 2, end - 2, "cm-s-highlight");
+          mark(end - 2, end, "cm-s-syntax");
+        } else {
+          hide(start, start + 2);
+          mark(start + 2, end - 2, "cm-s-highlight");
+          hide(end - 2, end);
+        }
+        claimed.push({ from: start, to: end });
+      }
+
+      // Footnotes: [^1] refs render superscript; [^1]: definitions read faint.
+      FOOTNOTE_RE.lastIndex = 0;
+      for (let m = FOOTNOTE_RE.exec(text); m; m = FOOTNOTE_RE.exec(text)) {
+        const start = line.from + m.index;
+        const end = start + m[0].length;
+        if (blocked(start, end)) continue;
+        const isDef = m.index === 0 && text[m[0].length] === ":";
+        if (isDef) {
+          mark(start, end + 1, "cm-s-footnote-def");
+        } else if (lineIsActive) {
+          mark(start, end, "cm-s-footnote cm-s-footnote--src");
+        } else {
+          hide(start, start + 2); // [^
+          mark(start + 2, end - 1, "cm-s-footnote");
+          hide(end - 1, end); // ]
+        }
+        claimed.push({ from: start, to: end });
+      }
+
+      // #tags
+      TAG_RE.lastIndex = 0;
+      for (let m = TAG_RE.exec(text); m; m = TAG_RE.exec(text)) {
+        const start = line.from + m.index + m[1].length;
+        const end = start + 1 + m[2].length;
+        if (!blocked(start, end)) mark(start, end, "cm-s-tag");
+      }
     }
   }
 
@@ -318,13 +573,34 @@ function toggleTask(view: EditorView, pos: number): boolean {
   return true;
 }
 
-function openWikilink(target: string): void {
-  const resolved = resolveLink(target, useStore.getState().tree);
-  if (resolved) {
-    useStore.getState().openNote(resolved);
-  } else {
-    toast(`No note named "${target}"`);
+function openWikilink(inner: string): void {
+  const { target, heading } = parseWikilink(inner);
+  const store = useStore.getState();
+
+  // [[#Heading]] — scroll within the note that's already open.
+  if (!target && heading) {
+    window.dispatchEvent(
+      new CustomEvent("vellum:goto-heading", { detail: { text: heading } }),
+    );
+    return;
   }
+
+  const resolved = resolveLink(target, store.tree);
+  if (resolved) {
+    if (heading) store.setPendingHeading(heading);
+    store.openNote(resolved);
+    return;
+  }
+
+  // Unresolved link: clicking it creates the note (Obsidian behavior).
+  // Admin only — visitors never mount the editor, but stay safe regardless.
+  if (!store.admin) {
+    toast(`"${target}" does not exist`);
+    return;
+  }
+  const path = /\.md$/i.test(target) ? target : `${target}.md`;
+  toast(`Creating "${target}"…`);
+  void store.createNote(path);
 }
 
 /** Find an http(s) url in the syntax tree at pos (URL / Autolink / Link). */
@@ -349,6 +625,66 @@ function urlAt(state: EditorState, pos: number): string | null {
   return null;
 }
 
+/** Jump to the `[^label]:` definition line for a footnote label. */
+function jumpToFootnoteDef(view: EditorView, label: string): boolean {
+  const needle = `[^${label}]:`;
+  const doc = view.state.doc;
+  for (let n = 1; n <= doc.lines; n++) {
+    const line = doc.line(n);
+    if (line.text.startsWith(needle)) {
+      view.dispatch({
+        selection: { anchor: line.from + needle.length },
+        scrollIntoView: true,
+      });
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Document position under the pointer. `posAtCoords` maps through the
+ *  vertical line layout, which can drift by whole lines in scrolled notes
+ *  containing block widgets (math, frontmatter card, images) — so a click on
+ *  a wikilink would resolve to a neighboring line and the link would never
+ *  open. Deriving the position from the DOM node actually under the pointer
+ *  (caretPositionFromPoint → posAtDOM) is exact; posAtCoords stays only as
+ *  the last-resort fallback. */
+function posFromEvent(event: MouseEvent, view: EditorView): number | null {
+  const doc = view.contentDOM.ownerDocument;
+  const within = (node: Node | null | undefined): node is Node =>
+    node != null && view.contentDOM.contains(node);
+
+  if (typeof doc.caretPositionFromPoint === "function") {
+    const caret = doc.caretPositionFromPoint(event.clientX, event.clientY);
+    if (caret && within(caret.offsetNode)) {
+      try {
+        return view.posAtDOM(caret.offsetNode, caret.offset);
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  // WebKit spells it caretRangeFromPoint.
+  if (typeof doc.caretRangeFromPoint === "function") {
+    const range = doc.caretRangeFromPoint(event.clientX, event.clientY);
+    if (range && within(range.startContainer)) {
+      try {
+        return view.posAtDOM(range.startContainer, range.startOffset);
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  if (event.target instanceof Node && within(event.target)) {
+    try {
+      return view.posAtDOM(event.target);
+    } catch {
+      /* fall through */
+    }
+  }
+  return view.posAtCoords({ x: event.clientX, y: event.clientY });
+}
+
 function handleMousedown(event: MouseEvent, view: EditorView): boolean {
   const target = event.target as HTMLElement;
 
@@ -362,7 +698,18 @@ function handleMousedown(event: MouseEvent, view: EditorView): boolean {
   }
 
   if (event.button !== 0) return false;
-  const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+
+  // #tag pills (inline or in the properties card) push a sidebar search.
+  const tagEl = target.closest(".cm-s-tag, .cm-s-props__tag");
+  if (tagEl?.textContent?.startsWith("#")) {
+    event.preventDefault();
+    window.dispatchEvent(
+      new CustomEvent("vellum:search", { detail: tagEl.textContent }),
+    );
+    return true;
+  }
+
+  const pos = posFromEvent(event, view);
   if (pos == null) return false;
 
   const mod = event.metaKey || event.ctrlKey;
@@ -372,15 +719,32 @@ function handleMousedown(event: MouseEvent, view: EditorView): boolean {
   // on the active line a modifier is required so editing stays unobstructed.
   if (!mod && lineIsActive) return false;
 
-  WIKILINK_RE.lastIndex = 0;
   const text = line.text;
+
+  WIKILINK_RE.lastIndex = 0;
   for (let m = WIKILINK_RE.exec(text); m; m = WIKILINK_RE.exec(text)) {
+    if (m.index > 0 && text[m.index - 1] === "!") continue; // embeds handle themselves
     const start = line.from + m.index;
     const end = start + m[0].length;
     if (pos >= start && pos < end) {
       event.preventDefault();
-      openWikilink(parseWikilink(m[1]).target);
+      openWikilink(m[1]);
       return true;
+    }
+  }
+
+  // Footnote superscripts jump to their definition.
+  FOOTNOTE_RE.lastIndex = 0;
+  for (let m = FOOTNOTE_RE.exec(text); m; m = FOOTNOTE_RE.exec(text)) {
+    const start = line.from + m.index;
+    const end = start + m[0].length;
+    const isDef = m.index === 0 && text[m[0].length] === ":";
+    if (!isDef && pos >= start && pos < end) {
+      if (jumpToFootnoteDef(view, m[1])) {
+        event.preventDefault();
+        return true;
+      }
+      return false;
     }
   }
 
@@ -393,27 +757,213 @@ function handleMousedown(event: MouseEvent, view: EditorView): boolean {
   return false;
 }
 
+// ── Block-level hiding (StateField: block decorations can't come from a
+//    ViewPlugin). Off the cursor: YAML frontmatter renders as a properties
+//    card, code-fence marker lines (```lang / ```) disappear entirely,
+//    $$ math renders as display widgets, and folded callout bodies hide. ──
+
+class FrontmatterWidget extends WidgetType {
+  constructor(readonly yaml: string) {
+    super();
+  }
+  override eq(other: FrontmatterWidget): boolean {
+    return other.yaml === this.yaml;
+  }
+  toDOM(): HTMLElement {
+    const box = document.createElement("div");
+    box.className = "cm-s-props";
+    for (const { key, values } of parseProps(this.yaml)) {
+      const row = document.createElement("div");
+      row.className = "cm-s-props__row";
+      const k = document.createElement("span");
+      k.className = "cm-s-props__key";
+      k.textContent = key;
+      row.appendChild(k);
+      const v = document.createElement("span");
+      v.className = "cm-s-props__value";
+      if (key.toLowerCase() === "tags") {
+        for (const value of values) {
+          const pill = document.createElement("button");
+          pill.type = "button";
+          pill.className = "cm-s-props__tag";
+          pill.textContent = `#${value}`;
+          pill.title = `Search #${value}`;
+          pill.addEventListener("click", (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            window.dispatchEvent(
+              new CustomEvent("vellum:search", { detail: `#${value}` }),
+            );
+          });
+          v.appendChild(pill);
+        }
+      } else {
+        v.textContent = values.join(", ");
+      }
+      row.appendChild(v);
+      box.appendChild(row);
+    }
+    return box;
+  }
+}
+
+/** Rendered raw-HTML block (sanitized) shown while the cursor is outside it —
+ *  Obsidian renders author HTML (<figure>, <svg>…) instead of tag soup. */
+class HtmlBlockWidget extends WidgetType {
+  constructor(readonly html: string) {
+    super();
+  }
+  override eq(other: HtmlBlockWidget): boolean {
+    return other.html === this.html;
+  }
+  toDOM(): HTMLElement {
+    const box = document.createElement("div");
+    box.className = "cm-s-htmlblock";
+    box.appendChild(sanitizeHtml(this.html));
+    return box;
+  }
+}
+
+function buildBlockDecorations(state: EditorState): DecorationSet {
+  const doc = state.doc;
+  const active = activeLines(state);
+  const decos: Range<Decoration>[] = [];
+
+  const anyActiveBetween = (firstLine: number, lastLine: number): boolean => {
+    for (let n = firstLine; n <= lastLine; n++) {
+      if (active.has(n)) return true;
+    }
+    return false;
+  };
+
+  // Frontmatter → properties card while the cursor is outside it.
+  const fmEnd = frontmatterEnd(doc);
+  if (fmEnd > 0) {
+    const lastLine = doc.lineAt(fmEnd).number;
+    if (!anyActiveBetween(1, lastLine)) {
+      const yaml =
+        lastLine > 2
+          ? doc.sliceString(doc.line(2).from, doc.line(lastLine - 1).to)
+          : "";
+      const spec =
+        parseProps(yaml).length > 0
+          ? { widget: new FrontmatterWidget(yaml), block: true }
+          : { block: true };
+      decos.push(Decoration.replace(spec).range(doc.line(1).from, fmEnd));
+    }
+  }
+
+  // Code fences: hide the ``` marker lines while the cursor is outside.
+  // Raw HTML blocks render as sanitized DOM widgets while the cursor is
+  // outside (and as highlighted source while editing them).
+  const fenceSpans: Span[] = [];
+  syntaxTree(state).iterate({
+    enter: (node) => {
+      if (node.name === "HTMLBlock") {
+        const firstLine = doc.lineAt(node.from).number;
+        const lastLine = doc.lineAt(node.to).number;
+        if (!anyActiveBetween(firstLine, lastLine)) {
+          decos.push(
+            Decoration.replace({
+              widget: new HtmlBlockWidget(
+                doc.sliceString(doc.line(firstLine).from, doc.line(lastLine).to),
+              ),
+              block: true,
+            }).range(doc.line(firstLine).from, doc.line(lastLine).to),
+          );
+        }
+        return false;
+      }
+      if (node.name !== "FencedCode" && node.name !== "CodeBlock") {
+        return undefined;
+      }
+      fenceSpans.push({ from: node.from, to: node.to });
+      if (node.name !== "FencedCode") return false;
+      const firstLine = doc.lineAt(node.from).number;
+      const lastLine = doc.lineAt(node.to).number;
+      if (anyActiveBetween(firstLine, lastLine)) return false;
+      const open = doc.line(firstLine);
+      if (/^\s*(```|~~~)/.test(open.text)) {
+        decos.push(Decoration.replace({ block: true }).range(open.from, open.to));
+      }
+      const close = doc.line(lastLine);
+      if (lastLine > firstLine && /^\s*(```|~~~)\s*$/.test(close.text)) {
+        decos.push(Decoration.replace({ block: true }).range(close.from, close.to));
+      }
+      return false;
+    },
+  });
+
+  // $$ display math (skipping fenced code).
+  blockMathDecos(
+    state,
+    active,
+    (pos) => overlaps(fenceSpans, pos, pos + 1),
+    decos,
+  );
+
+  // Folded callout bodies (inline fold-style replaces).
+  calloutFoldDecos(state, decos);
+
+  return RangeSet.of(decos, true);
+}
+
+const blockHiding = StateField.define<DecorationSet>({
+  create: buildBlockDecorations,
+  update(deco, tr) {
+    if (tr.docChanged || tr.selection || tr.effects.length > 0) {
+      return buildBlockDecorations(tr.state);
+    }
+    return deco.map(tr.changes);
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
+
 // ── Plugin ──────────────────────────────────────────────────────────────────
 
 class LivePreviewPlugin {
   decorations: DecorationSet;
+  /** The user has touched the note (click/keystroke); before that, the
+   *  cursor line is not revealed — see buildDecorations. */
+  interacted = false;
 
   constructor(view: EditorView) {
-    this.decorations = buildDecorations(view);
+    this.decorations = buildDecorations(view, this.interacted);
   }
 
   update(update: ViewUpdate): void {
-    if (update.docChanged || update.viewportChanged || update.selectionSet) {
-      this.decorations = buildDecorations(update.view);
+    const wasInteracted = this.interacted;
+    if (
+      !this.interacted &&
+      (update.docChanged ||
+        update.transactions.some(
+          (tr) => tr.annotation(Transaction.userEvent) !== undefined,
+        ))
+    ) {
+      this.interacted = true;
+    }
+    if (
+      update.docChanged ||
+      update.viewportChanged ||
+      update.selectionSet ||
+      this.interacted !== wasInteracted ||
+      update.transactions.some((tr) => tr.effects.length > 0)
+    ) {
+      this.decorations = buildDecorations(update.view, this.interacted);
     }
   }
 }
 
-export function livePreview(): Extension {
-  return ViewPlugin.fromClass(LivePreviewPlugin, {
-    decorations: (plugin) => plugin.decorations,
-    eventHandlers: {
-      mousedown: handleMousedown,
-    },
-  });
+export function livePreview(path: string): Extension {
+  return [
+    notePathFacet.of(path),
+    calloutFoldField,
+    blockHiding,
+    ViewPlugin.fromClass(LivePreviewPlugin, {
+      decorations: (plugin) => plugin.decorations,
+      eventHandlers: {
+        mousedown: handleMousedown,
+      },
+    }),
+  ];
 }

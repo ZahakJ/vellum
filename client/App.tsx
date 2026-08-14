@@ -2,16 +2,20 @@
 // global keyboard shortcuts, and the single SSE subscription that keeps the
 // tree, backlinks, and externally-changed open notes fresh.
 
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import type { VaultEvent } from "../shared/types.ts";
 import { subscribeEvents } from "./api.ts";
+import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import BacklinksPanel from "./components/BacklinksPanel.tsx";
 import CommandPalette from "./components/CommandPalette.tsx";
-import Editor from "./components/Editor.tsx";
 import GraphView from "./components/GraphView.tsx";
+import LoginModal from "./components/LoginModal.tsx";
+import ReadingView from "./reading/ReadingView.tsx";
 import Sidebar from "./components/Sidebar.tsx";
 import StatusBar from "./components/StatusBar.tsx";
 import Tabs from "./components/Tabs.tsx";
+import { openDailyNote } from "./daily.ts";
+import { applyUrl, installRouter, syncUrl } from "./router.ts";
 import { useStore } from "./state.ts";
 import { toast } from "./toast.ts";
 
@@ -19,16 +23,46 @@ import { toast } from "./toast.ts";
  *  "changed" events arriving within this window of a local save. */
 const SELF_SAVE_WINDOW_MS = 1500;
 
+// The CodeMirror editor is the heaviest part of the client and anonymous
+// visitors (reading view only) never need it — load it on demand so the
+// first-paint bundle stays lean.
+const Editor = lazy(() => import("./components/Editor.tsx"));
+
 export default function App() {
   const view = useStore((s) => s.view);
   const openPath = useStore((s) => s.openPath);
+  const readingMode = useStore((s) => s.readingMode);
   const paletteOpen = useStore((s) => s.paletteOpen);
+  const loginOpen = useStore((s) => s.loginOpen);
   const reloadTick = useStore((s) => s.reloadTick);
+  const admin = useStore((s) => s.admin);
+  const authReady = useStore((s) => s.authReady);
+  const locked = useStore((s) => !s.admin && !s.publicReads);
   const lastSaveRef = useRef(0);
 
-  // Initial data load.
+  // Boot: /api/me, then tree + session restore / home note. Once the vault is
+  // in, the router takes over the address bar: a pasted deep link outranks the
+  // restored session and the home note, and back/forward walk visited notes.
   useEffect(() => {
-    void useStore.getState().loadTree();
+    let cleanup: (() => void) | null = null;
+    let cancelled = false;
+    void useStore.getState().bootstrap().then(() => {
+      if (cancelled) return;
+      cleanup = installRouter();
+      const hadDeepLink = location.pathname !== "/" && location.pathname !== "/graph";
+      // A locked vault keeps the deep link in the address bar: it resolves
+      // right after login (see installRouter's tree watcher). A bare "/"
+      // keeps what bootstrap opened (home note / restored session) and
+      // syncUrl() canonicalizes the address bar to it.
+      if (useStore.getState().tree !== null && !applyUrl(true)) {
+        if (hadDeepLink) toast("That note does not exist (anymore)");
+        syncUrl();
+      }
+    });
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
   }, []);
 
   // Track when the Editor finishes a save (dirty true -> false), so SSE
@@ -47,6 +81,9 @@ export default function App() {
     const onEvent = (ev: VaultEvent) => {
       const store = useStore.getState();
       void store.loadTree();
+
+      // New/renamed files may satisfy embeds that 404'd earlier.
+      if (ev.kind === "created" || ev.kind === "renamed") clearBrokenEmbeds();
 
       if (ev.kind === "renamed" && ev.toPath) {
         store.remapPath(ev.path, ev.toPath);
@@ -80,7 +117,21 @@ export default function App() {
       } else if (key === "g") {
         e.preventDefault();
         store.setView(store.view === "graph" ? "editor" : "graph");
+      } else if (key === "e") {
+        if (!store.admin) return; // visitors live in reading view
+        e.preventDefault();
+        store.toggleReading();
+        if (store.view === "graph") store.setView("editor");
+      } else if (key === "d") {
+        if (!store.admin) return; // daily note may create a file
+        // Vim's Ctrl+D (half-page scroll) keeps priority inside the editor.
+        const inEditor =
+          e.target instanceof Element && e.target.closest(".cm-editor") !== null;
+        if (store.vimMode && inEditor && !e.metaKey) return;
+        e.preventDefault();
+        void openDailyNote();
       } else if (key === "n") {
+        if (!store.admin) return;
         e.preventDefault();
         const path = window.prompt("New note path (e.g. ideas/Untitled.md):", "Untitled.md");
         if (!path) return;
@@ -93,6 +144,9 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // Until /api/me answers, render nothing — no flash of the wrong mode.
+  if (!authReady) return <div className="s-app" />;
+
   return (
     <div className="s-app">
       <Sidebar />
@@ -102,14 +156,51 @@ export default function App() {
           {view === "graph" ? (
             <GraphView />
           ) : openPath ? (
-            <Editor key={`${openPath}#${reloadTick}`} path={openPath} />
+            // Visitors read; only admins may mount the editor.
+            readingMode || !admin ? (
+              <ReadingView key={`${openPath}#${reloadTick}`} path={openPath} />
+            ) : (
+              <Suspense fallback={<div className="s-editor" />}>
+                <Editor key={`${openPath}#${reloadTick}`} path={openPath} />
+              </Suspense>
+            )
+          ) : locked ? (
+            <div className="s-empty">
+              <div className="s-empty__glyph" aria-hidden="true">✦</div>
+              <p className="s-empty__title">This vault is private.</p>
+              <button
+                type="button"
+                className="s-btn s-btn--accent"
+                onClick={() => useStore.getState().setLoginOpen(true)}
+              >
+                Sign in
+              </button>
+            </div>
           ) : (
             <div className="s-empty">
-              <p className="s-empty__title">Vellum</p>
-              <p className="s-empty__hint">
-                Open a note from the sidebar, or press <kbd>Ctrl/Cmd+P</kbd> for the palette
-                and <kbd>Ctrl/Cmd+N</kbd> for a new note.
-              </p>
+              <div className="s-empty__glyph" aria-hidden="true">✦</div>
+              <p className="s-empty__title">The vault is open.</p>
+              <div className="s-empty__keys">
+                <span className="s-empty__key">
+                  <kbd>Ctrl P</kbd> command palette
+                </span>
+                <span className="s-empty__key">
+                  <kbd>Ctrl G</kbd> graph view
+                </span>
+                {admin && (
+                  <>
+                    <span className="s-empty__key">
+                      <kbd>Ctrl N</kbd> new note
+                    </span>
+                    <span className="s-empty__key">
+                      <kbd>Ctrl S</kbd> save now
+                    </span>
+                    <span className="s-empty__key">
+                      <kbd>Ctrl E</kbd> reading view
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
           )}
         </section>
@@ -117,6 +208,7 @@ export default function App() {
       <BacklinksPanel />
       <StatusBar />
       {paletteOpen && <CommandPalette />}
+      {loginOpen && <LoginModal />}
     </div>
   );
 }

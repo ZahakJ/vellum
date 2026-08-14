@@ -21,6 +21,7 @@ way your own notes eventually will:
 - [[Wikilinks & Backlinks]] — how notes connect, and how to see what points here
 - [[Graph View]] — your vault as a constellation
 - [[Search & Tags]] — full-text search and #tags
+- [[Embeds & Transclusion]] — pull images, PDFs, and whole notes into a note
 - [[Command Palette]] — do everything from the keyboard
 - [[Hosting Your Own Vault]] — point Vellum at your real notes
 

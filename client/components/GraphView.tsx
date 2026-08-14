@@ -8,12 +8,18 @@ import type { GraphData, GraphNode } from "../../shared/types.ts";
 // Simulation tuning. Forces are scaled by a cooling factor ("alpha") so the
 // layout settles instead of jittering forever; interaction reheats it.
 // ---------------------------------------------------------------------------
-const REPULSION = 3200; // pairwise inverse-square push
-const REPULSE_RADIUS = 280; // cutoff (also the spatial-grid cell size)
-const SPRING_K = 0.07; // pull along edges
-const SPRING_REST = 110; // preferred edge length
-const GRAVITY = 0.012; // gentle pull toward the origin
+const REPULSION = 20000; // pairwise inverse-square push
+const REPULSE_RADIUS = 560; // cutoff (also the spatial-grid cell size)
+const SPRING_K = 0.05; // pull along edges
+const SPRING_REST = 235; // preferred edge length
+const GRAVITY = 0.003; // gentle pull toward the origin
 const FRICTION = 0.82; // velocity damping per step
+/** Per-step speed cap (world px). In a 1.4k-node vault the dense start piles
+ *  hundreds of repulsion contributions onto one node in a single step; without
+ *  this clamp velocities compound to ~1e8, the pre-settle bounding box
+ *  explodes, and fitView frames a cloud that later contracts back near the
+ *  origin — leaving the whole graph offscreen (blank canvas). */
+const MAX_SPEED = 40;
 const ALPHA_START = 1;
 const ALPHA_DECAY = 0.995;
 const ALPHA_MIN = 0.015;
@@ -43,42 +49,97 @@ interface ThemeColors {
   faint: string;
   accent: string;
   border: string;
+  bg: string;
   fontUI: string;
+  /** Idle (non-hover) edge stroke — lifted above --border in both themes
+   *  so the web is visible at rest, still well below hover brightness. */
+  idleEdge: string;
+  idleEdgeAlpha: number;
 }
 
 function readThemeColors(): ThemeColors {
   const cs = getComputedStyle(document.documentElement);
   const token = (name: string, fallback: string) =>
     cs.getPropertyValue(name).trim() || fallback;
+  const border = token("--border", "#333");
+  const muted = token("--text-muted", "#999");
+  const dark =
+    document.documentElement.getAttribute("data-theme") !== "parchment";
   return {
     text: token("--text", "#ddd"),
-    muted: token("--text-muted", "#999"),
+    muted,
     faint: token("--text-faint", "#666"),
     accent: token("--accent", "#c9a227"),
-    border: token("--border", "#333"),
+    border,
+    bg: token("--bg", "#16130e"),
     fontUI: token("--font-ui", "system-ui, sans-serif"),
+    idleEdge: dark ? mixColors(border, muted, 0.35) : mixColors(border, muted, 0.3),
+    idleEdgeAlpha: dark ? 0.6 : 0.62,
   };
+}
+
+/** Parse #rgb/#rrggbb to [r,g,b]; null for anything else. */
+function parseHex(color: string): [number, number, number] | null {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
+  if (!m) return null;
+  let h = m[1];
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  return [
+    parseInt(h.slice(0, 2), 16),
+    parseInt(h.slice(2, 4), 16),
+    parseInt(h.slice(4, 6), 16),
+  ];
+}
+
+/** Blend a → b by t (0..1). Falls back to `a` when a color isn't hex. */
+function mixColors(a: string, b: string, t: number): string {
+  const ca = parseHex(a);
+  const cb = parseHex(b);
+  if (!ca || !cb) return a;
+  const ch = ca.map((v, i) => Math.round(v + (cb[i] - v) * t));
+  return `rgb(${ch[0]}, ${ch[1]}, ${ch[2]})`;
 }
 
 function nodeRadius(links: number): number {
   return 4 + Math.min(10, Math.sqrt(links) * 2.4);
 }
 
-/** Deterministic phyllotaxis seed layout — pleasant before forces kick in. */
-function seedPosition(i: number): { x: number; y: number } {
-  const radius = 22 * Math.sqrt(i + 1);
-  const angle = (i + 1) * 2.3999632297; // golden angle
+/** FNV-1a 32-bit hash — stable seed source for the initial layout. */
+function hash32(text: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/** Deterministic initial position seeded by the note's path (not its index in
+ *  the response), so the layout is stable across reloads and across notes
+ *  being added/removed elsewhere in the vault. Uniform over a disc whose
+ *  radius scales with vault size. */
+function seedPosition(id: string, count: number): { x: number; y: number } {
+  const h = hash32(id);
+  const u1 = ((h >>> 16) & 0xffff) / 0x10000; // radius sample
+  const u2 = (h & 0xffff) / 0x10000; // angle sample
+  const outer = 46 * Math.sqrt(count + 1);
+  const radius = outer * Math.sqrt(u1);
+  const angle = u2 * Math.PI * 2;
   return { x: radius * Math.cos(angle), y: radius * Math.sin(angle) };
 }
 
 interface Sim {
   setData(data: GraphData): void;
+  zoomBy(factor: number): void;
+  resetView(): void;
   destroy(): void;
 }
 
 function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
   const ctx = canvas.getContext("2d");
-  if (!ctx) return { setData() {}, destroy() {} };
+  if (!ctx) {
+    return { setData() {}, zoomBy() {}, resetView() {}, destroy() {} };
+  }
 
   let nodes: SimNode[] = [];
   let edges: SimEdge[] = [];
@@ -118,10 +179,47 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
     alpha = Math.max(alpha, ALPHA_REHEAT);
   }
 
+  let pendingFit = false;
+
+  /** Center the view on the layout's bounding box (optical centering — the
+   *  spiral seed is origin-centered but the settled mass rarely is). */
+  function fitView() {
+    if (nodes.length === 0 || width === 0 || height === 0) {
+      pendingFit = nodes.length > 0;
+      k = 1;
+      tx = width / 2;
+      ty = height / 2;
+      needsDraw = true;
+      return;
+    }
+    pendingFit = false;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const n of nodes) {
+      minX = Math.min(minX, n.x - n.r);
+      minY = Math.min(minY, n.y - n.r);
+      maxX = Math.max(maxX, n.x + n.r);
+      maxY = Math.max(maxY, n.y + n.r);
+    }
+    const pad = 64;
+    const w = Math.max(1, maxX - minX);
+    const h = Math.max(1, maxY - minY);
+    k = Math.min(
+      1,
+      Math.max(ZOOM_MIN, Math.min((width - pad * 2) / w, (height - pad * 2) / h)),
+    );
+    tx = width / 2 - ((minX + maxX) / 2) * k;
+    ty = height / 2 - ((minY + maxY) / 2) * k;
+    viewCentered = true;
+    needsDraw = true;
+  }
+
   function setData(data: GraphData) {
     const byId = new Map<string, SimNode>();
-    nodes = data.nodes.map((n: GraphNode, i: number) => {
-      const { x, y } = seedPosition(i);
+    nodes = data.nodes.map((n: GraphNode) => {
+      const { x, y } = seedPosition(n.id, data.nodes.length);
       const sim: SimNode = {
         id: n.id,
         title: n.title,
@@ -147,7 +245,16 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
       neighbors.get(a)!.add(b);
       neighbors.get(b)!.add(a);
     }
+    // Pre-settle off-screen so the first frame is already a readable layout,
+    // then frame it optically centered.
     alpha = ALPHA_START;
+    const preSteps = nodes.length > 800 ? 60 : 140;
+    for (let i = 0; i < preSteps; i++) {
+      step();
+      alpha *= ALPHA_DECAY;
+    }
+    alpha = Math.max(alpha, ALPHA_REHEAT);
+    fitView();
     needsDraw = true;
   }
 
@@ -227,6 +334,11 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
       }
       n.vx *= FRICTION;
       n.vy *= FRICTION;
+      const speed = Math.hypot(n.vx, n.vy);
+      if (speed > MAX_SPEED) {
+        n.vx *= MAX_SPEED / speed;
+        n.vy *= MAX_SPEED / speed;
+      }
       n.x += n.vx;
       n.y += n.vy;
     }
@@ -241,40 +353,62 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
     const hoverSet = hovered
       ? new Set<SimNode>([hovered, ...(neighbors.get(hovered) ?? [])])
       : null;
-    const dimAlpha = 0.12;
-    // Labels fade in as you zoom; hover always reveals them.
-    const zoomLabelAlpha = Math.max(0, Math.min(1, (k - 0.85) / 0.5));
+    const dimAlpha = 0.15;
+    // Labels appear from zoom 0.7 upward; hover always reveals them.
+    const zoomLabelAlpha = k < 0.7 ? 0 : Math.min(1, (k - 0.7) / 0.35);
+    const activePath = useStore.getState().openPath;
+    const maxLinks = nodes.reduce((m, n) => Math.max(m, n.links), 1);
 
     // Edges.
     ctx!.lineWidth = 1;
     for (const { a, b } of edges) {
       const incident = hoverSet !== null && (a === hovered || b === hovered);
-      ctx!.globalAlpha = hoverSet ? (incident ? 0.9 : dimAlpha) : 0.5;
-      ctx!.strokeStyle = incident ? colors.accent : colors.border;
+      ctx!.globalAlpha = hoverSet
+        ? incident
+          ? 0.9
+          : dimAlpha
+        : colors.idleEdgeAlpha;
+      ctx!.strokeStyle = incident ? colors.accent : colors.idleEdge;
       ctx!.beginPath();
       ctx!.moveTo(a.x * k + tx, a.y * k + ty);
       ctx!.lineTo(b.x * k + tx, b.y * k + ty);
       ctx!.stroke();
     }
 
-    // Nodes.
+    // Nodes: gold-leaf discs, brighter with degree, with a thin rim.
     for (const n of nodes) {
       const sx = n.x * k + tx;
       const sy = n.y * k + ty;
       const rk = Math.max(2, n.r * k);
       const inFocus = hoverSet === null || hoverSet.has(n);
       const orphan = n.links === 0;
+      const degree = n.links / maxLinks;
 
-      ctx!.globalAlpha = inFocus ? (orphan ? 0.45 : 1) : dimAlpha;
+      ctx!.globalAlpha = inFocus ? 1 : dimAlpha;
       ctx!.fillStyle =
         hoverSet && hoverSet.has(n)
           ? colors.accent
           : orphan
-            ? colors.faint
-            : colors.muted;
+            ? mixColors(colors.accent, colors.bg, 0.62)
+            : mixColors(colors.accent, colors.bg, 0.45 - 0.35 * degree);
       ctx!.beginPath();
       ctx!.arc(sx, sy, rk, 0, Math.PI * 2);
       ctx!.fill();
+
+      // 1px rim.
+      ctx!.strokeStyle = mixColors(colors.accent, colors.bg, 0.25);
+      ctx!.lineWidth = 1;
+      ctx!.stroke();
+
+      // Ring around the currently-open note.
+      if (activePath !== null && n.id === activePath) {
+        ctx!.strokeStyle = colors.accent;
+        ctx!.lineWidth = 1.5;
+        ctx!.beginPath();
+        ctx!.arc(sx, sy, rk + 4, 0, Math.PI * 2);
+        ctx!.stroke();
+        ctx!.lineWidth = 1;
+      }
 
       if (n === hovered) {
         ctx!.strokeStyle = colors.accent;
@@ -292,7 +426,7 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
     ctx!.textBaseline = "top";
     for (const n of nodes) {
       const focused = hoverSet !== null && hoverSet.has(n);
-      let labelAlpha = focused ? 1 : zoomLabelAlpha * (n.links === 0 ? 0.5 : 0.8);
+      let labelAlpha = focused ? 1 : zoomLabelAlpha * (n.links === 0 ? 0.55 : 0.85);
       if (hoverSet && !focused) labelAlpha = Math.min(labelAlpha, dimAlpha);
       if (labelAlpha <= 0.02) continue;
       ctx!.globalAlpha = labelAlpha;
@@ -331,7 +465,9 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
     canvas.height = Math.max(1, Math.round(height * dpr));
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
-    if (!viewCentered && width > 0) {
+    if (pendingFit && width > 0) {
+      fitView();
+    } else if (!viewCentered && width > 0) {
       tx = width / 2;
       ty = height / 2;
       viewCentered = true;
@@ -468,8 +604,26 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
   canvas.style.cursor = "grab";
   canvas.style.touchAction = "none";
 
+  /** Zoom about the viewport center. */
+  function zoomBy(factor: number) {
+    const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, k * factor));
+    const cx = width / 2;
+    const cy = height / 2;
+    tx = cx - ((cx - tx) / k) * next;
+    ty = cy - ((cy - ty) / k) * next;
+    k = next;
+    needsDraw = true;
+  }
+
+  function resetView() {
+    fitView();
+    reheat();
+  }
+
   return {
     setData,
+    zoomBy,
+    resetView,
     destroy() {
       cancelAnimationFrame(raf);
       ro.disconnect();
@@ -486,7 +640,10 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
 export default function GraphView() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [empty, setEmpty] = useState(false);
+  const simRef = useRef<Sim | null>(null);
+  const [stats, setStats] = useState<{ notes: number; links: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     const wrap = wrapRef.current;
@@ -495,11 +652,12 @@ export default function GraphView() {
 
     let disposed = false;
     const sim = createSim(canvas, wrap);
+    simRef.current = sim;
 
     getGraph()
       .then((data) => {
         if (disposed) return;
-        setEmpty(data.nodes.length === 0);
+        setStats({ notes: data.nodes.length, links: data.edges.length });
         sim.setData(data);
       })
       .catch((err: unknown) => {
@@ -509,6 +667,7 @@ export default function GraphView() {
 
     return () => {
       disposed = true;
+      simRef.current = null;
       sim.destroy();
     };
   }, []);
@@ -516,11 +675,53 @@ export default function GraphView() {
   return (
     <div className="s-graph" ref={wrapRef}>
       <canvas className="s-graph__canvas" ref={canvasRef} />
-      {empty && (
+      {stats?.notes === 0 && (
         <div className="s-graph__empty">
-          No notes yet — create one and link it with [[wikilinks]].
+          No notes yet — create one and link it with wikilinks.
         </div>
       )}
+      {stats !== null && stats.notes > 0 && (
+        <div className="s-graph__hud">
+          {stats.notes} note{stats.notes === 1 ? "" : "s"} · {stats.links} link
+          {stats.links === 1 ? "" : "s"}
+        </div>
+      )}
+      <div className="s-graph__controls">
+        <button
+          type="button"
+          className="s-iconbtn"
+          title="Zoom in"
+          aria-label="Zoom in"
+          onClick={() => simRef.current?.zoomBy(1.35)}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="s-iconbtn"
+          title="Zoom out"
+          aria-label="Zoom out"
+          onClick={() => simRef.current?.zoomBy(1 / 1.35)}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M5 12h14" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="s-iconbtn"
+          title="Reset view"
+          aria-label="Reset view"
+          onClick={() => simRef.current?.resetView()}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }

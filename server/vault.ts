@@ -43,11 +43,21 @@ export function normalizeRel(rel: string): string {
   return path.posix.normalize(cleaned);
 }
 
-/** Map a client-supplied relative path to an absolute path strictly inside the vault. */
+/** Map a client-supplied relative path to an absolute path strictly inside the vault.
+ *  Traversal (`..` as a whole segment — "Jr..md" is a legal name) is a 400;
+ *  ignored paths (.obsidian, .trash, dotfiles…) are a 404 so their existence
+ *  is never revealed and they can be neither read nor written through any API. */
 export function safeAbs(rel: string): string {
   const normalized = normalizeRel(rel);
-  if (normalized.includes("..") || path.isAbsolute(normalized) || normalized.includes("\0")) {
+  if (
+    normalized.split("/").includes("..") ||
+    path.isAbsolute(normalized) ||
+    normalized.includes("\0")
+  ) {
     throw new VaultError(400, `Invalid path: ${rel}`);
+  }
+  if (isIgnoredRel(normalized)) {
+    throw new VaultError(404, `Not found: ${rel}`);
   }
   const abs = path.resolve(vaultRoot, normalized);
   if (abs !== vaultRoot && !abs.startsWith(vaultRoot + path.sep)) {
@@ -64,8 +74,19 @@ export function assertMarkdown(rel: string): string {
   return normalized;
 }
 
-function isHidden(name: string): boolean {
-  return name.startsWith(".");
+// Names never listed, indexed, watched, or served: dotfiles (covers .obsidian,
+// .git) plus a few well-known junk dirs that may not be dot-prefixed everywhere.
+const IGNORED_NAMES = new Set([".obsidian", ".git", ".trash", "node_modules"]);
+
+/** True for a single path segment that must be invisible to the whole app. */
+export function isIgnoredSegment(name: string): boolean {
+  return name.startsWith(".") || IGNORED_NAMES.has(name.toLowerCase());
+}
+
+/** True when any segment of a vault-relative path is ignored. */
+export function isIgnoredRel(rel: string): boolean {
+  if (rel === "") return false;
+  return rel.split("/").some(isIgnoredSegment);
 }
 
 // ---------------------------------------------------------------- tree & CRUD
@@ -81,7 +102,7 @@ export async function buildTree(): Promise<TreeNode> {
     }
     const nodes: TreeNode[] = [];
     for (const entry of entries) {
-      if (isHidden(entry.name)) continue;
+      if (isIgnoredSegment(entry.name)) continue;
       const relPath = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
       if (entry.isDirectory()) {
         nodes.push({ name: entry.name, path: relPath, type: "folder", children: await walk(relPath) });
@@ -99,16 +120,60 @@ export async function buildTree(): Promise<TreeNode> {
   return { name: path.basename(vaultRoot), path: "", type: "folder", children: await walk("") };
 }
 
-export async function listMarkdownFiles(): Promise<string[]> {
-  const files: string[] = [];
-  const collect = (nodes: TreeNode[]): void => {
-    for (const node of nodes) {
-      if (node.type === "file") files.push(node.path);
-      else if (node.children) collect(node.children);
+/** One walk over the whole vault (ignore rules applied) listing notes and
+ *  attachments separately — used by the indexer at boot so it never walks twice. */
+export async function listVaultFiles(): Promise<{ notes: string[]; attachments: string[] }> {
+  const notes: string[] = [];
+  const attachments: string[] = [];
+  async function walk(relDir: string): Promise<void> {
+    const absDir = relDir === "" ? vaultRoot : path.join(vaultRoot, relDir);
+    let entries;
+    try {
+      entries = await fs.readdir(absDir, { withFileTypes: true });
+    } catch {
+      return;
     }
-  };
-  collect((await buildTree()).children ?? []);
-  return files;
+    for (const entry of entries) {
+      if (isIgnoredSegment(entry.name)) continue;
+      const relPath = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
+      if (entry.isDirectory()) await walk(relPath);
+      else if (entry.isFile()) {
+        (entry.name.toLowerCase().endsWith(".md") ? notes : attachments).push(relPath);
+      }
+    }
+  }
+  await walk("");
+  return { notes, attachments };
+}
+
+export interface AttachmentStat {
+  rel: string;
+  abs: string;
+  size: number;
+  mtimeMs: number;
+}
+
+/** Validate + stat a non-markdown vault file for /api/file. Dotfiles and
+ *  ignored dirs are denied as 404 (their existence is not revealed). */
+export async function statAttachment(rel: string): Promise<AttachmentStat> {
+  const relPath = normalizeRel(rel);
+  if (!relPath) throw new VaultError(400, "File path required");
+  if (relPath.toLowerCase().endsWith(".md")) {
+    throw new VaultError(400, "Markdown is served via /api/note");
+  }
+  const abs = safeAbs(relPath);
+  if (isIgnoredRel(relPath)) throw new VaultError(404, `File not found: ${relPath}`);
+  try {
+    const stat = await fs.stat(abs);
+    if (!stat.isFile()) throw new VaultError(404, `File not found: ${relPath}`);
+    return { rel: relPath, abs, size: stat.size, mtimeMs: stat.mtimeMs };
+  } catch (err) {
+    if (err instanceof VaultError) throw err;
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new VaultError(404, `File not found: ${relPath}`);
+    }
+    throw err;
+  }
 }
 
 export async function readNote(rel: string): Promise<NoteData> {
@@ -216,7 +281,7 @@ function isSuppressed(relPath: string): boolean {
   return true;
 }
 
-function queueEvent(kind: VaultEvent["kind"], relPath: string): void {
+function queueEvent(kind: VaultEvent["kind"], relPath: string, dir?: boolean): void {
   if (isSuppressed(relPath)) return;
   const prev = pending.get(relPath);
   if (prev) {
@@ -225,7 +290,7 @@ function queueEvent(kind: VaultEvent["kind"], relPath: string): void {
   }
   const timer = setTimeout(() => {
     pending.delete(relPath);
-    emit({ kind, path: relPath });
+    emit(dir ? { kind, path: relPath, dir: true } : { kind, path: relPath });
   }, 100);
   pending.set(relPath, { kind, timer });
 }
@@ -234,27 +299,31 @@ export function startWatcher(): void {
   if (watcher) return;
   watcher = watch(vaultRoot, {
     ignoreInitial: true,
-    ignored: (p) => p !== vaultRoot && isHidden(path.basename(p)),
+    ignored: (p) => {
+      if (p === vaultRoot) return false;
+      const rel = path.relative(vaultRoot, p);
+      if (!rel || rel.startsWith("..")) return true;
+      return rel.split(path.sep).some(isIgnoredSegment);
+    },
   });
   watcher.on("all", (event, absPath) => {
     const relPath = path.relative(vaultRoot, absPath).split(path.sep).join("/");
-    if (!relPath || relPath.startsWith("..")) return;
-    const isMarkdown = relPath.toLowerCase().endsWith(".md");
+    if (!relPath || relPath.startsWith("..") || isIgnoredRel(relPath)) return;
     switch (event) {
       case "add":
-        if (isMarkdown) queueEvent("created", relPath);
-        break;
-      case "change":
-        if (isMarkdown) queueEvent("changed", relPath);
-        break;
-      case "unlink":
-        if (isMarkdown) queueEvent("deleted", relPath);
-        break;
-      case "addDir":
         queueEvent("created", relPath);
         break;
-      case "unlinkDir":
+      case "change":
+        queueEvent("changed", relPath);
+        break;
+      case "unlink":
         queueEvent("deleted", relPath);
+        break;
+      case "addDir":
+        queueEvent("created", relPath, true);
+        break;
+      case "unlinkDir":
+        queueEvent("deleted", relPath, true);
         break;
     }
   });

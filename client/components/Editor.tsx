@@ -9,8 +9,18 @@ import { getNote, putNote } from "../api.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { buildEditorState, setVim } from "../editor/setup.ts";
+import { findHeadingLine } from "../editor/links.ts";
 
 const AUTOSAVE_MS = 600;
+
+/** Offset just past a leading YAML frontmatter block (0 if none). Opening a
+ *  note lands the cursor here so frontmatter renders as its properties card
+ *  instead of raw YAML. */
+function afterFrontmatter(content: string): number {
+  if (!/^---\r?\n/.test(content)) return 0;
+  const m = /^---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)(?:\r?\n|$)/.exec(content);
+  return m ? m[0].length : 0;
+}
 
 /** Scroll positions survive switching tabs; module-level so remounts keep them. */
 const scrollPositions = new Map<string, number>();
@@ -55,6 +65,7 @@ export default function Editor({ path }: { path: string }) {
         const view = new EditorView({
           state: buildEditorState({
             doc: note.content,
+            path,
             vimMode: useStore.getState().vimMode,
             onDocChanged: (v) => {
               dirty = true;
@@ -67,6 +78,33 @@ export default function Editor({ path }: { path: string }) {
           parent: hostRef.current,
         });
         viewRef.current = view;
+
+        // Vim loads lazily; patch it into the fresh view once the module is in.
+        if (useStore.getState().vimMode) setVim(view, true);
+
+        const anchor = afterFrontmatter(note.content);
+        if (anchor > 0 && anchor <= view.state.doc.length) {
+          view.dispatch({ selection: { anchor } });
+        }
+
+        // [[Note#Heading]] navigation: land on the requested heading.
+        const pending = useStore.getState().pendingHeading;
+        if (pending !== null) {
+          useStore.getState().setPendingHeading(null);
+          const line = findHeadingLine(note.content, pending);
+          if (line !== null && line <= view.state.doc.lines) {
+            const pos = view.state.doc.line(line).from;
+            view.dispatch({
+              selection: { anchor: pos },
+              effects: EditorView.scrollIntoView(pos, {
+                y: "start",
+                yMargin: 24,
+              }),
+            });
+            view.focus();
+            return;
+          }
+        }
 
         const savedScroll = scrollPositions.get(path);
         if (savedScroll !== undefined) {
@@ -108,6 +146,31 @@ export default function Editor({ path }: { path: string }) {
   useEffect(() => {
     if (viewRef.current) setVim(viewRef.current, vimMode);
   }, [vimMode]);
+
+  // Outline (TOC) clicks: jump the editor to the heading's source line.
+  useEffect(() => {
+    const onGoto = (ev: Event): void => {
+      const view = viewRef.current;
+      if (!view) return;
+      const detail =
+        (ev as CustomEvent<{ line?: number; text?: string }>).detail ?? {};
+      let line = detail.line ?? null;
+      if (line === null && detail.text) {
+        line = findHeadingLine(view.state.doc.toString(), detail.text);
+      }
+      if (!line || line < 1 || line > view.state.doc.lines) {
+        return;
+      }
+      const pos = view.state.doc.line(line).from;
+      view.dispatch({
+        selection: { anchor: pos },
+        effects: EditorView.scrollIntoView(pos, { y: "start", yMargin: 24 }),
+      });
+      view.focus();
+    };
+    window.addEventListener("vellum:goto-heading", onGoto);
+    return () => window.removeEventListener("vellum:goto-heading", onGoto);
+  }, []);
 
   return <div className="s-editor" ref={hostRef} />;
 }

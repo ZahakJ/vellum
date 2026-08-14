@@ -1,5 +1,7 @@
 // Wikilink autocomplete: typing "[[" offers every note title in the vault,
-// read live from the zustand store's tree.
+// read live from the zustand store's tree; typing "#" inside the brackets
+// offers the headings of the target note ([[Note#…]] / [[#…]] for the
+// current note).
 
 import {
   autocompletion,
@@ -9,16 +11,17 @@ import {
 } from "@codemirror/autocomplete";
 import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
+import { getNote } from "../api.ts";
 import { useStore } from "../state.ts";
-import { collectNotes } from "./links.ts";
+import { collectNotes, extractHeadings, resolveLink } from "./links.ts";
 
-function applyWikilink(
+/** Insert `label`, then "]]" unless the brackets are already closed. */
+function applyInner(
   view: EditorView,
   completion: Completion,
   from: number,
   to: number,
 ): void {
-  // If closeBrackets (or the author) already supplied "]]", reuse it.
   const alreadyClosed = view.state.sliceDoc(to, to + 2) === "]]";
   const insert = completion.label + (alreadyClosed ? "" : "]]");
   view.dispatch({
@@ -28,7 +31,62 @@ function applyWikilink(
   });
 }
 
-function wikilinkSource(context: CompletionContext): CompletionResult | null {
+// Tiny read-through cache so heading completion doesn't refetch the target
+// note on every keystroke.
+const noteCache = new Map<string, { content: string; at: number }>();
+const NOTE_CACHE_MS = 5000;
+
+async function noteContent(path: string): Promise<string | null> {
+  const cached = noteCache.get(path);
+  if (cached && Date.now() - cached.at < NOTE_CACHE_MS) return cached.content;
+  try {
+    const note = await getNote(path);
+    noteCache.set(path, { content: note.content, at: Date.now() });
+    return note.content;
+  } catch {
+    return null;
+  }
+}
+
+/** Headings of the wikilink's target note, offered after "#" inside [[ ]]. */
+async function headingOptions(
+  context: CompletionContext,
+  target: string,
+): Promise<string[] | null> {
+  if (!target.trim()) {
+    // [[#…]] — the note being edited.
+    return extractHeadings(context.state.doc.toString());
+  }
+  const path = resolveLink(target, useStore.getState().tree);
+  if (!path) return null;
+  const content = await noteContent(path);
+  return content === null ? null : extractHeadings(content);
+}
+
+async function wikilinkSource(
+  context: CompletionContext,
+): Promise<CompletionResult | null> {
+  // Heading mode: "[[Target#… " (cursor after the #).
+  const headingMatch = context.matchBefore(/\[\[([^[\]#|]*)#[^[\]#|]*$/);
+  if (headingMatch) {
+    const target = /^\[\[([^[\]#|]*)#/.exec(headingMatch.text)?.[1] ?? "";
+    const headings = await headingOptions(context, target);
+    if (!headings || headings.length === 0) return null;
+    const seen = new Set<string>();
+    const options: Completion[] = [];
+    for (const heading of headings) {
+      if (seen.has(heading)) continue;
+      seen.add(heading);
+      options.push({ label: heading, type: "text", apply: applyInner });
+    }
+    return {
+      from: headingMatch.from + headingMatch.text.lastIndexOf("#") + 1,
+      options,
+      validFor: /^[^[\]#|]*$/,
+    };
+  }
+
+  // Note-title mode: "[[…".
   const match = context.matchBefore(/\[\[[^[\]]*$/);
   if (!match) return null;
 
@@ -39,13 +97,13 @@ function wikilinkSource(context: CompletionContext): CompletionResult | null {
     label: note.title,
     detail: note.path === `${note.title}.md` ? undefined : note.path,
     type: "text",
-    apply: applyWikilink,
+    apply: applyInner,
   }));
 
   return {
     from: match.from + 2, // just past "[["
     options,
-    validFor: /^[^[\]]*$/,
+    validFor: /^[^[\]#|]*$/,
   };
 }
 
