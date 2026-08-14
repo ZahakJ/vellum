@@ -1,0 +1,76 @@
+// Wikilink parsing + resolution against the vault tree held in the zustand store.
+
+import type { TreeNode } from "../../shared/types.ts";
+
+export interface NoteRef {
+  title: string; // basename without .md
+  path: string;  // vault-relative path
+}
+
+/** Matches [[Target]], [[Target|Alias]], [[Target#Heading]], [[Target#Heading|Alias]]. */
+export const WIKILINK_RE = /\[\[([^[\]]+?)\]\]/g;
+
+export interface WikilinkParts {
+  target: string;
+  heading: string | null;
+  alias: string | null;
+}
+
+/** Split the inner text of a wikilink into target / #heading / |alias. */
+export function parseWikilink(inner: string): WikilinkParts {
+  let rest = inner;
+  let alias: string | null = null;
+  let heading: string | null = null;
+  const pipe = rest.indexOf("|");
+  if (pipe >= 0) {
+    alias = rest.slice(pipe + 1).trim();
+    rest = rest.slice(0, pipe);
+  }
+  const hash = rest.indexOf("#");
+  if (hash >= 0) {
+    heading = rest.slice(hash + 1).trim();
+    rest = rest.slice(0, hash);
+  }
+  return { target: rest.trim(), heading, alias };
+}
+
+/** Flatten the tree into all markdown notes, sorted by title. */
+export function collectNotes(tree: TreeNode | null): NoteRef[] {
+  const out: NoteRef[] = [];
+  const walk = (node: TreeNode): void => {
+    if (node.type === "file") {
+      if (node.name.toLowerCase().endsWith(".md")) {
+        out.push({ title: node.name.replace(/\.md$/i, ""), path: node.path });
+      }
+      return;
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  if (tree) walk(tree);
+  out.sort((a, b) => a.title.localeCompare(b.title));
+  return out;
+}
+
+/**
+ * Resolve a wikilink target to a vault path, mirroring the server's rules:
+ * basename match without .md, case-insensitive, shortest path wins on
+ * duplicates. Also accepts an explicit vault-relative path as target.
+ */
+export function resolveLink(target: string, tree: TreeNode | null): string | null {
+  const name = parseWikilink(target).target.toLowerCase();
+  if (!name) return null;
+  const notes = collectNotes(tree);
+
+  const matches = notes.filter((n) => n.title.toLowerCase() === name);
+  if (matches.length > 0) {
+    matches.sort(
+      (a, b) => a.path.length - b.path.length || a.path.localeCompare(b.path),
+    );
+    return matches[0].path;
+  }
+
+  // Fall back to a path-style target like "folder/Note" or "folder/Note.md".
+  const asPath = name.endsWith(".md") ? name : `${name}.md`;
+  const byPath = notes.find((n) => n.path.toLowerCase() === asPath);
+  return byPath ? byPath.path : null;
+}

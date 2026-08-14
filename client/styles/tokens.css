@@ -1,0 +1,41 @@
+/* Vellum — design tokens.
+   Default (no data-theme attr) = "iron-gall" dark: warm near-black ink, ivory text, gold leaf.
+   [data-theme="parchment"] = warm paper light theme.
+   Components must consume these variables only — never hard-coded colors. */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #16130e;
+  --bg-raised: #1e1a13;
+  --bg-hover: #29231a;
+  --text: #eae2d0;
+  --text-muted: #a99f89;
+  --text-faint: #6e6656;
+  --accent: #c9a227;
+  --accent-soft: rgba(201, 162, 39, 0.14);
+  --border: #2f2920;
+  --danger: #c4574a;
+
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --radius: 6px;
+  --sidebar-w: 280px;
+}
+
+[data-theme="parchment"] {
+  color-scheme: light;
+
+  --bg: #f2ebda;
+  --bg-raised: #faf5e8;
+  --bg-hover: #e9e0c9;
+  --text: #33291a;
+  --text-muted: #6e6250;
+  --text-faint: #a2947c;
+  --accent: #8a6d1a;
+  --accent-soft: rgba(138, 109, 26, 0.13);
+  --border: #d8cbae;
+  --danger: #a23a2e;
+}
