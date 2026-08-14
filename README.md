@@ -13,7 +13,7 @@ Obsidian is excellent — and if it fits, use it. Vellum exists for the gap it l
 ## Quickstart
 
 ```sh
-git clone https://github.com/avicenna/vellum.git
+git clone https://github.com/ZahakJ/vellum.git
 cd vellum
 npm install
 npm start
