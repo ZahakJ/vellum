@@ -8,8 +8,10 @@ import {
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { useStore } from "../state.ts";
 import { search } from "../api.ts";
+import { dailyNotePath, openDailyNote } from "../daily.ts";
 import { toast } from "../toast.ts";
 import type { SearchHit } from "../../shared/types.ts";
+import { renderSnippet } from "./snippet.tsx";
 
 // ---------------------------------------------------------------------------
 // Fuzzy matching (subsequence with consecutive/word-start bonuses)
@@ -59,17 +61,15 @@ function highlight(text: string, indices: number[]): ReactNode {
   return out;
 }
 
-/** Server snippets wrap matches in <mark>…</mark>; render them without innerHTML. */
-function renderSnippet(snippet: string): ReactNode {
-  const parts = snippet.split(/<mark>(.*?)<\/mark>/g);
-  return parts.map((part, i) =>
-    i % 2 === 1 ? <mark key={i}>{part}</mark> : part,
-  );
-}
-
 function titleOf(path: string): string {
   const base = path.split("/").pop() ?? path;
   return base.replace(/\.md$/i, "");
+}
+
+/** Folder part of a vault path ("" for notes at the vault root). */
+function folderOf(path: string): string {
+  const cut = path.lastIndexOf("/");
+  return cut === -1 ? "" : path.slice(0, cut);
 }
 
 function ensureMd(path: string): string {
@@ -80,13 +80,20 @@ function ensureMd(path: string): string {
 // Items
 // ---------------------------------------------------------------------------
 
+/** What a command needs to know to decide whether it applies right now. */
+interface CommandCtx {
+  openPath: string | null;
+  admin: boolean;
+  authProtected: boolean;
+}
+
 interface Command {
   id: string;
   label: string;
   hint?: string;
   /** Commands that need a text argument switch the palette into prompt mode. */
   prompt?: { placeholder: string; initial: () => string };
-  available: (openPath: string | null) => boolean;
+  available: (ctx: CommandCtx) => boolean;
 }
 
 const COMMANDS: Command[] = [
@@ -95,13 +102,25 @@ const COMMANDS: Command[] = [
     label: "New note",
     hint: "create",
     prompt: { placeholder: "path/to/note.md", initial: () => "" },
-    available: () => true,
+    available: ({ admin }) => admin,
+  },
+  {
+    id: "daily-note",
+    label: "Open daily note",
+    hint: dailyNotePath(),
+    available: ({ admin }) => admin,
   },
   {
     id: "toggle-graph",
     label: "Toggle graph",
     hint: "view",
     available: () => true,
+  },
+  {
+    id: "toggle-reading",
+    label: "Toggle reading view",
+    hint: "Ctrl/Cmd E",
+    available: ({ openPath, admin }) => admin && openPath !== null,
   },
   {
     id: "toggle-theme",
@@ -113,7 +132,7 @@ const COMMANDS: Command[] = [
     id: "toggle-vim",
     label: "Toggle vim",
     hint: "editor",
-    available: () => true,
+    available: ({ admin }) => admin,
   },
   {
     id: "rename-current",
@@ -123,13 +142,25 @@ const COMMANDS: Command[] = [
       placeholder: "new/path.md",
       initial: () => useStore.getState().openPath ?? "",
     },
-    available: (openPath) => openPath !== null,
+    available: ({ openPath, admin }) => admin && openPath !== null,
   },
   {
     id: "delete-current",
     label: "Delete current note",
     hint: "irreversible",
-    available: (openPath) => openPath !== null,
+    available: ({ openPath, admin }) => admin && openPath !== null,
+  },
+  {
+    id: "sign-in",
+    label: "Sign in",
+    hint: "unlock editing",
+    available: ({ admin }) => !admin,
+  },
+  {
+    id: "sign-out",
+    label: "Sign out",
+    hint: "back to reading",
+    available: ({ admin, authProtected }) => admin && authProtected,
   },
 ];
 
@@ -137,6 +168,29 @@ type Item =
   | { kind: "command"; command: Command; indices: number[] }
   | { kind: "tab"; path: string }
   | { kind: "note"; hit: SearchHit };
+
+const SECTION_LABEL: Record<Item["kind"], string> = {
+  command: "Commands",
+  tab: "Open tabs",
+  note: "Notes",
+};
+
+function IconFile() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+    </svg>
+  );
+}
+
+function IconCommand() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+    </svg>
+  );
+}
 
 interface Mode {
   type: "list" | "prompt";
@@ -152,13 +206,25 @@ export default function CommandPalette() {
   const setPaletteOpen = useStore((s) => s.setPaletteOpen);
   const openTabs = useStore((s) => s.openTabs);
   const openPath = useStore((s) => s.openPath);
+  const admin = useStore((s) => s.admin);
+  const authProtected = useStore((s) => s.authProtected);
 
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<Mode>({ type: "list" });
   const [selected, setSelected] = useState(0);
   const [hits, setHits] = useState<SearchHit[]>([]);
+  /** True from the moment the query changes until THAT query's results are in
+   *  `hits` (covers the debounce window too). While true, the note rows on
+   *  screen belong to an older query and Enter must not open them. */
+  const [inFlight, setInFlight] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  /** Token of the most recently dispatched query; a response only lands if it
+   *  still carries the current token. */
+  const seqRef = useRef(0);
+  /** Enter was pressed while results were in flight: run the selection as soon
+   *  as the current query's results land. */
+  const pendingEnterRef = useRef(false);
 
   // Reset on open.
   useEffect(() => {
@@ -167,31 +233,43 @@ export default function CommandPalette() {
       setMode({ type: "list" });
       setSelected(0);
       setHits([]);
+      setInFlight(false);
+      seqRef.current++; // invalidate any response still in flight
+      pendingEnterRef.current = false;
       // Focus after the modal renders.
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [paletteOpen]);
 
-  // Debounced live note search while typing in list mode.
+  // Debounced live note search while typing in list mode. Token + abort per
+  // query: only the latest query's results may land in `hits`.
   useEffect(() => {
     if (!paletteOpen || mode.type !== "list") return;
+    const token = ++seqRef.current;
     const q = query.trim();
     if (!q) {
       setHits([]);
+      setInFlight(false);
       return;
     }
-    let stale = false;
+    setInFlight(true);
+    const ctrl = new AbortController();
     const timer = window.setTimeout(() => {
-      search(q)
+      search(q, ctrl.signal)
         .then((results) => {
-          if (!stale) setHits(results);
+          if (token !== seqRef.current) return;
+          setHits(results);
+          setInFlight(false);
         })
         .catch((err: unknown) => {
+          if (ctrl.signal.aborted || token !== seqRef.current) return;
+          setHits([]);
+          setInFlight(false);
           console.error("CommandPalette: search failed", err);
         });
     }, 120);
     return () => {
-      stale = true;
+      ctrl.abort();
       window.clearTimeout(timer);
     };
   }, [paletteOpen, mode.type, query]);
@@ -199,7 +277,8 @@ export default function CommandPalette() {
   const items = useMemo<Item[]>(() => {
     if (mode.type === "prompt") return [];
     const q = query.trim();
-    const available = COMMANDS.filter((c) => c.available(openPath));
+    const ctx: CommandCtx = { openPath, admin, authProtected };
+    const available = COMMANDS.filter((c) => c.available(ctx));
     if (!q) {
       return [
         ...available.map<Item>((command) => ({
@@ -220,7 +299,7 @@ export default function CommandPalette() {
         indices: match.indices,
       }));
     return [...matchedCommands, ...hits.map<Item>((hit) => ({ kind: "note", hit }))];
-  }, [mode.type, query, openPath, openTabs, hits]);
+  }, [mode.type, query, openPath, admin, authProtected, openTabs, hits]);
 
   // Keep selection in bounds as results change.
   useEffect(() => {
@@ -230,7 +309,7 @@ export default function CommandPalette() {
   // Keep the selected row visible.
   useEffect(() => {
     listRef.current
-      ?.querySelector(".s-palette__item--active")
+      ?.querySelector(".s-palette-item--active")
       ?.scrollIntoView({ block: "nearest" });
   }, [selected, items]);
 
@@ -247,8 +326,15 @@ export default function CommandPalette() {
         return;
       }
       switch (command.id) {
+        case "daily-note":
+          void openDailyNote();
+          break;
         case "toggle-graph":
           store.setView(store.view === "graph" ? "editor" : "graph");
+          break;
+        case "toggle-reading":
+          store.toggleReading();
+          if (store.view === "graph") store.setView("editor");
           break;
         case "toggle-theme":
           store.setTheme(store.theme === "iron-gall" ? "parchment" : "iron-gall");
@@ -263,6 +349,12 @@ export default function CommandPalette() {
               toast("Could not delete note");
             });
           }
+          break;
+        case "sign-in":
+          store.setLoginOpen(true);
+          break;
+        case "sign-out":
+          void store.logout();
           break;
       }
       close();
@@ -331,20 +423,35 @@ export default function CommandPalette() {
       } else if (e.key === "Enter") {
         e.preventDefault();
         const item = items[selected];
+        // Never open a stale row: while a search is in flight the note rows
+        // belong to an older query, so Enter registers intent and fires when
+        // THIS query's results land. Commands/tabs are matched synchronously
+        // against the current query and stay safe to run immediately.
+        if (inFlight && (!item || item.kind === "note")) {
+          pendingEnterRef.current = true;
+          return;
+        }
         if (item) execute(item);
       }
     },
-    [mode.type, items, selected, close, execute, submitPrompt],
+    [mode.type, items, selected, inFlight, close, execute, submitPrompt],
   );
+
+  // Deferred Enter: fires once the in-flight query's results have landed.
+  useEffect(() => {
+    if (inFlight || !pendingEnterRef.current) return;
+    pendingEnterRef.current = false;
+    if (!paletteOpen || mode.type !== "list") return;
+    const item = items[Math.min(selected, items.length - 1)];
+    if (item) execute(item);
+  }, [inFlight, paletteOpen, mode.type, items, selected, execute]);
 
   if (!paletteOpen) return null;
 
   const isPrompt = mode.type === "prompt";
-  const showTabsHeading =
-    !isPrompt && !query.trim() && openTabs.length > 0;
 
   return (
-    <div className="s-palette-backdrop" onMouseDown={close}>
+    <div className="s-palette-overlay" onMouseDown={close}>
       <div
         className="s-palette"
         role="dialog"
@@ -352,11 +459,11 @@ export default function CommandPalette() {
         onMouseDown={(e) => e.stopPropagation()}
       >
         {isPrompt && mode.command && (
-          <div className="s-palette__prompt-label">{mode.command.label}</div>
+          <div className="s-palette-prompt-label">{mode.command.label}</div>
         )}
         <input
           ref={inputRef}
-          className="s-palette__input"
+          className="s-palette-input"
           type="text"
           value={query}
           placeholder={
@@ -367,16 +474,17 @@ export default function CommandPalette() {
           onChange={(e) => {
             setQuery(e.target.value);
             setSelected(0);
+            pendingEnterRef.current = false; // typing again cancels a queued Enter
           }}
           onKeyDown={onKeyDown}
           spellCheck={false}
           autoComplete="off"
         />
         {!isPrompt && (
-          <div className="s-palette__list" ref={listRef}>
+          <div className="s-palette-list" ref={listRef}>
             {items.map((item, i) => {
               const active = i === selected;
-              const cls = `s-palette__item${active ? " s-palette__item--active" : ""}`;
+              const cls = `s-palette-item${active ? " s-palette-item--active" : ""}`;
               const key =
                 item.kind === "command"
                   ? `cmd:${item.command.id}`
@@ -384,8 +492,8 @@ export default function CommandPalette() {
                     ? `tab:${item.path}`
                     : `note:${item.hit.path}`;
               const heading =
-                showTabsHeading && item.kind === "tab" && items[i - 1]?.kind !== "tab" ? (
-                  <div className="s-palette__section">Open tabs</div>
+                items[i - 1]?.kind !== item.kind ? (
+                  <div className="s-palette-section">{SECTION_LABEL[item.kind]}</div>
                 ) : null;
               return (
                 <div key={key}>
@@ -395,13 +503,16 @@ export default function CommandPalette() {
                     onMouseEnter={() => setSelected(i)}
                     onClick={() => execute(item)}
                   >
+                    <span className="s-palette-item-icon" aria-hidden="true">
+                      {item.kind === "command" ? <IconCommand /> : <IconFile />}
+                    </span>
                     {item.kind === "command" && (
                       <>
-                        <span className="s-palette__item-title">
+                        <span className="s-palette-item-title">
                           {highlight(item.command.label, item.indices)}
                         </span>
                         {item.command.hint && (
-                          <span className="s-palette__item-hint">
+                          <span className="s-palette-item-hint">
                             {item.command.hint}
                           </span>
                         )}
@@ -409,20 +520,29 @@ export default function CommandPalette() {
                     )}
                     {item.kind === "tab" && (
                       <>
-                        <span className="s-palette__item-title">
+                        <span className="s-palette-item-title">
                           {titleOf(item.path)}
                         </span>
-                        <span className="s-palette__item-hint">{item.path}</span>
+                        {folderOf(item.path) && (
+                          <span className="s-palette-item-path">
+                            {folderOf(item.path)}
+                          </span>
+                        )}
                       </>
                     )}
                     {item.kind === "note" && (
                       <>
-                        <span className="s-palette__item-title">
+                        <span className="s-palette-item-title">
                           {item.hit.title}
                         </span>
-                        <span className="s-palette__item-snippet">
+                        <span className="s-palette-item-snippet">
                           {renderSnippet(item.hit.snippet)}
                         </span>
+                        {folderOf(item.hit.path) && (
+                          <span className="s-palette-item-path">
+                            {folderOf(item.hit.path)}
+                          </span>
+                        )}
                       </>
                     )}
                   </div>
@@ -430,7 +550,7 @@ export default function CommandPalette() {
               );
             })}
             {items.length === 0 && (
-              <div className="s-palette__empty">No matches</div>
+              <div className="s-palette-empty">No matches</div>
             )}
           </div>
         )}

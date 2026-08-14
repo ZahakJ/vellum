@@ -2,30 +2,15 @@
 // full-text search with <mark> snippets, and a tag list. Inline rename via
 // double-click; context menu for new note / new folder / rename / delete.
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
 import { createFolder, getTags, search } from "../api.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
+import { renderSnippet } from "./snippet.tsx";
 
 const SEARCH_DEBOUNCE_MS = 200;
-
-/** Escape everything, then let only literal <mark>/</mark> tags through. */
-function sanitizeSnippet(snippet: string): string {
-  return snippet
-    .split(/(<\/?mark>)/g)
-    .map((part) =>
-      part === "<mark>" || part === "</mark>"
-        ? part
-        : part
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;"),
-    )
-    .join("");
-}
 
 function parentOf(path: string): string {
   const i = path.lastIndexOf("/");
@@ -46,6 +31,64 @@ interface MenuState {
   node: TreeNode; // the root node (path "") stands in for "vault root"
 }
 
+// ---------------------------------------------------------------------------
+// Folder expansion state. Kept OUTSIDE React (module map + localStorage) so
+// each TreeRow owns only its own open flag: toggling a folder re-renders that
+// subtree, not the whole tree — O(subtree) on a 1.4k-note vault — and the
+// state survives tree reloads, search round-trips, and full page reloads.
+// Default: top-level folders open, everything deeper collapsed.
+// ---------------------------------------------------------------------------
+const EXPANDED_KEY = "vellum.tree-expanded";
+
+function loadExpanded(): Map<string, boolean> {
+  try {
+    const raw = localStorage.getItem(EXPANDED_KEY);
+    if (raw) return new Map(Object.entries(JSON.parse(raw) as Record<string, boolean>));
+  } catch {
+    // corrupted or unavailable storage — start fresh
+  }
+  return new Map();
+}
+
+const expandedMap = loadExpanded();
+
+function persistExpanded(): void {
+  try {
+    localStorage.setItem(EXPANDED_KEY, JSON.stringify(Object.fromEntries(expandedMap)));
+  } catch {
+    // storage full/unavailable — expansion still works for this session
+  }
+}
+
+function defaultOpen(depth: number): boolean {
+  return depth === 0;
+}
+
+function countNotes(node: TreeNode | null): number {
+  if (!node) return 0;
+  if (node.type === "file") return 1;
+  return (node.children ?? []).reduce((sum, child) => sum + countNotes(child), 0);
+}
+
+function IconNewNote() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+      <path d="M12 12v6M9 15h6" />
+    </svg>
+  );
+}
+
+function IconNewFolder() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+      <path d="M12 10v6M9 13h6" />
+    </svg>
+  );
+}
+
 export default function Sidebar() {
   const tree = useStore((s) => s.tree);
   const openNote = useStore((s) => s.openNote);
@@ -53,11 +96,11 @@ export default function Sidebar() {
   const renameNote = useStore((s) => s.renameNote);
   const deleteNote = useStore((s) => s.deleteNote);
   const loadTree = useStore((s) => s.loadTree);
+  const admin = useStore((s) => s.admin);
 
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [tags, setTags] = useState<TagCount[]>([]);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
 
@@ -75,6 +118,17 @@ export default function Sidebar() {
     }, SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [query]);
+
+  // Editor wiring: clicking a #tag pill in the editor (inline or in the
+  // frontmatter properties card) pushes a search query here.
+  useEffect(() => {
+    const onSearch = (ev: Event) => {
+      const detail = (ev as CustomEvent<string>).detail;
+      if (typeof detail === "string") setQuery(detail);
+    };
+    window.addEventListener("vellum:search", onSearch);
+    return () => window.removeEventListener("vellum:search", onSearch);
+  }, []);
 
   // Tags track the tree: refetch whenever the vault changes shape/content.
   useEffect(() => {
@@ -98,16 +152,18 @@ export default function Sidebar() {
     };
   }, [menu]);
 
-  const toggleFolder = (path: string) =>
-    setExpanded((e) => ({ ...e, [path]: !e[path] }));
+  const commitRename = useCallback(
+    (node: TreeNode, rawName: string) => {
+      setRenaming(null);
+      const name = rawName.trim();
+      if (!name || name === node.name || name.includes("/")) return;
+      const finalName = node.type === "file" ? ensureMd(name) : name;
+      void renameNote(node.path, joinPath(parentOf(node.path), finalName));
+    },
+    [renameNote],
+  );
 
-  const commitRename = (node: TreeNode, rawName: string) => {
-    setRenaming(null);
-    const name = rawName.trim();
-    if (!name || name === node.name || name.includes("/")) return;
-    const finalName = node.type === "file" ? ensureMd(name) : name;
-    void renameNote(node.path, joinPath(parentOf(node.path), finalName));
-  };
+  const cancelRename = useCallback(() => setRenaming(null), []);
 
   const promptNewNote = (dir: string) => {
     const name = window.prompt("New note name:", "Untitled.md");
@@ -132,14 +188,50 @@ export default function Sidebar() {
     }
   };
 
-  const openMenu = (e: ReactMouseEvent, node: TreeNode) => {
+  const openMenu = useCallback((e: ReactMouseEvent, node: TreeNode) => {
+    if (!useStore.getState().admin) return; // menu holds only mutating actions
     e.preventDefault();
     e.stopPropagation();
     setMenu({ x: e.clientX, y: e.clientY, node });
-  };
+  }, []);
+
+  const startRename = useCallback((path: string) => {
+    if (!useStore.getState().admin) return;
+    setRenaming(path);
+  }, []);
+
+  const noteCount = useMemo(() => countNotes(tree), [tree]);
 
   return (
     <aside className="s-sidebar">
+      <header className="s-sidebar-header">
+        <h1 className="s-title">
+          <span className="s-title__star" aria-hidden="true">✦</span>
+          Vellum
+        </h1>
+        {admin && (
+          <span className="s-sidebar-actions">
+            <button
+              type="button"
+              className="s-iconbtn"
+              title="New note"
+              aria-label="New note"
+              onClick={() => promptNewNote("")}
+            >
+              <IconNewNote />
+            </button>
+            <button
+              type="button"
+              className="s-iconbtn"
+              title="New folder"
+              aria-label="New folder"
+              onClick={() => promptNewFolder("")}
+            >
+              <IconNewFolder />
+            </button>
+          </span>
+        )}
+      </header>
       <div className="s-search">
         <input
           className="s-search__input"
@@ -162,10 +254,9 @@ export default function Sidebar() {
               onClick={() => openNote(hit.path)}
             >
               <span className="s-search-hit__title">{hit.title}</span>
-              <span
-                className="s-search-hit__snippet"
-                dangerouslySetInnerHTML={{ __html: sanitizeSnippet(hit.snippet) }}
-              />
+              <span className="s-search-hit__snippet">
+                {renderSnippet(hit.snippet)}
+              </span>
             </button>
           ))}
         </div>
@@ -181,36 +272,41 @@ export default function Sidebar() {
               key={child.path}
               node={child}
               depth={0}
-              expanded={expanded}
               renaming={renaming}
-              onToggle={toggleFolder}
               onOpen={openNote}
-              onStartRename={setRenaming}
+              onStartRename={startRename}
               onCommitRename={commitRename}
-              onCancelRename={() => setRenaming(null)}
+              onCancelRename={cancelRename}
               onMenu={openMenu}
             />
           ))}
         </nav>
       )}
 
-      <div className="s-tags">
-        <h3 className="s-tags__title">Tags</h3>
-        <div className="s-tags__list">
-          {tags.map(({ tag, count }) => (
-            <button
-              key={tag}
-              type="button"
-              className="s-tag"
-              onClick={() => setQuery(`#${tag}`)}
-              title={`Search #${tag}`}
-            >
-              #{tag}
-              <span className="s-tag__count">{count}</span>
-            </button>
-          ))}
+      {tags.length > 0 && (
+        <div className="s-tags">
+          <h3 className="s-tags__title">Tags</h3>
+          <div className="s-tags__list">
+            {tags.map(({ tag, count }) => (
+              <button
+                key={tag}
+                type="button"
+                className="s-tag"
+                onClick={() => setQuery(`#${tag}`)}
+                title={`Search #${tag}`}
+              >
+                <span className="s-tag__hash" aria-hidden="true">#</span>
+                {tag}
+                <span className="s-tag__count">{count}</span>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      <footer className="s-sidebar-foot">
+        {noteCount} note{noteCount === 1 ? "" : "s"}
+      </footer>
 
       {menu && (
         <div
@@ -275,9 +371,7 @@ export default function Sidebar() {
 interface TreeRowProps {
   node: TreeNode;
   depth: number;
-  expanded: Record<string, boolean>;
   renaming: string | null;
-  onToggle(path: string): void;
   onOpen(path: string): void;
   onStartRename(path: string): void;
   onCommitRename(node: TreeNode, name: string): void;
@@ -285,13 +379,24 @@ interface TreeRowProps {
   onMenu(e: ReactMouseEvent, node: TreeNode): void;
 }
 
-function TreeRow(props: TreeRowProps) {
-  const { node, depth, expanded, renaming } = props;
-  const openPath = useStore((s) => s.openPath);
+// Memoized: with stable callbacks from Sidebar, a folder toggle re-renders
+// only its own subtree and opening a note re-renders only the two rows whose
+// active flag flipped — not all 1.4k rows.
+const TreeRow = memo(function TreeRow(props: TreeRowProps) {
+  const { node, depth, renaming } = props;
+  const isActive = useStore((s) => s.openPath === node.path);
   const isFolder = node.type === "folder";
-  const isOpen = isFolder && !!expanded[node.path];
-  const isActive = node.path === openPath;
+  const [isOpen, setIsOpen] = useState(
+    () => isFolder && (expandedMap.get(node.path) ?? defaultOpen(depth)),
+  );
   const label = isFolder ? node.name : node.name.replace(/\.md$/, "");
+
+  const toggle = () => {
+    const next = !isOpen;
+    setIsOpen(next);
+    expandedMap.set(node.path, next);
+    persistExpanded();
+  };
 
   const classes = [
     "s-tree__item",
@@ -305,8 +410,8 @@ function TreeRow(props: TreeRowProps) {
     <div className="s-tree__node">
       <div
         className={classes}
-        style={{ paddingLeft: `${depth * 14 + 8}px` }}
-        onClick={() => (isFolder ? props.onToggle(node.path) : props.onOpen(node.path))}
+        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        onClick={() => (isFolder ? toggle() : props.onOpen(node.path))}
         onDoubleClick={(e) => {
           e.stopPropagation();
           props.onStartRename(node.path);
@@ -339,7 +444,7 @@ function TreeRow(props: TreeRowProps) {
       )}
     </div>
   );
-}
+});
 
 function RenameInput({
   initial,

@@ -4,6 +4,7 @@
 import type {
   Backlink,
   GraphData,
+  MeData,
   NoteData,
   SearchHit,
   TagCount,
@@ -73,8 +74,11 @@ export function createFolder(path: string): Promise<{ ok: true }> {
   return request<{ ok: true }>("/api/folder", json("POST", { path }));
 }
 
-export function search(q: string): Promise<SearchHit[]> {
-  return request<SearchHit[]>(`/api/search?q=${encodeURIComponent(q)}`);
+export function search(q: string, signal?: AbortSignal): Promise<SearchHit[]> {
+  return request<SearchHit[]>(
+    `/api/search?q=${encodeURIComponent(q)}`,
+    signal ? { signal } : undefined,
+  );
 }
 
 export function getGraph(): Promise<GraphData> {
@@ -87,6 +91,19 @@ export function getBacklinks(path: string): Promise<Backlink[]> {
 
 export function getTags(): Promise<TagCount[]> {
   return request<TagCount[]>("/api/tags");
+}
+
+export function getMe(): Promise<MeData> {
+  return request<MeData>("/api/me");
+}
+
+/** Throws with the server's message ("Invalid password", rate limit…) on failure. */
+export function login(password: string): Promise<{ ok: true }> {
+  return request<{ ok: true }>("/api/login", json("POST", { password }));
+}
+
+export function logout(): Promise<{ ok: true }> {
+  return request<{ ok: true }>("/api/logout", { method: "POST" });
 }
 
 /** Subscribe to the vault SSE stream. Returns an unsubscribe function. */

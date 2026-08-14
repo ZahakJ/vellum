@@ -27,7 +27,7 @@ export default function Tabs() {
             role="tab"
             aria-selected={isActive}
             title={path}
-            className={`s-tab${isActive ? " s-tab--active" : ""}`}
+            className={`s-tab${isActive ? " s-tab--active" : ""}${dirty[path] ? " s-tab--dirty" : ""}`}
             onClick={() => openNote(path)}
             onAuxClick={(e) => {
               if (e.button === 1) {
@@ -40,15 +40,11 @@ export default function Tabs() {
               if (e.button === 1) e.preventDefault();
             }}
           >
-            <span className="s-tab__title">{titleOf(path)}</span>
-            {dirty[path] && (
-              <span className="s-tab__dirty" aria-label="unsaved">
-                ●
-              </span>
-            )}
+            <span className="s-tab-title">{titleOf(path)}</span>
+            {dirty[path] && <span className="s-tab-dirty" aria-label="unsaved" />}
             <button
               type="button"
-              className="s-tab__close"
+              className="s-tab-close"
               aria-label={`Close ${titleOf(path)}`}
               onClick={(e) => {
                 e.stopPropagation();

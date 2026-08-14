@@ -23,6 +23,32 @@
 
   --radius: 6px;
   --sidebar-w: 280px;
+
+  /* Callout base colors (Obsidian type → hue, muted for the manuscript room).
+     Backgrounds derive via color-mix in preview.css. */
+  --callout-note: #6d9dc5;
+  --callout-info: #6d9dc5;
+  --callout-todo: #6d9dc5;
+  --callout-abstract: #6fb3a8;
+  --callout-tip: #6fb3a8;
+  --callout-success: #7fb069;
+  --callout-question: #d9a05b;
+  --callout-warning: #d9a05b;
+  --callout-failure: #c4574a;
+  --callout-danger: #c4574a;
+  --callout-bug: #c4574a;
+  --callout-example: #a68bc9;
+  --callout-quote: #a99f89;
+
+  /* Code-fence syntax colors (read by the CM6 highlight style). */
+  --syn-keyword: #c9a227;
+  --syn-string: #9cb46f;
+  --syn-number: #d08b5c;
+  --syn-comment: #6e6656;
+  --syn-func: #8fb4cf;
+  --syn-type: #c98f7e;
+  --syn-prop: #ab9cc9;
+  --syn-operator: #a99f89;
 }
 
 [data-theme="parchment"] {
@@ -38,4 +64,27 @@
   --accent-soft: rgba(138, 109, 26, 0.13);
   --border: #d8cbae;
   --danger: #a23a2e;
+
+  --callout-note: #3b6e99;
+  --callout-info: #3b6e99;
+  --callout-todo: #3b6e99;
+  --callout-abstract: #3f7d72;
+  --callout-tip: #3f7d72;
+  --callout-success: #4a7a38;
+  --callout-question: #a3671f;
+  --callout-warning: #a3671f;
+  --callout-failure: #a23a2e;
+  --callout-danger: #a23a2e;
+  --callout-bug: #a23a2e;
+  --callout-example: #6d5a91;
+  --callout-quote: #6e6250;
+
+  --syn-keyword: #8a6d1a;
+  --syn-string: #5e7b34;
+  --syn-number: #a05a26;
+  --syn-comment: #a2947c;
+  --syn-func: #41688a;
+  --syn-type: #96543f;
+  --syn-prop: #6d5a91;
+  --syn-operator: #6e6250;
 }

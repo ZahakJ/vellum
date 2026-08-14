@@ -24,7 +24,8 @@ themselves. #guide #editor
 
 ## Code
 
-Fenced code keeps its fences and gets monospace treatment:
+Fenced code gets monospace treatment, and the fence lines tuck themselves
+out of sight until your cursor visits the block:
 
 ```js
 // autosave: nothing to remember

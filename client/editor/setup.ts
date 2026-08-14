@@ -9,6 +9,7 @@ import {
   dropCursor,
   highlightSpecialChars,
   keymap,
+  placeholder,
 } from "@codemirror/view";
 import {
   defaultKeymap,
@@ -18,19 +19,22 @@ import {
 } from "@codemirror/commands";
 import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import {
   closeBrackets,
   closeBracketsKeymap,
   completionKeymap,
 } from "@codemirror/autocomplete";
-import { vim } from "@replit/codemirror-vim";
-import { editorTheme } from "./theme.ts";
+import { autoLineDirection } from "./bidi.ts";
+import { editorTheme, vellumHighlighting } from "./theme.ts";
 import { livePreview } from "./livePreview.ts";
 import { wikilinkAutocomplete } from "./autocomplete.ts";
 
 export interface EditorSetupOptions {
   doc: string;
+  /** Vault-relative path of the note (embeds resolve against its folder). */
+  path: string;
   vimMode: boolean;
   /** Fired on every document change (Editor.tsx debounces the autosave). */
   onDocChanged: (view: EditorView) => void;
@@ -40,13 +44,27 @@ export interface EditorSetupOptions {
 
 const vimCompartment = new Compartment();
 
+// @replit/codemirror-vim is heavy and most sessions never enable it: load it
+// on demand and cache the built extension for later editors.
+type VimExtension = ReturnType<typeof import("@replit/codemirror-vim").vim>;
+let vimExt: VimExtension | null = null;
+
+async function loadVim(): Promise<VimExtension> {
+  if (!vimExt) {
+    const { vim } = await import("@replit/codemirror-vim");
+    vimExt = vim();
+  }
+  return vimExt;
+}
+
 export function buildEditorState(options: EditorSetupOptions): EditorState {
   return EditorState.create({
     doc: options.doc,
     extensions: [
       // Vim must precede other key handling; the compartment lets the store's
-      // vimMode flag reconfigure it on a live view without a rebuild.
-      vimCompartment.of(options.vimMode ? vim() : []),
+      // vimMode flag reconfigure it on a live view without a rebuild. When the
+      // module has not arrived yet, setVim() patches it in async after mount.
+      vimCompartment.of(options.vimMode && vimExt ? vimExt : []),
       Prec.high(
         keymap.of([
           {
@@ -67,10 +85,19 @@ export function buildEditorState(options: EditorSetupOptions): EditorState {
       bracketMatching(),
       closeBrackets(),
       highlightSelectionMatches(),
+      // A fresh (daily) note is an empty pane — give it a quiet cue.
+      placeholder("Start writing…"),
       EditorView.lineWrapping,
-      markdown({ base: markdownLanguage }),
+      // Each line takes its direction from its own content (dir="auto" line
+      // decorations), so Arabic/Hebrew paragraphs read right-to-left while
+      // the rest of the note stays LTR; perLineTextDirection makes CodeMirror
+      // honor that per-line direction for cursor movement.
+      EditorView.perLineTextDirection.of(true),
+      autoLineDirection,
+      markdown({ base: markdownLanguage, codeLanguages: languages }),
       editorTheme(),
-      livePreview(),
+      vellumHighlighting(),
+      livePreview(options.path),
       wikilinkAutocomplete(),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) options.onDocChanged(update.view);
@@ -87,9 +114,15 @@ export function buildEditorState(options: EditorSetupOptions): EditorState {
   });
 }
 
-/** Toggle vim on a live view without recreating state (undo history survives). */
+/** Toggle vim on a live view without recreating state (undo history survives).
+ *  First activation loads the vim module on demand. */
 export function setVim(view: EditorView, on: boolean): void {
-  view.dispatch({
-    effects: vimCompartment.reconfigure(on ? vim() : []),
+  if (!on) {
+    view.dispatch({ effects: vimCompartment.reconfigure([]) });
+    return;
+  }
+  void loadVim().then((ext) => {
+    if (!view.dom.isConnected) return; // editor unmounted while loading
+    view.dispatch({ effects: vimCompartment.reconfigure(ext) });
   });
 }

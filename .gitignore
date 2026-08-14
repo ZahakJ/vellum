@@ -1,5 +1,7 @@
 node_modules/
 dist/
 vault/
+.env
+shots/
 *.log
 .DS_Store

@@ -74,3 +74,38 @@ export function resolveLink(target: string, tree: TreeNode | null): string | nul
   const byPath = notes.find((n) => n.path.toLowerCase() === asPath);
   return byPath ? byPath.path : null;
 }
+
+/** All ATX heading texts in a note, in order, skipping fenced code. */
+export function extractHeadings(content: string): string[] {
+  const out: string[] = [];
+  let inFence = false;
+  for (const line of content.split("\n")) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const m = /^\s{0,3}#{1,6}\s+(.+?)\s*$/.exec(line);
+    if (m) out.push(m[1]);
+  }
+  return out;
+}
+
+/** 1-based line number of the heading whose text matches (case-insensitive). */
+export function findHeadingLine(content: string, heading: string): number | null {
+  const want = heading.trim().toLowerCase();
+  if (!want) return null;
+  let inFence = false;
+  let n = 0;
+  for (const line of content.split("\n")) {
+    n++;
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const m = /^\s{0,3}#{1,6}\s+(.+?)\s*$/.exec(line);
+    if (m && m[1].trim().toLowerCase() === want) return n;
+  }
+  return null;
+}
