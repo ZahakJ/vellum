@@ -20,7 +20,9 @@ import {
   brokenEmbed,
   embedKnownBroken,
   fileUrl,
+  isNoiseImageName,
   markEmbedBroken,
+  missingImageCard,
   parseEmbed,
   resolveAttachment,
   resolveRelative,
@@ -43,6 +45,14 @@ export interface RenderOptions {
   embedded?: boolean;
   /** Notes already on the embed path (cycle guard for embedded renders). */
   ancestors?: Set<string>;
+  /** Unresolvable [[wikilinks]]: "dashed" (default) keeps the broken-link
+   *  affordance; "plain" renders the label as plain text — blog readers
+   *  should never see broken-link furniture or dead-end clicks. */
+  brokenLinks?: "dashed" | "plain";
+  /** Missing ![[image]] embeds: "placeholder" (default) is the ⌀ chip;
+   *  "card" is a faint minimal "missing image" card, hidden entirely when
+   *  the filename is machine noise ("Pasted image 2026…"). */
+  missingImages?: "placeholder" | "card";
 }
 
 interface Ctx extends RenderOptions {
@@ -188,6 +198,9 @@ function renderInline(raw: string, ctx: Ctx, multiline = false): string {
     const label =
       alias ?? (heading ? (target ? `${target} › ${heading}` : heading) : target);
     const broken = target !== "" && resolved === null;
+    // Blog surfaces: an unresolvable link is just its text — no dashed
+    // styling, no dead-end click target.
+    if (broken && ctx.brokenLinks === "plain") return keep(esc(label));
     const cls = broken ? "s-rv-wikilink s-rv-wikilink--broken" : "s-rv-wikilink";
     const headingAttr = heading ? ` data-heading="${esc(heading)}"` : "";
     return keep(
@@ -340,22 +353,43 @@ async function highlightCode(
 
 // ── Embed blocks (image figures, file cards, transclusions) ─────────────────
 
-function attachEmbedSrc(img: HTMLImageElement, name: string): void {
-  if (embedKnownBroken(name)) {
+function attachEmbedSrc(
+  img: HTMLImageElement,
+  name: string,
+  missing: "placeholder" | "card" = "placeholder",
+): void {
+  // What a miss becomes: the editor-style ⌀ placeholder, or (blog article)
+  // a faint "missing image" card — dropped entirely for machine-noise names
+  // like "Pasted image 2026…" that tell a reader nothing.
+  const fail = (): void => {
+    if (missing === "card") {
+      // Replace the whole figure when it is attached; a sync miss (cached)
+      // happens while the figure is still parentless, where replaceWith is
+      // a no-op — operate on the img inside it instead (an emptied figure
+      // is display:none'd by CSS).
+      const figure = img.closest(".s-rv-figure");
+      const target = figure?.parentNode ? figure : img;
+      if (isNoiseImageName(name)) target.remove();
+      else target.replaceWith(missingImageCard(name));
+      return;
+    }
     img.replaceWith(brokenEmbed(name));
+  };
+  if (embedKnownBroken(name)) {
+    fail();
     return;
   }
   img.onerror = () => {
     markEmbedBroken(name); // don't re-request a known-404 on every rebuild
-    img.replaceWith(brokenEmbed(name));
+    fail();
   };
   const r = resolveAttachment(name);
   if (typeof r === "string") img.src = fileUrl(r);
-  else if (r === null) img.replaceWith(brokenEmbed(name));
+  else if (r === null) fail();
   else {
     void r.then((path) => {
       if (path) img.src = fileUrl(path);
-      else img.replaceWith(brokenEmbed(name));
+      else fail();
     });
   }
 }
@@ -451,6 +485,8 @@ function transclusion(target: string, ctx: Ctx): HTMLElement {
       const inner: Ctx = {
         notePath: path,
         tree: ctx.tree,
+        brokenLinks: ctx.brokenLinks,
+        missingImages: ctx.missingImages,
         depth: ctx.depth + 1,
         ancestors: new Set([...ctx.ancestors, path]),
         slugger: new Slugger(),
@@ -482,8 +518,8 @@ function renderEmbedBlock(inner: string, ctx: Ctx): HTMLElement {
     img.className = "s-rv-img";
     img.alt = embed.target;
     if (embed.width) img.style.width = `${embed.width}px`;
-    attachEmbedSrc(img, embed.target);
-    fig.appendChild(img);
+    fig.appendChild(img); // append first: a miss may replace/remove the figure
+    attachEmbedSrc(img, embed.target, ctx.missingImages ?? "placeholder");
     return fig;
   }
   if (embed.kind === "file") return fileCard(embed.target);
@@ -830,7 +866,7 @@ function renderNote(md: string, ctx: Ctx, root: HTMLElement): void {
     const name = img.dataset.embedName;
     if (name) {
       delete img.dataset.embedName;
-      attachEmbedSrc(img, name);
+      attachEmbedSrc(img, name, ctx.missingImages ?? "placeholder");
     }
   }
 

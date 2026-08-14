@@ -353,6 +353,21 @@ export default function Sidebar() {
         />
       </div>
 
+      {admin && publishedFilter && (
+        <div className="s-filterbar">
+          <span className="s-filterbar__label">
+            <span aria-hidden="true">✦</span> Published only
+          </span>
+          <button
+            type="button"
+            className="s-filterbar__clear"
+            onClick={() => useStore.getState().setPublishedFilter(false)}
+          >
+            Show all
+          </button>
+        </div>
+      )}
+
       {hits !== null ? (
         <div className="s-search__results">
           {hits.length === 0 && <p className="s-search__none">No matches.</p>}
@@ -451,19 +466,22 @@ export default function Sidebar() {
         <div className="s-tags">
           <h3 className="s-tags__title">Tags</h3>
           <div className="s-tags__list">
-            {tags.map(({ tag, count }) => (
+            {tags.map(({ tag, count }) => {
+              const active = query.trim() === `#${tag}`;
+              return (
               <button
                 key={tag}
                 type="button"
-                className="s-tag"
-                onClick={() => setQuery(`#${tag}`)}
-                title={`Search #${tag}`}
+                className={active ? "s-tag s-tag--active" : "s-tag"}
+                onClick={() => setQuery(active ? "" : `#${tag}`)}
+                title={active ? `Clear #${tag} filter` : `Search #${tag}`}
               >
                 <span className="s-tag__hash" aria-hidden="true">#</span>
                 {tag}
                 <span className="s-tag__count">{count}</span>
               </button>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

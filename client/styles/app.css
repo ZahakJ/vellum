@@ -1848,3 +1848,97 @@ select:focus,
   color: var(--accent);
   opacity: 0.5;
 }
+
+/* Active tag filter: clicking the pill again clears the filter. */
+.s-tag--active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Sidebar mode banner: loud, dismissible marker for the published-only filter
+   so a filtered tree can never be mistaken for the whole vault. */
+.s-filterbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 10px 6px;
+  padding: 5px 10px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--accent);
+}
+.s-filterbar__clear {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.s-filterbar__clear:hover {
+  color: var(--text);
+}
+
+/* Status-bar eye: enter visitor preview. An icon among text buttons — align
+   the SVG on the text baseline row. */
+.s-statusbar__eye {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ── Visitor preview banner ──────────────────────────────────────────────
+   Slim fixed pill, bottom-center: overlaps neither the blog masthead / sticky
+   nav nor the app's top chrome, and floats above the status bar. Gold-leaf
+   accent per DESIGN.md; tokens only. */
+.s-preview-banner {
+  position: fixed;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 7px 6px 13px;
+  background: var(--bg-raised);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 999px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.s-preview-banner__icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+
+.s-preview-banner__text {
+  letter-spacing: 0.02em;
+}
+
+.s-preview-banner__exit {
+  padding: 3px 11px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.s-preview-banner__exit:hover {
+  background: var(--accent);
+  color: var(--bg);
+}

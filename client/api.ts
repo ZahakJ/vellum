@@ -6,6 +6,7 @@ import type {
   GraphData,
   MeData,
   NoteData,
+  PostMeta,
   PublishResult,
   SearchHit,
   TagCount,
@@ -13,8 +14,30 @@ import type {
   VaultEvent,
 } from "../shared/types.ts";
 
+// ── Visitor preview (admin-only) ────────────────────────────────────────────
+// While on, every API call carries X-Vellum-Preview: visitor and the server —
+// seeing a valid admin session — walks its real visitor code path (published-
+// only filtering everywhere). The client never imitates that filtering.
+
+const PREVIEW_HEADER = "X-Vellum-Preview";
+let previewOn = false;
+
+/** Flip the preview flag for all subsequent API calls (state.ts drives this). */
+export function setPreviewVisitor(on: boolean): void {
+  previewOn = on;
+}
+
+/** Merge the preview header (when on) into a fetch init — for the few
+ *  callers outside this module that fetch /api/* directly. */
+export function withPreview(init?: RequestInit): RequestInit | undefined {
+  if (!previewOn) return init;
+  const headers = new Headers(init?.headers);
+  headers.set(PREVIEW_HEADER, "visitor");
+  return { ...init, headers };
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const res = await fetch(url, withPreview(init));
   let body: unknown = null;
   try {
     body = await res.json();
@@ -98,6 +121,11 @@ export function getMe(): Promise<MeData> {
   return request<MeData>("/api/me");
 }
 
+/** Published notes as blog posts, newest first (blog mode's list). */
+export function getPosts(): Promise<PostMeta[]> {
+  return request<PostMeta[]>("/api/posts");
+}
+
 /** Toggle a note's frontmatter publish flag (admin only). */
 export function publishNote(path: string, publish: boolean): Promise<PublishResult> {
   return request<PublishResult>("/api/publish", json("POST", { path, publish }));
@@ -124,9 +152,12 @@ export function logout(): Promise<{ ok: true }> {
   return request<{ ok: true }>("/api/logout", { method: "POST" });
 }
 
-/** Subscribe to the vault SSE stream. Returns an unsubscribe function. */
+/** Subscribe to the vault SSE stream. Returns an unsubscribe function.
+ *  EventSource cannot carry custom headers, so visitor preview rides on a
+ *  query param instead — honored server-side only for /api/events and only
+ *  with a valid admin session, the same gating as the header. */
 export function subscribeEvents(cb: (ev: VaultEvent) => void): () => void {
-  const source = new EventSource("/api/events");
+  const source = new EventSource(previewOn ? "/api/events?preview=visitor" : "/api/events");
   source.onmessage = (e: MessageEvent<string>) => {
     try {
       cb(JSON.parse(e.data) as VaultEvent);

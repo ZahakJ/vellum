@@ -7,6 +7,7 @@
 import { create } from "zustand";
 import type { Backlink, PublishedCounts, TreeNode } from "../shared/types.ts";
 import * as api from "./api.ts";
+import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import { collectNotes, resolveLink } from "./editor/links.ts";
 import { isPublishedContent } from "./publish.ts";
 import { toast } from "./toast.ts";
@@ -15,6 +16,7 @@ const THEME_KEY = "vellum.theme";
 const VIM_KEY = "vellum.vim";
 const READING_KEY = "vellum.reading";
 const TABS_KEY = "vellum.tabs";
+const PREVIEW_KEY = "vellum.preview";
 
 /** Every built-in theme (data-theme attr values; the first is the default).
  *  Order is the status-bar toggle's cycle order and the palette's list. */
@@ -62,6 +64,23 @@ export interface State {
   /** Instance branding from SITE_NAME (wordmark, titles, login modal). */
   siteName: string;
   loginOpen: boolean;
+  /** Admin previewing the public site: every API call carries the preview
+   *  flag and the server answers along its real visitor code path, so what
+   *  renders IS the visitor experience (blog shell / visitor app view). */
+  previewVisitor: boolean;
+  /** Enter/exit visitor preview (admin only; persisted across reloads). */
+  setPreviewVisitor(on: boolean): Promise<void>;
+
+  // ------------------------------------------------- blog mode (PUBLIC_LAYOUT)
+  /** Visitor-facing layout: "blog" wraps visitors in the classic blog shell
+   *  (client/blog/); admins always get the full app. */
+  publicLayout: "app" | "blog";
+  /** SITE_TAGLINE — masthead subtitle (blog mode). */
+  tagline: string | null;
+  /** SITE_FOOTER resolved server-side (blog mode; always set when blog). */
+  footerLine: string | null;
+  /** BCP47 locale for post dates (BLOG_LOCALE, default "en"). */
+  blogLocale: string;
 
   // --------------------------------------------------------------- publish
   /** Published note paths (admin marks/filter); null = unknown/unavailable. */
@@ -181,6 +200,29 @@ function remap(current: string, from: string, to: string): string {
   return current;
 }
 
+// Visitor preview is persisted so a reload (or a pasted deep link) stays in
+// preview; read at module load so the very first /api/me already carries it.
+function readPreview(): boolean {
+  try {
+    return localStorage.getItem(PREVIEW_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function persistPreview(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(PREVIEW_KEY, "true");
+    else localStorage.removeItem(PREVIEW_KEY);
+  } catch {
+    // storage unavailable — preview just won't survive a reload
+  }
+}
+
+// The admin's tabs, parked while previewing; restored on exit (with the note
+// the preview ended on kept open, per "exit returns to the same note").
+let previewSnapshot: { tabs: string[]; open: string | null } | null = null;
+
 // Publish toggles rewrite the open note's file server-side; their SSE
 // "changed" echo must not be mistaken for an external edit (App checks this).
 let lastPublishWrite = 0;
@@ -218,6 +260,10 @@ async function guarded(label: string, fn: () => Promise<void>): Promise<void> {
 export const useStore = create<State>()((set, get) => {
   const initialTheme = readTheme();
   applyTheme(initialTheme);
+  // Restore a persisted preview BEFORE the first /api/me, so bootstrap
+  // already sees the visitor-shaped world and re-enters preview seamlessly.
+  const initialPreview = readPreview();
+  api.setPreviewVisitor(initialPreview);
 
   /** Load the tree, then restore last session's tabs — or open the home note
    *  for fresh visitors (no tabs remembered in localStorage). */
@@ -267,6 +313,12 @@ export const useStore = create<State>()((set, get) => {
     homeNote: null,
     siteName: "Vellum",
     loginOpen: false,
+    previewVisitor: initialPreview,
+
+    publicLayout: "app",
+    tagline: null,
+    footerLine: null,
+    blogLocale: "en",
 
     publishedPaths: null,
     publishedCounts: null,
@@ -289,6 +341,14 @@ export const useStore = create<State>()((set, get) => {
     loadMe: async () => {
       try {
         const me = await api.getMe();
+        // A preview flag the server did NOT honor (me.preview absent) means
+        // the admin session is gone — we are a real visitor now, so drop the
+        // flag rather than showing a lying "previewing" banner.
+        if (get().previewVisitor && me.preview !== true) {
+          api.setPreviewVisitor(false);
+          persistPreview(false);
+          set({ previewVisitor: false });
+        }
         set({
           admin: me.admin,
           publicReads: me.public,
@@ -296,6 +356,10 @@ export const useStore = create<State>()((set, get) => {
           homeNote: me.homeNote ?? null,
           publishedCounts: me.published ?? null,
           siteName: me.siteName?.trim() || "Vellum",
+          publicLayout: me.publicLayout === "blog" ? "blog" : "app",
+          tagline: me.tagline?.trim() || null,
+          footerLine: me.footer?.trim() || null,
+          blogLocale: me.blogLocale?.trim() || "en",
         });
         // DEFAULT_THEME applies only while the user has made no explicit
         // choice (nothing in localStorage) — and is deliberately NOT
@@ -350,6 +414,57 @@ export const useStore = create<State>()((set, get) => {
       }),
 
     setLoginOpen: (loginOpen) => set({ loginOpen }),
+
+    setPreviewVisitor: (on) =>
+      guarded("toggling visitor preview", async () => {
+        if (on === get().previewVisitor) return;
+        if (on && !get().admin) return; // admin-only affordance
+        // Let a pending autosave land first — the Editor unmounts on entry.
+        const before = get().openPath;
+        if (before && get().dirty[before]) await waitForClean(before, 2000);
+        api.setPreviewVisitor(on);
+        persistPreview(on);
+        // Attachment resolution is scope-dependent; never reuse across modes.
+        clearBrokenEmbeds();
+        if (on) {
+          previewSnapshot = { tabs: [...get().openTabs], open: get().openPath };
+          set({ previewVisitor: true, paletteOpen: false });
+          // Tree BEFORE me: the shell swap (admin flips false on loadMe) must
+          // find the visitor tree already in place, or the blog router would
+          // transiently resolve routes against the full admin tree.
+          await get().loadTree(); // the flat published tree (header is on)
+          await get().loadMe(); // now visitor-shaped (admin: false, preview)
+          // Visitor scoping of the session: tabs pointing at unpublished
+          // notes disappear, exactly as they do on logout.
+          const visible = new Set(collectNotes(get().tree).map((n) => n.path));
+          set((s) => {
+            const openTabs = s.openTabs.filter((p) => visible.has(p));
+            const openPath =
+              s.openPath && visible.has(s.openPath)
+                ? s.openPath
+                : openTabs[openTabs.length - 1] ?? null;
+            return { openTabs, openPath, view: "editor" as const };
+          });
+          void get().refreshBacklinks();
+        } else {
+          const current = get().openPath; // exit lands on the same note
+          set({ previewVisitor: false, paletteOpen: false });
+          // Same ordering on the way out: full tree first, then the admin
+          // shell mounts against it.
+          await get().loadTree();
+          await get().loadMe();
+          const snap = previewSnapshot;
+          previewSnapshot = null;
+          set((s) => {
+            let openTabs = snap ? [...snap.tabs] : s.openTabs;
+            const openPath = current ?? snap?.open ?? s.openPath;
+            if (openPath && !openTabs.includes(openPath)) openTabs = [...openTabs, openPath];
+            return { openTabs, openPath, view: "editor" as const };
+          });
+          void get().refreshBacklinks();
+          void get().loadPublished();
+        }
+      }),
 
     loadPublished: async () => {
       const { admin, authProtected, publicReads } = get();

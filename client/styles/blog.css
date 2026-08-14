@@ -1,0 +1,872 @@
+/* Vellum — blog shell (PUBLIC_LAYOUT=blog, visitors only).
+   A classic, academic blog cut from the same manuscript cloth as the app:
+   serif display, calm measure, hairline rules, gold-leaf accents. Every color
+   is a token from tokens.css so all four themes carry it. Prefix: s-blog. */
+
+/* ── Shell ─────────────────────────────────────────────────────────────── */
+
+.s-blog {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  scrollbar-gutter: stable;
+}
+
+/* ── Masthead ──────────────────────────────────────────────────────────── */
+
+.s-blog-mast {
+  padding: 52px 24px 26px;
+  text-align: center;
+}
+
+.s-blog-mast__star {
+  color: var(--accent);
+  font-size: 15px;
+  letter-spacing: 0.6em;
+  margin-bottom: 10px;
+  user-select: none;
+}
+
+.s-blog-mast__name {
+  display: inline-block;
+  font-family: var(--font-serif);
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+
+.s-blog-mast__name:hover {
+  color: color-mix(in srgb, var(--accent) 35%, var(--text));
+}
+
+.s-blog-mast__tagline {
+  margin: 10px auto 0;
+  max-width: 560px;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* ── Nav ───────────────────────────────────────────────────────────────── */
+
+.s-blog-nav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.s-blog-nav__inner {
+  position: relative;
+  max-width: 980px;
+  margin: 0 auto;
+  min-height: 50px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.s-blog-nav__links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  min-width: 0;
+  padding: 8px 0;
+}
+
+.s-blog-nav__link {
+  display: inline-block;
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+.s-blog-nav__link:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.s-blog-nav__link--active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.s-blog-nav__tools {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.s-blog-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+.s-blog-iconbtn:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
+/* "More ▾" overflow menu */
+
+.s-blog-more {
+  position: relative;
+}
+
+.s-blog-more__summary {
+  list-style: none;
+  user-select: none;
+}
+
+.s-blog-more__summary::-webkit-details-marker {
+  display: none;
+}
+
+.s-blog-more__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  inset-inline-start: 0;
+  z-index: 40;
+  min-width: 160px;
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+/* Burger (mobile only; hidden on wide screens) */
+
+.s-blog-nav__burger {
+  display: none;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+.s-blog-nav__burger:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+/* ── Search ────────────────────────────────────────────────────────────── */
+
+.s-blog-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* The expanding field OVERLAYS the nav row (absolute, anchored beside the
+   magnifier) instead of participating in it — opening search must never
+   reflow the topic links. */
+.s-blog-search__input {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  inset-inline-end: calc(100% + 4px);
+  z-index: 41;
+  width: min(240px, 40vw);
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  outline: none;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.s-blog-search__input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.s-blog-search__input::placeholder {
+  color: var(--text-faint);
+}
+
+.s-blog-search__results {
+  position: absolute;
+  top: calc(100% + 8px);
+  inset-inline-end: 0;
+  z-index: 40;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(420px, 60vh);
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+}
+
+.s-blog-search__none {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.s-blog-search__hit {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  text-align: start;
+  cursor: pointer;
+}
+
+.s-blog-search__hit--active {
+  background: var(--accent-soft);
+}
+
+.s-blog-search__title {
+  display: block;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.s-blog-search__snippet {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.s-blog-search__snippet mark {
+  background: none;
+  color: var(--accent);
+}
+
+/* ── Missing image embeds (blog article) ───────────────────────────────────
+   A faint, minimal card instead of the editor's ⌀ line; machine-noise names
+   ("Pasted image 2026…") hide entirely, possibly leaving an empty figure. */
+
+.s-blog .s-rv-figure:empty {
+  display: none;
+}
+
+.s-rv-imgmissing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin: 4px 0;
+  padding: 7px 12px;
+  border: 1px dashed color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: var(--radius);
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.s-rv-imgmissing__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.s-rv-imgmissing__name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+/* ── Page column ───────────────────────────────────────────────────────── */
+
+.s-blog-main {
+  min-height: 55vh;
+}
+
+.s-blog-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 24px 72px;
+}
+
+/* Section eyebrow: "Writings", "Related" — small caps + hairline rule. */
+
+.s-blog-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 6px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-faint);
+}
+
+.s-blog-heading::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.s-blog-heading__topic {
+  color: var(--accent);
+  letter-spacing: 0.1em;
+}
+
+.s-blog-empty {
+  padding: 28px 0;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--text-faint);
+}
+
+/* ── Post list ─────────────────────────────────────────────────────────── */
+
+.s-blog-entry {
+  padding: 30px 0 32px;
+  border-bottom: 1px solid var(--border);
+}
+
+.s-blog-entry:last-child {
+  border-bottom: none;
+}
+
+.s-blog-entry__title {
+  margin: 0 0 8px;
+  font-family: var(--font-serif);
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.s-blog-entry__title a {
+  color: var(--text);
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+
+.s-blog-entry__title a:hover {
+  color: var(--accent);
+}
+
+.s-blog-entry__excerpt {
+  margin: 10px 0 0;
+  font-family: var(--font-serif);
+  font-size: 15.5px;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+
+/* Meta line: date · reading time · chips */
+
+.s-blog-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+
+.s-blog-meta__date {
+  color: var(--text-muted);
+}
+
+.s-blog-meta__dot {
+  user-select: none;
+}
+
+.s-blog-chips {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.s-blog-chip {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.s-blog-chip:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.s-blog-chip__hash {
+  color: var(--accent);
+  margin-inline-end: 1px;
+}
+
+/* ── Home intro (HOME_NOTE) ────────────────────────────────────────────── */
+
+.s-blog-intro {
+  margin-bottom: 26px;
+}
+
+/* The reading renderer's column chrome is the page's job here. */
+.s-blog .s-reading__content {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Frontmatter properties are app furniture — a blog shows a meta line instead. */
+.s-blog .s-rv-props {
+  display: none;
+}
+
+/* Sticky nav must never hide a jumped-to heading. */
+.s-blog .s-rv-h {
+  scroll-margin-top: 72px;
+}
+
+/* ── Article ───────────────────────────────────────────────────────────── */
+
+.s-blog-article {
+  padding-top: 48px;
+}
+
+.s-blog-article__head {
+  margin-bottom: 30px;
+}
+
+.s-blog-article__title {
+  margin: 0 0 12px;
+  font-family: var(--font-serif);
+  font-size: 2.2em;
+  font-weight: 700;
+  line-height: 1.22;
+  color: color-mix(in srgb, var(--accent) 12%, var(--text));
+}
+
+.s-blog-article__meta {
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* RTL article (Arabic/Hebrew title): the meta row sits under the title's
+   right edge instead of stranding itself on the far left. */
+.s-blog-article__head--rtl .s-blog-article__meta {
+  justify-content: flex-end;
+}
+
+/* Reading column, a step larger than the app's editor. */
+.s-blog-article .s-reading__content {
+  font-size: 17px;
+  line-height: 1.75;
+}
+
+.s-blog-article__foot {
+  margin-top: 44px;
+}
+
+.s-blog-article__tags {
+  margin-bottom: 20px;
+}
+
+.s-blog-article__tags .s-blog-chip {
+  font-size: 12.5px;
+  padding: 3px 11px;
+}
+
+/* Share row */
+
+.s-blog-share {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.s-blog-share__label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-faint);
+  margin-inline-end: 4px;
+}
+
+.s-blog-share__link {
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text-muted);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.s-blog-share__link:hover {
+  color: var(--accent);
+}
+
+/* Prev / next */
+
+.s-blog-pn {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 26px;
+}
+
+.s-blog-pn__card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  text-decoration: none;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.s-blog-pn__card:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--bg-hover);
+}
+
+.s-blog-pn__card--next {
+  text-align: end;
+  align-items: flex-end;
+}
+
+.s-blog-pn__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+}
+
+.s-blog-pn__title {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.s-blog-pn__card:hover .s-blog-pn__title {
+  color: var(--accent);
+}
+
+.s-blog-pn__spacer {
+  display: block;
+}
+
+/* Related */
+
+.s-blog-related {
+  margin-top: 34px;
+}
+
+.s-blog-related__list {
+  margin: 0;
+  padding: 6px 0 0;
+  list-style: none;
+}
+
+.s-blog-related__list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.s-blog-related__list li:last-child {
+  border-bottom: none;
+}
+
+.s-blog-related__link {
+  font-family: var(--font-serif);
+  font-size: 15.5px;
+  color: var(--text);
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+
+.s-blog-related__link:hover {
+  color: var(--accent);
+}
+
+.s-blog-related__star {
+  color: var(--accent);
+  font-size: 11px;
+  margin-inline-end: 9px;
+}
+
+.s-blog-related__date {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* Marginalia inherits its own stylesheet; give it air. */
+.s-blog-article .s-marginalia {
+  margin-top: 40px;
+}
+
+/* ── Locked / missing ──────────────────────────────────────────────────── */
+
+.s-blog-locked {
+  text-align: center;
+  padding-top: 72px;
+  padding-bottom: 96px;
+}
+
+.s-blog-locked__glyph {
+  font-size: 34px;
+  color: var(--text-faint);
+  margin-bottom: 14px;
+  user-select: none;
+}
+
+.s-blog-locked__title {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  color: var(--text);
+  margin: 0 0 20px;
+}
+
+.s-blog-locked__home {
+  font-size: 13.5px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.s-blog-locked__home:hover {
+  text-decoration: underline;
+}
+
+/* ── Footer ────────────────────────────────────────────────────────────── */
+
+.s-blog-footer {
+  border-top: 1px solid var(--border);
+  padding: 34px 24px 42px;
+  text-align: center;
+}
+
+.s-blog-footer__line {
+  margin: 0 0 10px;
+  font-family: var(--font-serif);
+  font-size: 13.5px;
+  color: var(--text-muted);
+}
+
+.s-blog-footer__meta {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.s-blog-footer__link {
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text-faint);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.s-blog-footer__link:hover {
+  color: var(--accent);
+}
+
+/* Removable via VELLUM_DATA/custom.css: .s-blog-powered { display: none } */
+.s-blog-powered {
+  font-size: 11px;
+  color: var(--text-faint);
+  opacity: 0.8;
+}
+
+.s-blog-powered a {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
+
+.s-blog-powered a:hover {
+  color: var(--accent);
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .s-blog-mast {
+    padding-top: 40px;
+  }
+
+  .s-blog-mast__name {
+    font-size: 34px;
+  }
+}
+
+@media (max-width: 640px) {
+  .s-blog-mast {
+    padding: 30px 16px 20px;
+  }
+
+  .s-blog-mast__name {
+    font-size: 28px;
+  }
+
+  .s-blog-mast__tagline {
+    font-size: 14px;
+  }
+
+  /* Nav collapses: burger toggles a wrapping row of topics. */
+  .s-blog-nav__burger {
+    display: inline-flex;
+  }
+
+  .s-blog-nav__links {
+    display: none;
+  }
+
+  .s-blog-nav--open .s-blog-nav__links {
+    display: flex;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 35;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 10px 14px 12px;
+    background: var(--bg-raised);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Every topic fits the panel — no overflow menu inside the burger row. */
+  .s-blog-nav--open .s-blog-more__summary {
+    display: none;
+  }
+
+  .s-blog-nav--open .s-blog-more,
+  .s-blog-nav--open .s-blog-more__menu {
+    display: contents;
+  }
+
+  .s-blog-nav--open .s-blog-more__menu {
+    position: static;
+    box-shadow: none;
+    border: none;
+    background: none;
+    padding: 0;
+  }
+
+  .s-blog-page {
+    padding: 26px 18px 56px;
+  }
+
+  .s-blog-article {
+    padding-top: 30px;
+  }
+
+  .s-blog-article__title {
+    font-size: 1.75em;
+  }
+
+  .s-blog-entry__title {
+    font-size: 21px;
+  }
+
+  .s-blog-pn {
+    grid-template-columns: 1fr;
+  }
+
+  .s-blog-pn__spacer {
+    display: none;
+  }
+
+  .s-blog-search__input {
+    width: min(180px, 38vw);
+  }
+}
