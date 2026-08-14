@@ -3,6 +3,7 @@
 // hash from the environment. No hash configured → open local mode.
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import argon2 from "argon2";
 import { Hono } from "hono";
 import type { Context, MiddlewareHandler } from "hono";
@@ -19,6 +20,7 @@ interface AuthConfig {
   sessionSecret: string;
   publicReads: boolean;        // PUBLIC=false → reads require admin too
   homeNote: string | null;
+  trustedProxies: IpRange[];   // X-Forwarded-For honored only from these peers
 }
 
 let config: AuthConfig = {
@@ -26,6 +28,7 @@ let config: AuthConfig = {
   sessionSecret: randomBytes(32).toString("hex"),
   publicReads: true,
   homeNote: null,
+  trustedProxies: [],
 };
 
 /** Read auth settings from the environment. Call once at startup. */
@@ -40,12 +43,84 @@ export function initAuth(env: NodeJS.ProcessEnv = process.env): void {
     sessionSecret = randomBytes(32).toString("hex");
     console.warn("vellum: SESSION_SECRET not set — using an ephemeral secret; sessions will not survive restarts");
   }
+  const trustedProxies: IpRange[] = [];
+  for (const entry of (env.TRUSTED_PROXIES ?? "").split(",").map((s) => s.trim()).filter(Boolean)) {
+    const range = parseIpRange(entry);
+    if (range) trustedProxies.push(range);
+    else console.warn(`vellum: TRUSTED_PROXIES entry ${JSON.stringify(entry)} is not a valid IP or CIDR — ignored`);
+  }
   config = {
     passwordHash,
     sessionSecret: sessionSecret || randomBytes(32).toString("hex"),
     publicReads,
     homeNote,
+    trustedProxies,
   };
+}
+
+// ------------------------------------------------------------- IP utilities
+
+interface IpRange { bits: 32 | 128; value: bigint; prefix: number }
+
+/** "::ffff:1.2.3.4" → "1.2.3.4"; strips any %zone. */
+function canonicalIp(ip: string): string {
+  const zone = ip.indexOf("%");
+  if (zone !== -1) ip = ip.slice(0, zone);
+  const lower = ip.toLowerCase();
+  if (lower.startsWith("::ffff:") && lower.includes(".")) ip = ip.slice(7);
+  return ip;
+}
+
+function ipToBigInt(ip: string): { bits: 32 | 128; value: bigint } | null {
+  ip = canonicalIp(ip);
+  const family = isIP(ip);
+  if (family === 4) {
+    const [a, b, c, d] = ip.split(".").map(Number);
+    return { bits: 32, value: (BigInt(a) << 24n) | (BigInt(b) << 16n) | (BigInt(c) << 8n) | BigInt(d) };
+  }
+  if (family === 6) {
+    // Expand "::" then fold 8 hextets into a 128-bit value. A trailing IPv4
+    // (e.g. "64:ff9b::1.2.3.4") is rewritten as two hextets first.
+    let s = ip;
+    const v4 = s.match(/(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (v4) {
+      const [, a, b, c, d] = v4.map(Number);
+      s = s.slice(0, v4.index) + ((a << 8) | b).toString(16) + ":" + ((c << 8) | d).toString(16);
+    }
+    const halves = s.split("::");
+    const head = halves[0] ? halves[0].split(":") : [];
+    const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+    const groups = halves.length === 2
+      ? [...head, ...Array<string>(8 - head.length - tail.length).fill("0"), ...tail]
+      : head;
+    if (groups.length !== 8) return null;
+    let value = 0n;
+    for (const g of groups) value = (value << 16n) | BigInt(parseInt(g, 16));
+    return { bits: 128, value };
+  }
+  return null;
+}
+
+/** Parse "10.0.0.1", "10.0.0.0/8", "fd00::/8", … */
+function parseIpRange(entry: string): IpRange | null {
+  const slash = entry.indexOf("/");
+  const ipPart = slash === -1 ? entry : entry.slice(0, slash);
+  const parsed = ipToBigInt(ipPart);
+  if (!parsed) return null;
+  let prefix: number = parsed.bits;
+  if (slash !== -1) {
+    const p = Number(entry.slice(slash + 1));
+    if (!Number.isInteger(p) || p < 0 || p > parsed.bits) return null;
+    prefix = p;
+  }
+  return { bits: parsed.bits, value: parsed.value, prefix };
+}
+
+function isTrustedProxy(ip: string): boolean {
+  const parsed = ipToBigInt(ip);
+  if (!parsed) return false;
+  return config.trustedProxies.some((r) =>
+    r.bits === parsed.bits && (parsed.value >> BigInt(r.bits - r.prefix)) === (r.value >> BigInt(r.bits - r.prefix)));
 }
 
 // ------------------------------------------------------------------ sessions
@@ -82,14 +157,25 @@ function isAdmin(c: Context): boolean {
 
 const loginAttempts = new Map<string, number[]>();
 
+/** Rate-limit key. X-Forwarded-For is attacker-writable, so it is honored only
+ *  when the direct socket peer is a configured trusted proxy (TRUSTED_PROXIES);
+ *  the chain is then walked right to left past trusted hops to the address the
+ *  nearest trusted proxy actually saw. Otherwise: the socket peer address. */
 function clientIp(c: Context): string {
-  const forwarded = c.req.header("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
+  let peer = "unknown";
   try {
-    return getConnInfo(c).remote.address ?? "unknown";
+    peer = canonicalIp(getConnInfo(c).remote.address ?? "unknown");
   } catch {
-    return "unknown";
+    /* keep "unknown" */
   }
+  if (config.trustedProxies.length === 0 || !isTrustedProxy(peer)) return peer;
+  const forwarded = c.req.header("x-forwarded-for");
+  if (!forwarded) return peer;
+  const hops = forwarded.split(",").map((s) => canonicalIp(s.trim())).filter(Boolean);
+  for (let i = hops.length - 1; i >= 0; i--) {
+    if (!isTrustedProxy(hops[i])) return hops[i];
+  }
+  return hops[0] ?? peer; // every hop trusted → leftmost is the client
 }
 
 /** Sliding-window limiter: true when this IP has already burned all
