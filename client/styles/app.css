@@ -1,0 +1,804 @@
+/* Vellum — application chrome.
+   A candlelit manuscript room: calm density, 1px borders, gold-leaf accents.
+   All colors come from tokens.css. Class prefix: s- (BEM-ish plain CSS). */
+
+/* ---------------------------------------------------------------- reset -- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+mark {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 2px;
+  padding: 0 1px;
+  font-weight: 600;
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--text-muted);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* ----------------------------------------------------------- scrollbars -- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
+
+/* ------------------------------------------------------ buttons, inputs -- */
+
+button,
+.s-btn {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+button:hover,
+.s-btn:hover {
+  background: var(--bg-hover);
+}
+
+.s-btn--primary {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.s-btn--primary:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.s-btn--ghost {
+  color: var(--text-muted);
+}
+
+.s-btn--ghost:hover {
+  color: var(--text);
+}
+
+.s-btn--danger {
+  color: var(--danger);
+}
+
+.s-btn--danger:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.s-btn--active,
+.s-btn.active,
+.s-btn[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+input,
+textarea,
+select,
+.s-input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-faint);
+}
+
+input:focus,
+textarea:focus,
+select:focus,
+.s-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ------------------------------------------------------------ app shell -- */
+
+.s-app {
+  display: grid;
+  height: 100%;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "sidebar main panel"
+    "status  status status";
+}
+
+/* -------------------------------------------------------------- sidebar -- */
+
+.s-sidebar {
+  grid-area: sidebar;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border);
+}
+
+.s-sidebar-header {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* The app title, set like the opening word of an illuminated manuscript:
+   serif small caps with a gold drop-cap initial. */
+.s-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  font-variant-caps: small-caps;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.s-title::first-letter {
+  font-size: 1.65em;
+  color: var(--accent);
+  font-variant-caps: normal;
+  float: left;
+  line-height: 0.85;
+  padding-right: 3px;
+}
+
+.s-sidebar-search {
+  padding: 10px 12px;
+}
+
+.s-sidebar-search input,
+.s-search-input {
+  width: 100%;
+}
+
+.s-sidebar-section {
+  padding: 4px 12px 10px;
+}
+
+.s-sidebar-label {
+  display: block;
+  margin: 8px 4px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  user-select: none;
+}
+
+/* ----------------------------------------------------------------- tree -- */
+
+.s-tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 8px 12px;
+}
+
+.s-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  padding-left: calc(8px + var(--depth, 0) * 14px);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: none;
+}
+
+.s-tree-row:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.s-tree-row--active,
+.s-tree-row.active,
+.s-tree-row[aria-current="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.s-tree-row--folder {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.s-tree-chevron {
+  flex: none;
+  width: 12px;
+  color: var(--text-faint);
+  font-size: 10px;
+  transition: transform 0.12s ease;
+}
+
+.s-tree-chevron--open {
+  transform: rotate(90deg);
+}
+
+.s-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------------------------------------------------------- search hits -- */
+
+.s-hits {
+  overflow-y: auto;
+  padding: 4px 8px 12px;
+}
+
+.s-hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.s-hit:hover,
+.s-hit--active {
+  background: var(--bg-hover);
+}
+
+.s-hit-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.s-hit-snippet {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------ tag pills -- */
+
+.s-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 4px 6px;
+}
+
+.s-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 2px 9px;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.12s ease;
+}
+
+.s-tag:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.s-tag-count {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+/* ----------------------------------------------------------------- tabs -- */
+
+.s-main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.s-tabs {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  flex: none;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: none;
+}
+
+.s-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.s-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 220px;
+  padding: 8px 12px;
+  border: none;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: transparent;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+  user-select: none;
+}
+
+.s-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.s-tab--active,
+.s-tab.active,
+.s-tab[aria-selected="true"] {
+  color: var(--text);
+  background: var(--bg);
+}
+
+.s-tab--active::after,
+.s-tab.active::after,
+.s-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.s-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-tab-dirty {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.s-tab-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-faint);
+  background: transparent;
+}
+
+.s-tab-close:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+/* --------------------------------------------------------------- editor -- */
+
+.s-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.s-editor .cm-editor {
+  flex: 1;
+  min-height: 0;
+  font-size: 15px;
+}
+
+.s-editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.s-editor .cm-scroller {
+  font-family: var(--font-mono);
+  line-height: 1.6;
+  padding: 24px 0 40vh;
+}
+
+.s-editor .cm-content {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0 32px;
+  caret-color: var(--accent);
+}
+
+/* Empty state shown when no note is open. */
+.s-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-faint);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  user-select: none;
+}
+
+.s-empty kbd {
+  font-family: var(--font-mono);
+}
+
+/* ---------------------------------------------------------------- graph -- */
+
+.s-graph {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.s-graph canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.s-graph canvas:active {
+  cursor: grabbing;
+}
+
+/* ---------------------------------------------- right panel (backlinks) -- */
+
+.s-panel {
+  grid-area: panel;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-raised);
+  border-left: 1px solid var(--border);
+  transition: width 0.15s ease;
+}
+
+.s-panel--collapsed {
+  width: 0;
+  border-left: none;
+  overflow: hidden;
+}
+
+.s-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.s-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.s-backlink {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.s-backlink:hover {
+  background: var(--bg-hover);
+}
+
+.s-backlink-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
+.s-backlink-context {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  font-family: var(--font-serif);
+  font-style: italic;
+}
+
+.s-panel-empty {
+  padding: 16px 12px;
+  font-size: 12px;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* ------------------------------------------------------------ statusbar -- */
+
+.s-statusbar {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.s-statusbar .s-btn,
+.s-statusbar button {
+  font-size: 12px;
+  padding: 2px 8px;
+  color: var(--text-faint);
+}
+
+.s-statusbar .s-btn:hover,
+.s-statusbar button:hover {
+  color: var(--text);
+}
+
+.s-statusbar-spacer {
+  flex: 1;
+}
+
+.s-statusbar-item {
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------------- palette -- */
+
+.s-palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.s-palette {
+  width: min(560px, calc(100vw - 32px));
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px var(--accent-soft);
+  overflow: hidden;
+  animation: s-palette-in 0.12s ease;
+}
+
+@keyframes s-palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.s-palette-input,
+.s-palette input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  padding: 13px 16px;
+  font-size: 15px;
+}
+
+.s-palette-input:focus,
+.s-palette input:focus {
+  box-shadow: none;
+  border-color: var(--border);
+}
+
+.s-palette-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+}
+
+.s-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.s-palette-item--active,
+.s-palette-item.active,
+.s-palette-item[aria-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.s-palette-item-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.s-palette-empty {
+  padding: 18px 16px;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+/* ---------------------------------------------------------------- toast -- */
+
+.s-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 44px;
+  z-index: 200;
+  transform: translateX(-50%);
+  max-width: min(480px, calc(100vw - 32px));
+  padding: 9px 16px;
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+  animation: s-toast-in 0.18s ease;
+}
+
+.s-toast--error {
+  border-left-color: var(--danger);
+}
+
+.s-toast--leaving {
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+@keyframes s-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
