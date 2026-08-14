@@ -39,7 +39,9 @@ export function collectNotes(tree: TreeNode | null): NoteRef[] {
   const out: NoteRef[] = [];
   const walk = (node: TreeNode): void => {
     if (node.type === "file") {
-      if (node.name.toLowerCase().endsWith(".md")) {
+      // Match on PATH, not name: the visitor-facing published tree names
+      // nodes by bare title (no ".md") while paths stay real vault paths.
+      if (node.path.toLowerCase().endsWith(".md")) {
         out.push({ title: node.name.replace(/\.md$/i, ""), path: node.path });
       }
       return;

@@ -1,0 +1,202 @@
+/* Vellum — Marginalia: comments under published notes in the reading view.
+   Same 760px measure as the prose column; every color is a token from
+   tokens.css. Class prefix: s-marginalia / s-comment. */
+
+.s-marginalia {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 56px 120px;
+  font-family: var(--font-ui);
+}
+
+/* The prose column normally ends with deep bottom padding; when marginalia
+   follows, the section's own top spacing takes over. */
+.s-reading__body:has(+ .s-marginalia) .s-reading__content {
+  padding-bottom: 40px;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.s-marginalia__header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.s-marginalia__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-variant-caps: small-caps;
+  color: color-mix(in srgb, var(--accent) 40%, var(--text));
+}
+
+.s-marginalia__count {
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+/* ── Comment cards ─────────────────────────────────────────────────────── */
+
+.s-marginalia__list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.s-comment {
+  padding: 10px 14px 11px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: var(--radius);
+}
+
+.s-comment__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.s-comment__author {
+  font-family: var(--font-serif);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+  /* Author names are visitor input: isolate their bidi context so an RTL
+     override character can't visually reorder the author/time meta row. */
+  unicode-bidi: isolate;
+}
+
+.s-comment__time {
+  font-size: 11px;
+  color: var(--text-faint);
+  unicode-bidi: isolate;
+}
+
+.s-comment__delete {
+  margin-left: auto;
+  border: none;
+  background: none;
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-faint);
+  opacity: 0;
+  cursor: pointer;
+  transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+.s-comment:hover .s-comment__delete,
+.s-comment__delete:focus-visible {
+  opacity: 1;
+}
+
+.s-comment__delete:hover {
+  color: var(--danger);
+}
+
+.s-comment__body {
+  margin: 5px 0 0;
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;      /* plain text: keep the author's line breaks */
+  overflow-wrap: break-word;
+}
+
+/* ── Posting form ──────────────────────────────────────────────────────── */
+
+.s-marginalia__form {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.s-marginalia__name,
+.s-marginalia__text {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.s-marginalia__name {
+  max-width: 240px;
+}
+
+.s-marginalia__text {
+  resize: vertical;
+  min-height: 64px;
+  line-height: 1.55;
+}
+
+.s-marginalia__name::placeholder,
+.s-marginalia__text::placeholder {
+  color: var(--text-faint);
+}
+
+.s-marginalia__name:focus-visible,
+.s-marginalia__text:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* Honeypot: parked far off-screen for humans; bots fill it and are dropped. */
+.s-marginalia__web {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.s-marginalia__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.s-marginalia__post {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--bg);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  padding: 7px 16px;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.s-marginalia__post:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, var(--text));
+}
+
+.s-marginalia__post:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.s-marginalia__post:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

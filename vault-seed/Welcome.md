@@ -31,7 +31,7 @@ way your own notes eventually will:
 - [ ] Click through the links above (Ctrl/Cmd-click a [[Wikilinks & Backlinks|wikilink]] to follow it)
 - [ ] Press `Ctrl/Cmd P` and fuzzy-jump to any note
 - [ ] Press `Ctrl/Cmd G` and watch these seven notes form a graph
-- [ ] Toggle the *parchment* theme from the status bar
+- [ ] Cycle the four themes from the status bar's moon icon
 - [ ] Delete all of this and start writing
 
 When you are ready to bring your existing notes, head to

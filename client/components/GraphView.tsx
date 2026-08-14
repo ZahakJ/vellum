@@ -43,7 +43,7 @@ interface SimEdge {
   b: SimNode;
 }
 
-interface ThemeColors {
+export interface ThemeColors {
   text: string;
   muted: string;
   faint: string;
@@ -57,7 +57,7 @@ interface ThemeColors {
   idleEdgeAlpha: number;
 }
 
-function readThemeColors(): ThemeColors {
+export function readThemeColors(): ThemeColors {
   const cs = getComputedStyle(document.documentElement);
   const token = (name: string, fallback: string) =>
     cs.getPropertyValue(name).trim() || fallback;
@@ -92,7 +92,7 @@ function parseHex(color: string): [number, number, number] | null {
 }
 
 /** Blend a → b by t (0..1). Falls back to `a` when a color isn't hex. */
-function mixColors(a: string, b: string, t: number): string {
+export function mixColors(a: string, b: string, t: number): string {
   const ca = parseHex(a);
   const cb = parseHex(b);
   if (!ca || !cb) return a;
@@ -641,6 +641,7 @@ export default function GraphView() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const simRef = useRef<Sim | null>(null);
+  const admin = useStore((s) => s.admin);
   const [stats, setStats] = useState<{ notes: number; links: number } | null>(
     null,
   );
@@ -675,14 +676,21 @@ export default function GraphView() {
   return (
     <div className="s-graph" ref={wrapRef}>
       <canvas className="s-graph__canvas" ref={canvasRef} />
-      {stats?.notes === 0 && (
-        <div className="s-graph__empty">
-          No notes yet — create one and link it with wikilinks.
-        </div>
-      )}
+      {stats?.notes === 0 &&
+        (admin ? (
+          <div className="s-graph__empty">
+            No notes yet — create one and link it with wikilinks.
+          </div>
+        ) : (
+          <div className="s-graph__empty s-graph__empty--visitor">
+            <span className="s-graph__empty-star" aria-hidden="true">✦</span>
+            Nothing is published yet — the constellation awaits.
+          </div>
+        ))}
       {stats !== null && stats.notes > 0 && (
         <div className="s-graph__hud">
-          {stats.notes} note{stats.notes === 1 ? "" : "s"} · {stats.links} link
+          {stats.notes} {admin ? "note" : "published note"}
+          {stats.notes === 1 ? "" : "s"} · {stats.links} link
           {stats.links === 1 ? "" : "s"}
         </div>
       )}

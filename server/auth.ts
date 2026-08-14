@@ -9,6 +9,10 @@ import { Hono } from "hono";
 import type { Context, MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { getConnInfo } from "@hono/node-server/conninfo";
+import type { MeData } from "../shared/types.ts";
+import { isNotePublished, publishedCounts, resolveLink } from "./indexer.ts";
+import { customCssPath, defaultTheme, siteName } from "./site.ts";
+import { normalizeRel } from "./vault.ts";
 
 const COOKIE_NAME = "vellum_session";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -153,6 +157,12 @@ function isAdmin(c: Context): boolean {
   return isValidSessionToken(getCookie(c, COOKIE_NAME));
 }
 
+/** True when this request must see the curated published collection only:
+ *  a password hash is configured AND the request has no admin session. */
+export function isPublishLimited(c: Context): boolean {
+  return config.passwordHash !== null && !isAdmin(c);
+}
+
 // ---------------------------------------------------------------- rate limit
 
 const loginAttempts = new Map<string, number[]>();
@@ -160,8 +170,9 @@ const loginAttempts = new Map<string, number[]>();
 /** Rate-limit key. X-Forwarded-For is attacker-writable, so it is honored only
  *  when the direct socket peer is a configured trusted proxy (TRUSTED_PROXIES);
  *  the chain is then walked right to left past trusted hops to the address the
- *  nearest trusted proxy actually saw. Otherwise: the socket peer address. */
-function clientIp(c: Context): string {
+ *  nearest trusted proxy actually saw. Otherwise: the socket peer address.
+ *  Exported so other rate limiters (comments) key off the same address. */
+export function clientIp(c: Context): string {
   let peer = "unknown";
   try {
     peer = canonicalIp(getConnInfo(c).remote.address ?? "unknown");
@@ -239,26 +250,60 @@ authRoutes.post("/logout", (c) => {
   return c.json({ ok: true });
 });
 
+/** True when HOME_NOTE points at a note visible to visitors: resolvable as a
+ *  wikilink-style name within the published set, or an exact published path. */
+function homeNotePublished(ref: string): boolean {
+  if (resolveLink(ref, true) !== null) return true;
+  try {
+    const asPath = /\.md$/i.test(ref) ? ref : `${ref}.md`;
+    return isNotePublished(normalizeRel(asPath));
+  } catch {
+    return false;
+  }
+}
+
 authRoutes.get("/me", (c) => {
-  const me: { admin: boolean; public: boolean; protected: boolean; homeNote?: string } = {
-    admin: isAdmin(c),
+  const admin = isAdmin(c);
+  const me: MeData = {
+    admin,
     public: config.publicReads,
     protected: config.passwordHash !== null,
   };
-  if (config.homeNote) me.homeNote = config.homeNote;
+  // Publish stats are admin UI copy only — telling an anonymous visitor how
+  // many notes exist beyond the published ones would leak vault size.
+  if (admin) me.published = publishedCounts();
+  // Visitors see HOME_NOTE only when it resolves within the published
+  // collection — otherwise the name of an unpublished (or missing) note
+  // would leak, and opening it could only 404 anyway. Both name-style
+  // ("Welcome") and path-style ("guides/Welcome.md") values are honored,
+  // mirroring the client's resolution rules.
+  if (config.homeNote && (admin || homeNotePublished(config.homeNote))) {
+    me.homeNote = config.homeNote;
+  }
+  // Instance customization (SITE_NAME / DEFAULT_THEME / VELLUM_DATA/custom.css).
+  me.siteName = siteName();
+  const theme = defaultTheme();
+  if (theme) me.defaultTheme = theme;
+  if (customCssPath()) me.customCss = true;
   return c.json(me);
 });
 
 // --------------------------------------------------------------------- guard
 
 /** Always reachable, even with PUBLIC=false (the SPA shell is served outside /api). */
-const OPEN_PATHS = new Set(["/api/login", "/api/logout", "/api/me"]);
+const OPEN_PATHS = new Set(["/api/login", "/api/logout", "/api/me", "/api/custom.css"]);
 
 export const authGuard: MiddlewareHandler = async (c, next) => {
   if (OPEN_PATHS.has(c.req.path)) return next();
   if (!config.passwordHash) return next(); // local mode: everything open
   if (isAdmin(c)) return next();
-  const mutating = c.req.method !== "GET" && c.req.method !== "HEAD";
+  // Posting a comment is read-level, not vault mutation: visitors may do it
+  // (the route itself 404s unless COMMENTS=on and the note is published).
+  // It still falls through to the PUBLIC=false check below — a locked vault
+  // takes no comments. DELETE /api/comments/:id is a different path, so it
+  // stays admin-only like every other mutation.
+  const visitorPost = c.req.method === "POST" && c.req.path === "/api/comments";
+  const mutating = !visitorPost && c.req.method !== "GET" && c.req.method !== "HEAD";
   if (mutating) return c.json({ error: "Admin session required" }, 401);
   if (!config.publicReads) return c.json({ error: "Sign in required" }, 401);
   return next();

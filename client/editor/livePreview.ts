@@ -31,7 +31,7 @@ import type { SyntaxNode } from "@lezer/common";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { parseWikilink, resolveLink, WIKILINK_RE } from "./links.ts";
-import { parseProps, TAG_RE } from "./noteMeta.ts";
+import { buildPropsCard, parseProps, TAG_RE } from "./noteMeta.ts";
 import {
   FileCardWidget,
   ImageWidget,
@@ -709,6 +709,14 @@ function handleMousedown(event: MouseEvent, view: EditorView): boolean {
     return true;
   }
 
+  // Properties-card header expands/collapses the card (the widget's own
+  // click handler does the toggle) — it must not drop the cursor into the
+  // raw YAML the way clicks on the card body do.
+  if (target.closest(".cm-s-props__head")) {
+    event.preventDefault();
+    return true;
+  }
+
   const pos = posFromEvent(event, view);
   if (pos == null) return false;
 
@@ -770,40 +778,27 @@ class FrontmatterWidget extends WidgetType {
     return other.yaml === this.yaml;
   }
   toDOM(): HTMLElement {
-    const box = document.createElement("div");
-    box.className = "cm-s-props";
-    for (const { key, values } of parseProps(this.yaml)) {
-      const row = document.createElement("div");
-      row.className = "cm-s-props__row";
-      const k = document.createElement("span");
-      k.className = "cm-s-props__key";
-      k.textContent = key;
-      row.appendChild(k);
-      const v = document.createElement("span");
-      v.className = "cm-s-props__value";
-      if (key.toLowerCase() === "tags") {
-        for (const value of values) {
-          const pill = document.createElement("button");
-          pill.type = "button";
-          pill.className = "cm-s-props__tag";
-          pill.textContent = `#${value}`;
-          pill.title = `Search #${value}`;
-          pill.addEventListener("click", (ev) => {
-            ev.preventDefault();
-            ev.stopPropagation();
-            window.dispatchEvent(
-              new CustomEvent("vellum:search", { detail: `#${value}` }),
-            );
-          });
-          v.appendChild(pill);
-        }
-      } else {
-        v.textContent = values.join(", ");
-      }
-      row.appendChild(v);
-      box.appendChild(row);
-    }
-    return box;
+    const card = buildPropsCard(this.yaml, {
+      prefix: "cm-s-props",
+      makeTag: (value) => {
+        const pill = document.createElement("button");
+        pill.type = "button";
+        pill.className = "cm-s-props__tag";
+        pill.dataset.tag = value;
+        pill.textContent = `#${value}`;
+        pill.title = `Search #${value}`;
+        pill.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          window.dispatchEvent(
+            new CustomEvent("vellum:search", { detail: `#${value}` }),
+          );
+        });
+        return pill;
+      },
+    });
+    // buildBlockDecorations only mounts the widget when parseProps found rows.
+    return card ?? document.createElement("div");
   }
 }
 
@@ -926,6 +921,8 @@ class LivePreviewPlugin {
   /** The user has touched the note (click/keystroke); before that, the
    *  cursor line is not revealed — see buildDecorations. */
   interacted = false;
+  /** A rebuild was deferred because an IME composition was in progress. */
+  pendingRebuild = false;
 
   constructor(view: EditorView) {
     this.decorations = buildDecorations(view, this.interacted);
@@ -942,14 +939,24 @@ class LivePreviewPlugin {
     ) {
       this.interacted = true;
     }
-    if (
+    const needsRebuild =
       update.docChanged ||
       update.viewportChanged ||
       update.selectionSet ||
       this.interacted !== wasInteracted ||
-      update.transactions.some((tr) => tr.effects.length > 0)
-    ) {
-      this.decorations = buildDecorations(update.view, this.interacted);
+      update.transactions.some((tr) => tr.effects.length > 0);
+    if (needsRebuild || this.pendingRebuild) {
+      if (update.view.composing) {
+        // IME composition (Chinese/Japanese/Korean…) in progress: swapping
+        // decorations under the composition point can cancel it mid-character.
+        // Keep the old set mapped through the changes; rebuild on the update
+        // that follows compositionend (see the event handler below).
+        this.pendingRebuild = true;
+        this.decorations = this.decorations.map(update.changes);
+      } else {
+        this.pendingRebuild = false;
+        this.decorations = buildDecorations(update.view, this.interacted);
+      }
     }
   }
 }
@@ -963,6 +970,14 @@ export function livePreview(path: string): Extension {
       decorations: (plugin) => plugin.decorations,
       eventHandlers: {
         mousedown: handleMousedown,
+        // Flush a rebuild deferred during IME composition. The empty dispatch
+        // runs after the browser settles the composed text; update() then sees
+        // composing === false and rebuilds from the final document.
+        compositionend(_event, view) {
+          window.setTimeout(() => {
+            if (view.dom.isConnected) view.dispatch({});
+          }, 0);
+        },
       },
     }),
   ];

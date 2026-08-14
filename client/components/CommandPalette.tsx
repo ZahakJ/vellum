@@ -6,12 +6,13 @@ import {
   useState,
 } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
-import { useStore } from "../state.ts";
+import { THEMES, useStore } from "../state.ts";
+import type { Theme } from "../state.ts";
 import { search } from "../api.ts";
 import { dailyNotePath, openDailyNote } from "../daily.ts";
 import { toast } from "../toast.ts";
 import type { SearchHit } from "../../shared/types.ts";
-import { renderSnippet } from "./snippet.tsx";
+import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
 
 // ---------------------------------------------------------------------------
 // Fuzzy matching (subsequence with consecutive/word-start bonuses)
@@ -85,6 +86,8 @@ interface CommandCtx {
   openPath: string | null;
   admin: boolean;
   authProtected: boolean;
+  /** Best known publish state of the open note. */
+  openPublished: boolean;
 }
 
 interface Command {
@@ -93,6 +96,8 @@ interface Command {
   hint?: string;
   /** Commands that need a text argument switch the palette into prompt mode. */
   prompt?: { placeholder: string; initial: () => string };
+  /** Theme-switch commands show a color-dot glyph instead of the ⌘ icon. */
+  themeDot?: Theme;
   available: (ctx: CommandCtx) => boolean;
 }
 
@@ -122,17 +127,32 @@ const COMMANDS: Command[] = [
     hint: "Ctrl/Cmd E",
     available: ({ openPath, admin }) => admin && openPath !== null,
   },
-  {
-    id: "toggle-theme",
-    label: "Toggle theme",
-    hint: "iron-gall / parchment",
+  ...THEMES.map<Command>((t) => ({
+    id: `theme-${t}`,
+    label: `Theme: ${t}`,
+    hint: "appearance",
+    themeDot: t,
     available: () => true,
-  },
+  })),
   {
     id: "toggle-vim",
     label: "Toggle vim",
     hint: "editor",
     available: ({ admin }) => admin,
+  },
+  {
+    id: "publish-note",
+    label: "Publish note",
+    hint: "✦ live for visitors",
+    available: ({ openPath, admin, openPublished }) =>
+      admin && openPath !== null && !openPublished,
+  },
+  {
+    id: "unpublish-note",
+    label: "Unpublish note",
+    hint: "✧ visitors lose it",
+    available: ({ openPath, admin, openPublished }) =>
+      admin && openPath !== null && openPublished,
   },
   {
     id: "rename-current",
@@ -208,6 +228,11 @@ export default function CommandPalette() {
   const openPath = useStore((s) => s.openPath);
   const admin = useStore((s) => s.admin);
   const authProtected = useStore((s) => s.authProtected);
+  const openPublished = useStore(
+    (s) =>
+      s.openPublished ??
+      (s.openPath !== null && (s.publishedPaths?.has(s.openPath) ?? false)),
+  );
 
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<Mode>({ type: "list" });
@@ -277,7 +302,7 @@ export default function CommandPalette() {
   const items = useMemo<Item[]>(() => {
     if (mode.type === "prompt") return [];
     const q = query.trim();
-    const ctx: CommandCtx = { openPath, admin, authProtected };
+    const ctx: CommandCtx = { openPath, admin, authProtected, openPublished };
     const available = COMMANDS.filter((c) => c.available(ctx));
     if (!q) {
       return [
@@ -299,7 +324,7 @@ export default function CommandPalette() {
         indices: match.indices,
       }));
     return [...matchedCommands, ...hits.map<Item>((hit) => ({ kind: "note", hit }))];
-  }, [mode.type, query, openPath, admin, authProtected, openTabs, hits]);
+  }, [mode.type, query, openPath, admin, authProtected, openPublished, openTabs, hits]);
 
   // Keep selection in bounds as results change.
   useEffect(() => {
@@ -325,6 +350,11 @@ export default function CommandPalette() {
         requestAnimationFrame(() => inputRef.current?.select());
         return;
       }
+      if (command.themeDot) {
+        store.setTheme(command.themeDot);
+        close();
+        return;
+      }
       switch (command.id) {
         case "daily-note":
           void openDailyNote();
@@ -336,9 +366,6 @@ export default function CommandPalette() {
           store.toggleReading();
           if (store.view === "graph") store.setView("editor");
           break;
-        case "toggle-theme":
-          store.setTheme(store.theme === "iron-gall" ? "parchment" : "iron-gall");
-          break;
         case "toggle-vim":
           store.toggleVim();
           break;
@@ -349,6 +376,12 @@ export default function CommandPalette() {
               toast("Could not delete note");
             });
           }
+          break;
+        case "publish-note":
+          if (store.openPath) void store.togglePublish(store.openPath, true);
+          break;
+        case "unpublish-note":
+          if (store.openPath) void store.togglePublish(store.openPath, false);
           break;
         case "sign-in":
           store.setLoginOpen(true);
@@ -504,7 +537,18 @@ export default function CommandPalette() {
                     onClick={() => execute(item)}
                   >
                     <span className="s-palette-item-icon" aria-hidden="true">
-                      {item.kind === "command" ? <IconCommand /> : <IconFile />}
+                      {item.kind === "command" ? (
+                        item.command.themeDot ? (
+                          <span
+                            className="s-palette-dot"
+                            data-theme-dot={item.command.themeDot}
+                          />
+                        ) : (
+                          <IconCommand />
+                        )
+                      ) : (
+                        <IconFile />
+                      )}
                     </span>
                     {item.kind === "command" && (
                       <>
@@ -535,9 +579,11 @@ export default function CommandPalette() {
                         <span className="s-palette-item-title">
                           {item.hit.title}
                         </span>
-                        <span className="s-palette-item-snippet">
-                          {renderSnippet(item.hit.snippet)}
-                        </span>
+                        {!snippetIsEmpty(item.hit.snippet) && (
+                          <span className="s-palette-item-snippet">
+                            {renderSnippet(item.hit.snippet)}
+                          </span>
+                        )}
                         {folderOf(item.hit.path) && (
                           <span className="s-palette-item-path">
                             {folderOf(item.hit.path)}

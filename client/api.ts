@@ -6,6 +6,7 @@ import type {
   GraphData,
   MeData,
   NoteData,
+  PublishResult,
   SearchHit,
   TagCount,
   TreeNode,
@@ -95,6 +96,23 @@ export function getTags(): Promise<TagCount[]> {
 
 export function getMe(): Promise<MeData> {
   return request<MeData>("/api/me");
+}
+
+/** Toggle a note's frontmatter publish flag (admin only). */
+export function publishNote(path: string, publish: boolean): Promise<PublishResult> {
+  return request<PublishResult>("/api/publish", json("POST", { path, publish }));
+}
+
+/**
+ * The set of published note paths, as an anonymous visitor would see them.
+ * Trick: `credentials: "omit"` drops the admin session cookie, so the server
+ * answers with the visitor-facing flat tree of published notes — no extra
+ * endpoint needed. Only meaningful when a password hash is configured AND
+ * public reads are open (otherwise the request 401s / returns the full tree).
+ */
+export async function getPublishedPaths(): Promise<Set<string>> {
+  const tree = await request<TreeNode>("/api/tree", { credentials: "omit" });
+  return new Set((tree.children ?? []).map((n) => n.path));
 }
 
 /** Throws with the server's message ("Invalid password", rate limit…) on failure. */

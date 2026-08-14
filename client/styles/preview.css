@@ -340,6 +340,35 @@
   color: var(--text-muted);
 }
 
+/* Math always reads left-to-right, even inside RTL (dir="auto") lines —
+   KaTeX lays out its spans assuming an LTR context. */
+.s-editor .cm-s-math,
+.s-editor .cm-s-math-block,
+.s-editor .cm-s-math-pending {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Mid-line $$…$$: display-style math flowing inline with the sentence. */
+.s-editor .cm-s-math--display .katex-display {
+  display: inline-block;
+  margin: 0 0.15em;
+  vertical-align: middle;
+}
+
+/* Bad LaTeX (throwOnError: false) → a quiet inline error chip, themed with
+   the danger token instead of KaTeX's hard-coded red. */
+.s-editor .katex-error {
+  color: var(--danger) !important;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: 4px;
+  padding: 0 0.3em;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  white-space: pre-wrap;
+}
+
 /* clickable frontmatter tag pills are <button>s now — keep the pill look */
 .s-editor .cm-s-props__tag {
   cursor: pointer;

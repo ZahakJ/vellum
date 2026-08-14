@@ -129,6 +129,7 @@ class CalloutTitleWidget extends WidgetType {
     icon.innerHTML = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${calloutIconSvg(this.group)}</svg>`;
     const text = document.createElement("span");
     text.className = "cm-s-callout__text";
+    text.dir = "auto"; // Arabic/Hebrew callout titles order correctly
     text.textContent = this.title;
     bar.append(icon, text);
     if (this.foldable) {

@@ -14,6 +14,11 @@ export default function Tabs() {
   const dirty = useStore((s) => s.dirty);
   const openNote = useStore((s) => s.openNote);
   const closeTab = useStore((s) => s.closeTab);
+  const admin = useStore((s) => s.admin);
+
+  // Visitors get a clean publish-site chrome: no tab bar until a second
+  // note is actually open.
+  if (!admin && openTabs.length < 2) return null;
 
   if (openTabs.length === 0) return <div className="s-tabs s-tabs--empty" />;
 

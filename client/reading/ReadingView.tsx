@@ -5,6 +5,7 @@
 
 import { useEffect, useRef } from "react";
 import { getNote } from "../api.ts";
+import Marginalia from "../components/Marginalia.tsx";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { renderMarkdown } from "./render.ts";
@@ -28,6 +29,9 @@ function publishActive(host: HTMLElement): void {
 
 export default function ReadingView({ path }: { path: string }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  // The rendered markdown lives in its own child div so React siblings
+  // (Marginalia) survive the imperative replaceChildren below.
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const tree = useStore((s) => s.tree);
   const isDirty = useStore((s) => !!s.dirty[path]);
 
@@ -47,10 +51,12 @@ export default function ReadingView({ path }: { path: string }) {
         if (note.content.trim() === "") {
           const hint = document.createElement("p");
           hint.className = "s-reading__empty";
-          hint.textContent = "This note is empty — press Ctrl+E to edit it.";
+          hint.textContent = useStore.getState().admin
+            ? "This note is empty — press Ctrl+E to edit it."
+            : "This page is intentionally blank.";
           el.appendChild(hint);
         }
-        hostRef.current.replaceChildren(el);
+        bodyRef.current?.replaceChildren(el);
         // [[Note#Heading]] navigation: land on the requested heading.
         const pending = useStore.getState().pendingHeading;
         if (pending !== null) {
@@ -133,5 +139,10 @@ export default function ReadingView({ path }: { path: string }) {
     return () => window.removeEventListener("vellum:goto-heading", onGoto);
   }, []);
 
-  return <div className="s-reading" ref={hostRef} />;
+  return (
+    <div className="s-reading" ref={hostRef}>
+      <div className="s-reading__body" ref={bodyRef} />
+      <Marginalia path={path} />
+    </div>
+  );
 }

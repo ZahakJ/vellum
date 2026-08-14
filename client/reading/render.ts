@@ -30,7 +30,7 @@ import {
   calloutGroup,
   calloutIconSvg,
 } from "../editor/calloutDefs.ts";
-import { parseProps, TAG_RE } from "../editor/noteMeta.ts";
+import { buildPropsCard, TAG_RE } from "../editor/noteMeta.ts";
 import { htmlBlockStart, sanitizeHtml, sanitizeInlineTag } from "./rawHtml.ts";
 import { Slugger, stripInline } from "./toc.ts";
 
@@ -114,6 +114,14 @@ function renderInline(raw: string, ctx: Ctx, multiline = false): string {
   // `inline code`
   s = s.replace(/`([^`\n]+)`/g, (_m, code: string) =>
     keep(`<code class="s-rv-code">${code}</code>`),
+  );
+
+  // Mid-line $$display$$ math (line-initial $$ blocks are consumed at block
+  // level before paragraphs form; this catches the in-sentence form).
+  s = s.replace(/\$\$([^$]+?)\$\$/g, (_m, tex: string) =>
+    keep(
+      `<span class="s-rv-math s-rv-math--display">${katexHtml(unesc(tex).trim(), true)}</span>`,
+    ),
   );
 
   // $inline math$ — same pandoc-ish guards as editor/math.ts.
@@ -491,35 +499,18 @@ function renderEmbedBlock(inner: string, ctx: Ctx): HTMLElement {
 // ── Frontmatter properties card ─────────────────────────────────────────────
 
 function propsCard(yaml: string): HTMLElement | null {
-  const rows = parseProps(yaml);
-  if (rows.length === 0) return null;
-  const box = document.createElement("div");
-  box.className = "s-rv-props";
-  for (const { key, values } of rows) {
-    const row = document.createElement("div");
-    row.className = "s-rv-props__row";
-    const k = document.createElement("span");
-    k.className = "s-rv-props__key";
-    k.textContent = key;
-    row.appendChild(k);
-    const v = document.createElement("span");
-    v.className = "s-rv-props__value";
-    if (key.toLowerCase() === "tags") {
-      for (const value of values) {
-        const pill = document.createElement("button");
-        pill.type = "button";
-        pill.className = "s-rv-tag";
-        pill.dataset.tag = value;
-        pill.textContent = `#${value}`;
-        v.appendChild(pill);
-      }
-    } else {
-      v.textContent = values.join(", ");
-    }
-    row.appendChild(v);
-    box.appendChild(row);
-  }
-  return box;
+  return buildPropsCard(yaml, {
+    prefix: "s-rv-props",
+    makeTag: (value) => {
+      // Clicks are handled by the reading view's delegated .s-rv-tag handler.
+      const pill = document.createElement("button");
+      pill.type = "button";
+      pill.className = "s-rv-tag";
+      pill.dataset.tag = value;
+      pill.textContent = `#${value}`;
+      return pill;
+    },
+  });
 }
 
 // ── Block renderer ──────────────────────────────────────────────────────────
@@ -656,7 +647,7 @@ function renderBlocks(lines: string[], ctx: Ctx, root: HTMLElement): void {
           (marker !== "" ? " s-rv-callout__title--foldable" : "");
         bar.innerHTML =
           `<span class="s-rv-callout__icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${calloutIconSvg(group)}</svg></span>` +
-          `<span class="s-rv-callout__text">${renderInline(title, nested)}</span>` +
+          `<span class="s-rv-callout__text" dir="auto">${renderInline(title, nested)}</span>` +
           (marker !== ""
             ? '<span class="s-rv-callout__chevron"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></span>'
             : "");
@@ -872,8 +863,15 @@ function onRootClick(ev: MouseEvent): void {
       if (heading) store.setPendingHeading(heading);
       store.openNote(path);
     } else if (!store.admin) {
-      // Visitors can't create the missing note.
-      toast(`"${name}" does not exist`);
+      // Visitors can't create the missing note — and on a curated published
+      // site the target usually exists but is private, so say that (with the
+      // display label, never a raw internal vault path).
+      const rendered = wl.textContent?.trim();
+      const display =
+        rendered && !rendered.includes("/")
+          ? rendered
+          : name.split("/").pop()?.replace(/\.md$/i, "") ?? name;
+      toast(`"${display}" isn't published here`);
     } else {
       // Unresolved link: clicking it creates the note (Obsidian behavior).
       const notePath = /\.md$/i.test(name) ? name : `${name}.md`;

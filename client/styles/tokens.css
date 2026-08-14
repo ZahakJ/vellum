@@ -1,10 +1,25 @@
 /* Vellum — design tokens.
    Default (no data-theme attr) = "iron-gall" dark: warm near-black ink, ivory text, gold leaf.
+   [data-theme="void"]      = true-neutral cool near-black, starlight-steel accent.
+   [data-theme="lapis"]     = deep lapis-lazuli blue-black, brightened gold leaf.
    [data-theme="parchment"] = warm paper light theme.
-   Components must consume these variables only — never hard-coded colors. */
+   Components must consume these variables only — never hard-coded colors.
+   Contrast is enforced by `node scripts/check-contrast.mjs` (body >= 4.5:1,
+   muted >= 3:1 against both --bg and --bg-raised) — run it after any edit here. */
 
 :root {
   color-scheme: dark;
+
+  /* Theme identity swatches (constant across themes — the palette's
+     "Theme: …" commands draw their color dots from these). */
+  --swatch-iron-gall-bg: #16130e;
+  --swatch-iron-gall-accent: #c9a227;
+  --swatch-void-bg: #101014;
+  --swatch-void-accent: #9db2cf;
+  --swatch-lapis-bg: #0d1526;
+  --swatch-lapis-accent: #d9b23a;
+  --swatch-parchment-bg: #f2ebda;
+  --swatch-parchment-accent: #8a6d1a;
 
   --bg: #16130e;
   --bg-raised: #1e1a13;
@@ -49,6 +64,88 @@
   --syn-type: #c98f7e;
   --syn-prop: #ab9cc9;
   --syn-operator: #a99f89;
+}
+
+/* "void" — a true neutral dark: cool near-black, no warm cast, and the one
+   theme that trades gold leaf for starlight steel — a cool moonlit accent so
+   it reads as its own choice next to iron-gall instead of a slightly grayer
+   twin of it. */
+[data-theme="void"] {
+  color-scheme: dark;
+
+  --bg: #101014;
+  --bg-raised: #17171c;
+  --bg-hover: #202028;
+  --text: #e4e4e9;
+  --text-muted: #a2a2ad;
+  --text-faint: #6b6b76;
+  --accent: #9db2cf;
+  --accent-soft: rgba(157, 178, 207, 0.14);
+  --border: #26262e;
+  --danger: #c4574a;
+
+  --callout-note: #6d9dc5;
+  --callout-info: #6d9dc5;
+  --callout-todo: #6d9dc5;
+  --callout-abstract: #6fb3a8;
+  --callout-tip: #6fb3a8;
+  --callout-success: #7fb069;
+  --callout-question: #d9a05b;
+  --callout-warning: #d9a05b;
+  --callout-failure: #c4574a;
+  --callout-danger: #c4574a;
+  --callout-bug: #c4574a;
+  --callout-example: #a68bc9;
+  --callout-quote: #a2a2ad;
+
+  --syn-keyword: #9db2cf;
+  --syn-string: #9cb46f;
+  --syn-number: #d08b5c;
+  --syn-comment: #6b6b76;
+  --syn-func: #8fb4cf;
+  --syn-type: #c98f7e;
+  --syn-prop: #ab9cc9;
+  --syn-operator: #a2a2ad;
+}
+
+/* "lapis" — illuminated-manuscript lapis lazuli: deep blue-black ground,
+   gold leaf brightened a step for contrast against the blue. */
+[data-theme="lapis"] {
+  color-scheme: dark;
+
+  --bg: #0d1526;
+  --bg-raised: #131d33;
+  --bg-hover: #1b2842;
+  --text: #e7eaf4;
+  --text-muted: #a5b0cb;
+  --text-faint: #6b7794;
+  --accent: #d9b23a;
+  --accent-soft: rgba(217, 178, 58, 0.15);
+  --border: #24304b;
+  --danger: #d0655a;
+
+  --callout-note: #7ba7cf;
+  --callout-info: #7ba7cf;
+  --callout-todo: #7ba7cf;
+  --callout-abstract: #74bcb0;
+  --callout-tip: #74bcb0;
+  --callout-success: #86b871;
+  --callout-question: #dda660;
+  --callout-warning: #dda660;
+  --callout-failure: #d0655a;
+  --callout-danger: #d0655a;
+  --callout-bug: #d0655a;
+  --callout-example: #ad93cf;
+  --callout-quote: #a5b0cb;
+
+  --syn-keyword: #d9b23a;
+  --syn-string: #a3bd76;
+  --syn-number: #d08b5c;
+  --syn-comment: #6b7794;
+  --syn-func: #8fb4cf;
+  --syn-type: #cf9484;
+  --syn-prop: #b0a1cf;
+  --syn-operator: #a5b0cb;
 }
 
 [data-theme="parchment"] {
