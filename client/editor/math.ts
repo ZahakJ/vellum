@@ -42,16 +42,19 @@ function renderTex(
 }
 
 class InlineMathWidget extends WidgetType {
-  constructor(readonly tex: string) {
+  constructor(
+    readonly tex: string,
+    readonly display = false, // mid-line $$…$$ renders display-style inline
+  ) {
     super();
   }
   override eq(other: InlineMathWidget): boolean {
-    return other.tex === this.tex;
+    return other.tex === this.tex && other.display === this.display;
   }
   toDOM(view: EditorView): HTMLElement {
     const span = document.createElement("span");
-    span.className = "cm-s-math";
-    renderTex(span, this.tex, false, () => view.requestMeasure());
+    span.className = this.display ? "cm-s-math cm-s-math--display" : "cm-s-math";
+    renderTex(span, this.tex, this.display, () => view.requestMeasure());
     return span;
   }
   override ignoreEvent(): boolean {
@@ -107,6 +110,31 @@ export function inlineMathDecos(
   decos: Range<Decoration>[],
 ): Span[] {
   const claimed: Span[] = [];
+
+  // Mid-line $$display$$ math (Obsidian renders it display-style in place).
+  // Lines that *start* with $$ belong to the block-math StateField — leave
+  // them alone so the two never fight over the same range.
+  if (!lineText.trimStart().startsWith("$$")) {
+    const reD = /\$\$([^$\n]+?)\$\$/g;
+    for (let m = reD.exec(lineText); m; m = reD.exec(lineText)) {
+      const from = lineFrom + m.index;
+      const to = from + m[0].length;
+      if (blocked(from, to)) continue;
+      if (lineActive) {
+        decos.push(Decoration.mark({ class: "cm-s-math-src" }).range(from, to));
+      } else {
+        decos.push(
+          Decoration.replace({
+            widget: new InlineMathWidget(m[1].trim(), true),
+          }).range(from, to),
+        );
+      }
+      claimed.push({ from, to });
+    }
+  }
+
+  const overlapsClaimed = (from: number, to: number): boolean =>
+    claimed.some((s) => from < s.to && to > s.from);
   const re = /\$([^$\n]+?)\$/g;
   for (let m = re.exec(lineText); m; m = re.exec(lineText)) {
     const tex = m[1];
@@ -125,7 +153,7 @@ export function inlineMathDecos(
     }
     const from = lineFrom + m.index;
     const to = from + m[0].length;
-    if (blocked(from, to)) continue;
+    if (blocked(from, to) || overlapsClaimed(from, to)) continue;
     if (lineActive) {
       decos.push(Decoration.mark({ class: "cm-s-math-src" }).range(from, to));
     } else {

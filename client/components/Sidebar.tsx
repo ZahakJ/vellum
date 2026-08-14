@@ -5,10 +5,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
-import { createFolder, getTags, search } from "../api.ts";
+import { createFolder, getGraph, getTags, search } from "../api.ts";
+import { collectNotes, resolveLink, type NoteRef } from "../editor/links.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
-import { renderSnippet } from "./snippet.tsx";
+import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
 
 const SEARCH_DEBOUNCE_MS = 200;
 
@@ -64,6 +65,70 @@ function defaultOpen(depth: number): boolean {
   return depth === 0;
 }
 
+// ---------------------------------------------------------------------------
+// Visitor topic sections: per-section collapse persists like the tree's
+// folder expansion (module map + localStorage; true = collapsed, default open).
+// ---------------------------------------------------------------------------
+const TOPICS_KEY = "vellum.topics-collapsed";
+
+function loadTopicsCollapsed(): Map<string, boolean> {
+  try {
+    const raw = localStorage.getItem(TOPICS_KEY);
+    if (raw) return new Map(Object.entries(JSON.parse(raw) as Record<string, boolean>));
+  } catch {
+    // corrupted or unavailable storage — start fresh
+  }
+  return new Map();
+}
+
+const topicsCollapsedMap = loadTopicsCollapsed();
+
+function persistTopicsCollapsed(): void {
+  try {
+    localStorage.setItem(TOPICS_KEY, JSON.stringify(Object.fromEntries(topicsCollapsedMap)));
+  } catch {
+    // storage full/unavailable — collapse still works for this session
+  }
+}
+
+interface TopicSectionData {
+  key: string; // persistence key: "#<tag>" or "untagged"
+  label: string; // "philosophy" / "Notes"
+  notes: NoteRef[];
+}
+
+/** Group published notes into blog-style topic sections by tag. Notes carrying
+ *  several tags appear under each; untagged ones land in a final "Notes"
+ *  section. Sections are ordered by size (ties alphabetical), "Notes" last. */
+function buildTopics(
+  notes: NoteRef[],
+  homePath: string | null,
+  tagsByPath: Map<string, string[]>,
+): TopicSectionData[] {
+  const byTag = new Map<string, NoteRef[]>();
+  const untagged: NoteRef[] = [];
+  for (const note of notes) {
+    if (note.path === homePath) continue; // pinned above the sections
+    const tags = tagsByPath.get(note.path) ?? [];
+    if (tags.length === 0) {
+      untagged.push(note);
+      continue;
+    }
+    for (const tag of tags) {
+      const bucket = byTag.get(tag);
+      if (bucket) bucket.push(note);
+      else byTag.set(tag, [note]);
+    }
+  }
+  const sections: TopicSectionData[] = [...byTag.entries()]
+    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+    .map(([tag, list]) => ({ key: `#${tag}`, label: tag, notes: list }));
+  if (untagged.length > 0) {
+    sections.push({ key: "untagged", label: "Notes", notes: untagged });
+  }
+  return sections;
+}
+
 function countNotes(node: TreeNode | null): number {
   if (!node) return 0;
   if (node.type === "file") return 1;
@@ -97,6 +162,10 @@ export default function Sidebar() {
   const deleteNote = useStore((s) => s.deleteNote);
   const loadTree = useStore((s) => s.loadTree);
   const admin = useStore((s) => s.admin);
+  const homeNote = useStore((s) => s.homeNote);
+  const siteName = useStore((s) => s.siteName);
+  const publishedFilter = useStore((s) => s.publishedFilter);
+  const publishedPaths = useStore((s) => s.publishedPaths);
 
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[] | null>(null);
@@ -136,6 +205,24 @@ export default function Sidebar() {
       console.error("vellum: loading tags failed", err);
     });
   }, [tree]);
+
+  // Visitor topic sections need per-note tags; /api/graph carries them (and
+  // is publish-scoped for visitors). Keyed on the tree so SSE keeps it fresh.
+  const [noteTags, setNoteTags] = useState<Map<string, string[]> | null>(null);
+  useEffect(() => {
+    if (admin) return;
+    let cancelled = false;
+    getGraph()
+      .then((data) => {
+        if (!cancelled) setNoteTags(new Map(data.nodes.map((n) => [n.id, n.tags])));
+      })
+      .catch((err: unknown) => {
+        console.error("vellum: loading note tags failed", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [admin, tree]);
 
   // Dismiss the context menu on any outside click or Escape.
   useEffect(() => {
@@ -202,12 +289,35 @@ export default function Sidebar() {
 
   const noteCount = useMemo(() => countNotes(tree), [tree]);
 
+  // Visitor collection: flat, alphabetical (collectNotes sorts by title),
+  // with the home note pinned first. Also reused for the admin's
+  // "published only" sidebar filter.
+  const flatNotes = useMemo(() => {
+    if (admin && !publishedFilter) return null;
+    let notes = collectNotes(tree);
+    if (admin) notes = notes.filter((n) => publishedPaths?.has(n.path));
+    const home = homeNote ? resolveLink(homeNote, tree) : null;
+    if (home) {
+      const i = notes.findIndex((n) => n.path === home);
+      if (i > 0) notes = [notes[i], ...notes.slice(0, i), ...notes.slice(i + 1)];
+    }
+    return { notes, home };
+  }, [admin, publishedFilter, publishedPaths, tree, homeNote]);
+
+  // Visitor sidebar: blog-style topic sections derived from published notes'
+  // tags. Falls back to the flat list until the tag map has loaded. The admin
+  // sidebar (tree + "published only" filter) is untouched.
+  const topics = useMemo(() => {
+    if (admin || !flatNotes || noteTags === null) return null;
+    return buildTopics(flatNotes.notes, flatNotes.home, noteTags);
+  }, [admin, flatNotes, noteTags]);
+
   return (
     <aside className="s-sidebar">
       <header className="s-sidebar-header">
         <h1 className="s-title">
           <span className="s-title__star" aria-hidden="true">✦</span>
-          Vellum
+          {siteName}
         </h1>
         {admin && (
           <span className="s-sidebar-actions">
@@ -253,13 +363,67 @@ export default function Sidebar() {
               className="s-search-hit"
               onClick={() => openNote(hit.path)}
             >
-              <span className="s-search-hit__title">{hit.title}</span>
-              <span className="s-search-hit__snippet">
-                {renderSnippet(hit.snippet)}
+              <span className="s-search-hit__title">
+                {hit.title}
+                {admin && publishedPaths?.has(hit.path) && (
+                  <span className="s-pubstar" title="Published" aria-label="Published">
+                    ✦
+                  </span>
+                )}
               </span>
+              {!snippetIsEmpty(hit.snippet) && (
+                <span className="s-search-hit__snippet">
+                  {renderSnippet(hit.snippet)}
+                </span>
+              )}
             </button>
           ))}
         </div>
+      ) : topics !== null && flatNotes !== null ? (
+        <nav className="s-publist s-topics" aria-label="Notes by topic">
+          {flatNotes.home !== null &&
+            flatNotes.notes
+              .filter((note) => note.path === flatNotes.home)
+              .map((note) => (
+                <PubRow
+                  key={note.path}
+                  path={note.path}
+                  title={note.title}
+                  isHome
+                  onOpen={openNote}
+                />
+              ))}
+          {flatNotes.home !== null && topics.length > 0 && (
+            <div className="s-topics__rule" aria-hidden="true" />
+          )}
+          {topics.map((section) => (
+            <TopicSection key={section.key} section={section} onOpen={openNote} />
+          ))}
+          {flatNotes.notes.length === 0 && (
+            <p className="s-publist__none">Nothing published yet.</p>
+          )}
+        </nav>
+      ) : flatNotes !== null ? (
+        <nav className="s-publist" aria-label={admin ? "Published notes" : "Notes"}>
+          {admin && (
+            <div className="s-publist__head">
+              <span className="s-publist__headstar" aria-hidden="true">✦</span>
+              Published only
+            </div>
+          )}
+          {flatNotes.notes.map((note) => (
+            <PubRow
+              key={note.path}
+              path={note.path}
+              title={note.title}
+              isHome={note.path === flatNotes.home}
+              onOpen={openNote}
+            />
+          ))}
+          {flatNotes.notes.length === 0 && (
+            <p className="s-publist__none">Nothing published yet.</p>
+          )}
+        </nav>
       ) : (
         <nav
           className="s-tree"
@@ -368,6 +532,91 @@ export default function Sidebar() {
   );
 }
 
+/** One row of the flat curated list (visitor sidebar / admin publish filter). */
+const PubRow = memo(function PubRow({
+  path,
+  title,
+  isHome,
+  onOpen,
+}: {
+  path: string;
+  title: string;
+  isHome: boolean;
+  onOpen(path: string): void;
+}) {
+  const isActive = useStore((s) => s.openPath === path);
+  return (
+    <button
+      type="button"
+      className={`s-publist__item${isActive ? " s-publist__item--active" : ""}`}
+      onClick={() => onOpen(path)}
+      title={title}
+    >
+      {isHome && (
+        <span className="s-publist__home" title="Home" aria-hidden="true">
+          ✦
+        </span>
+      )}
+      <span className="s-publist__title">{title}</span>
+    </button>
+  );
+});
+
+/** One collapsible topic section of the visitor sidebar (serif small-caps
+ *  header + count, notes beneath). Collapse persists per section key. */
+const TopicSection = memo(function TopicSection({
+  section,
+  onOpen,
+}: {
+  section: TopicSectionData;
+  onOpen(path: string): void;
+}) {
+  const [open, setOpen] = useState(
+    () => !(topicsCollapsedMap.get(section.key) ?? false),
+  );
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    topicsCollapsedMap.set(section.key, !next);
+    persistTopicsCollapsed();
+  };
+
+  return (
+    <section className="s-topic">
+      <button
+        type="button"
+        className="s-topic__head"
+        onClick={toggle}
+        aria-expanded={open}
+        title={open ? `Collapse ${section.label}` : `Expand ${section.label}`}
+      >
+        <span
+          className={`s-tree__chevron${open ? " s-tree__chevron--open" : ""}`}
+          aria-hidden="true"
+        >
+          ›
+        </span>
+        <span className="s-topic__label">{section.label}</span>
+        <span className="s-topic__count">{section.notes.length}</span>
+      </button>
+      {open && (
+        <div className="s-topic__list" role="group">
+          {section.notes.map((note) => (
+            <PubRow
+              key={note.path}
+              path={note.path}
+              title={note.title}
+              isHome={false}
+              onOpen={onOpen}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+});
+
 interface TreeRowProps {
   node: TreeNode;
   depth: number;
@@ -385,6 +634,9 @@ interface TreeRowProps {
 const TreeRow = memo(function TreeRow(props: TreeRowProps) {
   const { node, depth, renaming } = props;
   const isActive = useStore((s) => s.openPath === node.path);
+  const isPublished = useStore(
+    (s) => node.type === "file" && (s.publishedPaths?.has(node.path) ?? false),
+  );
   const isFolder = node.type === "folder";
   const [isOpen, setIsOpen] = useState(
     () => isFolder && (expandedMap.get(node.path) ?? defaultOpen(depth)),
@@ -432,7 +684,14 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
             onCancel={props.onCancelRename}
           />
         ) : (
-          <span className="s-tree__label">{label}</span>
+          <span className="s-tree__label">
+            {label}
+            {isPublished && (
+              <span className="s-pubstar" title="Published" aria-label="Published">
+                ✦
+              </span>
+            )}
+          </span>
         )}
       </div>
       {isFolder && isOpen && (

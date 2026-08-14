@@ -8,6 +8,7 @@ import { useStore } from "../state.ts";
 
 export default function LoginModal() {
   const setLoginOpen = useStore((s) => s.setLoginOpen);
+  const siteName = useStore((s) => s.siteName);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -51,7 +52,7 @@ export default function LoginModal() {
         onSubmit={submit}
       >
         <div className="s-login__glyph" aria-hidden="true">✦</div>
-        <h2 className="s-login__title">Sign in to Vellum</h2>
+        <h2 className="s-login__title">Sign in to {siteName}</h2>
         <p className="s-login__hint">Admin password unlocks editing.</p>
         <input
           ref={inputRef}

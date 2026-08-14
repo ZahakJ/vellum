@@ -19,7 +19,7 @@ npm install
 npm start
 ```
 
-Open **http://localhost:6801**. On first launch Vellum creates `./vault` and seeds it with seven interlinked starter notes that double as the user manual.
+Open **http://localhost:6801**. On first launch Vellum creates `./vault` and seeds it with eight interlinked starter notes that double as the user manual.
 
 ### Point it at your own notes
 
@@ -58,6 +58,8 @@ With a hash set, visitors get the **reading view**: fully rendered notes, search
 
 To put it on the internet, run Vellum behind any HTTPS reverse proxy (Caddy, nginx, a Cloudflare tunnel, …) forwarding to `localhost:6801` — the app is a single origin (API + static client on one port), so no special proxy rules are needed; just make sure it is only reachable over TLS so the login password and session cookie stay private. When you do sit it behind a proxy, also set `TRUSTED_PROXIES` to the proxy's address (e.g. `TRUSTED_PROXIES=127.0.0.1,::1`) so the login rate limit keys off the real client IP from `X-Forwarded-For` instead of lumping everyone together as the proxy's IP. The header is only ever trusted when the connection comes from a listed address — otherwise it is ignored, since clients can forge it.
 
+Request bodies are capped server-side before any parsing buffers them: 10 MB on any `/api` request, and a much tighter 64 KB on the anonymous surfaces (comment posts and login), so oversized uploads are rejected (HTTP 413) instead of occupying memory. A matching cap at the proxy is still a sensible extra layer — e.g. nginx `client_max_body_size 10m;`.
+
 All `.env` keys (npm scripts load the file automatically via `node --env-file-if-exists=.env`; see `.env.example` for the full annotated list):
 
 | Key | What |
@@ -69,6 +71,79 @@ All `.env` keys (npm scripts load the file automatically via `node --env-file-if
 | `PUBLIC` | `false` requires login even to read (default: reading is public) |
 | `TRUSTED_PROXIES` | Comma-separated IPs/CIDRs allowed to set `X-Forwarded-For` (e.g. `127.0.0.1,::1`); unset → header ignored, rate limit uses the socket address |
 | `HOME_NOTE` | Vault-relative note fresh visitors land on, e.g. `index.md` |
+| `COMMENTS` | `on` enables reader comments under published notes (default off) |
+| `VELLUM_DATA` | Server data directory — the comments SQLite db and your `custom.css` (default `./data`) |
+| `SITE_NAME` | Site name shown in the sidebar wordmark, page titles, and the login modal (default `Vellum`) |
+| `DEFAULT_THEME` | Theme for visitors who haven't picked one: `iron-gall`, `void`, `lapis`, or `parchment` |
+| `EXCLUDE_TAGS` | Comma-separated tags hidden from the visitor site's topic sections and tag pills (workflow/status tags like `baby,child,adult`); admin views unaffected |
+
+### Comments
+
+Set `COMMENTS=on` and every **published** note grows a quiet "Marginalia" section under its
+reading view: visitors can leave a plain-text note (name optional — "Anonymous" otherwise),
+and admins see a delete `×` on each comment for moderation. Off (the default), the feature is
+completely dark — no UI, and the API routes answer 404.
+
+Comments are stored in an SQLite file at `VELLUM_DATA/comments.db` (default `./data/`, created
+on demand, gitignored) using Node's built-in `node:sqlite` — no extra dependencies. Abuse
+controls are built in: post requests over 64 KB are rejected before any parsing touches
+them, posting is rate-limited to 5 comments/min/IP (honoring
+`TRUSTED_PROXIES` for the real client address, same as login), bodies are capped at 2000
+characters of plain text (always rendered escaped, never as HTML/markdown), names at 40, and
+the form carries a hidden honeypot field that silently swallows bot submissions. Comments can
+only ever be read or written on notes with `publish: true` — for anything else the API answers
+the same 404 a missing note would, so unpublished paths stay unguessable. With `PUBLIC=false`
+(fully private vault), visitors can neither read nor post comments at all.
+
+### Theming
+
+If Vellum is replacing a blog, you probably want it to stop saying "Vellum" and start looking
+like *your* site. Three env-driven hooks cover that, no fork required:
+
+**Name it.** `SITE_NAME=Night Garden` rebrands every visible surface — the `✦` wordmark in the
+sidebar, the browser tab titles (`Note · Night Garden`), and the sign-in modal.
+
+**Pick the default look.** Vellum ships four themes: `iron-gall` (warm near-black, the default),
+`void` (neutral cool black with a starlight-steel accent — the one theme without gold), `lapis`
+(deep blue-black), and `parchment` (warm paper light).
+Every reader can switch themes from the status bar or command palette and their choice sticks
+in their browser; `DEFAULT_THEME=parchment` sets what first-time visitors see before they choose.
+
+**Restyle it.** Drop a `custom.css` into your data directory (`VELLUM_DATA`, default `./data/`)
+and Vellum serves it at `/api/custom.css` and loads it after its own stylesheets — for every
+visitor and for you, in dev and prod, no rebuild, no restart. Because it loads last, your rules
+win. The whole UI is driven by CSS custom properties on `:root` (and per-theme overrides via
+`html[data-theme="…"]`), so most re-skins are a handful of token lines:
+
+```css
+/* data/custom.css — a green-accented reading room */
+:root,
+html[data-theme="lapis"] {
+  --accent: #5da06b;
+  --accent-soft: rgba(93, 160, 107, 0.14);
+  --font-serif: "Iowan Old Style", Georgia, serif;
+}
+```
+
+The token API (define them on `:root` for all themes, or under `html[data-theme="void"]` etc.
+for one):
+
+| Token | Drives |
+| ----- | ------ |
+| `--bg` / `--bg-raised` / `--bg-hover` | Page background / sidebar & panels / hover rows |
+| `--text` / `--text-muted` / `--text-faint` | Body text / secondary text / hints & counts |
+| `--accent` / `--accent-soft` | Gold-leaf brand color (links, wikilinks, active marks) / its translucent wash |
+| `--border` | The 1px hairlines everywhere |
+| `--danger` | Destructive actions, broken-link tint |
+| `--font-ui` / `--font-serif` / `--font-mono` | UI chrome / prose & headings / code |
+| `--radius` | Corner rounding (default 6px) |
+| `--sidebar-w` | Sidebar width (default 280px) |
+| `--callout-note`, `--callout-tip`, … | Per-type callout hues (see `client/styles/tokens.css`) |
+| `--syn-keyword`, `--syn-string`, … | Code-highlighting palette |
+
+Anything beyond tokens is fair game too — every element carries a stable `s-` prefixed class
+(`.s-sidebar`, `.s-rv-p`, `.s-statusbar`, …), so `custom.css` can restyle specific components.
+If you keep body text ≥ 4.5:1 contrast against `--bg`, the whole app stays readable.
 
 ### Dev mode
 
@@ -88,6 +163,9 @@ Runs the API server and Vite with hot reload side by side.
 server (`node scripts/shoot.mjs http://localhost:6801 shots`) and it captures the editor, graph,
 and palette in both themes — it needs `npm i -D playwright` plus either
 `npx playwright install chromium` or a system browser via `CHROMIUM=/usr/bin/chromium`.
+`node scripts/check-contrast.mjs` is the accessibility gate for `client/styles/tokens.css`:
+every theme must keep body text ≥ 4.5:1 and secondary text ≥ 3:1 — run it after touching
+theme tokens.
 
 ## Features
 
@@ -120,7 +198,7 @@ and palette in both themes — it needs `npm i -D playwright` plus either
 - **Daily notes** — `Ctrl/Cmd D` opens (or creates) `daily/YYYY-MM-DD.md`
 - **Command palette** — fuzzy over notes and commands, including "Toggle reading view", "Open daily note", themes, vim
 - **Live vault watching** — edit a file in any other editor and the app updates within ~100 ms (chokidar + SSE)
-- **Two hand-tuned themes** — *iron-gall* dark and *parchment* light, gold-leaf accent, zero external fonts or CDN requests
+- **Four hand-tuned themes** — *iron-gall*, *void*, and *lapis* dark, *parchment* light; gold-leaf accent, zero external fonts or CDN requests
 
 ## Keymap
 

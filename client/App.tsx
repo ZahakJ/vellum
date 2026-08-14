@@ -16,8 +16,8 @@ import StatusBar from "./components/StatusBar.tsx";
 import Tabs from "./components/Tabs.tsx";
 import { openDailyNote } from "./daily.ts";
 import { applyUrl, installRouter, syncUrl } from "./router.ts";
-import { useStore } from "./state.ts";
-import { toast } from "./toast.ts";
+import { recentPublishWrite, useStore } from "./state.ts";
+import { dismissToasts, toast } from "./toast.ts";
 
 /** Writes made by our own autosave echo back through the watcher; ignore
  *  "changed" events arriving within this window of a local save. */
@@ -76,7 +76,18 @@ export default function App() {
     [],
   );
 
+  // Navigating to another note dismisses lingering toasts — a message about
+  // the previous interaction must not overlay unrelated content.
+  useEffect(() => {
+    dismissToasts();
+  }, [openPath]);
+
   // SSE: keep tree + backlinks fresh; reload the open note on external change.
+  // Re-subscribed whenever `admin` flips: the server filters the stream by the
+  // session it saw AT CONNECTION TIME, so a stream opened before login keeps
+  // visitor filtering (publish toggles would arrive as bogus "deleted" events)
+  // and a stream opened as admin would keep leaking unpublished paths after
+  // logout. A fresh EventSource carries the current cookie.
   useEffect(() => {
     const onEvent = (ev: VaultEvent) => {
       const store = useStore.getState();
@@ -90,7 +101,11 @@ export default function App() {
       } else if (ev.kind === "deleted" && store.openTabs.includes(ev.path)) {
         store.closeTab(ev.path);
       } else if (ev.kind === "changed" && ev.path === store.openPath) {
-        const selfSave = Date.now() - lastSaveRef.current < SELF_SAVE_WINDOW_MS;
+        // A publish toggle rewrites the file too; its echo is handled by
+        // togglePublish's own bumpReload, not the external-change path.
+        const selfSave =
+          Date.now() - lastSaveRef.current < SELF_SAVE_WINDOW_MS ||
+          recentPublishWrite(SELF_SAVE_WINDOW_MS);
         if (!selfSave) {
           if (store.dirty[ev.path]) {
             toast(`${ev.path} changed on disk — your unsaved edits were kept`);
@@ -101,9 +116,12 @@ export default function App() {
       }
 
       void store.refreshBacklinks();
+      // Keep publish marks + "N published" fresh (external edits can flip
+      // frontmatter flags too).
+      if (store.admin) void store.loadPublished();
     };
     return subscribeEvents(onEvent);
-  }, []);
+  }, [admin]);
 
   // Global keyboard shortcuts.
   useEffect(() => {
@@ -111,7 +129,11 @@ export default function App() {
       if (!(e.metaKey || e.ctrlKey)) return;
       const store = useStore.getState();
       const key = e.key.toLowerCase();
-      if (key === "p") {
+      if (key === "p" && e.shiftKey) {
+        // Ctrl/Cmd+Shift+P: publish toggle (admin, note open) — never the palette.
+        e.preventDefault();
+        if (store.admin && store.openPath) void store.togglePublish(store.openPath);
+      } else if (key === "p") {
         e.preventDefault();
         store.setPaletteOpen(!store.paletteOpen);
       } else if (key === "g") {
@@ -148,7 +170,7 @@ export default function App() {
   if (!authReady) return <div className="s-app" />;
 
   return (
-    <div className="s-app">
+    <div className={`s-app${admin ? "" : " s-app--visitor"}`}>
       <Sidebar />
       <main className="s-main">
         <Tabs />

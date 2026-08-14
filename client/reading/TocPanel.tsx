@@ -25,7 +25,10 @@ export default function TocPanel() {
     let cancelled = false;
     getNote(openPath)
       .then((note) => {
-        if (!cancelled) setHeadings(extractHeadings(note.content));
+        // Furniture headings (sections that are only link/tag lists, e.g. a
+        // trailing "Tags:") stay out of the outline; their ids still exist
+        // in the reading view so in-page anchors keep working.
+        if (!cancelled) setHeadings(extractHeadings(note.content).filter((h) => !h.furniture));
       })
       .catch((err: unknown) => {
         console.error("vellum: loading note for outline failed", err);

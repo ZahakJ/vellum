@@ -42,4 +42,31 @@ export interface MeData {
   public: boolean;     // reads are open without a session (PUBLIC != false)
   protected: boolean;  // an ADMIN_PASSWORD_HASH is configured (sign in/out is meaningful)
   homeNote?: string;   // note opened for fresh visitors (HOME_NOTE)
+  published?: PublishedCounts; // publish stats for admin UI copy (admin sessions only)
+  siteName?: string;   // instance branding (SITE_NAME; default "Vellum")
+  defaultTheme?: string; // theme applied when the visitor has no stored choice (DEFAULT_THEME)
+  customCss?: boolean; // VELLUM_DATA/custom.css exists → client links /api/custom.css
+}
+
+export interface PublishedCounts {
+  notes: number;  // notes with frontmatter publish: true
+  total: number;  // all indexed notes
+}
+
+// POST /api/publish { path, publish: boolean } (admin only) → PublishResult
+export interface PublishResult {
+  ok: true;
+  path: string;       // normalized vault-relative path
+  published: boolean; // publish state after the toggle
+}
+
+// Comments (COMMENTS=on): GET /api/comments?path= → CommentData[],
+// POST /api/comments { path, author?, body, website? } → CommentData.
+// The poster's IP is stored server-side for moderation but never leaves it.
+export interface CommentData {
+  id: number;
+  notePath: string;   // normalized vault-relative path of the note
+  author: string;     // trimmed, ≤40 chars, "Anonymous" when omitted
+  body: string;       // plain text, ≤2000 chars
+  createdMs: number;
 }

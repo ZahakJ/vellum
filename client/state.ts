@@ -5,9 +5,10 @@
 // (bumped when the open note changed on disk, so the Editor remounts).
 
 import { create } from "zustand";
-import type { Backlink, TreeNode } from "../shared/types.ts";
+import type { Backlink, PublishedCounts, TreeNode } from "../shared/types.ts";
 import * as api from "./api.ts";
 import { collectNotes, resolveLink } from "./editor/links.ts";
+import { isPublishedContent } from "./publish.ts";
 import { toast } from "./toast.ts";
 
 const THEME_KEY = "vellum.theme";
@@ -15,8 +16,19 @@ const VIM_KEY = "vellum.vim";
 const READING_KEY = "vellum.reading";
 const TABS_KEY = "vellum.tabs";
 
-export type Theme = "iron-gall" | "parchment";
+/** Every built-in theme (data-theme attr values; the first is the default).
+ *  Order is the status-bar toggle's cycle order and the palette's list. */
+export const THEMES = ["iron-gall", "void", "lapis", "parchment"] as const;
+export type Theme = (typeof THEMES)[number];
 export type View = "editor" | "graph";
+
+function isTheme(value: unknown): value is Theme {
+  return typeof value === "string" && (THEMES as readonly string[]).includes(value);
+}
+
+export function nextTheme(theme: Theme): Theme {
+  return THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+}
 
 export interface State {
   tree: TreeNode | null;
@@ -47,7 +59,27 @@ export interface State {
   publicReads: boolean;
   /** Note path/name opened for fresh visitors (HOME_NOTE). */
   homeNote: string | null;
+  /** Instance branding from SITE_NAME (wordmark, titles, login modal). */
+  siteName: string;
   loginOpen: boolean;
+
+  // --------------------------------------------------------------- publish
+  /** Published note paths (admin marks/filter); null = unknown/unavailable. */
+  publishedPaths: Set<string> | null;
+  /** Publish stats from /api/me ("18 published" in the status bar). */
+  publishedCounts: PublishedCounts | null;
+  /** Status-bar toggle: sidebar shows only published notes (admin). */
+  publishedFilter: boolean;
+  /** Publish state of the OPEN note, read from its frontmatter by the
+   *  status bar's content fetch; null while unknown (note switching). */
+  openPublished: boolean | null;
+
+  /** Refresh publishedPaths + counts (admin; no-ops gracefully otherwise). */
+  loadPublished(): Promise<void>;
+  /** Flip (or set) a note's publish flag via POST /api/publish. */
+  togglePublish(path: string, publish?: boolean): Promise<void>;
+  setPublishedFilter(b: boolean): void;
+  setOpenPublished(b: boolean | null): void;
 
   /** Boot: fetch /api/me, then load the vault + restore session/home note. */
   bootstrap(): Promise<void>;
@@ -83,7 +115,23 @@ export interface State {
 
 function readTheme(): Theme {
   const stored = localStorage.getItem(THEME_KEY);
-  return stored === "parchment" ? "parchment" : "iron-gall";
+  return isTheme(stored) ? stored : THEMES[0];
+}
+
+/** Add (or drop) the instance stylesheet link for VELLUM_DATA/custom.css.
+ *  Appended to <head> so it lands after every built-in stylesheet and its
+ *  rules win ties — that is the whole point of a custom.css. */
+function ensureCustomCss(enabled: boolean): void {
+  const existing = document.head.querySelector("link[data-vellum-custom]");
+  if (enabled && !existing) {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "/api/custom.css";
+    link.setAttribute("data-vellum-custom", "");
+    document.head.appendChild(link);
+  } else if (!enabled && existing) {
+    existing.remove();
+  }
 }
 
 function readVim(): boolean {
@@ -131,6 +179,31 @@ function remap(current: string, from: string, to: string): string {
   if (current === from) return to;
   if (current.startsWith(`${from}/`)) return to + current.slice(from.length);
   return current;
+}
+
+// Publish toggles rewrite the open note's file server-side; their SSE
+// "changed" echo must not be mistaken for an external edit (App checks this).
+let lastPublishWrite = 0;
+export function recentPublishWrite(windowMs: number): boolean {
+  return Date.now() - lastPublishWrite < windowMs;
+}
+
+/** Resolve once `dirty[path]` clears (autosave landed), or after timeoutMs. */
+function waitForClean(path: string, timeoutMs: number): Promise<void> {
+  if (!useStore.getState().dirty[path]) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      unsubscribe();
+      resolve();
+    }, timeoutMs);
+    const unsubscribe = useStore.subscribe((s) => {
+      if (!s.dirty[path]) {
+        window.clearTimeout(timer);
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
 }
 
 async function guarded(label: string, fn: () => Promise<void>): Promise<void> {
@@ -192,7 +265,13 @@ export const useStore = create<State>()((set, get) => {
     authProtected: false,
     publicReads: true,
     homeNote: null,
+    siteName: "Vellum",
     loginOpen: false,
+
+    publishedPaths: null,
+    publishedCounts: null,
+    publishedFilter: false,
+    openPublished: null,
 
     bootstrap: async () => {
       await get().loadMe();
@@ -204,6 +283,7 @@ export const useStore = create<State>()((set, get) => {
       }
       await enterVault();
       set({ authReady: true });
+      void get().loadPublished();
     },
 
     loadMe: async () => {
@@ -214,7 +294,17 @@ export const useStore = create<State>()((set, get) => {
           publicReads: me.public,
           authProtected: me.protected ?? false,
           homeNote: me.homeNote ?? null,
+          publishedCounts: me.published ?? null,
+          siteName: me.siteName?.trim() || "Vellum",
         });
+        // DEFAULT_THEME applies only while the user has made no explicit
+        // choice (nothing in localStorage) — and is deliberately NOT
+        // persisted, so a changed server default keeps reaching them.
+        if (!localStorage.getItem(THEME_KEY) && isTheme(me.defaultTheme) && me.defaultTheme !== get().theme) {
+          applyTheme(me.defaultTheme);
+          set({ theme: me.defaultTheme });
+        }
+        ensureCustomCss(me.customCss === true);
       } catch (err) {
         // Server unreachable/old — behave like open local mode.
         console.error("vellum: fetching /api/me failed", err);
@@ -226,21 +316,96 @@ export const useStore = create<State>()((set, get) => {
       await api.login(password); // throws with server message on 401/429
       await get().loadMe();
       set({ loginOpen: false });
-      if (get().tree === null) await enterVault(); // vault was locked until now
+      // The tree we hold is the visitor's flat published view (or nothing,
+      // when the vault was locked) — refetch as admin either way.
+      await get().loadTree();
+      if (get().openTabs.length === 0) await enterVault();
+      void get().loadPublished();
     },
 
     logout: () =>
       guarded("signing out", async () => {
         await api.logout();
         await get().loadMe();
+        set({ publishedPaths: null, publishedFilter: false, openPublished: null });
         const { admin, publicReads } = get();
         if (!admin && !publicReads) {
           // Vault is locked again for this session — drop everything readable.
           set({ tree: null, openTabs: [], openPath: null, backlinks: [], view: "editor" });
+          return;
         }
+        // Back to the visitor's curated view: refetch the (flat) tree and
+        // drop tabs pointing at notes that are not published.
+        await get().loadTree();
+        const visible = new Set(collectNotes(get().tree).map((n) => n.path));
+        set((s) => {
+          const openTabs = s.openTabs.filter((p) => visible.has(p));
+          const openPath =
+            s.openPath && visible.has(s.openPath)
+              ? s.openPath
+              : openTabs[openTabs.length - 1] ?? null;
+          return { openTabs, openPath };
+        });
+        void get().refreshBacklinks();
       }),
 
     setLoginOpen: (loginOpen) => set({ loginOpen }),
+
+    loadPublished: async () => {
+      const { admin, authProtected, publicReads } = get();
+      if (!admin) return;
+      // Counts always refresh (cheap, drives the "N published" segment).
+      try {
+        const me = await api.getMe();
+        set({ publishedCounts: me.published ?? null });
+      } catch {
+        // keep last known counts
+      }
+      // The path set rides on the visitor view of /api/tree, which only
+      // exists when a hash is configured and public reads are open.
+      if (!authProtected || !publicReads) return;
+      try {
+        const publishedPaths = await api.getPublishedPaths();
+        set({ publishedPaths });
+      } catch (err) {
+        console.error("vellum: loading published set failed", err);
+      }
+    },
+
+    togglePublish: (path, publish) =>
+      guarded("toggling publish", async () => {
+        // If the note is open with unsaved edits, let the autosave land first
+        // so the server-side frontmatter edit isn't clobbered by a stale
+        // editor buffer (and vice versa).
+        if (get().dirty[path]) await waitForClean(path, 2000);
+        const current =
+          get().openPath === path && get().openPublished !== null
+            ? get().openPublished!
+            : isPublishedContent((await api.getNote(path)).content);
+        const next = publish ?? !current;
+        lastPublishWrite = Date.now(); // SSE echo arrives before the response
+        const result = await api.publishNote(path, next);
+        set((s) => {
+          const publishedPaths = s.publishedPaths ? new Set(s.publishedPaths) : null;
+          if (publishedPaths) {
+            if (result.published) publishedPaths.add(result.path);
+            else publishedPaths.delete(result.path);
+          }
+          return {
+            publishedPaths,
+            openPublished: s.openPath === result.path ? result.published : s.openPublished,
+          };
+        });
+        void get().loadPublished();
+        // The note's bytes changed on disk: refresh the open editor/reading
+        // pane so its buffer carries the new frontmatter.
+        if (get().openPath === result.path) get().bumpReload();
+        toast(result.published ? "Published — live for visitors" : "Unpublished");
+      }),
+
+    setPublishedFilter: (publishedFilter) => set({ publishedFilter }),
+
+    setOpenPublished: (openPublished) => set({ openPublished }),
 
     loadTree: () =>
       guarded("loading vault tree", async () => {
@@ -253,6 +418,9 @@ export const useStore = create<State>()((set, get) => {
         openTabs: s.openTabs.includes(path) ? s.openTabs : [...s.openTabs, path],
         openPath: path,
         view: "editor",
+        // Unknown until the status bar reads the new note's frontmatter —
+        // unless the published set already knows the answer.
+        openPublished: s.openPath === path ? s.openPublished : s.publishedPaths?.has(path) ?? null,
       }));
       void get().refreshBacklinks();
     },

@@ -8,11 +8,14 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { api } from "./api.ts";
 import { initAuth } from "./auth.ts";
+import { initSite } from "./site.ts";
+import { initComments } from "./comments.ts";
 import { initIndexer } from "./indexer.ts";
 import { initVault, isIgnoredSegment, resolveVaultRoot, startWatcher } from "./vault.ts";
 
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const port = Number(process.env.PORT) || 6801;
+const host = process.env.HOST?.trim() || "0.0.0.0";
 const vaultDir = resolveVaultRoot(process.argv.slice(2), process.env);
 
 // Seed a fresh vault from vault-seed/ so a clean clone opens onto real notes.
@@ -49,6 +52,8 @@ function hasMarkdown(dir: string): boolean {
 }
 
 initAuth();
+initSite();
+initComments();
 initVault(vaultDir);
 startWatcher();
 await initIndexer();
@@ -64,15 +69,16 @@ if (existsSync(distDir)) {
   app.get("*", (c) => c.html(readFileSync(path.join(distDir, "index.html"), "utf8")));
 }
 
-serve({ fetch: app.fetch, port }, () => {
+serve({ fetch: app.fetch, port, hostname: host }, () => {
   const gold = "\x1b[33m";
   const dim = "\x1b[2m";
   const reset = "\x1b[0m";
+  const shownHost = host === "0.0.0.0" || host === "::" ? "localhost" : host;
   console.log(`
   ${gold}    .   ✦   .${reset}
   ${gold}  v e l l u m${reset}
   ${dim}  ─────────────${reset}
     vault   ${vaultDir}
-    serving ${gold}http://localhost:${port}${reset}
+    serving ${gold}http://${shownHost}:${port}${reset}${host !== "0.0.0.0" ? `${dim}  (bound to ${host})${reset}` : ""}
 `);
 });

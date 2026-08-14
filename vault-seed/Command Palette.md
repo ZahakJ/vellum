@@ -8,7 +8,7 @@ query it shows commands and recent notes, so the palette doubles as a launcher:
 
 - **New note** (also `Ctrl/Cmd N`)
 - **Toggle graph** (also `Ctrl/Cmd G` — see [[Graph View]])
-- **Toggle theme** — iron-gall by candlelight, or parchment by day
+- **Theme: …** — one command per look: *iron-gall* and *void* and *lapis* by candlelight, *parchment* by day
 - **Toggle vim** — modal editing, as promised in [[Editing]]
 - **Rename current note** — safely; links update, as explained in [[Wikilinks & Backlinks]]
 - **Delete current note**

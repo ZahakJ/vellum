@@ -2,10 +2,12 @@
 // openNote + SSE). Collapses to zero width; a floating chip over the center
 // column reopens it. Clicking an entry opens that note.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import type { Backlink } from "../../shared/types.ts";
 import TocPanel from "../reading/TocPanel.tsx";
 import { useStore } from "../state.ts";
+import LocalGraph from "./LocalGraph.tsx";
 
 const WIKILINK_SPLIT_RE =
   /(!?\[\[[^\]|#]+(?:#[^\]|]*)?(?:\|[^\]]*)?\]\])/g;
@@ -31,11 +33,49 @@ function renderContext(text: string): ReactNode {
   });
 }
 
+interface BacklinkGroup {
+  path: string;
+  title: string;
+  contexts: string[];
+}
+
+/** One card per source note (server sends one entry per mention): keeps the
+ *  panel scannable and puts a mention-count badge on multi-link notes. */
+function groupBacklinks(backlinks: Backlink[]): BacklinkGroup[] {
+  const groups = new Map<string, BacklinkGroup>();
+  for (const bl of backlinks) {
+    const group = groups.get(bl.path);
+    if (group) {
+      if (!group.contexts.includes(bl.context)) group.contexts.push(bl.context);
+    } else {
+      groups.set(bl.path, { path: bl.path, title: bl.title, contexts: [bl.context] });
+    }
+  }
+  return [...groups.values()];
+}
+
+// Below this viewport width the panel would squeeze the prose column to a
+// few words per line — start collapsed there and track resizes.
+const NARROW_QUERY = "(max-width: 1000px)";
+
 export default function BacklinksPanel() {
   const backlinks = useStore((s) => s.backlinks);
   const openPath = useStore((s) => s.openPath);
   const openNote = useStore((s) => s.openNote);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(
+    () => window.matchMedia(NARROW_QUERY).matches,
+  );
+  // A deliberate open/close wins over the responsive auto-collapse.
+  const userToggled = useRef(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW_QUERY);
+    const onChange = (e: MediaQueryListEvent) => {
+      if (!userToggled.current) setCollapsed(e.matches);
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   return (
     <>
@@ -44,13 +84,17 @@ export default function BacklinksPanel() {
         aria-hidden={collapsed}
       >
         <TocPanel />
+        <LocalGraph />
         <header className="s-panel-header">
           <span className="s-panel-title">Backlinks</span>
           <span className="s-panel-count">{backlinks.length}</span>
           <button
             type="button"
             className="s-panel-toggle s-iconbtn"
-            onClick={() => setCollapsed(true)}
+            onClick={() => {
+              userToggled.current = true;
+              setCollapsed(true);
+            }}
             aria-expanded={!collapsed}
             title="Hide backlinks"
             tabIndex={collapsed ? -1 : 0}
@@ -68,18 +112,27 @@ export default function BacklinksPanel() {
               No backlinks yet — link to this note with [[…]]
             </p>
           ) : (
-            backlinks.map((bl) => (
+            groupBacklinks(backlinks).map((group) => (
               <button
-                key={`${bl.path}:${bl.context}`}
+                key={group.path}
                 type="button"
                 className="s-backlink"
-                onClick={() => openNote(bl.path)}
-                title={bl.path}
+                onClick={() => openNote(group.path)}
+                title={group.path}
               >
-                <span className="s-backlink-title">{bl.title}</span>
-                <span className="s-backlink-context">
-                  {renderContext(bl.context)}
+                <span className="s-backlink-title">
+                  {group.title}
+                  {group.contexts.length > 1 && (
+                    <span className="s-backlink-count">
+                      {group.contexts.length}
+                    </span>
+                  )}
                 </span>
+                {group.contexts.map((context, i) => (
+                  <span key={i} className="s-backlink-context">
+                    {renderContext(context)}
+                  </span>
+                ))}
               </button>
             ))
           )}
@@ -89,7 +142,10 @@ export default function BacklinksPanel() {
         <button
           type="button"
           className="s-panel-reopen"
-          onClick={() => setCollapsed(false)}
+          onClick={() => {
+            userToggled.current = true;
+            setCollapsed(false);
+          }}
           title="Show backlinks"
           aria-label="Show backlinks"
         >

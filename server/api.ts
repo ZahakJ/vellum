@@ -1,32 +1,105 @@
 // API: the HTTP surface. Every route speaks JSON except /events (SSE).
 
-import { createReadStream } from "node:fs";
+import { createReadStream, readFileSync } from "node:fs";
+import path from "node:path";
 import { Readable } from "node:stream";
 import { Hono } from "hono";
+import type { Context } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import type { NoteData } from "../shared/types.ts";
-import { authGuard, authRoutes } from "./auth.ts";
-import { backlinks, graph, indexFile, resolveEmbed, search, tags, wikilinkRegex } from "./indexer.ts";
+import type { CommentData, NoteData, PublishResult, TreeNode, VaultEvent } from "../shared/types.ts";
+import { authGuard, authRoutes, clientIp, isPublishLimited } from "./auth.ts";
+import {
+  AUTHOR_MAX,
+  BODY_MAX,
+  addComment,
+  commentRateLimited,
+  commentsEnabled,
+  listComments,
+  phantomComment,
+  recordCommentPost,
+  removeComment,
+} from "./comments.ts";
+import {
+  backlinks,
+  graph,
+  indexFile,
+  isAllowedAttachment,
+  isNotePublished,
+  publishedNotes,
+  resolveEmbed,
+  search,
+  tags,
+  whenIndexed,
+  wikilinkRegex,
+} from "./indexer.ts";
+import { setPublishFlag } from "./publish.ts";
+import { customCssPath } from "./site.ts";
 import {
   VaultError,
   buildTree,
   createFolder,
   createNote,
   deleteNote,
+  emitEvent,
+  getVaultRoot,
+  normalizeRel,
   onEvent,
   readNote,
   renameNote,
   statAttachment,
+  suppressWatcherEcho,
   writeNote,
 } from "./vault.ts";
 
 export const api = new Hono();
 
+// Request-body caps, enforced BEFORE any handler buffers a body into memory
+// (hono/body-limit rejects on Content-Length up front and meters chunked
+// streams as they arrive). Without this, unauthenticated surfaces that parse
+// JSON — login, and comment posting with COMMENTS=on — would buffer arbitrarily
+// large bodies before their own field-length checks ran, an easy memory-DoS on
+// an internet-exposed instance. The general cap is generous (big vault notes
+// over PUT /api/note are legitimate); the anonymous surfaces get much tighter
+// ones (a comment is ≤ 2000 chars + ≤ 40 of author; 64 KB covers any honest
+// payload, JSON escaping and multibyte included). One path-aware middleware —
+// not stacked limiters — so a chunked upload to /api/comments is cut off at
+// the tight cap, never buffered up to the big one first. A reverse proxy body
+// cap (nginx `client_max_body_size`) is still a sensible extra layer — README.
+const API_BODY_MAX = 10 * 1024 * 1024; // 10 MB: any /api request
+const COMMENT_BODY_MAX = 64 * 1024; //    64 KB: comment posts + login
+
+function tooLarge(maxBytes: number) {
+  return (c: Context) => c.json({ error: `Request body too large (${maxBytes} bytes max)` }, 413);
+}
+
+const TIGHT_BODY_PATHS = new Set(["/api/comments", "/api/login"]);
+api.use("*", async (c, next) => {
+  const max =
+    c.req.method === "POST" && TIGHT_BODY_PATHS.has(c.req.path) ? COMMENT_BODY_MAX : API_BODY_MAX;
+  return bodyLimit({ maxSize: max, onError: tooLarge(max) })(c, next);
+});
+
 // Auth first: /login, /logout, /me are always reachable; the guard runs before
 // every route registered below it (401s mutations without an admin session,
 // and gates reads too when PUBLIC=false).
 api.route("/", authRoutes);
+
+// Instance styling hook: VELLUM_DATA/custom.css, when present, is served to
+// admin and visitor alike (registered before the guard + listed in its
+// OPEN_PATHS — pure styling leaks nothing, and the login page of a PUBLIC=false
+// vault should still carry the instance's look). Existence is checked per
+// request so the file can be added or removed without a restart.
+api.get("/custom.css", (c) => {
+  const file = customCssPath();
+  if (!file) return c.json({ error: "No custom.css configured" }, 404);
+  return c.body(readFileSync(file, "utf8"), 200, {
+    "Content-Type": "text/css; charset=utf-8",
+    "Cache-Control": "no-cache",
+  });
+});
+
 api.use("*", authGuard);
 
 api.onError((err, c) => {
@@ -60,11 +133,26 @@ function requiredString(body: Record<string, unknown>, key: string): string {
   return value;
 }
 
-api.get("/tree", async (c) => c.json(await buildTree()));
+// Visitors (hash configured, no admin session) see the vault as a flat curated
+// collection: only published notes, no folder structure, names are titles.
+function publishedTree(): TreeNode {
+  const children: TreeNode[] = publishedNotes()
+    .map(({ path: notePath, title }) => ({ name: title, path: notePath, type: "file" as const }))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  return { name: path.basename(getVaultRoot()), path: "", type: "folder", children };
+}
+
+api.get("/tree", async (c) => {
+  if (isPublishLimited(c)) return c.json(publishedTree());
+  return c.json(await buildTree());
+});
 
 api.get("/note", async (c) => {
-  const path = requiredQuery(c.req.query("path"), "path");
-  return c.json(await readNote(path));
+  const notePath = requiredQuery(c.req.query("path"), "path");
+  if (isPublishLimited(c) && !isNotePublished(normalizeRel(notePath))) {
+    throw new VaultError(404, `Note not found: ${normalizeRel(notePath)}`);
+  }
+  return c.json(await readNote(notePath));
 });
 
 api.put("/note", async (c) => {
@@ -108,12 +196,36 @@ api.post("/folder", async (c) => {
   return c.json({ ok: true });
 });
 
+// Toggle a note's publish flag with a surgical frontmatter line edit — every
+// other byte of the file is preserved. Admin-only via the auth guard (POST).
+api.post("/publish", async (c) => {
+  const body = await jsonBody(c);
+  const notePath = requiredString(body, "path");
+  if (typeof body.publish !== "boolean") {
+    throw new VaultError(400, 'Body field "publish" must be a boolean');
+  }
+  const note = await readNote(notePath);
+  const updated = setPublishFlag(note.content, body.publish);
+  if (updated !== note.content) {
+    // The synthetic event below is the whole story — swallow the watcher's
+    // redundant echo of this write so listeners don't see the toggle twice.
+    suppressWatcherEcho(note.path);
+    await writeNote(note.path, updated);
+    // Broadcast BEFORE reindexing so the SSE visitor filter can observe the
+    // publish state both before and after (created/deleted transitions).
+    emitEvent({ kind: "changed", path: note.path });
+  }
+  await indexFile(note.path);
+  const result: PublishResult = { ok: true, path: note.path, published: isNotePublished(note.path) };
+  return c.json(result);
+});
+
 api.get("/resolve", (c) => {
   const name = requiredQuery(c.req.query("name"), "name");
   // A miss is an EXPECTED outcome (broken embeds are normal in a real vault):
   // answer 200 { path: null } instead of 404 so every visit to a note with
   // broken embeds doesn't spray red network errors across the console.
-  return c.json({ path: resolveEmbed(name) });
+  return c.json({ path: resolveEmbed(name, isPublishLimited(c)) });
 });
 
 // ------------------------------------------------------- attachment serving
@@ -174,6 +286,11 @@ function parseRange(header: string | undefined, size: number): { start: number; 
 
 api.get("/file", async (c) => {
   const relQuery = requiredQuery(c.req.query("path"), "path");
+  // Visitors may fetch only attachments embedded/linked by published notes —
+  // checked before stat so unpublished files 404 without revealing existence.
+  if (isPublishLimited(c) && !isAllowedAttachment(normalizeRel(relQuery))) {
+    throw new VaultError(404, `File not found: ${normalizeRel(relQuery)}`);
+  }
   const file = await statAttachment(relQuery);
 
   const etag = `"${file.size.toString(16)}-${Math.round(file.mtimeMs).toString(16)}"`;
@@ -219,23 +336,131 @@ api.get("/file", async (c) => {
   return c.body(body, 200, headers);
 });
 
-api.get("/search", (c) => c.json(search(c.req.query("q") ?? "")));
+// ------------------------------------------------------ comments (marginalia)
+// Live only with COMMENTS=on; otherwise every route 404s like it doesn't exist.
+// Comments hang off published notes: for visitors (and posting, for everyone)
+// an unpublished/missing note answers the same 404 a missing note would.
 
-api.get("/graph", (c) => c.json(graph()));
+function assertCommentsEnabled(): void {
+  if (!commentsEnabled()) throw new VaultError(404, "Not found");
+}
 
-api.get("/backlinks", (c) => {
-  const path = requiredQuery(c.req.query("path"), "path");
-  return c.json(backlinks(path));
+function commentNotePath(rel: string): string {
+  const notePath = normalizeRel(rel);
+  if (!notePath.toLowerCase().endsWith(".md")) {
+    throw new VaultError(400, `Not a markdown path: ${rel}`);
+  }
+  return notePath;
+}
+
+api.get("/comments", (c) => {
+  assertCommentsEnabled();
+  const notePath = commentNotePath(requiredQuery(c.req.query("path"), "path"));
+  // Admins may read (moderate) comments on any note; visitors only where
+  // the note itself is visible to them.
+  if (isPublishLimited(c) && !isNotePublished(notePath)) {
+    throw new VaultError(404, `Note not found: ${notePath}`);
+  }
+  return c.json(listComments(notePath));
 });
 
-api.get("/tags", (c) => c.json(tags()));
+// NOTE: the 64 KB body cap (see the body-limit middleware up top) runs ahead
+// of jsonBody() here — the rate limiter can only run post-parse, so that cap
+// is what actually bounds memory per connection on this anonymous surface.
+api.post("/comments", async (c) => {
+  assertCommentsEnabled();
+  const payload = await jsonBody(c);
+  const notePath = commentNotePath(requiredString(payload, "path"));
+  // Comments attach to the published site only — for anyone, admin included.
+  if (!isNotePublished(notePath)) {
+    throw new VaultError(404, `Note not found: ${notePath}`);
+  }
+  const body = typeof payload.body === "string" ? payload.body.trim() : "";
+  if (!body) throw new VaultError(400, 'Body field "body" must be a non-empty string');
+  if (body.length > BODY_MAX) {
+    throw new VaultError(400, `Comment is too long (${BODY_MAX} characters max)`);
+  }
+  const author =
+    (typeof payload.author === "string" ? payload.author.trim().slice(0, AUTHOR_MAX) : "") ||
+    "Anonymous";
+  // Honeypot: the hidden "website" field is invisible to humans. A filled-in
+  // value marks a bot — answer success, store nothing.
+  if (typeof payload.website === "string" && payload.website.trim() !== "") {
+    return c.json(phantomComment(notePath, author, body));
+  }
+  const ip = clientIp(c);
+  if (commentRateLimited(ip)) {
+    throw new VaultError(429, "Slow down — try again in a minute");
+  }
+  recordCommentPost(ip);
+  const comment: CommentData = addComment(notePath, author, body, ip);
+  return c.json(comment);
+});
 
-api.get("/events", (c) =>
-  streamSSE(c, async (stream) => {
+// Admin-only via the auth guard (mutation on a non-exempt path).
+api.delete("/comments/:id", (c) => {
+  assertCommentsEnabled();
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id) || id < 1) throw new VaultError(400, "Invalid comment id");
+  if (!removeComment(id)) throw new VaultError(404, "Comment not found");
+  return c.json({ ok: true });
+});
+
+api.get("/search", (c) => c.json(search(c.req.query("q") ?? "", isPublishLimited(c))));
+
+api.get("/graph", (c) => c.json(graph(isPublishLimited(c))));
+
+api.get("/backlinks", (c) => {
+  const notePath = requiredQuery(c.req.query("path"), "path");
+  return c.json(backlinks(normalizeRel(notePath), isPublishLimited(c)));
+});
+
+api.get("/tags", (c) => c.json(tags(isPublishLimited(c))));
+
+// ---------------------------------------------------------------- SSE events
+
+/** Map a vault event to what a publish-limited visitor may see: only events
+ *  about published notes; unpublished paths are stripped from renames; a
+ *  publish/unpublish transition becomes created/deleted so the curated
+ *  collection stays honest. Captures pre-event state synchronously, then
+ *  awaits the indexer before reading post-event state. */
+async function visitorEvent(event: VaultEvent): Promise<VaultEvent | null> {
+  if (event.dir) return null; // no folder structure for visitors
+  if (!event.path.toLowerCase().endsWith(".md")) return null; // attachments: never
+  const wasPublished = isNotePublished(event.path);
+  await whenIndexed();
+  switch (event.kind) {
+    case "created":
+    case "changed": {
+      const nowPublished = isNotePublished(event.path);
+      if (wasPublished && !nowPublished) return { kind: "deleted", path: event.path };
+      if (!wasPublished && nowPublished) return { kind: "created", path: event.path };
+      return nowPublished ? { kind: event.kind, path: event.path } : null;
+    }
+    case "deleted":
+      return wasPublished ? { kind: "deleted", path: event.path } : null;
+    case "renamed": {
+      const nowPublished = event.toPath ? isNotePublished(event.toPath) : false;
+      if (wasPublished && nowPublished) return event;
+      if (wasPublished) return { kind: "deleted", path: event.path };
+      if (nowPublished && event.toPath) return { kind: "created", path: event.toPath };
+      return null;
+    }
+  }
+}
+
+api.get("/events", (c) => {
+  const limited = isPublishLimited(c);
+  return streamSSE(c, async (stream) => {
     let live = true;
     const unsubscribe = onEvent((event) => {
       if (!live) return;
-      stream.writeSSE({ event: "message", data: JSON.stringify(event) }).catch(() => {});
+      const deliver = async (): Promise<void> => {
+        const visible = limited ? await visitorEvent(event) : event;
+        if (!visible || !live) return;
+        await stream.writeSSE({ event: "message", data: JSON.stringify(visible) });
+      };
+      deliver().catch(() => {});
     });
     stream.onAbort(() => {
       live = false;
@@ -250,8 +475,8 @@ api.get("/events", (c) =>
       }
     }
     unsubscribe();
-  }),
-);
+  });
+});
 
 // ----------------------------------------------------- rename + link rewrite
 

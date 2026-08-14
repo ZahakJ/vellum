@@ -58,7 +58,7 @@ function currentUrl(): string {
 }
 
 function setTitle(openPath: string | null, view: string): void {
-  const base = "Vellum";
+  const base = useStore.getState().siteName; // SITE_NAME branding
   if (view === "graph") {
     document.title = `Graph · ${base}`;
   } else if (openPath) {

@@ -15,6 +15,10 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  /* clip, not hidden: the app grid owns all scrolling. `hidden` still lets
+     programmatic scrollIntoView / find-in-page shove the whole document up
+     (black void under the status bar); `clip` forbids scrolling entirely. */
+  overflow: clip;
 }
 
 body {
@@ -24,7 +28,6 @@ body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  overflow: hidden;
 }
 
 ::selection {
@@ -714,10 +717,12 @@ select:focus,
   padding: 0 !important;
 }
 
-/* Frontmatter rendered as a properties card when the cursor is elsewhere. */
+/* Frontmatter rendered as a properties card when the cursor is elsewhere.
+   Collapsed (the default) it is a slim single row — chevron, "Properties · N",
+   tags inline; the header click expands it. Body clicks still enter the YAML. */
 .s-editor .cm-s-props {
   margin: 0 0 20px;
-  padding: 10px 14px;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-raised);
@@ -725,6 +730,63 @@ select:focus,
   font-size: 12.5px;
   line-height: 1.6;
   cursor: text;
+}
+
+.s-editor .cm-s-props__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-faint);
+  border-radius: var(--radius);
+  transition: color 0.15s ease;
+}
+
+.s-editor .cm-s-props__head:hover {
+  color: var(--text-muted);
+}
+
+.s-editor .cm-s-props__chevron {
+  display: inline-flex;
+  transform: rotate(90deg);
+  transition: transform 0.15s ease;
+}
+
+.s-editor .cm-s-props--collapsed .cm-s-props__chevron {
+  transform: none;
+}
+
+.s-editor .cm-s-props__label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.s-editor .cm-s-props__headtags {
+  display: none;
+}
+
+.s-editor .cm-s-props--collapsed .cm-s-props__headtags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.s-editor .cm-s-props__body {
+  padding: 2px 14px 10px;
+}
+
+.s-editor .cm-s-props--collapsed .cm-s-props__body {
+  display: none;
+}
+
+.s-editor .cm-s-props__row--machine .cm-s-props__key,
+.s-editor .cm-s-props__row--machine .cm-s-props__value {
+  color: var(--text-faint);
 }
 
 .s-editor .cm-s-props__row {
@@ -1030,6 +1092,24 @@ select:focus,
   white-space: nowrap;
 }
 
+/* Mention-count badge on notes that link here more than once. */
+.s-backlink-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 15px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  vertical-align: 2px;
+}
+
 .s-backlink-context {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1038,6 +1118,12 @@ select:focus,
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-muted);
+}
+
+.s-backlink-context + .s-backlink-context {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border);
 }
 
 .s-backlink-context .s-backlink-link {
@@ -1245,6 +1331,38 @@ select:focus,
 
 .s-palette-item--active .s-palette-item-icon {
   color: var(--accent);
+}
+
+/* Theme commands carry a tiny swatch: the theme's ground with a gold rim.
+   Colors come from the constant --swatch-* identity tokens, not the live
+   theme, so every dot previews its own theme. */
+.s-palette-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.s-palette-dot[data-theme-dot="iron-gall"] {
+  background: var(--swatch-iron-gall-bg);
+  border-color: var(--swatch-iron-gall-accent);
+}
+
+.s-palette-dot[data-theme-dot="void"] {
+  background: var(--swatch-void-bg);
+  border-color: var(--swatch-void-accent);
+}
+
+.s-palette-dot[data-theme-dot="lapis"] {
+  background: var(--swatch-lapis-bg);
+  border-color: var(--swatch-lapis-accent);
+}
+
+.s-palette-dot[data-theme-dot="parchment"] {
+  background: var(--swatch-parchment-bg);
+  border-color: var(--swatch-parchment-accent);
 }
 
 .s-palette-item-title {
@@ -1466,4 +1584,267 @@ select:focus,
 .s-statusbar__signin:hover {
   color: var(--accent);
   background: transparent;
+}
+
+/* ------------------------------------------------------------- publish -- */
+
+/* Small gold ✦ suffix marking published notes (tree rows, search hits). */
+.s-pubstar {
+  margin-left: 6px;
+  font-size: 9px;
+  color: var(--accent);
+  opacity: 0.9;
+  vertical-align: 1px;
+  user-select: none;
+}
+
+/* Status-bar publish affordance: ✧ Publish → ✦ Published (gold). */
+.s-statusbar__pub {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.s-statusbar__pubstar {
+  font-size: 11px;
+  line-height: 1;
+  transform: translateY(-0.5px);
+}
+
+.s-statusbar__pub--on,
+.s-statusbar__pub--on:hover {
+  color: var(--accent);
+}
+
+.s-statusbar__pubcount {
+  white-space: nowrap;
+}
+
+/* Flat curated collection: the visitor sidebar and the admin's
+   "published only" filter. Serif titles, no folders, calm rhythm. */
+.s-publist {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 10px 30px;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent);
+}
+
+.s-publist__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.s-publist__headstar {
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.s-publist__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  margin-bottom: 1px;
+  border-radius: 4px;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.s-publist__item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.s-publist__item--active {
+  background: var(--accent-soft);
+  color: var(--text);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.s-publist__home {
+  flex: none;
+  color: var(--accent);
+  font-size: 10px;
+  transform: translateY(-0.5px);
+  user-select: none;
+}
+
+.s-publist__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-publist__none {
+  margin: 12px 8px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+/* --------------------------------------- visitor sidebar topic sections -- */
+
+/* Container variant of .s-publist: same scroll + fade, sectioned content. */
+.s-topics {
+  padding: 4px 8px 30px;
+}
+
+.s-topics__rule {
+  height: 1px;
+  margin: 8px 8px 10px;
+  background: var(--border);
+}
+
+.s-topic {
+  margin-bottom: 4px;
+}
+
+.s-topic__head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 5px 8px 5px 5px;
+  border-radius: 4px;
+  text-align: left;
+  font-family: var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: 0.06em;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.s-topic__head:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.s-topic__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-topic__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-variant: normal;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.s-topic__list {
+  padding: 1px 0 4px 12px;
+}
+
+.s-topic .s-publist__item {
+  font-size: 13.5px;
+  padding: 5px 8px;
+}
+
+/* ----------------------------------------- local graph (right panel) ----- */
+
+.s-localgraph {
+  flex: none;
+  width: 300px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.s-localgraph__header {
+  border-bottom: none;
+  padding-left: 8px;
+}
+
+.s-localgraph__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 2px;
+  border-radius: 4px;
+  text-align: left;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.s-localgraph__toggle:hover {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.s-localgraph__toggle .s-panel-count {
+  margin-left: auto;
+}
+
+.s-localgraph__body {
+  position: relative;
+  height: 200px;
+  overflow: hidden;
+}
+
+.s-localgraph__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Empty neighborhood: one quiet line instead of a lone disc in a dark pane. */
+.s-localgraph__empty {
+  margin: 0;
+  padding: 14px 16px 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+/* Visitor graph empty state: quiet, intentional. */
+.s-graph__empty--visitor {
+  flex-direction: column;
+  gap: 12px;
+  font-size: 16px;
+}
+
+.s-graph__empty-star {
+  font-size: 28px;
+  color: var(--accent);
+  opacity: 0.5;
 }

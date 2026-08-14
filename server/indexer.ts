@@ -5,6 +5,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import MiniSearch from "minisearch";
 import type { Backlink, GraphData, GraphEdge, SearchHit, TagCount, VaultEvent } from "../shared/types.ts";
+import { isPublished } from "./publish.ts";
+import { excludedTags } from "./site.ts";
 import { listVaultFiles, onEvent, readNote, safeAbs } from "./vault.ts";
 
 interface NoteRecord {
@@ -13,6 +15,8 @@ interface NoteRecord {
   body: string; // content minus frontmatter
   links: { target: string; line: string; lineIdx: number }[];
   tags: string[];
+  /** frontmatter `publish` is exactly true / "true" */
+  published: boolean;
   /** Lazily computed prose-stripped body for snippets (null until first use).
    *  Records are replaced wholesale on reindex, so this never goes stale. */
   flat: string | null;
@@ -20,6 +24,12 @@ interface NoteRecord {
 
 const notes = new Map<string, NoteRecord>();
 const byName = new Map<string, Set<string>>(); // lowercased basename -> paths
+
+// Publish state: the set of published note paths, plus (derived lazily) the
+// set of attachment paths that published notes embed/link — the only files
+// /api/file will serve to non-admin visitors.
+const publishedSet = new Set<string>();
+let allowedAttachmentsCache: Set<string> | null = null; // null = recompute
 
 // Attachments (non-md files): known paths + lowercased basename (with
 // extension) -> paths, so ![[image.png]] embeds resolve like wikilinks.
@@ -67,6 +77,15 @@ export async function initIndexer(): Promise<void> {
   );
 }
 
+/** Resolves once every watcher event emitted so far has been applied to the
+ *  index. Callers that observe state both before and after an event (the SSE
+ *  visitor filter) await this between the two reads. */
+let settled: Promise<void> = Promise.resolve();
+
+export function whenIndexed(): Promise<void> {
+  return settled;
+}
+
 function handleEvent(event: VaultEvent): void {
   const isMd = event.path.toLowerCase().endsWith(".md");
   const apply = async (): Promise<void> => {
@@ -88,7 +107,11 @@ function handleEvent(event: VaultEvent): void {
         break;
     }
   };
-  apply().catch((err) => console.error(`indexer: failed to apply ${event.kind} ${event.path}:`, err));
+  // Chain on the previous apply so events land in order and whenIndexed()
+  // always covers the newest event.
+  settled = settled
+    .then(apply)
+    .catch((err) => console.error(`indexer: failed to apply ${event.kind} ${event.path}:`, err));
 }
 
 /** Index (or reindex) one note immediately. Exported so API writes can update
@@ -122,10 +145,13 @@ export async function indexFile(relPath: string): Promise<void> {
     body,
     links: parseLinks(body),
     tags: parseTags(body, frontmatter),
+    published: isPublished(content),
     flat: null,
   };
   notes.set(relPath, record);
   addName(title, relPath);
+  if (record.published) publishedSet.add(relPath);
+  allowedAttachmentsCache = null;
   // Tags are indexed too so "#tag" (and frontmatter-only tags) are findable.
   mini.add({ path: relPath, title, body, tags: record.tags.join(" ") });
 }
@@ -135,6 +161,8 @@ function removeFile(relPath: string): void {
   if (!record) return;
   notes.delete(relPath);
   removeName(record.title, relPath);
+  publishedSet.delete(relPath);
+  allowedAttachmentsCache = null;
   if (mini.has(relPath)) mini.discard(relPath);
 }
 
@@ -151,6 +179,7 @@ function removeFolder(relFolder: string): void {
 function addAttachment(relPath: string): void {
   if (attachmentPaths.has(relPath)) return;
   attachmentPaths.add(relPath);
+  allowedAttachmentsCache = null;
   const key = path.posix.basename(relPath).toLowerCase();
   let set = attachmentsByName.get(key);
   if (!set) attachmentsByName.set(key, (set = new Set()));
@@ -159,6 +188,7 @@ function addAttachment(relPath: string): void {
 
 function removeAttachment(relPath: string): void {
   if (!attachmentPaths.delete(relPath)) return;
+  allowedAttachmentsCache = null;
   const key = path.posix.basename(relPath).toLowerCase();
   const set = attachmentsByName.get(key);
   if (!set) return;
@@ -249,28 +279,88 @@ function pickShortest(candidates: Set<string>): string {
   })[0];
 }
 
-/** Resolve a wikilink target to a note path: case-insensitive basename, shortest path wins. */
-export function resolveLink(name: string): string | null {
+/** Restrict a candidate set to `keep`; null when nothing survives. */
+function filterCandidates(candidates: Set<string>, keep: Set<string>): Set<string> | null {
+  const kept = new Set([...candidates].filter((p) => keep.has(p)));
+  return kept.size === 0 ? null : kept;
+}
+
+/** Resolve a wikilink target to a note path: case-insensitive basename, shortest
+ *  path wins. `publishedOnly` resolves within the published collection only. */
+export function resolveLink(name: string, publishedOnly = false): string | null {
   let key = name.split(/[#|]/)[0].trim().toLowerCase();
   if (key.endsWith(".md")) key = key.slice(0, -3);
-  const candidates = byName.get(key);
+  let candidates = byName.get(key);
   if (!candidates || candidates.size === 0) return null;
+  if (publishedOnly) {
+    const kept = filterCandidates(candidates, publishedSet);
+    if (!kept) return null;
+    candidates = kept;
+  }
   return pickShortest(candidates);
 }
 
 /** Resolve a link/embed target to a note OR attachment path. Notes win
- *  (attachment basenames carry an extension, so collisions are rare). */
-export function resolveEmbed(name: string): string | null {
-  const asNote = resolveLink(name);
+ *  (attachment basenames carry an extension, so collisions are rare).
+ *  `publishedOnly` sees only published notes + allowlisted attachments. */
+export function resolveEmbed(name: string, publishedOnly = false): string | null {
+  const asNote = resolveLink(name, publishedOnly);
   if (asNote) return asNote;
   const key = name.split(/[#|]/)[0].trim().toLowerCase();
   if (!key) return null;
-  const candidates = attachmentsByName.get(key);
+  let candidates = attachmentsByName.get(key);
   if (!candidates || candidates.size === 0) return null;
+  if (publishedOnly) {
+    const kept = filterCandidates(candidates, allowedAttachments());
+    if (!kept) return null;
+    candidates = kept;
+  }
   return pickShortest(candidates);
 }
 
-export function search(query: string): SearchHit[] {
+// ------------------------------------------------------------------- publish
+
+/** Attachment paths embedded/linked by published notes — recomputed on demand
+ *  after any index mutation (resolution can shift when files come and go). */
+function allowedAttachments(): Set<string> {
+  if (allowedAttachmentsCache === null) {
+    const allowed = new Set<string>();
+    for (const notePath of publishedSet) {
+      const record = notes.get(notePath);
+      if (!record) continue;
+      for (const link of record.links) {
+        const resolved = resolveEmbed(link.target);
+        if (resolved && attachmentPaths.has(resolved)) allowed.add(resolved);
+      }
+    }
+    allowedAttachmentsCache = allowed;
+  }
+  return allowedAttachmentsCache;
+}
+
+export function isNotePublished(relPath: string): boolean {
+  return publishedSet.has(relPath);
+}
+
+export function isAllowedAttachment(relPath: string): boolean {
+  return allowedAttachments().has(relPath);
+}
+
+/** Published notes as { path, title }, unsorted. */
+export function publishedNotes(): { path: string; title: string }[] {
+  const out: { path: string; title: string }[] = [];
+  for (const notePath of publishedSet) {
+    const record = notes.get(notePath);
+    if (record) out.push({ path: record.path, title: record.title });
+  }
+  return out;
+}
+
+export function publishedCounts(): { notes: number; total: number } {
+  return { notes: publishedSet.size, total: notes.size };
+}
+
+export function search(query: string, publishedOnly = false): SearchHit[] {
   const q = query.trim();
   if (!q) return [];
   const qLower = q.toLowerCase();
@@ -286,7 +376,8 @@ export function search(query: string): SearchHit[] {
     return 2;
   };
 
-  const results = mini.search(q);
+  let results = mini.search(q);
+  if (publishedOnly) results = results.filter((r) => publishedSet.has(String(r.id)));
   const seen = new Set(results.map((r) => String(r.id)));
   const ranked = results
     .map((result, order) => {
@@ -307,7 +398,7 @@ export function search(query: string): SearchHit[] {
   // Exact-title short-circuit: if a note titled exactly `q` exists but
   // minisearch left it out (tokenizer/fuzzy quirks), force it in at #1.
   const exactPaths = [...(byName.get(qLower) ?? [])]
-    .filter((p) => !seen.has(p))
+    .filter((p) => !seen.has(p) && (!publishedOnly || publishedSet.has(p)))
     .sort((a, b) => a.localeCompare(b));
   if (exactPaths.length > 0) {
     const topScore = (hits[0]?.score ?? 0) + 1;
@@ -322,13 +413,14 @@ export function search(query: string): SearchHit[] {
   return hits;
 }
 
-export function graph(): GraphData {
+export function graph(publishedOnly = false): GraphData {
   const edgeKeys = new Set<string>();
   const edges: GraphEdge[] = [];
   const degree = new Map<string, number>();
   for (const record of notes.values()) {
+    if (publishedOnly && !record.published) continue;
     for (const link of record.links) {
-      const target = resolveLink(link.target);
+      const target = resolveLink(link.target, publishedOnly);
       if (!target || target === record.path) continue;
       const key = `${record.path}\0${target}`;
       if (edgeKeys.has(key)) continue;
@@ -338,23 +430,28 @@ export function graph(): GraphData {
       degree.set(target, (degree.get(target) ?? 0) + 1);
     }
   }
-  const nodes = [...notes.values()].map((record) => ({
-    id: record.path,
-    title: record.title,
-    links: degree.get(record.path) ?? 0,
-    tags: record.tags,
-  }));
+  const nodes = [...notes.values()]
+    .filter((record) => !publishedOnly || record.published)
+    .map((record) => ({
+      id: record.path,
+      title: record.title,
+      links: degree.get(record.path) ?? 0,
+      // Visitors group the sidebar by these tags — honor EXCLUDE_TAGS so
+      // workflow/status tags never become published topic headings.
+      tags: publishedOnly ? record.tags.filter((t) => !excludedTags().has(t.toLowerCase())) : record.tags,
+    }));
   return { nodes, edges };
 }
 
-export function backlinks(targetPath: string): Backlink[] {
+export function backlinks(targetPath: string, publishedOnly = false): Backlink[] {
   const hits: Backlink[] = [];
   const seen = new Set<string>();
   for (const record of notes.values()) {
     if (record.path === targetPath) continue;
+    if (publishedOnly && !record.published) continue;
     let bodyLines: string[] | null = null; // split lazily, once per record
     for (const link of record.links) {
-      if (resolveLink(link.target) !== targetPath) continue;
+      if (resolveLink(link.target, publishedOnly) !== targetPath) continue;
       const key = `${record.path}\0${link.line}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -400,10 +497,15 @@ export function backlinks(targetPath: string): Backlink[] {
   return hits.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export function tags(): TagCount[] {
+export function tags(publishedOnly = false): TagCount[] {
   const counts = new Map<string, number>();
+  const hidden = publishedOnly ? excludedTags() : null;
   for (const record of notes.values()) {
-    for (const tag of record.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    if (publishedOnly && !record.published) continue;
+    for (const tag of record.tags) {
+      if (hidden?.has(tag.toLowerCase())) continue; // EXCLUDE_TAGS: visitor pills
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
   }
   return [...counts]
     .map(([tag, count]) => ({ tag, count }))
@@ -429,6 +531,7 @@ function cleanContextLine(line: string): string {
     .replace(/^\s*\|\s*/, "")
     .replace(/\s*\|\s*$/, "")
     .replace(/\s\|\s/g, " · ")
+    .replace(/\s{2,}/g, " ")
     .trim();
 }
 
@@ -478,10 +581,12 @@ function expandedContext(lines: string[], idx: number): string {
 }
 
 /** Remove inline markdown marks (emphasis, code ticks, tag hashes, md links)
- *  while leaving `[[wikilink]]` syntax alone. */
+ *  while leaving `[[wikilink]]` syntax alone. Image references disappear
+ *  entirely — their alt text is caption furniture, and keeping it glued
+ *  arbitrary words into snippets ("… Thumbnail Network bridge: …"). */
 function stripInlineMd(text: string): string {
   return text
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/(^|[^[])\[([^[\]]+)\]\(([^)]+)\)/g, "$1$2")
     .replace(/\*\*|__|~~/g, "")
     .replace(/`+/g, "")
@@ -524,12 +629,9 @@ function stripMarkdown(body: string): string {
       .replace(/==([^=\n]+?)==/g, "$1")
       .replace(/%%[^%\n]*%%/g, "")
       // ![[embeds]] first (before the wikilink pass eats their inner
-      // brackets and strands the "!"): show just the file/note basename —
-      // a numeric width alias like |220 must not become the label.
-      .replace(
-        /!\[\[([^[\]|#]+)(#[^[\]|]*)?(\|[^[\]]*)?\]\]/g,
-        (_m, target: string) => (target.trim().split("/").pop() ?? "").trim(),
-      )
+      // brackets and strands the "!"): dropped outright — a filename or
+      // embedded-note title glued mid-sentence reads as garbage in a snippet.
+      .replace(/!\[\[[^[\]]*\]\]/g, " ")
       .replace(
         wikilinkRegex(),
         (_m, target: string, _heading?: string, alias?: string) =>

@@ -89,6 +89,15 @@
   text-underline-offset: 3px;
 }
 
+/* On the curated published site most unresolved targets are simply private,
+   not errors — visitors see a quiet ghost link, no danger tint. */
+.s-app--visitor .s-rv-wikilink--broken {
+  color: var(--text-faint);
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, var(--text-faint) 50%, transparent);
+  cursor: default;
+}
+
 .s-rv-ext {
   color: var(--accent);
   text-decoration: underline;
@@ -571,6 +580,36 @@ span.s-rv-math-live:not(.s-rv-math) {
   display: block;
 }
 
+/* Math always reads left-to-right, even inside RTL (dir="auto") blocks —
+   KaTeX lays out its spans assuming an LTR context. */
+.s-rv-math,
+.s-rv-mathblock,
+.s-rv-math-pending,
+span.s-rv-math-live {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Mid-line $$…$$: display-style math flowing inline with the sentence. */
+.s-rv-math--display .katex-display {
+  display: inline-block;
+  margin: 0 0.15em;
+  vertical-align: middle;
+}
+
+/* Bad LaTeX (throwOnError: false) → a quiet inline error chip, themed with
+   the danger token instead of KaTeX's hard-coded red. */
+.s-rv .katex-error {
+  color: var(--danger) !important;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: 4px;
+  padding: 0 0.3em;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  white-space: pre-wrap;
+}
+
 /* ── Footnotes ─────────────────────────────────────────────────────────── */
 
 .s-rv-fnref a {
@@ -614,15 +653,74 @@ span.s-rv-math-live:not(.s-rv-math) {
 
 /* ── Frontmatter properties card ───────────────────────────────────────── */
 
+/* Collapsed (the default): slim single row — chevron, "Properties · N",
+   tags inline. Header click expands to the full key list. */
 .s-rv-props {
   margin: 0 0 20px;
-  padding: 10px 14px;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-raised);
   font-family: var(--font-ui);
   font-size: 12.5px;
   line-height: 1.6;
+}
+
+.s-rv-props__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-faint);
+  border-radius: var(--radius);
+  transition: color 0.15s ease;
+}
+
+.s-rv-props__head:hover {
+  color: var(--text-muted);
+}
+
+.s-rv-props__chevron {
+  display: inline-flex;
+  transform: rotate(90deg);
+  transition: transform 0.15s ease;
+}
+
+.s-rv-props--collapsed .s-rv-props__chevron {
+  transform: none;
+}
+
+.s-rv-props__label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.s-rv-props__headtags {
+  display: none;
+}
+
+.s-rv-props--collapsed .s-rv-props__headtags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.s-rv-props__body {
+  padding: 2px 14px 10px;
+}
+
+.s-rv-props--collapsed .s-rv-props__body {
+  display: none;
+}
+
+.s-rv-props__row--machine .s-rv-props__key,
+.s-rv-props__row--machine .s-rv-props__value {
+  color: var(--text-faint);
 }
 
 .s-rv-props__row {
@@ -711,3 +809,61 @@ span.s-rv-math-live:not(.s-rv-math) {
 .s-toc__item--l5 { padding-left: 48px; }
 .s-toc__item--l6 { padding-left: 58px; }
 .s-toc__item--l1.s-toc__item--active { color: var(--text); }
+
+/* ── Visitor typography — the public face ──────────────────────────────────
+   Same 760px measure as the editor; the refinement is in scale and rhythm:
+   a slightly larger base, more line air, kerning/ligatures on, generous
+   heading margins. Scoped by .s-app--visitor (App adds it for non-admins). */
+
+.s-app--visitor .s-reading__content {
+  font-size: 17px;
+  line-height: 1.78;
+  padding: 64px 56px 160px;
+  font-kerning: normal;
+  font-variant-ligatures: common-ligatures;
+  text-rendering: optimizeLegibility;
+}
+
+.s-app--visitor .s-rv-p {
+  margin: 0 0 1.05em;
+}
+
+.s-app--visitor .s-rv .s-rv-h {
+  margin: 1.6em 0 0.55em;
+}
+
+.s-app--visitor .s-rv .s-rv-h1 {
+  margin-top: 0.3em;
+  padding-bottom: 0.28em;
+  letter-spacing: -0.008em;
+}
+
+.s-app--visitor .s-rv .s-rv-h2 {
+  margin-top: 1.75em;
+}
+
+.s-app--visitor .s-rv-quote {
+  margin: 1.3em 0;
+}
+
+.s-app--visitor .s-rv-hr {
+  margin: 2.2em auto;
+  width: 72%;
+}
+
+.s-app--visitor .s-rv-list li {
+  margin-bottom: 0.28em;
+}
+
+.s-app--visitor .s-rv-tablewrap,
+.s-app--visitor .s-rv-pre,
+.s-app--visitor .s-rv-figure {
+  margin-top: 1.3em;
+  margin-bottom: 1.3em;
+}
+
+/* Visitors read a curated page, not a database record: the raw frontmatter
+   properties card (publish flags, sync ids…) is admin furniture. */
+.s-app--visitor .s-rv-props {
+  display: none;
+}

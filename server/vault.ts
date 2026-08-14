@@ -256,6 +256,12 @@ export function onEvent(listener: EventListener): () => void {
   return () => listeners.delete(listener);
 }
 
+/** Broadcast a synthetic event (e.g. after a publish toggle) to all listeners
+ *  without waiting for the watcher debounce. */
+export function emitEvent(event: VaultEvent): void {
+  emit(event);
+}
+
 function emit(event: VaultEvent): void {
   for (const listener of listeners) {
     try {
@@ -269,6 +275,13 @@ function emit(event: VaultEvent): void {
 /** Ignore imminent watcher noise for a path we mutate deliberately (renames). */
 function suppress(relPath: string): void {
   suppressed.set(relPath, Date.now() + 1000);
+}
+
+/** Public wrapper: a route that writes a file AND emits its own synthetic
+ *  event (publish toggle) calls this first, so listeners don't receive the
+ *  watcher's redundant echo of the same write a debounce later. */
+export function suppressWatcherEcho(relPath: string): void {
+  suppress(normalizeRel(relPath));
 }
 
 function isSuppressed(relPath: string): boolean {

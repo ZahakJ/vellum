@@ -5,7 +5,8 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { getNote } from "../api.ts";
-import { useStore } from "../state.ts";
+import { isPublishedContent } from "../publish.ts";
+import { nextTheme, useStore } from "../state.ts";
 
 function countWords(text: string): number {
   const words = text.trim().split(/\s+/);
@@ -26,6 +27,12 @@ export default function StatusBar() {
   const toggleReading = useStore((s) => s.toggleReading);
   const admin = useStore((s) => s.admin);
   const setLoginOpen = useStore((s) => s.setLoginOpen);
+  const authProtected = useStore((s) => s.authProtected);
+  const openPublished = useStore((s) => s.openPublished);
+  const publishedCounts = useStore((s) => s.publishedCounts);
+  const publishedFilter = useStore((s) => s.publishedFilter);
+  const setPublishedFilter = useStore((s) => s.setPublishedFilter);
+  const togglePublish = useStore((s) => s.togglePublish);
 
   const [counts, setCounts] = useState<{ words: number; chars: number } | null>(null);
 
@@ -40,6 +47,9 @@ export default function StatusBar() {
       .then((note) => {
         if (!cancelled) {
           setCounts({ words: countWords(note.content), chars: note.content.length });
+          // Single source for the open note's publish state: its frontmatter.
+          const s = useStore.getState();
+          if (s.openPath === openPath) s.setOpenPublished(isPublishedContent(note.content));
         }
       })
       .catch((err: unknown) => {
@@ -50,7 +60,12 @@ export default function StatusBar() {
     };
   }, [openPath, isDirty, reloadTick]);
 
-  const crumbs = openPath ? openPath.replace(/\.md$/, "").split("/") : [];
+  // Visitors browse a flat curated collection — never leak folder structure.
+  const crumbs = openPath
+    ? admin
+      ? openPath.replace(/\.md$/, "").split("/")
+      : [openPath.replace(/\.md$/, "").split("/").pop()!]
+    : [];
 
   return (
     <footer className="s-statusbar">
@@ -88,6 +103,51 @@ export default function StatusBar() {
           </span>
         </>
       )}
+      {admin && openPath && (
+        <>
+          <button
+            type="button"
+            className={`s-statusbar__btn s-statusbar__pub${
+              openPublished ? " s-statusbar__pub--on" : ""
+            }`}
+            onClick={() => void togglePublish(openPath)}
+            title={
+              openPublished
+                ? "Unpublish this note (Ctrl/Cmd+Shift+P)"
+                : "Publish this note for visitors (Ctrl/Cmd+Shift+P)"
+            }
+          >
+            <span className="s-statusbar__pubstar" aria-hidden="true">
+              {openPublished ? "✦" : "✧"}
+            </span>
+            {openPublished ? "Published" : "Publish"}
+          </button>
+          <span className="s-statusbar__dot" aria-hidden="true">
+            ·
+          </span>
+        </>
+      )}
+      {admin && authProtected && publishedCounts && (
+        <>
+          <button
+            type="button"
+            className={`s-statusbar__btn s-statusbar__pubcount${
+              publishedFilter ? " s-statusbar__btn--on" : ""
+            }`}
+            onClick={() => setPublishedFilter(!publishedFilter)}
+            title={
+              publishedFilter
+                ? "Show the full vault in the sidebar"
+                : "Filter the sidebar to published notes"
+            }
+          >
+            {publishedCounts.notes} published
+          </button>
+          <span className="s-statusbar__dot" aria-hidden="true">
+            ·
+          </span>
+        </>
+      )}
       {admin && (
         <>
           <button
@@ -117,11 +177,11 @@ export default function StatusBar() {
       <button
         type="button"
         className="s-statusbar__btn"
-        onClick={() => setTheme(theme === "iron-gall" ? "parchment" : "iron-gall")}
-        title={`Switch to ${theme === "iron-gall" ? "parchment" : "iron-gall"} theme`}
-        aria-label="Toggle theme"
+        onClick={() => setTheme(nextTheme(theme))}
+        title={`Theme: ${theme} — click for ${nextTheme(theme)}`}
+        aria-label="Cycle theme"
       >
-        {theme === "iron-gall" ? "☾" : "☀"}
+        {theme === "parchment" ? "☀" : "☾"}
       </button>
       <span className="s-statusbar__dot" aria-hidden="true">
         ·
