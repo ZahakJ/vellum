@@ -1,6 +1,6 @@
 // API: the HTTP surface. Every route speaks JSON except /events (SSE).
 
-import { createReadStream, readFileSync } from "node:fs";
+import { createReadStream, readFileSync, promises as fsp } from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { Hono } from "hono";
@@ -27,6 +27,7 @@ import {
   indexFile,
   isAllowedAttachment,
   isNotePublished,
+  posts,
   publishedNotes,
   resolveEmbed,
   search,
@@ -35,7 +36,7 @@ import {
   wikilinkRegex,
 } from "./indexer.ts";
 import { setPublishFlag } from "./publish.ts";
-import { customCssPath } from "./site.ts";
+import { customCssPath, fontsDir } from "./site.ts";
 import {
   VaultError,
   buildTree,
@@ -97,6 +98,68 @@ api.get("/custom.css", (c) => {
   return c.body(readFileSync(file, "utf8"), 200, {
     "Content-Type": "text/css; charset=utf-8",
     "Cache-Control": "no-cache",
+  });
+});
+
+// Custom fonts: GET /api/fonts/<file> serves VELLUM_DATA/fonts/<file> for
+// @font-face rules in custom.css. Same openness rationale as custom.css
+// (registered before the guard + prefix-exempted in it): fonts are pure
+// styling, and the login page of a PUBLIC=false vault should still render in
+// the instance's typeface. Strictly basename-only (no separators, no
+// dotfiles), whitelisted extensions, ETag + immutable long cache.
+const FONT_MIME: Record<string, string> = {
+  woff2: "font/woff2",
+  woff: "font/woff",
+  ttf: "font/ttf",
+  otf: "font/otf",
+};
+
+api.get("/fonts/:file", async (c) => {
+  const file = c.req.param("file");
+  // Basename only: reject anything with path separators (a literal "/" can
+  // only arrive percent-encoded — Hono decodes params), traversal dots-as-
+  // segment, NUL, or a leading dot (dotfiles stay invisible, as everywhere).
+  if (
+    !file ||
+    file.includes("/") ||
+    file.includes("\\") ||
+    file.includes("\0") ||
+    file.startsWith(".") ||
+    file !== path.basename(file)
+  ) {
+    return c.json({ error: "Invalid font path" }, 400);
+  }
+  const ext = file.slice(file.lastIndexOf(".") + 1).toLowerCase();
+  const mime = FONT_MIME[ext];
+  if (!mime || !file.includes(".")) {
+    return c.json({ error: "Unsupported font type (woff2, woff, ttf, otf)" }, 400);
+  }
+  const abs = path.join(fontsDir(), file);
+  let stat;
+  try {
+    stat = await fsp.stat(abs);
+    if (!stat.isFile()) throw new Error("not a file");
+  } catch {
+    return c.json({ error: `Font not found: ${file}` }, 404);
+  }
+  const etag = `"${stat.size.toString(16)}-${Math.round(stat.mtimeMs).toString(16)}"`;
+  const headers: Record<string, string> = {
+    "Content-Type": mime,
+    "ETag": etag,
+    // Fonts are content-stable assets: cache hard, revalidate never. A font
+    // swap ships as a new filename (and a custom.css edit, served no-cache).
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  };
+  const ifNoneMatch = c.req.header("if-none-match");
+  if (ifNoneMatch && ifNoneMatch.split(",").some((t) => t.trim() === etag || t.trim() === `W/${etag}`)) {
+    return c.body(null, 304, { "ETag": etag });
+  }
+  const nodeStream = createReadStream(abs);
+  nodeStream.on("error", (err: unknown) => console.error(`font stream error for ${file}:`, err));
+  return c.body(Readable.toWeb(nodeStream) as unknown as ReadableStream, 200, {
+    ...headers,
+    "Content-Length": String(stat.size),
   });
 });
 
@@ -416,6 +479,11 @@ api.get("/backlinks", (c) => {
 });
 
 api.get("/tags", (c) => c.json(tags(isPublishLimited(c))));
+
+// Blog: published notes as posts, newest first. Visitor-safe by construction
+// (published notes only, EXCLUDE_TAGS filtered) — admin and visitor see the
+// same list, so no branch on session here.
+api.get("/posts", (c) => c.json(posts()));
 
 // ---------------------------------------------------------------- SSE events
 

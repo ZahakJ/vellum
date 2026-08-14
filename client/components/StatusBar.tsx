@@ -152,6 +152,31 @@ export default function StatusBar() {
         <>
           <button
             type="button"
+            className="s-statusbar__btn s-statusbar__eye"
+            onClick={() => void useStore.getState().setPreviewVisitor(true)}
+            title="Preview as visitor — see exactly what the public site serves"
+            aria-label="Preview as visitor"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="13"
+              height="13"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+          <span className="s-statusbar__dot" aria-hidden="true">
+            ·
+          </span>
+          <button
+            type="button"
             className={`s-statusbar__btn${readingMode ? " s-statusbar__btn--on" : ""}`}
             onClick={toggleReading}
             title="Toggle reading view (Ctrl/Cmd+E)"

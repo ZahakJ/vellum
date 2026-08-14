@@ -12,9 +12,14 @@ export function readFrontmatter(src: string): Record<string, unknown> {
   }
 }
 
-export function isPublished(src: string): boolean {
-  const fm = readFrontmatter(src);
+/** Publish check on already-parsed frontmatter (callers that need other
+ *  frontmatter fields too parse once and reuse). */
+export function publishFlag(fm: Record<string, unknown>): boolean {
   return fm.publish === true || fm.publish === "true";
+}
+
+export function isPublished(src: string): boolean {
+  return publishFlag(readFrontmatter(src));
 }
 
 /**

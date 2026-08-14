@@ -11,7 +11,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { MeData } from "../shared/types.ts";
 import { isNotePublished, publishedCounts, resolveLink } from "./indexer.ts";
-import { customCssPath, defaultTheme, siteName } from "./site.ts";
+import { blogLocale, customCssPath, defaultTheme, footerLine, publicLayout, siteName, tagline } from "./site.ts";
 import { normalizeRel } from "./vault.ts";
 
 const COOKIE_NAME = "vellum_session";
@@ -157,10 +157,37 @@ function isAdmin(c: Context): boolean {
   return isValidSessionToken(getCookie(c, COOKIE_NAME));
 }
 
+/** The request ASKS for visitor preview: the X-Vellum-Preview header, or —
+ *  for /api/events only, since EventSource cannot set headers — the
+ *  ?preview=visitor query param. Asking is not getting: the flag is honored
+ *  only for a valid admin session (see isPreviewingVisitor). */
+function previewRequested(c: Context): boolean {
+  if (c.req.header("x-vellum-preview")?.trim().toLowerCase() === "visitor") return true;
+  return c.req.path === "/api/events" && c.req.query("preview") === "visitor";
+}
+
+/** Admin previewing the public site: a valid admin session that asked to be
+ *  treated as a visitor. Every visitor-scoping decision (isPublishLimited,
+ *  the auth guard, /api/me) flows through the same code path a real visitor
+ *  takes — no separate "preview filtering" exists anywhere. */
+export function isPreviewingVisitor(c: Context): boolean {
+  return previewRequested(c) && isAdmin(c);
+}
+
 /** True when this request must see the curated published collection only:
- *  a password hash is configured AND the request has no admin session. */
+ *  a password hash is configured AND the request has no admin session — or
+ *  an admin session explicitly previewing the visitor experience. */
 export function isPublishLimited(c: Context): boolean {
+  if (isPreviewingVisitor(c)) return true;
   return config.passwordHash !== null && !isAdmin(c);
+}
+
+/** True when this request may read vault-derived content at all: reads are
+ *  public, or the request carries an admin session (open local mode included).
+ *  Non-/api surfaces (feed.xml, SEO injection) gate on this so PUBLIC=false
+ *  keeps them as closed as the API. */
+export function canRead(c: Context): boolean {
+  return config.publicReads || isAdmin(c);
 }
 
 // ---------------------------------------------------------------- rate limit
@@ -263,12 +290,17 @@ function homeNotePublished(ref: string): boolean {
 }
 
 authRoutes.get("/me", (c) => {
-  const admin = isAdmin(c);
+  // Preview: an admin session that asked to be treated as a visitor gets the
+  // exact visitor-shaped payload (admin: false, no counts, published-only
+  // home note) plus `preview: true` so the client can show the exit banner.
+  const preview = isPreviewingVisitor(c);
+  const admin = isAdmin(c) && !preview;
   const me: MeData = {
     admin,
     public: config.publicReads,
     protected: config.passwordHash !== null,
   };
+  if (preview) me.preview = true;
   // Publish stats are admin UI copy only — telling an anonymous visitor how
   // many notes exist beyond the published ones would leak vault size.
   if (admin) me.published = publishedCounts();
@@ -285,6 +317,16 @@ authRoutes.get("/me", (c) => {
   const theme = defaultTheme();
   if (theme) me.defaultTheme = theme;
   if (customCssPath()) me.customCss = true;
+  // Blog mode (PUBLIC_LAYOUT=blog): layout + masthead/footer/locale copy.
+  // Sent to admin sessions too — the client applies the blog shell only when
+  // the session is not admin, but the admin UI may want to preview the copy.
+  if (publicLayout() === "blog") {
+    me.publicLayout = "blog";
+    const tl = tagline();
+    if (tl) me.tagline = tl;
+    me.footer = footerLine();
+    me.blogLocale = blogLocale();
+  }
   return c.json(me);
 });
 
@@ -293,10 +335,21 @@ authRoutes.get("/me", (c) => {
 /** Always reachable, even with PUBLIC=false (the SPA shell is served outside /api). */
 const OPEN_PATHS = new Set(["/api/login", "/api/logout", "/api/me", "/api/custom.css"]);
 
+/** /api/fonts/* is styling like custom.css: open to visitors and the login
+ *  page of a PUBLIC=false vault (the route itself enforces basename-only +
+ *  extension whitelist — nothing else is reachable under the prefix). */
+function isOpenPath(path: string): boolean {
+  return OPEN_PATHS.has(path) || path.startsWith("/api/fonts/");
+}
+
 export const authGuard: MiddlewareHandler = async (c, next) => {
-  if (OPEN_PATHS.has(c.req.path)) return next();
-  if (!config.passwordHash) return next(); // local mode: everything open
-  if (isAdmin(c)) return next();
+  if (isOpenPath(c.req.path)) return next();
+  // Preview: the admin session walks the visitor branch below — mutations
+  // 401 and PUBLIC=false locks reads, exactly as they would for a stranger.
+  if (!isPreviewingVisitor(c)) {
+    if (!config.passwordHash) return next(); // local mode: everything open
+    if (isAdmin(c)) return next();
+  }
   // Posting a comment is read-level, not vault mutation: visitors may do it
   // (the route itself 404s unless COMMENTS=on and the note is published).
   // It still falls through to the PUBLIC=false check below — a locked vault

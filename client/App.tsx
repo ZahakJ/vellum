@@ -6,10 +6,12 @@ import { lazy, Suspense, useEffect, useRef } from "react";
 import type { VaultEvent } from "../shared/types.ts";
 import { subscribeEvents } from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
+import BlogShell from "./blog/BlogShell.tsx";
 import BacklinksPanel from "./components/BacklinksPanel.tsx";
 import CommandPalette from "./components/CommandPalette.tsx";
 import GraphView from "./components/GraphView.tsx";
 import LoginModal from "./components/LoginModal.tsx";
+import PreviewBanner from "./components/PreviewBanner.tsx";
 import ReadingView from "./reading/ReadingView.tsx";
 import Sidebar from "./components/Sidebar.tsx";
 import StatusBar from "./components/StatusBar.tsx";
@@ -37,33 +39,42 @@ export default function App() {
   const reloadTick = useStore((s) => s.reloadTick);
   const admin = useStore((s) => s.admin);
   const authReady = useStore((s) => s.authReady);
+  const publicLayout = useStore((s) => s.publicLayout);
   const locked = useStore((s) => !s.admin && !s.publicReads);
   const lastSaveRef = useRef(0);
 
-  // Boot: /api/me, then tree + session restore / home note. Once the vault is
-  // in, the router takes over the address bar: a pasted deep link outranks the
-  // restored session and the home note, and back/forward walk visited notes.
+  // Blog mode (PUBLIC_LAYOUT=blog): visitors get the classic blog shell,
+  // which owns its own routes (/, /topic/…, article pages) — the app router
+  // below must then stay uninstalled. Admin sessions keep the full app.
+  const blogVisitor = authReady && !admin && publicLayout === "blog";
+
+  // Boot: /api/me, then tree + session restore / home note.
   useEffect(() => {
-    let cleanup: (() => void) | null = null;
-    let cancelled = false;
-    void useStore.getState().bootstrap().then(() => {
-      if (cancelled) return;
-      cleanup = installRouter();
-      const hadDeepLink = location.pathname !== "/" && location.pathname !== "/graph";
-      // A locked vault keeps the deep link in the address bar: it resolves
-      // right after login (see installRouter's tree watcher). A bare "/"
-      // keeps what bootstrap opened (home note / restored session) and
-      // syncUrl() canonicalizes the address bar to it.
-      if (useStore.getState().tree !== null && !applyUrl(true)) {
-        if (hadDeepLink) toast("That note does not exist (anymore)");
-        syncUrl();
-      }
-    });
-    return () => {
-      cancelled = true;
-      cleanup?.();
-    };
+    void useStore.getState().bootstrap();
   }, []);
+
+  // Once the vault is in, the router takes over the address bar: a pasted
+  // deep link outranks the restored session and the home note, and
+  // back/forward walk visited notes. Re-installed when an admin signs in out
+  // of the blog shell (blogVisitor flips false) and torn down on sign-out.
+  useEffect(() => {
+    if (!authReady || blogVisitor) return;
+    const cleanup = installRouter();
+    const hadDeepLink = location.pathname !== "/" && location.pathname !== "/graph";
+    // A locked vault keeps the deep link in the address bar: it resolves
+    // right after login (see installRouter's tree watcher). A bare "/"
+    // keeps what bootstrap opened (home note / restored session) and
+    // syncUrl() canonicalizes the address bar to it.
+    if (useStore.getState().tree !== null && !applyUrl(true)) {
+      // Blog-only routes (/topic/…) name nothing in the app shell — land
+      // home quietly instead of complaining about a missing note.
+      if (hadDeepLink && !location.pathname.startsWith("/topic/")) {
+        toast("That note does not exist (anymore)");
+      }
+      syncUrl();
+    }
+    return cleanup;
+  }, [authReady, blogVisitor]);
 
   // Track when the Editor finishes a save (dirty true -> false), so SSE
   // "changed" echoes of our own writes can be told apart from external edits.
@@ -169,6 +180,18 @@ export default function App() {
   // Until /api/me answers, render nothing — no flash of the wrong mode.
   if (!authReady) return <div className="s-app" />;
 
+  // Visitors of a blog-mode instance get the classic blog — no app chrome.
+  // (The banner renders only during admin preview — PreviewBanner is inert
+  // for real visitors.)
+  if (blogVisitor) {
+    return (
+      <>
+        <BlogShell />
+        <PreviewBanner />
+      </>
+    );
+  }
+
   return (
     <div className={`s-app${admin ? "" : " s-app--visitor"}`}>
       <Sidebar />
@@ -229,6 +252,7 @@ export default function App() {
       </main>
       <BacklinksPanel />
       <StatusBar />
+      <PreviewBanner />
       {paletteOpen && <CommandPalette />}
       {loginOpen && <LoginModal />}
     </div>

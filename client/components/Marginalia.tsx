@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CommentData } from "../../shared/types.ts";
+import { withPreview } from "../api.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import "../styles/comments.css";
@@ -12,7 +13,7 @@ import "../styles/comments.css";
 const AUTHOR_KEY = "vellum.comment.author";
 
 async function fetchComments(path: string): Promise<CommentData[]> {
-  const res = await fetch(`/api/comments?path=${encodeURIComponent(path)}`);
+  const res = await fetch(`/api/comments?path=${encodeURIComponent(path)}`, withPreview());
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as CommentData[];
 }
@@ -23,11 +24,11 @@ async function postComment(payload: {
   body: string;
   website: string;
 }): Promise<CommentData> {
-  const res = await fetch("/api/comments", {
+  const res = await fetch("/api/comments", withPreview({
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
-  });
+  }));
   const data: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     const message =

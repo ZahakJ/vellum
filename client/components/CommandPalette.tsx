@@ -88,6 +88,8 @@ interface CommandCtx {
   authProtected: boolean;
   /** Best known publish state of the open note. */
   openPublished: boolean;
+  /** Admin currently previewing the public site. */
+  preview: boolean;
 }
 
 interface Command {
@@ -171,10 +173,22 @@ const COMMANDS: Command[] = [
     available: ({ openPath, admin }) => admin && openPath !== null,
   },
   {
+    id: "preview-visitor",
+    label: "Preview as visitor",
+    hint: "see the public site",
+    available: ({ admin, preview }) => admin && !preview,
+  },
+  {
+    id: "exit-preview",
+    label: "Exit visitor preview",
+    hint: "back to the vault",
+    available: ({ preview }) => preview,
+  },
+  {
     id: "sign-in",
     label: "Sign in",
     hint: "unlock editing",
-    available: ({ admin }) => !admin,
+    available: ({ admin, preview }) => !admin && !preview,
   },
   {
     id: "sign-out",
@@ -228,6 +242,7 @@ export default function CommandPalette() {
   const openPath = useStore((s) => s.openPath);
   const admin = useStore((s) => s.admin);
   const authProtected = useStore((s) => s.authProtected);
+  const preview = useStore((s) => s.previewVisitor);
   const openPublished = useStore(
     (s) =>
       s.openPublished ??
@@ -302,7 +317,7 @@ export default function CommandPalette() {
   const items = useMemo<Item[]>(() => {
     if (mode.type === "prompt") return [];
     const q = query.trim();
-    const ctx: CommandCtx = { openPath, admin, authProtected, openPublished };
+    const ctx: CommandCtx = { openPath, admin, authProtected, openPublished, preview };
     const available = COMMANDS.filter((c) => c.available(ctx));
     if (!q) {
       return [
@@ -324,7 +339,7 @@ export default function CommandPalette() {
         indices: match.indices,
       }));
     return [...matchedCommands, ...hits.map<Item>((hit) => ({ kind: "note", hit }))];
-  }, [mode.type, query, openPath, admin, authProtected, openPublished, openTabs, hits]);
+  }, [mode.type, query, openPath, admin, authProtected, openPublished, preview, openTabs, hits]);
 
   // Keep selection in bounds as results change.
   useEffect(() => {
@@ -382,6 +397,12 @@ export default function CommandPalette() {
           break;
         case "unpublish-note":
           if (store.openPath) void store.togglePublish(store.openPath, false);
+          break;
+        case "preview-visitor":
+          void store.setPreviewVisitor(true);
+          break;
+        case "exit-preview":
+          void store.setPreviewVisitor(false);
           break;
         case "sign-in":
           store.setLoginOpen(true);

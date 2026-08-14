@@ -4,8 +4,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import MiniSearch from "minisearch";
-import type { Backlink, GraphData, GraphEdge, SearchHit, TagCount, VaultEvent } from "../shared/types.ts";
-import { isPublished } from "./publish.ts";
+import type { Backlink, GraphData, GraphEdge, PostMeta, SearchHit, TagCount, VaultEvent } from "../shared/types.ts";
+import { publishFlag, readFrontmatter } from "./publish.ts";
 import { excludedTags } from "./site.ts";
 import { listVaultFiles, onEvent, readNote, safeAbs } from "./vault.ts";
 
@@ -17,9 +17,14 @@ interface NoteRecord {
   tags: string[];
   /** frontmatter `publish` is exactly true / "true" */
   published: boolean;
+  /** Post date in epoch ms: frontmatter date/created when parseable, else
+   *  file birthtime (mtime where the fs has no birthtime). */
+  dateMs: number;
   /** Lazily computed prose-stripped body for snippets (null until first use).
    *  Records are replaced wholesale on reindex, so this never goes stale. */
   flat: string | null;
+  /** Lazily computed blog-post fields (same lifecycle as `flat`). */
+  post: { excerpt: string; words: number } | null;
 }
 
 const notes = new Map<string, NoteRecord>();
@@ -119,8 +124,9 @@ function handleEvent(event: VaultEvent): void {
  *  otherwise a rename issued right after a save misses freshly written links. */
 export async function indexFile(relPath: string): Promise<void> {
   // Oversized markdown is deliberately not indexed (still served by /api/note).
+  let stat;
   try {
-    const stat = await fs.stat(safeAbs(relPath));
+    stat = await fs.stat(safeAbs(relPath));
     if (stat.size > MAX_INDEXED_MD_BYTES) {
       removeFile(relPath);
       return;
@@ -139,14 +145,20 @@ export async function indexFile(relPath: string): Promise<void> {
   removeFile(relPath);
   const title = path.posix.basename(relPath, ".md");
   const { body, frontmatter } = splitFrontmatter(content);
+  const fm = readFrontmatter(content);
   const record: NoteRecord = {
     path: relPath,
     title,
     body,
     links: parseLinks(body),
     tags: parseTags(body, frontmatter),
-    published: isPublished(content),
+    published: publishFlag(fm),
+    dateMs:
+      parseFmDate(fm.date) ??
+      parseFmDate(fm.created) ??
+      (stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs),
     flat: null,
+    post: null,
   };
   notes.set(relPath, record);
   addName(title, relPath);
@@ -232,6 +244,21 @@ function parseLinks(body: string): NoteRecord["links"] {
     re.lastIndex = 0;
   }
   return links;
+}
+
+/** Frontmatter date value → epoch ms, or null when absent/unparseable.
+ *  gray-matter's YAML parser hands back Date objects for bare dates and
+ *  strings for quoted ones — both are honored. */
+function parseFmDate(value: unknown): number | null {
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isNaN(ms) ? null : ms;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const ms = Date.parse(value.trim());
+    return Number.isNaN(ms) ? null : ms;
+  }
+  return null;
 }
 
 function parseTags(body: string, frontmatter: string): string[] {
@@ -358,6 +385,121 @@ export function publishedNotes(): { path: string; title: string }[] {
 
 export function publishedCounts(): { notes: number; total: number } {
   return { notes: publishedSet.size, total: notes.size };
+}
+
+// --------------------------------------------------------------------- posts
+
+const EXCERPT_MAX = 220;
+/** A paragraph is "real" prose once it carries this many letters — template
+ *  furniture like a bare "2026-03-07 19:28" timestamp or a "Tags: a b" label
+ *  line falls short and is skipped (kept only as a last-resort fallback). */
+const EXCERPT_MIN_LETTERS = 30;
+const EXCERPT_MAX_PARAGRAPHS = 40;
+
+/** True for metadata-ish furniture lines common in note templates: a bare
+ *  timestamp, or a short "Label:" line whose content is only #tags ("Status:
+ *  #draft", "Tags: #a #b"). Once #tags and one short leading label are
+ *  removed, no letters remain — real prose always keeps some. */
+function isFurnitureLine(raw: string): boolean {
+  const noTags = raw.trim().replace(/(?:^|[\s(])#[\p{L}\p{N}_][\p{L}\p{N}_/-]*/gu, " ");
+  const rest = noTags.replace(/^[\p{L} ]{1,24}:\s*/u, "");
+  return (rest.match(/\p{L}/gu) ?? []).length === 0;
+}
+
+/** First real paragraph of a note body as prose: headings, images, tables,
+ *  fences and math never count; consecutive prose lines are joined
+ *  (hard-wrapped sources) until a blank/heading/table/fence ends a paragraph.
+ *  The first paragraph with EXCERPT_MIN_LETTERS of actual letters wins;
+ *  when nothing qualifies, the first letter-bearing (then any) paragraph. */
+function firstParagraph(body: string): string {
+  const fences = new FenceSkipper();
+  let parts: string[] = [];
+  let len = 0;
+  let paragraphs = 0;
+  let fallback = ""; // best sub-threshold paragraph seen (furniture never lands here)
+  // Close the open paragraph: return it when it is real prose, else file it
+  // as a fallback and return null so the scan continues.
+  const finish = (): string | null => {
+    if (parts.length === 0) return null;
+    const para = parts.join(" ").replace(/\s+/g, " ").trim();
+    parts = [];
+    len = 0;
+    if (!para) return null;
+    paragraphs++;
+    const letters = (para.match(/\p{L}/gu) ?? []).length;
+    if (letters >= EXCERPT_MIN_LETTERS) return para;
+    if (!fallback) fallback = para;
+    return null;
+  };
+  for (const raw of body.split("\n")) {
+    const boundary =
+      fences.skip(raw) ||
+      /^\s{0,3}#{1,6}\s+/.test(raw) ||
+      /^\s*\|/.test(raw) ||
+      !raw.trim() ||
+      isFurnitureLine(raw);
+    const line = boundary ? "" : proseLine(raw);
+    if (!line) {
+      // Boundary or furniture-only line (bare image/embed): paragraph ends.
+      const done = finish();
+      if (done) return done;
+      if (paragraphs >= EXCERPT_MAX_PARAGRAPHS) break;
+      continue;
+    }
+    parts.push(line);
+    len += line.length + 1;
+    if (len > EXCERPT_MAX * 3) break; // enough source for any excerpt
+  }
+  return finish() ?? fallback;
+}
+
+/** ~220-char excerpt cut on a word boundary, "…" marking a real cut.
+ *  Single-char emphasis (*em*, _em_) is stripped here too — excerpts are
+ *  plain text, unlike search snippets which keep the historical behavior. */
+function excerptOf(body: string): string {
+  const para = firstParagraph(body)
+    .replace(/(^|[\s([{])\*([^*\n]+)\*(?=[\s)\]}.,;:!?…]|$)/g, "$1$2")
+    .replace(/(^|[\s([{])_([^_\n]+)_(?=[\s)\]}.,;:!?…]|$)/g, "$1$2");
+  if (para.length <= EXCERPT_MAX) return para;
+  let cut = para.slice(0, EXCERPT_MAX + 1);
+  const space = cut.lastIndexOf(" ");
+  cut = space > EXCERPT_MAX / 2 ? cut.slice(0, space) : cut.slice(0, EXCERPT_MAX);
+  return `${cut.replace(/[\s,;:.!?…·—–-]+$/, "")}…`;
+}
+
+function postMeta(record: NoteRecord): PostMeta {
+  if (record.post === null) {
+    const flat = flatBody(record);
+    record.post = {
+      excerpt: excerptOf(record.body),
+      words: flat === "" ? 0 : flat.split(" ").length,
+    };
+  }
+  const hidden = excludedTags();
+  return {
+    path: record.path,
+    title: record.title,
+    date: new Date(record.dateMs).toISOString(),
+    excerpt: record.post.excerpt,
+    words: record.post.words,
+    readingMinutes: Math.ceil(record.post.words / 200),
+    tags: record.tags.filter((t) => !hidden.has(t.toLowerCase())),
+  };
+}
+
+/** Published notes as blog posts, newest first (visitor-safe: published only,
+ *  EXCLUDE_TAGS filtered). Per-note fields are cached on the index record and
+ *  refresh incrementally as notes reindex. */
+export function posts(): PostMeta[] {
+  const out: { dateMs: number; meta: PostMeta }[] = [];
+  for (const notePath of publishedSet) {
+    const record = notes.get(notePath);
+    if (!record) continue;
+    out.push({ dateMs: record.dateMs, meta: postMeta(record) });
+  }
+  return out
+    .sort((a, b) => b.dateMs - a.dateMs || a.meta.path.localeCompare(b.meta.path))
+    .map((entry) => entry.meta);
 }
 
 export function search(query: string, publishedOnly = false): SearchHit[] {
@@ -593,51 +735,70 @@ function stripInlineMd(text: string): string {
     .replace(/(^|[\s([{])#(?=[\p{L}\p{N}_])/gu, "$1");
 }
 
+/** Line-skipping state for fenced code and $$ display math blocks — shared by
+ *  the full-body stripper and the excerpt builder. skip() returns true when
+ *  the line is fence/math/hr furniture that must not reach the prose. */
+class FenceSkipper {
+  private inFence = false;
+  private inMath = false;
+  skip(raw: string): boolean {
+    if (/^\s*(```|~~~)/.test(raw)) {
+      this.inFence = !this.inFence;
+      return true;
+    }
+    if (this.inFence) return true;
+    // $$ display math is raw LaTeX — leave it out entirely.
+    const t = raw.trim();
+    if (!this.inMath && t.startsWith("$$")) {
+      if (!(t.length > 4 && t.endsWith("$$"))) this.inMath = true;
+      return true;
+    }
+    if (this.inMath) {
+      if (t.endsWith("$$")) this.inMath = false;
+      return true;
+    }
+    return /^\s*---\s*$/.test(raw);
+  }
+}
+
+/** One raw markdown line → trimmed prose: block prefix and inline marks
+ *  stripped, callout markers and %%comments%% dropped, ![[embeds]] dropped
+ *  outright (a filename glued mid-sentence reads as garbage), [[wikilinks]]
+ *  reduced to their alias/target label. Fence/math state is the caller's. */
+function proseLine(raw: string): string {
+  return stripInlineMd(stripLinePrefix(raw))
+    // callout title markers ("[!note] Title" after quote stripping)
+    .replace(/^\[!\w+\][+-]?\s*/, "")
+    // inline math: drop the $ delimiters, keep the expression text
+    .replace(/\$([^$\n]+?)\$/g, "$1")
+    // ==highlight== and %%comment%% marks
+    .replace(/==([^=\n]+?)==/g, "$1")
+    .replace(/%%[^%\n]*%%/g, "")
+    // ![[embeds]] first (before the wikilink pass eats their inner
+    // brackets and strands the "!").
+    .replace(/!\[\[[^[\]]*\]\]/g, " ")
+    .replace(
+      wikilinkRegex(),
+      (_m, target: string, _heading?: string, alias?: string) =>
+        (alias ? alias.slice(1) : target).trim(),
+    )
+    .trim();
+}
+
 /** Full markdown → prose strip for search snippets: no fence lines, no
  *  frontmatter-ish separators, wikilinks reduced to their label. Heading
- *  text gets an em-dash tail so it doesn't run into the next sentence. */
+ *  text gets an em-dash tail so it doesn't run into the next sentence.
+ *  Furniture lines (bare timestamps, "Status:"/"Tags:" label lines) are
+ *  skipped the same way the excerpt builder skips them, so a snippet that
+ *  windows the head of a note starts at real prose, not template preamble. */
 function stripMarkdown(body: string): string {
   const out: string[] = [];
-  let inFence = false;
-  let inMath = false;
+  const fences = new FenceSkipper();
   for (const raw of body.split("\n")) {
-    if (/^\s*(```|~~~)/.test(raw)) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) {
-      continue;
-    }
-    // $$ display math is raw LaTeX — leave it out of snippets entirely.
-    const t = raw.trim();
-    if (!inMath && t.startsWith("$$")) {
-      if (!(t.length > 4 && t.endsWith("$$"))) inMath = true;
-      continue;
-    }
-    if (inMath) {
-      if (t.endsWith("$$")) inMath = false;
-      continue;
-    }
-    if (/^\s*---\s*$/.test(raw)) continue;
+    if (fences.skip(raw)) continue;
+    if (isFurnitureLine(raw)) continue;
     const isHeading = /^\s{0,3}#{1,6}\s+/.test(raw);
-    let line = stripInlineMd(stripLinePrefix(raw))
-      // callout title markers ("[!note] Title" after quote stripping)
-      .replace(/^\[!\w+\][+-]?\s*/, "")
-      // inline math: drop the $ delimiters, keep the expression text
-      .replace(/\$([^$\n]+?)\$/g, "$1")
-      // ==highlight== and %%comment%% marks
-      .replace(/==([^=\n]+?)==/g, "$1")
-      .replace(/%%[^%\n]*%%/g, "")
-      // ![[embeds]] first (before the wikilink pass eats their inner
-      // brackets and strands the "!"): dropped outright — a filename or
-      // embedded-note title glued mid-sentence reads as garbage in a snippet.
-      .replace(/!\[\[[^[\]]*\]\]/g, " ")
-      .replace(
-        wikilinkRegex(),
-        (_m, target: string, _heading?: string, alias?: string) =>
-          (alias ? alias.slice(1) : target).trim(),
-      );
-    line = line.trim();
+    const line = proseLine(raw);
     if (!line) continue;
     out.push(isHeading ? `${line} —` : line);
   }

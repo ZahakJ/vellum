@@ -2,6 +2,8 @@
 // the reading-view renderer (first-paint chunk). No CodeMirror imports here —
 // this file is what lets the reading view ship without the editor bundle.
 
+import { withPreview } from "../api.ts";
+
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 const ATTACHMENT_EXT = /\.(pdf|mp4|webm|mp3|ogg|wav|flac|zip|canvas|json|csv|txt)$/i;
 
@@ -51,7 +53,7 @@ export function resolveAttachment(
   if (resolveCache.has(name)) return resolveCache.get(name) ?? null;
   const pending = resolvePending.get(name);
   if (pending) return pending;
-  const p = fetch(`/api/resolve?name=${encodeURIComponent(name)}`)
+  const p = fetch(`/api/resolve?name=${encodeURIComponent(name)}`, withPreview())
     .then(async (res) => {
       let path: string | null;
       if (res.ok) {
@@ -122,5 +124,41 @@ export function brokenEmbed(name: string): HTMLElement {
   icon.textContent = "⌀";
   icon.setAttribute("aria-hidden", "true");
   box.append(icon, document.createTextNode(name));
+  return box;
+}
+
+/** True for machine-generated image names that mean nothing to a reader —
+ *  "Pasted image 20260101123456.png", "Screenshot 2026-01-01 at 12.00.00",
+ *  "IMG_0421" — i.e. nothing letter-shaped survives once a generic prefix
+ *  and the digits/punctuation are set aside. */
+export function isNoiseImageName(name: string): boolean {
+  const base = name.replace(/\.[a-z0-9]+$/i, "");
+  const rest = base.replace(
+    /^\s*(pasted[\s_-]*image|screen[\s_-]*shot|clipboard|image|img|photo|untitled)/i,
+    "",
+  ).replace(/\bat\b/gi, ""); // "Screenshot … at 12.00.00"
+  return !/\p{L}/u.test(rest);
+}
+
+/** Faint minimal "missing image" card for reader-facing surfaces (the blog
+ *  article view) where the editor's ⌀-placeholder would read as clutter. */
+export function missingImageCard(name: string): HTMLElement {
+  const box = document.createElement("span");
+  box.className = "s-rv-imgmissing";
+  const icon = document.createElement("span");
+  icon.className = "s-rv-imgmissing__icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML =
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>';
+  const label = document.createElement("span");
+  label.className = "s-rv-imgmissing__label";
+  label.textContent = "Missing image";
+  box.append(icon, label);
+  if (!isNoiseImageName(name)) {
+    const which = document.createElement("span");
+    which.className = "s-rv-imgmissing__name";
+    which.textContent = name;
+    box.append(which);
+  }
   return box;
 }

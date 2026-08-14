@@ -6,8 +6,10 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { api } from "./api.ts";
-import { initAuth } from "./auth.ts";
+import { canRead, initAuth } from "./auth.ts";
+import { injectHead, renderFeed, requestOrigin } from "./blog.ts";
 import { initSite } from "./site.ts";
 import { initComments } from "./comments.ts";
 import { initIndexer } from "./indexer.ts";
@@ -62,11 +64,34 @@ const app = new Hono();
 app.route("/api", api);
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 
+// RSS feed of published notes. Independent of dist (it is server-rendered),
+// but gated exactly like API reads: PUBLIC=false keeps it behind login.
+app.get("/feed.xml", (c) => {
+  if (!canRead(c)) return c.json({ error: "Sign in required" }, 401);
+  return c.body(renderFeed(requestOrigin(c)), 200, {
+    "Content-Type": "application/rss+xml; charset=utf-8",
+    "Cache-Control": "no-cache",
+  });
+});
+
 // Prod: serve the built client, with SPA fallback for client-side routes.
+// Every served shell gets its <head> injected server-side (title/description/
+// og/canonical + RSS alternate): a published note's own meta on its deep link,
+// the generic site meta everywhere else — unknown and unpublished paths are
+// indistinguishable, and a PUBLIC=false vault without a session always gets
+// the generic meta so crawler requests can't probe note existence.
 const distDir = path.join(projectRoot, "dist");
 if (existsSync(distDir)) {
+  const serveShell = (c: Context) => {
+    const html = readFileSync(path.join(distDir, "index.html"), "utf8");
+    const pathname = canRead(c) ? c.req.path : "/";
+    return c.html(injectHead(html, requestOrigin(c), pathname));
+  };
+  // "/" and "/index.html" would otherwise be served raw by serveStatic.
+  app.get("/", serveShell);
+  app.get("/index.html", serveShell);
   app.use("*", serveStatic({ root: path.relative(process.cwd(), distDir) || "." }));
-  app.get("*", (c) => c.html(readFileSync(path.join(distDir, "index.html"), "utf8")));
+  app.get("*", serveShell);
 }
 
 serve({ fetch: app.fetch, port, hostname: host }, () => {

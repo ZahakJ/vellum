@@ -41,11 +41,30 @@ export interface MeData {
   admin: boolean;      // this session may mutate the vault
   public: boolean;     // reads are open without a session (PUBLIC != false)
   protected: boolean;  // an ADMIN_PASSWORD_HASH is configured (sign in/out is meaningful)
+  preview?: boolean;   // admin session previewing as visitor (X-Vellum-Preview) — payload above is visitor-shaped
   homeNote?: string;   // note opened for fresh visitors (HOME_NOTE)
   published?: PublishedCounts; // publish stats for admin UI copy (admin sessions only)
   siteName?: string;   // instance branding (SITE_NAME; default "Vellum")
   defaultTheme?: string; // theme applied when the visitor has no stored choice (DEFAULT_THEME)
   customCss?: boolean; // VELLUM_DATA/custom.css exists → client links /api/custom.css
+  // Blog mode (PUBLIC_LAYOUT=blog): visitors get a classic blog shell instead
+  // of the app chrome; admin sessions keep the full app. Fields below are
+  // present only when blog mode is on.
+  publicLayout?: "app" | "blog"; // PUBLIC_LAYOUT (absent = "app")
+  tagline?: string;    // SITE_TAGLINE — masthead subtitle
+  footer?: string;     // SITE_FOOTER resolved (default "© <year> <SITE_NAME>")
+  blogLocale?: string; // BLOG_LOCALE — BCP47 tag the client uses for date formatting (default "en")
+}
+
+// GET /api/posts (visitor-safe): published notes as blog posts, newest first.
+export interface PostMeta {
+  path: string;           // vault-relative note path
+  title: string;          // basename without .md
+  date: string;           // ISO 8601: frontmatter date/created when parseable, else file birthtime/mtime
+  excerpt: string;        // first real paragraph, markdown stripped, ~220 chars, word-boundary + …
+  words: number;          // prose word count
+  readingMinutes: number; // ceil(words / 200)
+  tags: string[];         // EXCLUDE_TAGS filtered
 }
 
 export interface PublishedCounts {
