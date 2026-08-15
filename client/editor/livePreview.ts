@@ -796,6 +796,14 @@ class FrontmatterWidget extends WidgetType {
     action.dataset.action = "set-banner";
     action.textContent = bannerFromYaml(this.yaml) ? "Banner…" : "Set banner…";
     action.title = "Set a banner image for this note";
+    // Direct listener, like the tag pills: FrontmatterWidget keeps CM's
+    // default ignoreEvent()=true, so the editor's mousedown handler never
+    // sees clicks inside this widget — the button must dispatch itself.
+    action.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      window.dispatchEvent(new CustomEvent("vellum:set-banner"));
+    });
     const card = buildPropsCard(this.yaml, {
       prefix: "cm-s-props",
       action,
