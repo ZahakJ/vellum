@@ -1,14 +1,25 @@
 # Vellum
 
-**A self-hosted Obsidian-style vault and publish site for a folder of plain Markdown — live-preview editor, wikilinks, backlinks, graph view, embeds, callouts, math, a full reading view, and full-text search, all served by one small Node process.**
+**Your Obsidian-style vault, self-hosted — and, when you want it, published as a beautiful blog. One small Node process.**
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-b8912f.svg)](LICENSE)
+[![Node ≥ 22](https://img.shields.io/badge/node-%E2%89%A5%2022-339933?logo=node.js&logoColor=white)](package.json)
 
 > A *vellum* was the candlelit room where manuscripts were copied and illuminated. This one runs on `localhost`.
 
-![Live preview: KaTeX math, callouts, highlighted code, tasks, outline](docs/live-preview-dark.png)
+![The live-preview editor: callouts, tasks, wikilinks, KaTeX math, outline, local graph, and backlinks](docs/screenshots/hero-editor.png)
 
-## Why not just Obsidian?
+## Why Vellum
 
-Obsidian is excellent — and if it fits, use it. Vellum exists for the gap it leaves: a vault you can open **from any browser** on your network, served by **one small Node process you host yourself**, with no desktop install, no sync subscription, and no plugin sprawl. It is local-first in the strictest sense: your notes are ordinary markdown files in an ordinary folder, readable and writable by every other tool you own. Point Vellum at an existing Obsidian vault and both keep working — Vellum never converts, wraps, or databases your files, ignores `.obsidian/` entirely, and serves your existing attachments in place. If you delete the app tomorrow, your notes don't notice.
+Obsidian is excellent — and if it fits, use it. Vellum exists for the gap it leaves: a vault you can open **from any browser** on your network, served by **one small Node process you host yourself**, with no desktop install, no sync subscription, and no plugin sprawl. It is local-first in the strictest sense: your notes are ordinary markdown files in an ordinary folder, readable and writable by every other tool you own. Point Vellum at an existing Obsidian vault and both keep working — Vellum never converts, wraps, or databases your files, ignores `.obsidian/` entirely, and serves your existing attachments in place. If you delete the app tomorrow, your notes don't notice. And when some of those notes deserve readers, flip on [blog mode](#blog-mode): the same vault becomes a public site with articles, topics, RSS, and reader comments — `publish: true` is the only frontmatter it asks for.
+
+## Gallery
+
+| | |
+| --- | --- |
+| ![Blog dashboard home](docs/screenshots/blog-dashboard.png)<br>*Blog mode's dashboard home — posts as cards, each with a generated gradient until you set a banner.* | ![Blog article with comments](docs/screenshots/blog-article.png)<br>*An article page: related posts, then "Marginalia" — built-in, rate-limited reader comments.* |
+| ![Graph view](docs/screenshots/graph.png)<br>*Graph view — a hand-rolled canvas force simulation; drag nodes, click to open.* | ![Command palette](docs/screenshots/palette.png)<br>*The command palette fuzzy-matches notes and commands alike.* |
+| ![The four themes](docs/screenshots/themes.png)<br>*Four hand-tuned themes: iron-gall, void, lapis, and parchment.* | <img src="docs/screenshots/mobile.png" alt="Blog home on a phone" width="320"><br>*The public site, phone-sized.* |
 
 ## Quickstart
 
@@ -365,13 +376,6 @@ theme tokens.
 | `↑` `↓` `Enter` `Esc` | Navigate / confirm / dismiss the palette |
 
 In vim mode, `Ctrl D` inside the editor keeps its half-page scroll; use the palette's "Open daily note".
-
-## Screenshots
-
-| | |
-| --- | --- |
-| ![Editor, iron-gall dark](docs/editor-dark.png) | ![Editor, parchment light](docs/editor-light.png) |
-| ![Note transclusion card](docs/transclusion-dark.png) | ![Graph view](docs/graph-dark.png) |
 
 ## Architecture
 
