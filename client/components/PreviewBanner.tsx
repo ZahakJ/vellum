@@ -3,10 +3,12 @@
 // so it never collides with the blog masthead or sticky nav. Exit hands the
 // session back to the full admin app on the same note.
 
+import { t } from "../i18n.ts";
 import { useStore } from "../state.ts";
 
 export default function PreviewBanner() {
   const preview = useStore((s) => s.previewVisitor);
+  useStore((s) => s.language); // re-render the chrome strings on language change
   if (!preview) return null;
   return (
     <div className="s-preview-banner" role="status">
@@ -25,13 +27,13 @@ export default function PreviewBanner() {
           <circle cx="12" cy="12" r="3" />
         </svg>
       </span>
-      <span className="s-preview-banner__text">Previewing public site</span>
+      <span className="s-preview-banner__text">{t("previewingPublicSite")}</span>
       <button
         type="button"
         className="s-preview-banner__exit"
         onClick={() => void useStore.getState().setPreviewVisitor(false)}
       >
-        Exit preview
+        {t("exitPreview")}
       </button>
     </div>
   );

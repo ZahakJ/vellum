@@ -1,13 +1,15 @@
 // Blog surface: the RSS feed and crawler-facing <head> injection for the
-// served SPA shell. Both speak only in published notes — an unpublished or
-// unknown path gets the generic site meta, so nothing about the private vault
-// (existence included) ever leaks through these routes.
+// served SPA shell. Both are anonymous discovery surfaces, so both speak only
+// in VISITOR-visible notes — published AND not curated away by the
+// languageFilter (posts(true)). An unpublished, filtered-out or unknown path
+// gets the generic site meta, so nothing about the private vault (existence
+// included) ever leaks through these routes.
 
 import type { Context } from "hono";
 import type { PostMeta } from "../shared/types.ts";
 import { posts, publishedBanner } from "./indexer.ts";
 import { faviconPath } from "./settings.ts";
-import { blogLocale, siteName, siteUrl, tagline } from "./site.ts";
+import { blogLocale, siteLanguage, siteName, siteUrl, tagline } from "./site.ts";
 
 // ------------------------------------------------------------------ helpers
 
@@ -39,9 +41,18 @@ export function requestOrigin(c: Context): string {
   return `${proto}://${host}`;
 }
 
-/** The published post a pathname deep-links to, or null. Matching mirrors the
- *  client router: ".md" optional, case-insensitive, percent-encoded segments.
- *  Only published notes are findable — by construction of posts(). */
+/** The visitor-visible post a pathname deep-links to, or null. Matching mirrors
+ *  the client router: ".md" optional, case-insensitive, percent-encoded
+ *  segments.
+ *
+ *  posts(TRUE) — the visitor list — is the only correct source here. This is a
+ *  crawler-facing surface with no session: it is what puts a note into Google
+ *  and into social cards. Iterating the admin list leaked a language-hidden
+ *  note's title, a 220-char body excerpt (og:description) and its banner
+ *  (og:image) to anyone who guessed the deep link, while the sibling feed one
+ *  function below correctly hid it — the loudest possible discovery surface
+ *  contradicting the quiet one. The permalink itself keeps working: the client
+ *  fetches /api/note directly, and /api/note is deliberately never filtered. */
 function matchPublished(pathname: string): PostMeta | null {
   let decoded: string;
   try {
@@ -52,7 +63,7 @@ function matchPublished(pathname: string): PostMeta | null {
   const rel = decoded.replace(/^\/+/, "").replace(/\/+$/, "");
   if (!rel) return null;
   const want = (rel.toLowerCase().endsWith(".md") ? rel : `${rel}.md`).toLowerCase();
-  for (const post of posts()) {
+  for (const post of posts(true)) {
     if (post.path.toLowerCase() === want) return post;
   }
   return null;
@@ -68,7 +79,9 @@ function rfc822(iso: string): string {
 }
 
 export function renderFeed(origin: string): string {
-  const items = posts()
+  // The feed is a public discovery surface: the languageFilter applies
+  // (posts(true)), exactly like the visitor post list.
+  const items = posts(true)
     .slice(0, FEED_MAX_ITEMS)
     .map((post) => {
       const link = origin + notePathToUrl(post.path);
@@ -142,6 +155,12 @@ export function injectHead(html: string, origin: string, pathname: string): stri
   let out = html
     .replace(/<title>[^<]*<\/title>/, `<title>${xmlEscape(title)}</title>`)
     .replace(HEAD_PLACEHOLDER, tags.join("\n    "));
+  // Arabic mode: the served shell is RTL from the very first paint — the
+  // client re-applies the same attributes from /api/me, so this only removes
+  // the pre-hydration LTR flash.
+  if (siteLanguage() === "ar") {
+    out = out.replace(/<html\s+lang="en">/, `<html lang="ar" dir="rtl">`);
+  }
   // A configured favicon (settings.json) replaces the shell's inline default
   // so the tab icon is right from the very first paint, before any JS runs.
   // NB: the default href is a data: URI that CONTAINS ">" characters (inline

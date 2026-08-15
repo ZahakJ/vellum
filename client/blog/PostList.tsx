@@ -4,6 +4,7 @@
 
 import type { PostMeta } from "../../shared/types.ts";
 import { bannerSrc, generatedBannerCss } from "../banner.ts";
+import { countPhrase, t } from "../i18n.ts";
 import { notePathToUrl } from "../router.ts";
 import { useStore } from "../state.ts";
 import { topicUrl } from "./nav.ts";
@@ -32,7 +33,7 @@ export function PostMetaLine({ post, locale }: { post: PostMeta; locale: string 
       <span className="s-blog-meta__dot" aria-hidden="true">
         ·
       </span>
-      <span>{post.readingMinutes} min read</span>
+      <span>{countPhrase(post.readingMinutes, "readMinutes")}</span>
       {post.tags.length > 0 && (
         <>
           <span className="s-blog-meta__dot" aria-hidden="true">
@@ -45,7 +46,8 @@ export function PostMetaLine({ post, locale }: { post: PostMeta; locale: string 
   );
 }
 
-/** Right-aligned entry thumbnail: the post's banner, or (BANNER_FALLBACK=
+/** Entry thumbnail on the inline-end edge (right in LTR, left in RTL): the
+ *  post's banner, or (BANNER_FALLBACK=
  *  generated) a deterministic gradient from the title. Unloadable banner
  *  images hide themselves — the layout is elegant without a thumb too. */
 function EntryThumb({ post }: { post: PostMeta }) {
@@ -90,7 +92,7 @@ export default function PostList({
   locale: string;
 }) {
   if (posts.length === 0) {
-    return <p className="s-blog-empty">Nothing published here yet.</p>;
+    return <p className="s-blog-empty">{t("blogNothingPublished")}</p>;
   }
   return (
     <div className="s-blog-list">

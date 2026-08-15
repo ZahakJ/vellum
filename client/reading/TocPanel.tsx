@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { getNote } from "../api.ts";
+import { localeNum, t } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { extractHeadings, type Heading } from "./toc.ts";
 
@@ -13,6 +14,7 @@ export default function TocPanel() {
   const isDirty = useStore((s) => (s.openPath ? !!s.dirty[s.openPath] : false));
   const reloadTick = useStore((s) => s.reloadTick);
   const readingMode = useStore((s) => s.readingMode);
+  useStore((s) => s.language); // re-render the chrome strings on language change
   const [headings, setHeadings] = useState<Heading[]>([]);
   const [active, setActive] = useState<string | null>(null);
 
@@ -58,8 +60,8 @@ export default function TocPanel() {
   return (
     <section className="s-toc">
       <header className="s-panel-header s-toc__header">
-        <span className="s-panel-title">Outline</span>
-        <span className="s-panel-count">{headings.length}</span>
+        <span className="s-panel-title">{t("outline")}</span>
+        <span className="s-panel-count">{localeNum(headings.length)}</span>
       </header>
       <nav className="s-toc__list">
         {headings.map((h) => (
@@ -78,7 +80,16 @@ export default function TocPanel() {
               )
             }
           >
-            {h.text}
+            {/* The ROW is chrome: it keeps the shell's direction, so every
+                entry aligns to the same edge as the panel header, the indent
+                levels step inward from that edge and the active-row accent bar
+                stays attached to the row it marks. Only the LABEL is note
+                content, and it is isolated so an English heading in an Arabic
+                vault still reads "Tags:" rather than ":Tags". `dir="auto"` on
+                the row itself did both jobs at once and got the first one
+                wrong — a Latin heading dragged its whole row to the far side
+                of the panel. */}
+            <bdi>{h.text}</bdi>
           </button>
         ))}
       </nav>

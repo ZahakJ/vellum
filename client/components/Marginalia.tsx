@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CommentData } from "../../shared/types.ts";
 import { withPreview } from "../api.ts";
+import { countPhrase, localeDigits, t } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { confirmModal } from "./Confirm.tsx";
@@ -67,19 +68,41 @@ export function IconEyeSlash({ off }: { off: boolean }) {
   );
 }
 
-function relativeTime(ms: number): string {
-  const s = Math.max(0, (Date.now() - ms) / 1000);
-  if (s < 45) return "just now";
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.round(h / 24);
-  if (d < 31) return d === 1 ? "yesterday" : `${d} days ago`;
-  const mo = Math.round(d / 30.4);
-  if (mo < 12) return mo <= 1 ? "a month ago" : `${mo} months ago`;
-  const y = Math.round(d / 365.25);
-  return y <= 1 ? "a year ago" : `${y} years ago`;
+/** "5 minutes ago" / "منذ ٥ دقائق" — Intl does the plural agreement AND the
+ *  numerals, so an Arabic site gets Eastern Arabic digits here exactly like it
+ *  does in post dates. numeric:"auto" buys the idiomatic "yesterday"/"أمس". */
+function relativeTime(ms: number, locale: string): string {
+  const seconds = Math.max(0, (Date.now() - ms) / 1000);
+  // Same numeral rule as every other date in the product (i18n.ts owns it).
+  const options: Intl.RelativeTimeFormatOptions = {
+    numeric: "auto",
+    ...localeDigits(locale),
+  };
+  let rtf: Intl.RelativeTimeFormat;
+  try {
+    rtf = new Intl.RelativeTimeFormat(locale, options);
+  } catch {
+    rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  }
+  if (seconds < 45) return rtf.format(0, "second");
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return rtf.format(-minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return rtf.format(-hours, "hour");
+  const days = Math.round(hours / 24);
+  if (days < 31) return rtf.format(-days, "day");
+  const months = Math.round(days / 30.4);
+  if (months < 12) return rtf.format(-months, "month");
+  return rtf.format(-Math.round(days / 365.25), "year");
+}
+
+/** The server stores the language-agnostic sentinel "Anonymous" for a comment
+ *  posted without a name (settings.language can change under stored data, so
+ *  the fallback cannot be frozen into the row at write time) — the CHROME
+ *  localizes it at render, here and in the moderation panel. A visitor who
+ *  literally types "Anonymous" gets the same treatment; that is a feature. */
+export function authorName(author: string): string {
+  return author === "Anonymous" ? t("marginaliaAnonymous") : author;
 }
 
 function readStoredAuthor(): string {
@@ -94,6 +117,8 @@ export default function Marginalia({ path }: { path: string }) {
   const admin = useStore((s) => s.admin);
   const openPublished = useStore((s) => s.openPublished);
   const inPublishedSet = useStore((s) => s.publishedPaths?.has(path) ?? false);
+  const locale = useStore((s) => s.blogLocale);
+  useStore((s) => s.language); // re-render chrome strings on a live language switch
 
   const [comments, setComments] = useState<CommentData[] | null>(null);
   const [author, setAuthor] = useState(readStoredAuthor);
@@ -153,20 +178,20 @@ export default function Marginalia({ path }: { path: string }) {
       .catch((err: unknown) => {
         setComments((list) => (list ?? []).filter((cm) => cm.id !== temp.id));
         setBody(text); // give the words back
-        toast(err instanceof Error ? err.message : "Posting failed");
+        toast(err instanceof Error ? err.message : t("marginaliaFailed"));
       })
       .finally(() => setPosting(false));
   };
 
   const remove = (id: number): void => {
     void confirmModal({
-      title: "Delete comment?",
-      body: "The comment will be removed for everyone. This cannot be undone.",
+      title: t("deleteCommentTitle"),
+      body: t("deleteCommentBody"),
     }).then((ok) => {
       if (!ok) return;
       deleteComment(id)
         .then(() => setComments((list) => (list ?? []).filter((cm) => cm.id !== id)))
-        .catch(() => toast("Deleting comment failed"));
+        .catch(() => toast(t("deleteCommentFailed")));
     });
   };
 
@@ -175,19 +200,17 @@ export default function Marginalia({ path }: { path: string }) {
       .then(() =>
         setComments((list) => (list ?? []).map((cm) => (cm.id === id ? { ...cm, hidden } : cm))),
       )
-      .catch(() => toast(hidden ? "Hiding comment failed" : "Unhiding comment failed"));
+      .catch(() => toast(hidden ? t("hideCommentFailed") : t("unhideCommentFailed")));
   };
 
   return (
-    <section className="s-marginalia" aria-label="Comments">
+    <section className="s-marginalia" aria-label={t("marginaliaAria")}>
       <header className="s-marginalia__header">
-        <h2 className="s-marginalia__title">Marginalia</h2>
+        <h2 className="s-marginalia__title">{t("marginalia")}</h2>
         <span className="s-marginalia__count">
           {comments.length === 0
-            ? "no notes yet"
-            : comments.length === 1
-              ? "1 note"
-              : `${comments.length} notes`}
+            ? t("marginaliaEmpty")
+            : countPhrase(comments.length, "marginNotes")}
         </span>
       </header>
 
@@ -199,16 +222,16 @@ export default function Marginalia({ path }: { path: string }) {
               className={`s-comment${cm.hidden ? " s-comment--hidden" : ""}`}
             >
               <div className="s-comment__meta">
-                <span className="s-comment__author">{cm.author}</span>
-                <span className="s-comment__time">{relativeTime(cm.createdMs)}</span>
-                {cm.hidden && <span className="s-comment__chip">hidden</span>}
+                <span className="s-comment__author" dir="auto">{authorName(cm.author)}</span>
+                <span className="s-comment__time">{relativeTime(cm.createdMs, locale)}</span>
+                {cm.hidden && <span className="s-comment__chip">{t("hiddenChip")}</span>}
                 {admin && cm.id > 0 && (
                   <span className="s-comment__tools">
                     <button
                       type="button"
                       className={`s-comment__hide${cm.hidden ? " s-comment__hide--on" : ""}`}
-                      title={cm.hidden ? "Unhide comment" : "Hide comment from visitors"}
-                      aria-label={cm.hidden ? "Unhide comment" : "Hide comment"}
+                      title={cm.hidden ? t("unhideComment") : t("hideComment")}
+                      aria-label={cm.hidden ? t("unhideComment") : t("hideComment")}
                       aria-pressed={cm.hidden === true}
                       onClick={() => toggleHidden(cm.id, !cm.hidden)}
                     >
@@ -217,8 +240,8 @@ export default function Marginalia({ path }: { path: string }) {
                     <button
                       type="button"
                       className="s-comment__delete"
-                      title="Delete comment"
-                      aria-label="Delete comment"
+                      title={t("deleteComment")}
+                      aria-label={t("deleteComment")}
                       onClick={() => remove(cm.id)}
                     >
                       ×
@@ -226,7 +249,11 @@ export default function Marginalia({ path }: { path: string }) {
                   </span>
                 )}
               </div>
-              <p className="s-comment__body">{cm.body}</p>
+              {/* Comment bodies and names are reader CONTENT, not chrome: without
+                  dir="auto" an English comment inherits the Arabic shell's RTL
+                  and renders its trailing punctuation on the wrong side
+                  (".Mark T", ".…oral tradition is excellent"). */}
+              <p className="s-comment__body" dir="auto">{cm.body}</p>
             </li>
           ))}
         </ul>
@@ -236,7 +263,7 @@ export default function Marginalia({ path }: { path: string }) {
         <input
           type="text"
           className="s-marginalia__name"
-          placeholder="Your name (optional)"
+          placeholder={t("marginaliaName")}
           maxLength={40}
           value={author}
           onChange={(e) => setAuthor(e.target.value)}
@@ -255,7 +282,7 @@ export default function Marginalia({ path }: { path: string }) {
         />
         <textarea
           className="s-marginalia__text"
-          placeholder="Write in the margin…"
+          placeholder={t("marginaliaBody")}
           rows={3}
           maxLength={2000}
           value={body}
@@ -267,7 +294,7 @@ export default function Marginalia({ path }: { path: string }) {
             className="s-marginalia__post"
             disabled={posting || body.trim() === ""}
           >
-            Leave a note
+            {t("marginaliaPost")}
           </button>
         </div>
       </form>

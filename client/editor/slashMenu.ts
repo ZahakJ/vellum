@@ -20,6 +20,7 @@ import {
 import type { EditorView } from "@codemirror/view";
 import { languages } from "@codemirror/language-data";
 import { dailyNotePath } from "../daily.ts";
+import { t, type I18nKey } from "../i18n.ts";
 import { CALLOUT_TYPES, calloutGroup, calloutIconSvg } from "./calloutDefs.ts";
 
 // ── Slash menu ──────────────────────────────────────────────────────────────
@@ -49,8 +50,16 @@ function snippetThenComplete(template: string) {
 }
 
 interface SlashItem {
+  /** ASCII match key — what "/tab" filters against. Never localized: the menu
+   *  is opened by typing "/" into a markdown document, so its filter alphabet
+   *  has to be the one already under the writer's fingers. */
   label: string;
-  detail: string;
+  /** Localized row title (CM renders displayLabel and matches on label). */
+  displayLabel: I18nKey;
+  /** Literal syntax preview ("- [ ]", "---", an ISO date) — never localized. */
+  detail?: string;
+  /** …or, for the rows whose detail is prose, the dictionary key for it. */
+  detailKey?: I18nKey;
   boost: number;
   apply: (view: EditorView, c: Completion, from: number, to: number) => void;
 }
@@ -59,19 +68,22 @@ function slashItems(): SlashItem[] {
   return [
     {
       label: "Callout",
+      displayLabel: "slashCallout",
       detail: "> [!note]",
       boost: 9,
       apply: snippet("> [!${note}] ${}"),
     },
     {
       label: "Code block",
-      detail: "``` with language search",
+      displayLabel: "slashCodeBlock",
+      detailKey: "slashCodeBlockDetail",
       boost: 8,
       apply: snippetThenComplete("```${}\n${}\n```"),
     },
     {
       label: "Table",
-      detail: "3-column skeleton",
+      displayLabel: "slashTable",
+      detailKey: "slashTableDetail",
       boost: 7,
       apply: snippet(
         "| ${Column 1} | ${Column 2} | ${Column 3} |\n| --- | --- | --- |\n| ${} |  |  |",
@@ -79,30 +91,35 @@ function slashItems(): SlashItem[] {
     },
     {
       label: "Task list",
+      displayLabel: "slashTaskList",
       detail: "- [ ]",
       boost: 6,
       apply: snippet("- [ ] ${}"),
     },
     {
       label: "Math block",
-      detail: "$$ display math $$",
+      displayLabel: "slashMathBlock",
+      detailKey: "slashMathDetail",
       boost: 5,
       apply: snippet("$$\n${}\n$$"),
     },
     {
       label: "Divider",
+      displayLabel: "slashDivider",
       detail: "---",
       boost: 4,
       apply: insertText("---\n"),
     },
     {
       label: "Date",
+      displayLabel: "slashDate",
       detail: isoToday(),
       boost: 3,
       apply: insertText(isoToday()),
     },
     {
       label: "Daily note link",
+      displayLabel: "slashDailyLink",
       detail: `[[daily/${isoToday()}]]`,
       boost: 2,
       apply: insertText(`[[daily/${isoToday()}]]`),
@@ -118,7 +135,8 @@ export function slashSource(context: CompletionContext): CompletionResult | null
   const slashPos = line.from + match[1].length;
   const options: Completion[] = slashItems().map((item) => ({
     label: item.label,
-    detail: item.detail,
+    displayLabel: t(item.displayLabel),
+    detail: item.detailKey ? t(item.detailKey) : item.detail,
     boost: item.boost,
     // The match region starts after "/" (so typing filters by label), but the
     // insert must also swallow the slash itself.

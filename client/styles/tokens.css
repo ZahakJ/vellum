@@ -39,8 +39,23 @@
      to override per theme. */
   --banner-tint: 45%;
 
-  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+  /* Font stacks. Latin-first is the default: a stack is consulted per
+     CHARACTER, so on an English instance the Arabic faces are only ever
+     reached by codepoints no Latin face covers.
+
+     That per-character fallback is exactly why naming the Arabic faces LAST
+     did nothing on an Arabic instance: Segoe UI (Windows) and Arial (macOS)
+     both carry full Arabic coverage, so they win every Arabic codepoint and
+     the naskh faces never get consulted. The Arabic-first order therefore
+     lives on :root[lang="ar"] at the end of this file, keyed the same way as
+     the Arabic type-metric compensation — the ONLY place it can actually
+     change what the browser picks. All named faces are system faces shipped
+     with the OS or a distro package: CONTRACTS forbids fetching a font, not
+     asking for one that is already installed. */
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Noto Sans Arabic", "Geeza Pro", "Droid Arabic Kufi", Tahoma, sans-serif;
+  --font-serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman",
+    "Noto Naskh Arabic", Amiri, "Scheherazade New", "Traditional Arabic", serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
   --radius: 6px;
@@ -52,6 +67,10 @@
      Both overridable from VELLUM_DATA/custom.css. */
   --font-base: 15.5px;
   --font-prose: 1.161rem;
+  /* Per-language type-scale multipliers (1 = Latin; Arabic bumps them at the
+     end of this file). Consumers multiply, never replace, the two sizes. */
+  --font-scale: 1;
+  --prose-scale: 1;
 
   /* Callout base colors (Obsidian type → hue, muted for the manuscript room).
      Backgrounds derive via color-mix in preview.css. */
@@ -200,4 +219,33 @@
   --syn-type: #96543f;
   --syn-prop: #6d5a91;
   --syn-operator: #6e6250;
+}
+
+/* ── Arabic type compensation (settings.language = "ar") ───────────────────
+   Keyed on the LANGUAGE, not the direction: this is a font-metric fix, not a
+   mirroring one. Arabic naskh faces carry a much smaller effective x-height
+   than Georgia or system-ui, so at an identical px size Arabic text reads
+   ~10–15% smaller and tighter than the Latin it replaces. The compensation is
+   a MULTIPLIER rather than a new size, so an admin who overrides --font-base
+   or --font-prose in VELLUM_DATA/custom.css keeps their value and still gets
+   the Arabic bump on top of it. Two multipliers because they compose:
+   --font-scale scales 1rem — i.e. every chrome size in the product — and
+   --prose-scale adds a little more for the reading column, where the serif
+   stack falls all the way through to a naskh face. */
+:root[lang="ar"] {
+  --font-scale: 1.06;
+  --prose-scale: 1.04;
+
+  /* Arabic-first stacks. Font fallback is per CHARACTER, so the named naskh
+     faces have to come BEFORE the Latin ones to be reached at all — Segoe UI
+     and Arial both cover Arabic, and at the end of the stack the named faces
+     were dead entries on Windows and macOS alike. The Latin faces stay in the
+     stack, after them, so Latin runs inside Arabic copy (a file extension, a
+     "Ctrl+K", a URL) still render in the product's own type rather than in a
+     naskh face's Latin glyphs. Same key as the metric compensation above:
+     this is a language decision, not a direction one. */
+  --font-ui: "Noto Sans Arabic", "Geeza Pro", "Droid Arabic Kufi", Tahoma, system-ui,
+    -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Noto Naskh Arabic", Amiri, "Scheherazade New", "Traditional Arabic", Georgia,
+    "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
 }

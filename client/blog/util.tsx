@@ -3,6 +3,7 @@
 // for middle-click / copy-link semantics, client-side navigation on plain click).
 
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
+import { localeDigits } from "../i18n.ts";
 import { go } from "./nav.ts";
 
 /** ISO date → localized long date ("14 August 2026", "١٤ أغسطس ٢٠٢٦"…).
@@ -11,8 +12,13 @@ export function formatDate(iso: string, locale: string): string {
   const date = new Date(iso);
   // UTC keeps date-only frontmatter honest: "2026-08-02" is UTC midnight and
   // must never render as August 1 for readers west of Greenwich.
+  const options: Intl.DateTimeFormatOptions = {
+    dateStyle: "long",
+    timeZone: "UTC",
+    ...localeDigits(locale),
+  };
   try {
-    return new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(date);
+    return new Intl.DateTimeFormat(locale, options).format(date);
   } catch {
     return new Intl.DateTimeFormat("en", { dateStyle: "long", timeZone: "UTC" }).format(date);
   }

@@ -597,8 +597,7 @@
    affords it. */
 @media (min-width: 900px) {
   .s-blog-hero {
-    margin-left: -56px;
-    margin-right: -56px;
+    margin-inline: -56px;
   }
 }
 
@@ -791,6 +790,25 @@
   text-decoration: underline;
 }
 
+/* Directional glyphs (← back, ← older, newer →): an arrow means "the way you
+   read backwards", so it mirrors with the script. No logical property can
+   express "flip this glyph" — a transform is the mechanism. */
+.s-blog-backarrow,
+.s-blog-pn__arrow {
+  display: inline-block;
+  margin-inline-end: 0.35em;
+}
+
+.s-blog-pn__card--next .s-blog-pn__arrow {
+  margin-inline-end: 0;
+  margin-inline-start: 0.35em;
+}
+
+[dir="rtl"] .s-blog-backarrow,
+[dir="rtl"] .s-blog-pn__arrow {
+  transform: scaleX(-1);
+}
+
 /* ── Footer ────────────────────────────────────────────────────────────── */
 
 .s-blog-footer {
@@ -877,8 +895,7 @@
     display: flex;
     position: absolute;
     top: 100%;
-    left: 0;
-    right: 0;
+    inset-inline: 0;
     z-index: 35;
     flex-wrap: wrap;
     gap: 4px;
@@ -1231,10 +1248,16 @@
   position: absolute;
   top: 16px;
   bottom: 8px;
-  right: 0;
+  inset-inline-end: 0;
   width: 72px;
   pointer-events: none;
+  /* The wash must fade INTO the scroll-end edge; `to right` is the LTR case,
+     and a gradient direction has no logical keyword — hence the RTL override. */
   background: linear-gradient(to right, transparent, var(--bg));
+}
+
+[dir="rtl"] .s-dash-hot__fade {
+  background: linear-gradient(to left, transparent, var(--bg));
 }
 
 .s-dash-hot__card {

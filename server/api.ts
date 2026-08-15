@@ -8,6 +8,8 @@ import type { Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { stripBidiControls } from "../shared/bidi.ts";
+import { UPLOAD_MAX_BYTES } from "../shared/limits.ts";
 import type {
   CommentData,
   FrontmatterResult,
@@ -38,6 +40,7 @@ import {
   indexFile,
   isAllowedAttachment,
   isNotePublished,
+  isNoteVisibleToVisitor,
   listImageAttachments,
   posts,
   publishedNotes,
@@ -56,9 +59,11 @@ import {
   buildTree,
   createFolder,
   createNote,
+  deleteFolder,
   deleteNote,
   emitEvent,
   getVaultRoot,
+  noteExists,
   normalizeRel,
   onEvent,
   readNote,
@@ -85,7 +90,8 @@ export const api = new Hono();
 // cap (nginx `client_max_body_size`) is still a sensible extra layer — README.
 const API_BODY_MAX = 10 * 1024 * 1024; // 10 MB: any /api request
 const COMMENT_BODY_MAX = 64 * 1024; //    64 KB: comment posts + login
-const UPLOAD_MAX_BYTES = 10 * 1024 * 1024; // 10 MB: the image itself
+// UPLOAD_MAX_BYTES (10 MB: the image itself) is shared/limits.ts — the
+// client drop-zone hint states the same number in words.
 // The multipart envelope (boundary lines, field headers) rides on top of the
 // image bytes, so the wire cap leaves a little headroom above the image cap.
 const UPLOAD_BODY_MAX = UPLOAD_MAX_BYTES + 64 * 1024;
@@ -247,10 +253,23 @@ api.put("/note", async (c) => {
   if (typeof body.content !== "string") {
     throw new VaultError(400, 'Body field "content" must be a string');
   }
+  // Same ordering discipline as /api/publish and /api/frontmatter, and for
+  // the same reason: the SSE visitor filter (visitorEvent) samples visibility
+  // BEFORE the event and again after, so an event that arrives after the
+  // reindex reads the post-edit state as "was". Letting the watcher's
+  // debounced echo carry this write did exactly that — an edit that turned a
+  // visible note into a hidden one (language flip, publish line removed)
+  // emitted nothing at all instead of the mandated "deleted", leaving the
+  // visitor's sidebar holding a live link to a note the site now hides; the
+  // reverse edit emitted "changed" where the contract requires "created".
+  // This is the editor's own save path, i.e. the common case.
+  const existed = await noteExists(path);
+  suppressWatcherEcho(path);
   const written = await writeNote(path, body.content);
+  emitEvent({ kind: existed ? "changed" : "created", path: written.path });
   // Index now rather than after the watcher debounce, so an immediately
   // following rename/search sees this note's links.
-  await indexFile(path);
+  await indexFile(written.path);
   return c.json(written);
 });
 
@@ -280,6 +299,22 @@ api.post("/folder", async (c) => {
   const body = await jsonBody(c);
   await createFolder(requiredString(body, "path"));
   return c.json({ ok: true });
+});
+
+// Delete a folder and everything under it. Default is Obsidian's safe move to
+// `.trash/` at the vault root; `?permanent=true` removes it for good. Admin-only
+// (the auth guard 401s every non-GET, preview sessions included). The index is
+// updated synchronously — vault.deleteFolder emits the synthetic dir-delete —
+// so the /api/graph, /api/search and published counts the UI refetches right
+// after are already correct.
+const TRUTHY_QUERY = new Set(["1", "true", "yes", "on"]);
+
+api.delete("/folder", async (c) => {
+  const folderPath = requiredQuery(c.req.query("path"), "path");
+  const permanent = TRUTHY_QUERY.has((c.req.query("permanent") ?? "").toLowerCase());
+  const result = await deleteFolder(folderPath, { permanent });
+  await whenIndexed();
+  return c.json(result);
 });
 
 // Toggle a note's publish flag with a surgical frontmatter line edit — every
@@ -642,14 +677,23 @@ api.post("/comments", async (c) => {
   if (!isNotePublished(notePath)) {
     throw new VaultError(404, `Note not found: ${notePath}`);
   }
-  const body = typeof payload.body === "string" ? payload.body.trim() : "";
+  // Comment author + body are the ONE unauthenticated channel that renders
+  // into the public page, so bidi controls come out at write time — the same
+  // discipline /api/frontmatter applies to C0 controls. The chrome's <bdi> /
+  // FSI…PDI isolation stops an override from escaping the name span, but it
+  // cannot stop the name from lying about itself: an author of
+  // "Ali<U+202E>rotartsinimd" renders as "AliAdministrator", neatly inside
+  // the byline, and reads as genuine. Strip before length-capping so the cap
+  // measures characters the reader will actually see.
+  const body = typeof payload.body === "string" ? stripBidiControls(payload.body).trim() : "";
   if (!body) throw new VaultError(400, 'Body field "body" must be a non-empty string');
   if (body.length > BODY_MAX) {
     throw new VaultError(400, `Comment is too long (${BODY_MAX} characters max)`);
   }
   const author =
-    (typeof payload.author === "string" ? payload.author.trim().slice(0, AUTHOR_MAX) : "") ||
-    "Anonymous";
+    (typeof payload.author === "string"
+      ? stripBidiControls(payload.author).trim().slice(0, AUTHOR_MAX)
+      : "") || "Anonymous";
   // Honeypot: the hidden "website" field is invisible to humans. A filled-in
   // value marks a bot — answer success, store nothing.
   if (typeof payload.website === "string" && payload.website.trim() !== "") {
@@ -704,7 +748,9 @@ api.get("/tags", (c) => c.json(tags(isPublishLimited(c))));
 // carries its comment count — the one per-session branch: visitors count
 // visible comments only, admin sessions include hidden ones.
 api.get("/posts", (c) => {
-  const list = posts();
+  // Visitor sessions (and admin-as-visitor preview) get the languageFilter
+  // applied; admin lists are never filtered.
+  const list = posts(isPublishLimited(c));
   if (commentsEnabled()) {
     const counts = commentCounts(!isPublishLimited(c));
     for (const post of list) post.commentCount = counts.get(post.path) ?? 0;
@@ -735,30 +781,37 @@ api.patch("/settings", async (c) => {
 // ---------------------------------------------------------------- SSE events
 
 /** Map a vault event to what a publish-limited visitor may see: only events
- *  about published notes; unpublished paths are stripped from renames; a
- *  publish/unpublish transition becomes created/deleted so the curated
- *  collection stays honest. Captures pre-event state synchronously, then
- *  awaits the indexer before reading post-event state. */
+ *  about notes that visitor can actually discover — published AND not curated
+ *  away by the languageFilter. Undiscoverable paths are stripped from renames;
+ *  a transition either way (publish/unpublish, and equally a note that becomes
+ *  or stops being Arabic under the filter) becomes created/deleted so the
+ *  curated collection stays honest. Captures pre-event state synchronously,
+ *  then awaits the indexer before reading post-event state.
+ *
+ *  The languageFilter half is not cosmetic: gating on publication alone made
+ *  this the one surface that leaked what CONTRACTS says the filter must never
+ *  leak — an anonymous stream received the full vault path of a hidden note
+ *  the moment it was created, edited or deleted, unprompted. */
 async function visitorEvent(event: VaultEvent): Promise<VaultEvent | null> {
   if (event.dir) return null; // no folder structure for visitors
   if (!event.path.toLowerCase().endsWith(".md")) return null; // attachments: never
-  const wasPublished = isNotePublished(event.path);
+  const wasVisible = isNoteVisibleToVisitor(event.path);
   await whenIndexed();
   switch (event.kind) {
     case "created":
     case "changed": {
-      const nowPublished = isNotePublished(event.path);
-      if (wasPublished && !nowPublished) return { kind: "deleted", path: event.path };
-      if (!wasPublished && nowPublished) return { kind: "created", path: event.path };
-      return nowPublished ? { kind: event.kind, path: event.path } : null;
+      const nowVisible = isNoteVisibleToVisitor(event.path);
+      if (wasVisible && !nowVisible) return { kind: "deleted", path: event.path };
+      if (!wasVisible && nowVisible) return { kind: "created", path: event.path };
+      return nowVisible ? { kind: event.kind, path: event.path } : null;
     }
     case "deleted":
-      return wasPublished ? { kind: "deleted", path: event.path } : null;
+      return wasVisible ? { kind: "deleted", path: event.path } : null;
     case "renamed": {
-      const nowPublished = event.toPath ? isNotePublished(event.toPath) : false;
-      if (wasPublished && nowPublished) return event;
-      if (wasPublished) return { kind: "deleted", path: event.path };
-      if (nowPublished && event.toPath) return { kind: "created", path: event.toPath };
+      const nowVisible = event.toPath ? isNoteVisibleToVisitor(event.toPath) : false;
+      if (wasVisible && nowVisible) return event;
+      if (wasVisible) return { kind: "deleted", path: event.path };
+      if (nowVisible && event.toPath) return { kind: "created", path: event.toPath };
       return null;
     }
   }

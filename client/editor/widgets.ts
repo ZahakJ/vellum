@@ -13,6 +13,7 @@
 
 import { WidgetType, type EditorView } from "@codemirror/view";
 import { getNote } from "../api.ts";
+import { getLang, t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import {
   markTransclusionOverflow,
@@ -146,11 +147,14 @@ export class TransclusionWidget extends WidgetType {
   ) {
     super();
   }
+  // Language is part of the identity — see ChevronWidget in folding.ts.
+  readonly lang = getLang();
   override eq(other: TransclusionWidget): boolean {
     return (
       other.target === this.target &&
       other.path === this.path &&
-      other.hostPath === this.hostPath
+      other.hostPath === this.hostPath &&
+      other.lang === this.lang
     );
   }
   toDOM(view: EditorView): HTMLElement {
@@ -163,7 +167,7 @@ export class TransclusionWidget extends WidgetType {
     const header = document.createElement("span");
     header.className = "cm-s-transclude__title";
     header.textContent = title;
-    header.title = this.path ? `Open ${title}` : "";
+    header.title = this.path ? tf("openNote", { path: title }) : "";
     card.appendChild(header);
 
     const body = document.createElement("span");
@@ -172,11 +176,11 @@ export class TransclusionWidget extends WidgetType {
 
     if (!this.path) {
       card.classList.add("cm-s-transclude--broken");
-      body.textContent = `No note named “${this.target}”`;
+      body.textContent = tf("noNoteNamed", { name: this.target });
       return card;
     }
     if (this.path === this.hostPath) {
-      body.textContent = "This note embeds itself.";
+      body.textContent = t("noteEmbedsItself");
       body.classList.add("cm-s-transclude__note");
       return card;
     }
@@ -221,7 +225,7 @@ export class TransclusionWidget extends WidgetType {
           if (card.isConnected) render(note.content);
         })
         .catch(() => {
-          if (card.isConnected) body.textContent = "Could not load note.";
+          if (card.isConnected) body.textContent = t("noteLoadFailed");
         });
     }
     return card;

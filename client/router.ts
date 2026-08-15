@@ -12,9 +12,13 @@
 // visited. applyUrl() is also called once the tree first loads, which is what
 // makes a pasted deep link or a refresh land on the right note.
 
+import { stripBidiControls } from "../shared/bidi.ts";
 import type { TreeNode } from "../shared/types.ts";
+import { getNote } from "./api.ts";
 import { collectNotes, resolveLink } from "./editor/links.ts";
+import { t } from "./i18n.ts";
 import { useStore } from "./state.ts";
+import { toast } from "./toast.ts";
 
 /** True while we are applying a URL to the store (popstate / initial load):
  *  the store subscription must then replace, not push, history entries. */
@@ -24,6 +28,24 @@ let applying = false;
 export function notePathToUrl(path: string): string {
   const trimmed = path.replace(/\.md$/i, "");
   return "/" + trimmed.split("/").map(encodeURIComponent).join("/");
+}
+
+/** Pathname → the vault path it spells, WITHOUT consulting the tree
+ *  ("/a/b" → "a/b.md"). The tree is a discovery surface and the languageFilter
+ *  prunes it, so resolving a permalink through it would 404 exactly the
+ *  published notes the filter curates away — while /api/note, which is never
+ *  filtered, serves them. Callers use this as the fallback when the tree has
+ *  no match and let the server answer. Null for "/" and malformed encoding. */
+export function urlToNoteGuess(pathname: string): string | null {
+  let decoded: string;
+  try {
+    decoded = pathname.split("/").map(decodeURIComponent).join("/");
+  } catch {
+    return null;
+  }
+  const rel = decoded.replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!rel || rel.includes("..")) return null;
+  return rel.toLowerCase().endsWith(".md") ? rel : `${rel}.md`;
 }
 
 /** Pathname → vault note path, matched against the loaded tree.
@@ -60,9 +82,9 @@ function currentUrl(): string {
 function setTitle(openPath: string | null, view: string): void {
   const base = useStore.getState().siteName; // SITE_NAME branding
   if (view === "graph") {
-    document.title = `Graph · ${base}`;
+    document.title = `${t("docTitleGraph")} · ${base}`;
   } else if (openPath) {
-    const name = openPath.split("/").pop()!.replace(/\.md$/i, "");
+    const name = stripBidiControls(openPath.split("/").pop()!.replace(/\.md$/i, ""));
     document.title = `${name} · ${base}`;
   } else {
     document.title = base;
@@ -88,13 +110,19 @@ export function applyUrl(initial = false): boolean {
     }
     const path = urlToNotePath(location.pathname, store.tree);
     if (path) {
-      const heading = location.hash ? decodeURIComponent(location.hash.slice(1)) : "";
-      if (heading) store.setPendingHeading(heading);
-      store.openNote(path); // sets view back to "editor" as well
-      // Canonicalize short/differently-cased links even when the note was
-      // already open (no state change → the subscription stays silent).
-      const canonical = notePathToUrl(path) + location.hash;
-      if (currentUrl() !== canonical) history.replaceState(null, "", canonical);
+      open(store, path);
+      return true;
+    }
+    // Not in the tree — which, for a visitor, does NOT mean "not there": the
+    // tree only lists what the visitor may discover, and the languageFilter
+    // prunes it. Ask the server, which serves any published note by path.
+    // (Blog-only routes name nothing here and never will: App lands them home
+    // quietly rather than reporting a missing note.)
+    if (
+      location.pathname !== "/" &&
+      !location.pathname.startsWith("/topic/") &&
+      probeNote(location.pathname)
+    ) {
       return true;
     }
     if (location.pathname === "/") {
@@ -108,6 +136,42 @@ export function applyUrl(initial = false): boolean {
   } finally {
     applying = false;
   }
+}
+
+/** Open `path` and canonicalize the address bar to it (short and
+ *  differently-cased links included, even when the note is already open —
+ *  no state change means the store subscription stays silent). */
+function open(store: ReturnType<typeof useStore.getState>, path: string): void {
+  const heading = location.hash ? decodeURIComponent(location.hash.slice(1)) : "";
+  if (heading) store.setPendingHeading(heading);
+  store.openNote(path); // sets view back to "editor" as well
+  const canonical = notePathToUrl(path) + location.hash;
+  if (currentUrl() !== canonical) history.replaceState(null, "", canonical);
+}
+
+/** Last-resort resolution for a URL the tree cannot answer: ask /api/note.
+ *  Returns true when a request went out (the caller has nothing left to do);
+ *  the note opens, or the address bar falls back to the current state, once
+ *  the answer lands. Anything the server refuses is a genuine 404. */
+function probeNote(pathname: string): boolean {
+  const guess = urlToNoteGuess(pathname);
+  if (guess === null) return false;
+  void getNote(guess)
+    .then(() => {
+      if (location.pathname !== pathname) return; // navigated away meanwhile
+      applying = true;
+      try {
+        open(useStore.getState(), guess);
+      } finally {
+        applying = false;
+      }
+    })
+    .catch(() => {
+      if (location.pathname !== pathname) return;
+      toast(t("noteGone"));
+      syncUrl();
+    });
+  return true;
 }
 
 /** Replace the address bar with the canonical URL for the current state

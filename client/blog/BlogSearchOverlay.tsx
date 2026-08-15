@@ -7,6 +7,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { SearchHit } from "../../shared/types.ts";
 import { search } from "../api.ts";
+import { t } from "../i18n.ts";
+import { useStore } from "../state.ts";
 import { renderSnippet, snippetIsEmpty } from "../components/snippet.tsx";
 import { notePathToUrl } from "../router.ts";
 import { go } from "./nav.ts";
@@ -14,6 +16,7 @@ import { go } from "./nav.ts";
 const DEBOUNCE_MS = 150;
 
 export default function BlogSearchOverlay() {
+  useStore((s) => s.language); // re-render chrome strings on a live language switch
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -103,7 +106,7 @@ export default function BlogSearchOverlay() {
       <div
         className="s-palette"
         role="dialog"
-        aria-label="Search"
+        aria-label={t("blogSearchOpen")}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <input
@@ -112,7 +115,7 @@ export default function BlogSearchOverlay() {
           type="text"
           value={q}
           dir="auto"
-          placeholder="Search the writings…"
+          placeholder={t("blogSearchPlaceholder")}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={onKeyDown}
           spellCheck={false}
@@ -120,7 +123,7 @@ export default function BlogSearchOverlay() {
         />
         {q.trim() !== "" && (
           <div className="s-palette-list" ref={listRef}>
-            {hits.length > 0 && <div className="s-palette-section">Writings</div>}
+            {hits.length > 0 && <div className="s-palette-section">{t("blogWritings")}</div>}
             {hits.map((hit, i) => (
               <div
                 key={hit.path}
@@ -138,7 +141,7 @@ export default function BlogSearchOverlay() {
                 )}
               </div>
             ))}
-            {hits.length === 0 && <div className="s-palette-empty">No matches</div>}
+            {hits.length === 0 && <div className="s-palette-empty">{t("paletteNoMatches")}</div>}
           </div>
         )}
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getGraph } from "../api.ts";
+import { autoDir, countPhrase, t } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import type { GraphData, GraphNode } from "../../shared/types.ts";
@@ -440,6 +441,9 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
       if (labelAlpha <= 0.02) continue;
       ctx!.globalAlpha = labelAlpha;
       ctx!.fillStyle = focused ? colors.text : colors.muted;
+      // Titles are note content: each renders in its own direction, or an
+      // English title in an RTL shell comes out as "?What is the Republic about".
+      ctx!.direction = autoDir(n.title);
       ctx!.fillText(n.title, n.x * k + tx, n.y * k + ty + Math.max(2, n.r * k) + 5);
     }
 
@@ -694,6 +698,7 @@ export default function GraphView() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const simRef = useRef<Sim | null>(null);
   const admin = useStore((s) => s.admin);
+  useStore((s) => s.language); // re-render the chrome strings on language change
   const [stats, setStats] = useState<{ notes: number; links: number } | null>(
     null,
   );
@@ -715,7 +720,7 @@ export default function GraphView() {
       })
       .catch((err: unknown) => {
         console.error("GraphView: failed to load graph", err);
-        toast("Could not load graph");
+        toast(t("graphLoadFailed"));
       });
 
     return () => {
@@ -730,28 +735,25 @@ export default function GraphView() {
       <canvas className="s-graph__canvas" ref={canvasRef} />
       {stats?.notes === 0 &&
         (admin ? (
-          <div className="s-graph__empty">
-            No notes yet — create one and link it with wikilinks.
-          </div>
+          <div className="s-graph__empty">{t("graphEmptyAdmin")}</div>
         ) : (
           <div className="s-graph__empty s-graph__empty--visitor">
             <span className="s-graph__empty-star" aria-hidden="true">✦</span>
-            Nothing is published yet — the constellation awaits.
+            {t("graphEmptyVisitor")}
           </div>
         ))}
       {stats !== null && stats.notes > 0 && (
         <div className="s-graph__hud">
-          {stats.notes} {admin ? "note" : "published note"}
-          {stats.notes === 1 ? "" : "s"} · {stats.links} link
-          {stats.links === 1 ? "" : "s"}
+          {countPhrase(stats.notes, admin ? "notes" : "publishedNotes")} ·{" "}
+          {countPhrase(stats.links, "links")}
         </div>
       )}
       <div className="s-graph__controls">
         <button
           type="button"
           className="s-iconbtn"
-          title="Zoom in"
-          aria-label="Zoom in"
+          title={t("zoomIn")}
+          aria-label={t("zoomIn")}
           onClick={() => simRef.current?.zoomBy(1.35)}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -761,8 +763,8 @@ export default function GraphView() {
         <button
           type="button"
           className="s-iconbtn"
-          title="Zoom out"
-          aria-label="Zoom out"
+          title={t("zoomOut")}
+          aria-label={t("zoomOut")}
           onClick={() => simRef.current?.zoomBy(1 / 1.35)}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -772,8 +774,8 @@ export default function GraphView() {
         <button
           type="button"
           className="s-iconbtn"
-          title="Reset view"
-          aria-label="Reset view"
+          title={t("resetView")}
+          aria-label={t("resetView")}
           onClick={() => simRef.current?.resetView()}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">

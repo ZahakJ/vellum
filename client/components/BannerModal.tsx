@@ -6,6 +6,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getNote, listAttachments, uploadAttachment } from "../api.ts";
 import { bannerFromContent, bannerSrc } from "../banner.ts";
+import { localeNum, t, tf } from "../i18n.ts";
+import { UPLOAD_MAX_MB } from "../../shared/limits.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 
@@ -16,6 +18,7 @@ function titleOf(path: string): string {
 export default function BannerModal() {
   const openPath = useStore((s) => s.openPath);
   const setOpen = useStore((s) => s.setBannerModalOpen);
+  useStore((s) => s.language); // re-render the chrome strings on language change
 
   const [url, setUrl] = useState("");
   const [filter, setFilter] = useState("");
@@ -95,7 +98,7 @@ export default function BannerModal() {
         .catch((err: unknown) => {
           setBusy(false);
           console.error("vellum: upload failed", err);
-          toast(err instanceof Error ? err.message : "Upload failed");
+          toast(err instanceof Error ? err.message : t("uploadFailed"));
         });
     },
     [openPath, busy, apply],
@@ -112,14 +115,14 @@ export default function BannerModal() {
       <div
         className="s-bmodal"
         role="dialog"
-        aria-label="Set banner"
+        aria-label={t("setBannerAction")}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="s-bmodal__head">
           <span className="s-bmodal__title">
-            Banner — <em>{titleOf(openPath)}</em>
+            {t("bannerTitle")} — <em>{titleOf(openPath)}</em>
           </span>
-          <button type="button" className="s-bmodal__close" onClick={close} aria-label="Close">
+          <button type="button" className="s-bmodal__close" onClick={close} aria-label={t("close")}>
             ×
           </button>
         </div>
@@ -138,7 +141,7 @@ export default function BannerModal() {
             ref={urlInputRef}
             className="s-bmodal__input"
             type="text"
-            placeholder="Paste an image URL (https://…) or a vault path"
+            placeholder={t("bannerUrlPlaceholder")}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
@@ -152,7 +155,7 @@ export default function BannerModal() {
             disabled={!url.trim() || busy}
             onClick={() => apply(url.trim())}
           >
-            Use
+            {t("use")}
           </button>
         </div>
 
@@ -171,8 +174,8 @@ export default function BannerModal() {
             if (file) upload(file);
           }}
         >
-          {busy ? "Working…" : "Drop an image here, or click to choose a file"}
-          <span className="s-bmodal__drophint">png · jpeg · webp · gif · svg — 10 MB max</span>
+          {t(busy ? "working" : "dropImage")}
+          <span className="s-bmodal__drophint">{tf("dropHint", { max: localeNum(UPLOAD_MAX_MB) })}</span>
           <input
             ref={fileInputRef}
             type="file"
@@ -190,20 +193,22 @@ export default function BannerModal() {
           <input
             className="s-bmodal__input"
             type="text"
-            placeholder="Search vault attachments…"
+            placeholder={t("searchAttachments")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             spellCheck={false}
           />
           <div className="s-bmodal__list">
-            {attachments === null && <div className="s-bmodal__empty">Loading…</div>}
+            {attachments === null && <div className="s-bmodal__empty">{t("loading")}</div>}
             {attachments !== null && filtered.length === 0 && (
               <div className="s-bmodal__empty">
-                {attachments.length > 0
-                  ? "No matches."
-                  : listFailed
-                    ? "Couldn't load the attachment list — check the server log."
-                    : "No image attachments in the vault yet."}
+                {t(
+                  attachments.length > 0
+                    ? "noMatchesDot"
+                    : listFailed
+                      ? "attachmentsFailed"
+                      : "noAttachments",
+                )}
               </div>
             )}
             {filtered.slice(0, 200).map((p) => (
@@ -231,7 +236,7 @@ export default function BannerModal() {
               disabled={busy}
               onClick={() => apply(null)}
             >
-              Remove banner
+              {t("removeBanner")}
             </button>
           </div>
         )}

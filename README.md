@@ -96,7 +96,9 @@ All `.env` keys (npm scripts load the file automatically via `node --env-file-if
 | `PUBLIC_LAYOUT` | `blog` gives visitors a classic blog layout instead of the app shell (see [Blog mode](#blog-mode)); default `app` |
 | `SITE_TAGLINE` | Masthead subtitle under the site name (blog mode) |
 | `SITE_FOOTER` | Blog footer line; `{year}`/`{siteName}` substituted (default `© {year} {SITE_NAME}`) |
-| `BLOG_LOCALE` | BCP47 locale for post dates and the RSS channel language (default `en`) |
+| `BLOG_LOCALE` | BCP47 locale for post dates and the RSS channel language (default: follows `SITE_LANG`) |
+| `SITE_LANG` | Interface language: `en` (default) or `ar`. `ar` localizes every chrome string and mirrors the whole UI right-to-left (see [Arabic mode](#arabic-mode)) |
+| `LANGUAGE_FILTER` | `true` limits the public blog surfaces to notes written in `SITE_LANG`'s script (default off) |
 | `SITE_URL` | Canonical origin for RSS/canonical links, e.g. `https://notes.example.com`; unset → derived from request headers |
 | `ATTACHMENTS_DIR` | Vault-relative directory the in-app image upload writes into (default `attachments`), created on demand |
 | `BANNER_FALLBACK` | Blog hero for posts without a `banner:` — `generated` (default; a deterministic abstract gradient from the note title) or `none` |
@@ -112,8 +114,8 @@ command palette): a panel with three groups —
   real content type and injected into every page's `<link rel="icon">`).
 - **Home page** — what visitors see at `/`: classic `note` mode with a chosen home note, or the
   `dashboard` magazine layout, plus an optional hero banner.
-- **Site behavior** — default theme, public layout (`app`/`blog`), date locale, excluded tags,
-  and the comments toggle.
+- **Site behavior** — default theme, public layout (`app`/`blog`), **language** (English /
+  العربية) and its language filter, date locale, excluded tags, and the comments toggle.
 
 Image fields reuse the banner machinery: pick from the vault's attachments or upload right
 there (drag & drop; bytes are sniffed; lands in `ATTACHMENTS_DIR`).
@@ -133,6 +135,36 @@ The API mirror (admin-only; visitors get a 404): `GET /api/settings` answers the
 plus `effective` (the merged values in use); `PATCH /api/settings` takes a partial object —
 only named keys change, `null` clears one — validates strictly (unknown keys are a 400), and
 answers the same shape.
+
+### Arabic mode
+
+Set `SITE_LANG=ar` (or pick **العربية** in Site settings → Language) and Vellum becomes an
+Arabic application, not an English one with translated labels. The document goes
+`<html dir="rtl" lang="ar">` and the **entire** interface mirrors: the sidebar moves to the
+right, the outline/local-graph/backlinks panel to the left, tree indentation and disclosure
+chevrons flip, the active-note accent bar moves to the row's other edge, the status bar and
+command palette reverse, and every modal — settings, banner picker, moderation, login,
+confirm — lays out right-to-left. On a phone the sidebar drawer slides in from the right.
+The blog shell mirrors the same way.
+
+Every chrome string is translated into real Arabic — بحث في الملاحظات، وسوم، روابط راجعة،
+مخطط محلي، نشر، تسجيل الدخول — including counts, which take proper Arabic plural agreement
+(ملاحظة واحدة / ملاحظتان / ٣ ملاحظات / ١١ ملاحظة). With `BLOG_LOCALE` unset, `ar` also formats
+dates in Arabic, which renders them in Eastern Arabic numerals.
+
+**Your notes are never translated or re-directed.** Note content renders exactly as authored,
+per block, with `dir="auto"` — so an Arabic paragraph flows right-to-left and an English one
+left-to-right inside the same note. The same rule applies to note-derived text that appears
+inside the chrome (tree rows, tab titles, outline entries, search hits, backlink cards,
+breadcrumbs): each picks its own direction, so a vault mixing `مكاتيب` and
+`1 - Source Material` reads correctly in either language.
+
+Switching the language from the settings panel applies **live** — no reload.
+
+Optionally, `LANGUAGE_FILTER=true` limits the public blog surfaces (post lists, topics, graph,
+search, prev/next, RSS, and the live event stream) to notes actually written in the site's
+language, detected from the script of the note's prose. Admin views are never filtered, and a
+direct link to a filtered-out note still opens it — see [Language filter](#language-filter).
 
 ### Note banners
 
@@ -179,7 +211,8 @@ the same 404 a missing note would, so unpublished paths stay unguessable. With `
 site name and `SITE_TAGLINE`, a horizontal nav of topic categories, article pages with title,
 date, word count, reading time and tags, comments below (with `COMMENTS=on`), and a footer
 (`SITE_FOOTER`, default `© <year> <SITE_NAME>`; `{year}` and `{siteName}` placeholders are
-substituted). Arabic and other RTL content renders per-article in its natural direction.
+substituted). Arabic and other RTL content renders per-article in its natural direction — and
+`SITE_LANG=ar` mirrors the whole blog shell to match (see [Arabic & RTL](#arabic--rtl)).
 Signed-in admins are unaffected — the full app, sidebar and all, stays exactly as it is; the
 blog shell exists only for visitors. Post dates are formatted in `BLOG_LOCALE` (any BCP47 tag,
 default `en`).
@@ -231,6 +264,77 @@ speak only in published notes — unpublished paths are indistinguishable from u
 
 Absolute URLs in both are built from `SITE_URL` when set, else derived from the request's
 `Host`/`X-Forwarded-*` headers.
+
+### Arabic & RTL
+
+Vellum speaks Arabic. `SITE_LANG=ar` (or **Site settings → Language → العربية**, applied live
+without a restart) does two things at once:
+
+**It translates the chrome.** Every label, button, placeholder, menu item, toast and confirm
+dialog in both shells — sidebar, tabs, status bar, command palette, backlinks/outline/local-graph
+panels, settings, and the whole blog (masthead, topic nav, article furniture, share row,
+prev/next, Marginalia) — comes from a single dictionary in `client/i18n.ts`. Counts agree
+properly in Arabic (`حاشية واحدة`, `حاشيتان`, `3 حواشٍ`, `40 حاشية`), not by bolting an "s" on.
+
+**It mirrors the interface.** The document becomes `<html dir="rtl" lang="ar">` and the layout
+follows: the sidebar moves to the right and the backlinks/outline panel to the left, tree
+indentation and chevrons flip, the active-note accent bar moves to the other edge, the status
+bar and blog nav reverse, and "older/newer" arrows point the way you actually read. This is
+built on CSS logical properties (`margin-inline-*`, `inset-inline-*`, `text-align: start`), so
+it is the same stylesheet in both directions — `[dir="rtl"]` overrides exist only where no
+logical property can express the idea, such as flipping an arrow glyph or a gradient's angle.
+
+**Your notes are left alone.** Note content is never translated and never re-flowed: each block
+picks its own direction from its own text (`dir="auto"`), which is why a vault that mixes Arabic
+and English reads correctly under either setting — and why Arabic notes already rendered
+right-to-left before you touched this switch.
+
+**Dates.** With `BLOG_LOCALE` unset, `SITE_LANG=ar` formats post dates and comment timestamps in
+Arabic with Eastern Arabic numerals (`١٤ يوليو ٢٠٢٦`, `قبل ٧ دقائق`) — every date in the
+product, blog and admin panels alike, from one rule. Set `BLOG_LOCALE` explicitly to override —
+`BLOG_LOCALE=ar-u-nu-latn` keeps Arabic month names with 1/2/3 digits. Counters elsewhere in the
+chrome (word counts, reading minutes) stay in Western numerals.
+
+**Type.** Arabic gets its own type stack and its own scale. The font tokens name naskh faces
+(`Noto Naskh Arabic`, `Amiri`, `Scheherazade New`) after the Latin ones, so Latin text still
+renders in Georgia / system-ui and only Arabic characters — which no Latin face covers — fall
+through to them; nothing is fetched from a CDN. Because a naskh face reads perceptibly smaller
+than Georgia at the same pixel size, `lang="ar"` also multiplies the two type-scale tokens
+(`--font-scale`, `--prose-scale`), which lifts the whole UI ~6% and the reading column ~10%. A
+`--font-base` you set in `custom.css` is multiplied, not overwritten.
+
+#### Language filter
+
+A bilingual vault often wants a monolingual public site. `LANGUAGE_FILTER=true` (**Site settings
+→ Language filter**) narrows the public blog to notes actually written in the site language:
+
+| | `SITE_LANG=ar` | `SITE_LANG=en` |
+| --- | --- | --- |
+| Shown | notes whose letters are ≥ 40% Arabic-script | notes that are majority non-Arabic |
+
+Detection runs in the indexer, is cached per note, and refreshes incrementally as notes change —
+no configuration, no frontmatter to maintain. The filter applies to every public discovery
+surface: the post list, the dashboard grid and "Most discussed" row, topic pages *and the topic
+nav itself*, the graph, search, prev/next links, and the RSS feed. A topic carried only by
+filtered-out notes disappears entirely rather than leading to an empty page. Admin sessions are
+never filtered — signed in, you always see the whole vault.
+
+**What it counts.** Only the note's *prose*: fenced and inline code, HTML tags and comments, and
+link destinations (markdown, reference and bare URLs) are stripped before the letters are
+counted, so an Arabic article does not read as English because every highlight carries a
+`readwise.io` URL or because it embeds one YouTube player. Link *text* still counts — it is what
+a reader reads. A note whose prose has no letters at all (an image-only or numbers-only page)
+belongs to no language and is shown under either setting rather than guessed at.
+
+> **The filter is curation, not access control.** A published note it hides from the lists is
+> still served on its own URL: `/api/note` is never filtered, and both shells resolve an article
+> route from the URL itself rather than from the (filtered) tree, so every permalink you have
+> already shared keeps working after you flip the switch — the note simply stops appearing in
+> the lists, topics, graph, search and feed. What the filter must never do is *leak* what it
+> curates away, so the surfaces that enumerate notes — including the `/api/events` push stream,
+> which would otherwise announce a hidden note's path the moment it changed — all apply it. If a
+> note should not be public at all, unpublish it (`publish: false`); that is the switch with
+> teeth.
 
 ### Theming
 
@@ -314,7 +418,10 @@ Runs the API server and Vite with hot reload side by side.
 | 6801 | Hono server (API + built client) | `npm start` / always |
 | 5801 | Vite dev server (proxies `/api` → 6801) | `npm run dev` only |
 
-`PORT` overrides the server port. `npm run typecheck` keeps the strict TypeScript build honest.
+`PORT` overrides the server port. `npm run typecheck` keeps the strict TypeScript build honest,
+and `npm run check-i18n` keeps the chrome dictionary honest — it fails if any `t()` key is
+missing, untranslated, dead, or if the English and Arabic sides of an entry disagree about
+their `{placeholders}`.
 `scripts/shoot.mjs` is the screenshot harness used for visual review: point it at a running
 server (`node scripts/shoot.mjs http://localhost:6801 shots`) and it captures the editor, graph,
 and palette in both themes — it needs `npm i -D playwright` plus either
@@ -361,6 +468,7 @@ theme tokens.
 - **Command palette** — fuzzy over notes and commands, including "Toggle reading view", "Open daily note", themes, vim
 - **Live vault watching** — edit a file in any other editor and the app updates within ~100 ms (chokidar + SSE)
 - **Four hand-tuned themes** — *iron-gall*, *void*, and *lapis* dark, *parchment* light; gold-leaf accent, zero external fonts or CDN requests
+- **Arabic & RTL** — `SITE_LANG=ar` localizes every chrome string and mirrors the entire interface right-to-left (app *and* blog), with Arabic-locale dates; an optional language filter keeps the public blog monolingual on a bilingual vault
 
 ## Keymap
 

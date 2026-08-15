@@ -12,7 +12,7 @@ import { getConnInfo } from "@hono/node-server/conninfo";
 import type { MeData } from "../shared/types.ts";
 import { isNotePublished, publishedCounts, resolveLink } from "./indexer.ts";
 import { getSettings } from "./settings.ts";
-import { bannerFallback, blogLocale, customCssPath, defaultTheme, footerLine, publicLayout, siteName, tagline } from "./site.ts";
+import { bannerFallback, blogLocale, customCssPath, defaultTheme, footerLine, publicLayout, siteLanguage, siteName, tagline } from "./site.ts";
 import { normalizeRel } from "./vault.ts";
 
 const COOKIE_NAME = "vellum_session";
@@ -325,6 +325,13 @@ authRoutes.get("/me", (c) => {
   // Instance customization (settings.json over SITE_NAME / DEFAULT_THEME env,
   // plus VELLUM_DATA/custom.css). The site.ts getters do the merging.
   me.siteName = siteName();
+  // Chrome language, for every session: "ar" localizes the shell and mirrors
+  // it RTL for admin and visitor alike.
+  me.language = siteLanguage();
+  // Date/relative-time locale for BOTH shells: the reading view's Marginalia
+  // timestamps need it in app layout too, and blogLocale() already derives
+  // "ar" from the site language when nothing explicit is configured.
+  me.blogLocale = blogLocale();
   const theme = defaultTheme();
   if (theme) me.defaultTheme = theme;
   if (customCssPath()) me.customCss = true;
@@ -343,9 +350,8 @@ authRoutes.get("/me", (c) => {
     const tl = tagline();
     if (tl) me.tagline = tl;
     me.footer = footerLine();
-    me.blogLocale = blogLocale();
     me.bannerFallback = bannerFallback();
-    if (getSettings().shareButtons === true) me.shareButtons = true;
+    if (getSettings().shareButtons !== false) me.shareButtons = true;
     // Runtime settings the blog shell renders from (settings.json): the
     // home config (mode/banner, plus the note when it is visible to this
     // session — same gating as me.homeNote above). Visitor-safe by

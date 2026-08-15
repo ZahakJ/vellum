@@ -3,6 +3,8 @@
 
 import { useMemo } from "react";
 import type { PostMeta } from "../../shared/types.ts";
+import { t } from "../i18n.ts";
+import { useStore } from "../state.ts";
 import PostList from "./PostList.tsx";
 
 export default function BlogTopic({
@@ -14,6 +16,7 @@ export default function BlogTopic({
   posts: PostMeta[] | null;
   locale: string;
 }) {
+  useStore((s) => s.language); // re-render chrome strings on a live language switch
   const filtered = useMemo(
     () => (posts ?? []).filter((p) => p.tags.includes(tag)),
     [posts, tag],
@@ -22,7 +25,7 @@ export default function BlogTopic({
     <div className="s-blog-page">
       <h2 className="s-blog-heading">
         <span>
-          Writings
+          {t("blogWritings")}
           <span className="s-blog-heading__topic" dir="auto">
             {" — "}
             {tag}
@@ -32,7 +35,7 @@ export default function BlogTopic({
       {posts === null ? (
         <p className="s-blog-empty">…</p>
       ) : filtered.length === 0 ? (
-        <p className="s-blog-empty">No writings under this topic.</p>
+        <p className="s-blog-empty">{t("blogNoTopicWritings")}</p>
       ) : (
         <PostList posts={filtered} locale={locale} />
       )}

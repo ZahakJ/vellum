@@ -13,6 +13,7 @@ import {
   type DecorationSet,
 } from "@codemirror/view";
 import { uploadAttachment } from "../api.ts";
+import { getLang, t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 
@@ -30,8 +31,10 @@ class UploadingWidget extends WidgetType {
   ) {
     super();
   }
+  // Language is part of the identity — see ChevronWidget in folding.ts.
+  readonly lang = getLang();
   override eq(other: UploadingWidget): boolean {
-    return other.id === this.id && other.label === this.label;
+    return other.id === this.id && other.label === this.label && other.lang === this.lang;
   }
   toDOM(): HTMLElement {
     const pill = document.createElement("span");
@@ -40,7 +43,7 @@ class UploadingWidget extends WidgetType {
     spin.className = "cm-s-uploading__spinner";
     spin.setAttribute("aria-hidden", "true");
     const text = document.createElement("span");
-    text.textContent = `Uploading ${this.label}…`;
+    text.textContent = tf("uploadingImage", { name: this.label });
     pill.append(spin, text);
     return pill;
   }
@@ -149,9 +152,7 @@ function startUploads(
       .catch((err: unknown) => {
         labelById.delete(id);
         console.error("vellum: image upload failed", err);
-        toast(
-          err instanceof Error ? err.message : "Image upload failed",
-        );
+        toast(err instanceof Error ? err.message : t("uploadFailed"));
         if (!view.dom.isConnected) return;
         view.dispatch({ effects: endUpload.of({ id }) });
       });

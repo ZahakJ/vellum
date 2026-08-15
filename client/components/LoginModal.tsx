@@ -4,11 +4,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 
 export default function LoginModal() {
   const setLoginOpen = useStore((s) => s.setLoginOpen);
   const siteName = useStore((s) => s.siteName);
+  useStore((s) => s.language); // re-render the chrome strings on language change
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -33,7 +35,7 @@ export default function LoginModal() {
       .getState()
       .login(password)
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Sign-in failed");
+        setError(err instanceof Error ? err.message : t("signInFailed"));
         setShaking(true);
         setPassword("");
         setBusy(false);
@@ -46,20 +48,20 @@ export default function LoginModal() {
       <form
         className={`s-login${shaking ? " s-login--shake" : ""}`}
         role="dialog"
-        aria-label="Sign in"
+        aria-label={t("signIn")}
         onMouseDown={(e) => e.stopPropagation()}
         onAnimationEnd={() => setShaking(false)}
         onSubmit={submit}
       >
         <div className="s-login__glyph" aria-hidden="true">✦</div>
-        <h2 className="s-login__title">Sign in to {siteName}</h2>
-        <p className="s-login__hint">Admin password unlocks editing.</p>
+        <h2 className="s-login__title">{tf("signInTo", { site: siteName })}</h2>
+        <p className="s-login__hint">{t("signInHint")}</p>
         <input
           ref={inputRef}
           className="s-login__input"
           type="password"
           value={password}
-          placeholder="Password"
+          placeholder={t("password")}
           autoComplete="current-password"
           spellCheck={false}
           onChange={(e) => {
@@ -76,14 +78,14 @@ export default function LoginModal() {
             className="s-btn s-login__cancel"
             onClick={() => setLoginOpen(false)}
           >
-            Cancel
+            {t("cancel")}
           </button>
           <button
             type="submit"
             className="s-btn s-btn--accent"
             disabled={busy || !password}
           >
-            {busy ? "Signing in…" : "Sign in"}
+            {busy ? t("signingIn") : t("signIn")}
           </button>
         </div>
       </form>

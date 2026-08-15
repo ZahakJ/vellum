@@ -10,6 +10,7 @@
 
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { numeralSystem, toNumerals } from "../shared/numerals.ts";
 import { getSettings } from "./settings.ts";
 
 interface SiteConfig {
@@ -20,7 +21,9 @@ interface SiteConfig {
   publicLayout: "app" | "blog";
   tagline: string | null;
   footer: string | null; // raw SITE_FOOTER (may contain {year}/{siteName}); null → default
-  blogLocale: string;
+  blogLocale: string | null; // BLOG_LOCALE as given; null → derive (language-aware) in the getter
+  language: "en" | "ar"; // SITE_LANG — chrome language + RTL mirroring when "ar"
+  languageFilter: boolean; // LANGUAGE_FILTER — public blog lists show only site-language notes
   siteUrl: string | null; // canonical origin for absolute links (RSS, canonical); null → derive from request
   attachmentsDir: string; // vault-relative dir uploads land in (ATTACHMENTS_DIR)
   bannerFallback: "generated" | "none"; // BANNER_FALLBACK — hero for banner-less blog posts
@@ -34,7 +37,9 @@ let config: SiteConfig = {
   publicLayout: "app",
   tagline: null,
   footer: null,
-  blogLocale: "en",
+  blogLocale: null,
+  language: "en",
+  languageFilter: false,
   siteUrl: null,
   attachmentsDir: "attachments",
   bannerFallback: "generated",
@@ -62,7 +67,12 @@ export function initSite(env: NodeJS.ProcessEnv = process.env): void {
     publicLayout: env.PUBLIC_LAYOUT?.trim().toLowerCase() === "blog" ? "blog" : "app",
     tagline: env.SITE_TAGLINE?.trim() || null,
     footer: env.SITE_FOOTER?.trim() || null,
-    blogLocale: env.BLOG_LOCALE?.trim() || "en",
+    blogLocale: env.BLOG_LOCALE?.trim() || null,
+    // Chrome language: "ar" localizes every chrome string and mirrors the UI
+    // right-to-left. Anything but exactly "ar" (case-insensitive) is English.
+    language: env.SITE_LANG?.trim().toLowerCase() === "ar" ? "ar" : "en",
+    // Public-surface language filter (works with `language`; see indexer).
+    languageFilter: /^(true|1|on|yes)$/i.test(env.LANGUAGE_FILTER?.trim() ?? ""),
     siteUrl: env.SITE_URL?.trim().replace(/\/+$/, "") || null,
     // Vault-relative directory uploaded images land in (created on demand).
     // Slashes trimmed; the API layer path-safety-checks the joined result.
@@ -114,7 +124,10 @@ export function footerTemplate(): string | null {
 /** Footer line, resolved: the footer template with {year}/{siteName}
  *  placeholders substituted, defaulting to "© <year> <site name>". */
 export function footerLine(): string {
-  const year = String(new Date().getFullYear());
+  // The year is a number the chrome prints beside Arabic-Indic dates and
+  // counts, so it obeys the same single numeral policy (shared/numerals.ts) —
+  // otherwise an Arabic footer read "© 2026" under "١٥ أغسطس".
+  const year = toNumerals(String(new Date().getFullYear()), numeralSystem(blogLocale()));
   const template = footerTemplate();
   const name = siteName();
   if (template) {
@@ -124,9 +137,23 @@ export function footerLine(): string {
 }
 
 /** BCP47 locale the client uses to format post dates
- *  (settings.blogLocale, else BLOG_LOCALE, default "en"). */
+ *  (settings.blogLocale, else BLOG_LOCALE). When neither is set the site
+ *  language decides: "ar" formats dates in Arabic (Eastern Arabic numerals —
+ *  correct and desired), otherwise "en". */
 export function blogLocale(): string {
-  return getSettings().blogLocale ?? config.blogLocale;
+  return getSettings().blogLocale ?? config.blogLocale ?? (siteLanguage() === "ar" ? "ar" : "en");
+}
+
+/** Chrome language (settings.language, else SITE_LANG; default "en"). */
+export function siteLanguage(): "en" | "ar" {
+  return getSettings().language ?? config.language;
+}
+
+/** True when public blog surfaces should list only notes written
+ *  predominantly in the site language's script (settings.languageFilter,
+ *  else LANGUAGE_FILTER; default false). */
+export function languageFilterEnabled(): boolean {
+  return getSettings().languageFilter ?? config.languageFilter;
 }
 
 /** Configured canonical origin (SITE_URL, no trailing slash) or null —

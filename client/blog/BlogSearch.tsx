@@ -5,6 +5,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { SearchHit } from "../../shared/types.ts";
 import { search } from "../api.ts";
+import { t } from "../i18n.ts";
+import { useStore } from "../state.ts";
 import { renderSnippet, snippetIsEmpty } from "../components/snippet.tsx";
 import { notePathToUrl } from "../router.ts";
 import { go } from "./nav.ts";
@@ -12,6 +14,7 @@ import { go } from "./nav.ts";
 const DEBOUNCE_MS = 180;
 
 export default function BlogSearch() {
+  useStore((s) => s.language); // re-render chrome strings on a live language switch
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -91,7 +94,7 @@ export default function BlogSearch() {
       <button
         type="button"
         className="s-blog-iconbtn"
-        aria-label={open ? "Close search" : "Search"}
+        aria-label={open ? t("blogSearchClose") : t("blogSearchOpen")}
         onClick={() => (open ? close() : setOpen(true))}
       >
         <svg
@@ -115,7 +118,7 @@ export default function BlogSearch() {
             ref={inputRef}
             className="s-blog-search__input"
             type="search"
-            placeholder="Search writings…"
+            placeholder={t("blogSearchPlaceholder")}
             value={q}
             dir="auto"
             onChange={(e) => setQ(e.target.value)}
@@ -124,7 +127,7 @@ export default function BlogSearch() {
           {q.trim() !== "" && (
             <ul className="s-blog-search__results" role="listbox">
               {hits.length === 0 ? (
-                <li className="s-blog-search__none">No matches</li>
+                <li className="s-blog-search__none">{t("paletteNoMatches")}</li>
               ) : (
                 hits.map((hit, i) => (
                   <li key={hit.path}>

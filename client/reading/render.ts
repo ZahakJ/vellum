@@ -13,6 +13,7 @@
 import type { TreeNode } from "../../shared/types.ts";
 import { getNote } from "../api.ts";
 import { getKatex, loadKatex } from "../katex.ts";
+import { t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { parseWikilink, resolveLink } from "../editor/links.ts";
@@ -445,7 +446,7 @@ export function markTransclusionOverflow(
       more = document.createElement("button");
       more.setAttribute("type", "button");
       more.className = moreClass;
-      more.textContent = "Open note ↗";
+      more.textContent = t("openNoteArrow");
       more.addEventListener("mousedown", (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -474,16 +475,16 @@ function transclusion(target: string, ctx: Ctx): HTMLElement {
 
   if (!path) {
     card.classList.add("s-rv-transclude--broken");
-    body.textContent = `No note named “${target}”`;
+    body.textContent = tf("noNoteNamed", { name: target });
     return card;
   }
   if (ctx.ancestors.has(path)) {
-    body.textContent = "This note embeds itself.";
+    body.textContent = t("noteEmbedsItself");
     body.classList.add("s-rv-transclude__note");
     return card;
   }
   header.classList.add("s-rv-transclude__title--link");
-  header.title = `Open ${header.textContent}`;
+  header.title = tf("openNote", { path: header.textContent ?? "" });
   header.addEventListener("click", (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
@@ -515,7 +516,7 @@ function transclusion(target: string, ctx: Ctx): HTMLElement {
       );
     })
     .catch(() => {
-      body.textContent = "Could not load note.";
+      body.textContent = t("noteLoadFailed");
     });
   return card;
 }
@@ -870,7 +871,7 @@ function renderNote(md: string, ctx: Ctx, root: HTMLElement): void {
     for (const f of ctx.footnotes) {
       const li = document.createElement("li");
       li.id = `fn-${f.label}`;
-      li.innerHTML = `${renderInline(f.text, ctx)} <a class="s-rv-fnback" data-fnback="${esc(f.label)}" title="Back to reference">↩</a>`;
+      li.innerHTML = `${renderInline(f.text, ctx)} <a class="s-rv-fnback" data-fnback="${esc(f.label)}" title="${esc(t("backToReference"))}">↩</a>`;
       ol.appendChild(li);
     }
     sec.appendChild(ol);
@@ -923,11 +924,11 @@ function onRootClick(ev: MouseEvent): void {
         rendered && !rendered.includes("/")
           ? rendered
           : name.split("/").pop()?.replace(/\.md$/i, "") ?? name;
-      toast(`"${display}" isn't published here`);
+      toast(tf("linkNotPublished", { name: display }));
     } else {
       // Unresolved link: clicking it creates the note (Obsidian behavior).
       const notePath = /\.md$/i.test(name) ? name : `${name}.md`;
-      toast(`Creating "${name}"…`);
+      toast(tf("creatingNote", { name }));
       void store.createNote(notePath);
     }
     return;

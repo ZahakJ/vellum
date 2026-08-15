@@ -10,6 +10,8 @@ import type { ChangeEvent, ReactNode } from "react";
 import type { SettingsPatch, SettingsResponse } from "../../shared/types.ts";
 import { getSettings, listAttachments, patchSettings, uploadAttachment } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
+import { countPhrase, localeNum, t, tf, type I18nKey } from "../i18n.ts";
+import { UPLOAD_MAX_MB } from "../../shared/limits.ts";
 import { THEMES, useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 
@@ -24,6 +26,8 @@ interface Form {
   defaultTheme: string; // "" | theme
   publicLayout: string; // "" | "app" | "blog"
   blogLocale: string;
+  language: string;       // "" | "en" | "ar"
+  languageFilter: string; // "" | "on" | "off"
   excludeTags: string;  // comma-separated
   comments: string;     // "" | "on" | "off"
   share: string;        // "" | "on" | "off" (blog article share row; default off)
@@ -42,6 +46,8 @@ function formFrom(s: SettingsResponse): Form {
     defaultTheme: s.defaultTheme ?? "",
     publicLayout: s.publicLayout ?? "",
     blogLocale: s.blogLocale ?? "",
+    language: s.language ?? "",
+    languageFilter: s.languageFilter === undefined ? "" : s.languageFilter ? "on" : "off",
     excludeTags: (s.excludeTags ?? []).join(", "),
     comments: s.commentsEnabled === undefined ? "" : s.commentsEnabled ? "on" : "off",
     share: s.shareButtons === undefined ? "" : s.shareButtons ? "on" : "off",
@@ -66,15 +72,13 @@ function imageRefError(value: string, httpsOk: boolean): string | null {
   const v = value.trim();
   if (v === "") return null;
   if (/^https:\/\//i.test(v)) {
-    return httpsOk ? null : "must be a vault image path (ico, png, svg…)";
+    return httpsOk ? null : t("errVaultImage");
   }
   if (SCHEME_RE.test(v)) {
-    return httpsOk
-      ? "must be an https:// URL or a vault image path"
-      : "must be a vault image path (ico, png, svg…)";
+    return t(httpsOk ? "errHttpsOrVault" : "errVaultImage");
   }
-  if (v.split(/[\\/]/).includes("..")) return "path may not contain ..";
-  if (!IMG_EXT_RE.test(v)) return "must be an image (ico, png, svg, jpeg, gif, webp, avif)";
+  if (v.split(/[\\/]/).includes("..")) return t("errDotDot");
+  if (!IMG_EXT_RE.test(v)) return t("errImageExt");
   return null;
 }
 
@@ -93,28 +97,50 @@ function isValidLocale(value: string): boolean {
   }
 }
 
+/** A stored enum VALUE ("note", "blog") as the reader-facing label the option
+ *  rows show — so the greyed "inherit (…)" row names the same choice the list
+ *  below it does, in the same language. Unknown values pass through. */
+const ENUM_LABELS: Partial<Record<string, I18nKey>> = {
+  note: "modeNote",
+  dashboard: "modeDashboard",
+  app: "layoutApp",
+  blog: "layoutBlog",
+};
+
+function enumLabel(value: string): string {
+  const key = ENUM_LABELS[value];
+  return key ? t(key) : value;
+}
+
+/** "80 chars max" / "80 حرفا كحد أقصى" — the count goes through countPhrase so
+ *  the Arabic unit agrees with the number at every budget (a 3–10 budget wants
+ *  "أحرف", not the "حرفا" that only reads right from 11 up). */
+function maxChars(n: number): string {
+  return tf("errMaxChars", { count: countPhrase(n, "chars") });
+}
+
 /** Client-side mirror of the server validators — inline row errors. */
 function validate(f: Form): Partial<Record<keyof Form, string>> {
   const errors: Partial<Record<keyof Form, string>> = {};
-  if (f.siteName.trim().length > 80) errors.siteName = "80 characters max";
-  if (f.tagline.trim().length > 160) errors.tagline = "160 characters max";
-  if (f.footer.trim().length > 200) errors.footer = "200 characters max";
+  if (f.siteName.trim().length > 80) errors.siteName = maxChars(80);
+  if (f.tagline.trim().length > 160) errors.tagline = maxChars(160);
+  if (f.footer.trim().length > 200) errors.footer = maxChars(200);
   if (f.blogLocale.trim() !== "" && (f.blogLocale.trim().length > 35 || !isValidLocale(f.blogLocale.trim()))) {
-    errors.blogLocale = "not a valid BCP47 locale (en, ar-EG, de…)";
+    errors.blogLocale = t("errLocale");
   }
-  const badTag = splitTags(f.excludeTags).find((t) => t.length > 50 || !TAG_RE.test(t));
-  if (badTag !== undefined) errors.excludeTags = `"${badTag}" is not a simple tag`;
+  const badTag = splitTags(f.excludeTags).find((tag) => tag.length > 50 || !TAG_RE.test(tag));
+  if (badTag !== undefined) errors.excludeTags = tf("errNotSimpleTag", { tag: badTag });
   if (f.homeNote.trim() !== "" && !/\.md$/i.test(f.homeNote.trim())) {
-    errors.homeNote = "must be a vault .md path";
+    errors.homeNote = t("errMdPath");
   }
   if (/^http:\/\//i.test(f.logo.trim())) {
-    errors.logo = "http:// would be mixed content — use https:// or a vault path";
+    errors.logo = t("errMixedContent");
   } else {
     const e = imageRefError(f.logo, true);
     if (e) errors.logo = e;
   }
   if (/^http:\/\//i.test(f.homeBanner.trim())) {
-    errors.homeBanner = "http:// would be mixed content — use https:// or a vault path";
+    errors.homeBanner = t("errMixedContent");
   } else {
     const e = imageRefError(f.homeBanner, true);
     if (e) errors.homeBanner = e;
@@ -138,6 +164,12 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
   str("blogLocale");
   str("favicon");
   str("logo");
+  if (f.language !== initial.language) {
+    patch.language = f.language === "en" || f.language === "ar" ? f.language : null;
+  }
+  if (f.languageFilter !== initial.languageFilter) {
+    patch.languageFilter = f.languageFilter === "" ? null : f.languageFilter === "on";
+  }
   if (f.publicLayout !== initial.publicLayout) {
     patch.publicLayout = f.publicLayout === "app" || f.publicLayout === "blog" ? f.publicLayout : null;
   }
@@ -210,7 +242,7 @@ function ImagePicker({
         .catch((err: unknown) => {
           setBusy(false);
           console.error("vellum: upload failed", err);
-          toast(err instanceof Error ? err.message : "Upload failed");
+          toast(err instanceof Error ? err.message : t("uploadFailed"));
         });
     },
     [busy, onPick],
@@ -230,7 +262,7 @@ function ImagePicker({
       >
         <div className="s-bmodal__head">
           <span className="s-bmodal__title">{title}</span>
-          <button type="button" className="s-bmodal__close" onClick={onClose} aria-label="Close">
+          <button type="button" className="s-bmodal__close" onClick={onClose} aria-label={t("close")}>
             ×
           </button>
         </div>
@@ -250,8 +282,8 @@ function ImagePicker({
             if (file) upload(file);
           }}
         >
-          {busy ? "Working…" : "Drop an image here, or click to choose a file"}
-          <span className="s-bmodal__drophint">png · jpeg · webp · gif · svg — 10 MB max</span>
+          {t(busy ? "working" : "dropImage")}
+          <span className="s-bmodal__drophint">{tf("dropHint", { max: localeNum(UPLOAD_MAX_MB) })}</span>
           <input
             ref={fileInputRef}
             type="file"
@@ -269,16 +301,16 @@ function ImagePicker({
           <input
             className="s-bmodal__input"
             type="text"
-            placeholder="Search vault attachments…"
+            placeholder={t("searchAttachments")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             spellCheck={false}
           />
           <div className="s-bmodal__list">
-            {attachments === null && <div className="s-bmodal__empty">Loading…</div>}
+            {attachments === null && <div className="s-bmodal__empty">{t("loading")}</div>}
             {attachments !== null && filtered.length === 0 && (
               <div className="s-bmodal__empty">
-                {attachments.length === 0 ? "No image attachments in the vault yet." : "No matches."}
+                {t(attachments.length === 0 ? "noAttachments" : "noMatchesDot")}
               </div>
             )}
             {filtered.slice(0, 200).map((p) => (
@@ -377,10 +409,10 @@ function ImageField({
         dir="ltr"
       />
       <button type="button" className="s-btn" onClick={onOpenPicker}>
-        Pick…
+        {t("pick")}
       </button>
       {isImage && (
-        <button type="button" className="s-btn" onClick={() => onChange("")} aria-label="Clear">
+        <button type="button" className="s-btn" onClick={() => onChange("")} aria-label={t("clear")}>
           ×
         </button>
       )}
@@ -394,6 +426,7 @@ function ImageField({
 
 export default function SettingsModal() {
   const setOpen = useStore((s) => s.setSettingsOpen);
+  useStore((s) => s.language); // re-render the chrome strings on language change
   const close = useCallback(() => setOpen(false), [setOpen]);
 
   const [loaded, setLoaded] = useState<SettingsResponse | null>(null);
@@ -415,7 +448,7 @@ export default function SettingsModal() {
       })
       .catch((err: unknown) => {
         console.error("vellum: loading settings failed", err);
-        if (!disposed) setLoadError(err instanceof Error ? err.message : "Could not load settings");
+        if (!disposed) setLoadError(err instanceof Error ? err.message : t("settingsLoadFailed"));
       });
     return () => {
       disposed = true;
@@ -466,11 +499,11 @@ export default function SettingsModal() {
         // Everything the shell renders from /api/me follows live: wordmark,
         // logo, layout, theme default, favicon link.
         await useStore.getState().loadMe();
-        toast("Settings saved");
+        toast(t("settingsSaved"));
       })
       .catch((err: unknown) => {
         console.error("vellum: saving settings failed", err);
-        toast(err instanceof Error ? err.message : "Could not save settings");
+        toast(err instanceof Error ? err.message : t("settingsSaveFailed"));
       })
       .finally(() => setSaving(false));
   }, [form, initial, saving]);
@@ -482,30 +515,27 @@ export default function SettingsModal() {
       <div
         className="s-bmodal s-smodal"
         role="dialog"
-        aria-label="Site settings"
+        aria-label={t("siteSettings")}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="s-bmodal__head">
           <span className="s-bmodal__title">
-            Site settings — <em>settings.json</em>
+            {t("siteSettings")} — <em>settings.json</em>
           </span>
-          <button type="button" className="s-bmodal__close" onClick={close} aria-label="Close">
+          <button type="button" className="s-bmodal__close" onClick={close} aria-label={t("close")}>
             ×
           </button>
         </div>
 
         {loadError && <div className="s-bmodal__empty">{loadError}</div>}
-        {!loadError && (!form || !eff) && <div className="s-bmodal__empty">Loading…</div>}
+        {!loadError && (!form || !eff) && <div className="s-bmodal__empty">{t("loading")}</div>}
 
         {form && eff && (
           <div className="s-smodal__body">
-            <p className="s-smodal__note">
-              Empty fields inherit the server&#8217;s env defaults (shown greyed). Saved values win
-              over env and apply live.
-            </p>
+            <p className="s-smodal__note">{t("settingsNote")}</p>
 
-            <div className="s-smodal__group">Identity</div>
-            <Row label="Site name" error={errors.siteName}>
+            <div className="s-smodal__group">{t("groupIdentity")}</div>
+            <Row label={t("rowSiteName")} error={errors.siteName}>
               <input
                 className="s-bmodal__input"
                 type="text"
@@ -514,7 +544,7 @@ export default function SettingsModal() {
                 {...field("siteName")}
               />
             </Row>
-            <Row label="Tagline" hint="masthead subtitle" error={errors.tagline}>
+            <Row label={t("rowTagline")} hint={t("hintTagline")} error={errors.tagline}>
               <input
                 className="s-bmodal__input"
                 type="text"
@@ -523,7 +553,7 @@ export default function SettingsModal() {
                 {...field("tagline")}
               />
             </Row>
-            <Row label="Footer" hint="{year} and {siteName} substituted" error={errors.footer}>
+            <Row label={t("rowFooter")} hint={t("hintFooter")} error={errors.footer}>
               <input
                 className="s-bmodal__input"
                 type="text"
@@ -532,34 +562,34 @@ export default function SettingsModal() {
                 {...field("footer")}
               />
             </Row>
-            <Row label="Logo" hint="replaces the text wordmark" error={errors.logo}>
+            <Row label={t("rowLogo")} hint={t("hintLogo")} error={errors.logo}>
               <ImageField
                 value={form.logo}
-                placeholder="vault image path or https:// URL"
+                placeholder={t("phVaultImageOrUrl")}
                 invalid={errors.logo !== undefined}
                 onChange={(v) => setForm((f) => (f ? { ...f, logo: v } : f))}
                 onOpenPicker={() => setPicker("logo")}
               />
             </Row>
-            <Row label="Favicon" hint="served at /favicon.ico" error={errors.favicon}>
+            <Row label={t("rowFavicon")} hint={t("hintFavicon")} error={errors.favicon}>
               <ImageField
                 value={form.favicon}
-                placeholder="vault image path (ico, png, svg…)"
+                placeholder={t("phVaultIcon")}
                 invalid={errors.favicon !== undefined}
                 onChange={(v) => setForm((f) => (f ? { ...f, favicon: v } : f))}
                 onOpenPicker={() => setPicker("favicon")}
               />
             </Row>
 
-            <div className="s-smodal__group">Home page</div>
-            <Row label="Mode" hint="what visitors see at /">
+            <div className="s-smodal__group">{t("groupHome")}</div>
+            <Row label={t("rowMode")} hint={t("hintMode")}>
               <select className="s-bmodal__input s-smodal__select" {...field("homeMode")}>
-                <option value="">note (default)</option>
-                <option value="note">note</option>
-                <option value="dashboard">dashboard</option>
+                <option value="">{tf("inheritOption", { value: enumLabel(eff.home.mode) })}</option>
+                <option value="note">{t("modeNote")}</option>
+                <option value="dashboard">{t("modeDashboard")}</option>
               </select>
             </Row>
-            <Row label="Home note" hint="intro note (note mode)" error={errors.homeNote}>
+            <Row label={t("rowHomeNote")} hint={t("hintHomeNote")} error={errors.homeNote}>
               <input
                 className="s-bmodal__input"
                 type="text"
@@ -569,35 +599,55 @@ export default function SettingsModal() {
                 {...field("homeNote")}
               />
             </Row>
-            <Row label="Home banner" hint="hero image" error={errors.homeBanner}>
+            <Row label={t("rowHomeBanner")} hint={t("hintHomeBanner")} error={errors.homeBanner}>
               <ImageField
                 value={form.homeBanner}
-                placeholder="vault image path or https:// URL"
+                placeholder={t("phVaultImageOrUrl")}
                 invalid={errors.homeBanner !== undefined}
                 onChange={(v) => setForm((f) => (f ? { ...f, homeBanner: v } : f))}
                 onOpenPicker={() => setPicker("homeBanner")}
               />
             </Row>
 
-            <div className="s-smodal__group">Site behavior</div>
-            <Row label="Default theme" hint="visitors without a stored choice">
+            <div className="s-smodal__group">{t("groupBehavior")}</div>
+            <Row label={t("rowDefaultTheme")} hint={t("hintDefaultTheme")}>
               <select className="s-bmodal__input s-smodal__select" {...field("defaultTheme")}>
-                <option value="">{`inherit (${eff.defaultTheme ?? "iron-gall"})`}</option>
-                {THEMES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
+                <option value="">
+                  {tf("inheritOption", { value: eff.defaultTheme ?? "iron-gall" })}
+                </option>
+                {THEMES.map((theme) => (
+                  <option key={theme} value={theme}>
+                    {theme}
                   </option>
                 ))}
               </select>
             </Row>
-            <Row label="Public layout" hint="visitor-facing shell">
+            <Row label={t("rowPublicLayout")} hint={t("hintPublicLayout")}>
               <select className="s-bmodal__input s-smodal__select" {...field("publicLayout")}>
-                <option value="">{`inherit (${eff.publicLayout})`}</option>
-                <option value="app">app</option>
-                <option value="blog">blog</option>
+                <option value="">{tf("inheritOption", { value: enumLabel(eff.publicLayout) })}</option>
+                <option value="app">{t("layoutApp")}</option>
+                <option value="blog">{t("layoutBlog")}</option>
               </select>
             </Row>
-            <Row label="Date locale" hint="BCP47 — post dates, RSS" error={errors.blogLocale}>
+            <Row label={t("rowLanguage")} hint={t("hintLanguage")}>
+              <select className="s-bmodal__input s-smodal__select" {...field("language")}>
+                <option value="">{tf("inheritOption", { value: eff.language })}</option>
+                {/* Language names stay in their own script — that is how a
+                    language picker reads to the person who needs it. */}
+                <option value="en">English</option>
+                <option value="ar">العربية</option>
+              </select>
+            </Row>
+            <Row label={t("rowLanguageFilter")} hint={t("hintLanguageFilter")}>
+              <select className="s-bmodal__input s-smodal__select" {...field("languageFilter")}>
+                <option value="">
+                  {tf("inheritOption", { value: eff.languageFilter ? t("on") : t("off") })}
+                </option>
+                <option value="on">{t("on")}</option>
+                <option value="off">{t("off")}</option>
+              </select>
+            </Row>
+            <Row label={t("rowDateLocale")} hint={t("hintDateLocale")} error={errors.blogLocale}>
               <input
                 className="s-bmodal__input"
                 type="text"
@@ -608,30 +658,34 @@ export default function SettingsModal() {
               />
             </Row>
             <Row
-              label="Excluded tags"
-              hint="hidden from visitors, comma-separated"
+              label={t("rowExcludeTags")}
+              hint={t("hintExcludeTags")}
               error={errors.excludeTags}
             >
               <input
                 className="s-bmodal__input"
                 type="text"
-                placeholder={eff.excludeTags.length > 0 ? eff.excludeTags.join(", ") : "draft, todo…"}
+                placeholder={eff.excludeTags.length > 0 ? eff.excludeTags.join(", ") : t("phExcludeTags")}
                 spellCheck={false}
                 {...field("excludeTags")}
               />
             </Row>
-            <Row label="Comments" hint="Marginalia under published notes">
+            <Row label={t("rowComments")} hint={t("hintComments")}>
               <select className="s-bmodal__input s-smodal__select" {...field("comments")}>
-                <option value="">{`inherit (${eff.commentsEnabled ? "on" : "off"})`}</option>
-                <option value="on">on</option>
-                <option value="off">off</option>
+                <option value="">
+                  {tf("inheritOption", { value: eff.commentsEnabled ? t("on") : t("off") })}
+                </option>
+                <option value="on">{t("on")}</option>
+                <option value="off">{t("off")}</option>
               </select>
             </Row>
-            <Row label="Share buttons" hint="Social share row under blog articles">
+            <Row label={t("rowShareButtons")} hint={t("hintShareButtons")}>
               <select className="s-bmodal__input s-smodal__select" {...field("share")}>
-                <option value="">{`inherit (${eff.shareButtons ? "on" : "off"})`}</option>
-                <option value="on">on</option>
-                <option value="off">off</option>
+                <option value="">
+                  {tf("inheritOption", { value: eff.shareButtons ? t("on") : t("off") })}
+                </option>
+                <option value="on">{t("on")}</option>
+                <option value="off">{t("off")}</option>
               </select>
             </Row>
           </div>
@@ -639,10 +693,14 @@ export default function SettingsModal() {
 
         <div className="s-smodal__foot">
           <span className="s-smodal__dirty">
-            {saving ? "Saving…" : dirty ? (valid ? "Unsaved changes" : "Fix the marked fields") : ""}
+            {saving
+              ? t("saving")
+              : dirty
+                ? t(valid ? "unsavedChanges" : "fixMarkedFields")
+                : ""}
           </span>
           <button type="button" className="s-btn" onClick={close}>
-            Close
+            {t("close")}
           </button>
           <button
             type="button"
@@ -650,15 +708,15 @@ export default function SettingsModal() {
             disabled={!dirty || !valid || saving}
             onClick={save}
           >
-            Save
+            {t("save")}
           </button>
         </div>
 
         {picker && (
           <ImagePicker
-            title={
-              picker === "favicon" ? "Favicon image" : picker === "logo" ? "Logo image" : "Home banner"
-            }
+            title={t(
+              picker === "favicon" ? "faviconImage" : picker === "logo" ? "logoImage" : "rowHomeBanner",
+            )}
             onPick={(path) => {
               setForm((f) => (f ? { ...f, [picker]: path } : f));
               setPicker(null);

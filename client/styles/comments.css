@@ -57,7 +57,7 @@
   padding: 10px 14px 11px;
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-inline-start: 2px solid color-mix(in srgb, var(--accent) 45%, var(--border));
   border-radius: var(--radius);
 }
 
@@ -84,7 +84,7 @@
 }
 
 .s-comment__delete {
-  margin-left: auto;
+  margin-inline-start: auto;
   border: none;
   background: none;
   padding: 0 4px;
@@ -158,12 +158,22 @@
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
-/* Honeypot: parked far off-screen for humans; bots fill it and are dropped. */
+/* Honeypot: invisible to humans, still a real fillable input for bots.
+   Clipped in place rather than parked at left:-9999px — an off-screen offset
+   is scrollable overflow in an RTL document (the inline start edge is the
+   right one), which stretched the page ~10,000px wide and pushed the whole
+   article out of the painted viewport. A zero-overflow clip is direction
+   agnostic and hides it just as well. */
 .s-marginalia__web {
   position: absolute;
-  left: -9999px;
   width: 1px;
   height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
   opacity: 0;
   pointer-events: none;
 }
@@ -205,7 +215,7 @@
 
 .s-comment--hidden {
   opacity: 0.45;
-  border-left-color: var(--border);
+  border-inline-start-color: var(--border);
   background: transparent;
 }
 
@@ -223,15 +233,15 @@
 }
 
 .s-comment__tools {
-  margin-left: auto;
+  margin-inline-start: auto;
   display: inline-flex;
   align-items: center;
   gap: 2px;
 }
 
-/* The delete button loses its own margin-left:auto when nested in tools. */
+/* The delete button loses its own margin-inline-start:auto when nested in tools. */
 .s-comment__tools .s-comment__delete {
-  margin-left: 0;
+  margin-inline-start: 0;
 }
 
 .s-comment__hide {
@@ -311,7 +321,7 @@
 }
 
 .s-moderation__close {
-  margin-left: auto;
+  margin-inline-start: auto;
   border: none;
   background: none;
   padding: 0 4px;
@@ -352,19 +362,19 @@
   padding: 9px 12px 10px;
   background: var(--bg-hover);
   border: 1px solid transparent;
-  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-inline-start: 2px solid color-mix(in srgb, var(--accent) 45%, var(--border));
   border-radius: var(--radius);
   transition: border-color 0.15s ease, opacity 0.15s ease;
 }
 
 .s-modrow:hover {
   border-color: var(--border);
-  border-left-color: var(--accent);
+  border-inline-start-color: var(--accent);
 }
 
 .s-modrow--hidden {
   opacity: 0.5;
-  border-left-color: var(--border);
+  border-inline-start-color: var(--border);
 }
 
 .s-modrow--hidden:hover {
@@ -397,7 +407,7 @@
 }
 
 .s-modrow__note {
-  margin-left: auto;
+  margin-inline-start: auto;
   border: none;
   background: none;
   padding: 0;
@@ -457,7 +467,7 @@
 }
 
 .s-modrow .s-comment__delete {
-  margin-left: 0;
+  margin-inline-start: 0;
 }
 
 

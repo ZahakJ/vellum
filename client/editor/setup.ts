@@ -39,6 +39,7 @@ import { wikilinkAutocomplete } from "./autocomplete.ts";
 import { imageUploads } from "./uploads.ts";
 import { hoverPreviews } from "./hoverPreview.ts";
 import { headingFolds } from "./folding.ts";
+import { t } from "../i18n.ts";
 
 export interface EditorSetupOptions {
   doc: string;
@@ -95,7 +96,7 @@ export function buildEditorState(options: EditorSetupOptions): EditorState {
       closeBrackets(),
       highlightSelectionMatches(),
       // A fresh (daily) note is an empty pane — give it a quiet cue.
-      placeholder("Start writing…"),
+      placeholder(t("startWriting")),
       EditorView.lineWrapping,
       // Each line takes its direction from its own content (dir="auto" line
       // decorations), so Arabic/Hebrew paragraphs read right-to-left while

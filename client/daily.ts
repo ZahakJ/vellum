@@ -3,6 +3,7 @@
 
 import { createNote } from "./api.ts";
 import { collectNotes } from "./editor/links.ts";
+import { t } from "./i18n.ts";
 import { useStore } from "./state.ts";
 import { toast } from "./toast.ts";
 
@@ -20,7 +21,7 @@ export async function openDailyNote(): Promise<void> {
   const path = dailyNotePath();
   const exists = collectNotes(store.tree).some((n) => n.path === path);
   if (!exists && !store.admin) {
-    toast("No daily note for today — sign in to create it");
+    toast(t("noDailyNote"));
     return;
   }
   if (!exists) {
@@ -34,7 +35,7 @@ export async function openDailyNote(): Promise<void> {
       const message = err instanceof Error ? err.message : "";
       if (!/exists/i.test(message)) {
         console.error(`vellum: creating daily note ${path} failed`, err);
-        toast("Could not create today's daily note");
+        toast(t("dailyNoteFailed"));
         return;
       }
     }
