@@ -4,26 +4,36 @@
 // article), and a quiet footer. Owns the address bar in blog mode: pushState
 // navigation, popstate, per-page document.title.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { stripBidiControls } from "../../shared/bidi.ts";
 import type { PostMeta } from "../../shared/types.ts";
 import { getNote, getPosts } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
+import { installHoverCards } from "../hovercard.ts";
 import { t, tf } from "../i18n.ts";
 import LoginModal from "../components/LoginModal.tsx";
+import { renderMarkdown } from "../reading/render.ts";
 import { notePathToUrl, urlToNoteGuess, urlToNotePath } from "../router.ts";
 import { nextTheme, useStore } from "../state.ts";
+import BackToTop from "./BackToTop.tsx";
 import BlogArticle from "./BlogArticle.tsx";
 import BlogDashboard from "./BlogDashboard.tsx";
 import BlogHome from "./BlogHome.tsx";
 import BlogSearch from "./BlogSearch.tsx";
 import BlogSearchOverlay from "./BlogSearchOverlay.tsx";
 import BlogTopic from "./BlogTopic.tsx";
+import LangSwitch from "./LangSwitch.tsx";
+import NavTopics from "./NavTopics.tsx";
 import { go, setNavHandler, topicUrl } from "./nav.ts";
+import { previewExcerpt, previewPath } from "./postPreview.ts";
 import { NavLink } from "./util.tsx";
 import "../styles/blog.css";
 
-const NAV_TOPICS_MAX = 7;
+/** Basename of a note path, bidi controls stripped — the card header and the
+ *  duplicate-H1 trim both key off it. */
+function noteTitle(path: string): string {
+  return stripBidiControls((path.split("/").pop() ?? path).replace(/\.md$/i, ""));
+}
 
 type Route =
   | { kind: "home" }
@@ -120,14 +130,22 @@ export default function BlogShell() {
   const homeMode = useStore((s) => s.home?.mode ?? "note");
   const logo = useStore((s) => s.logo);
   // Chrome strings come from t(); subscribing to the language re-renders the
-  // shell when the admin switches it in settings (loadMe → store) — no reload.
-  useStore((s) => s.language);
+  // shell when the admin switches it in settings (loadMe → store), or when a
+  // visitor flips the EN/ع switch — no reload either way.
+  const language = useStore((s) => s.language);
 
   const [route, setRoute] = useState<Route>(() => parseRoute(location.pathname));
   const [posts, setPosts] = useState<PostMeta[] | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const moreRef = useRef<HTMLDetailsElement | null>(null);
+  // The scroll container as STATE as well as a ref: BackToTop and the hover
+  // cards both need the element itself, and a ref alone is still null on the
+  // render that mounts them.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const attachScroll = useCallback((el: HTMLDivElement | null) => {
+    scrollRef.current = el;
+    setScrollEl(el);
+  }, []);
 
   // Map the current location into the route (initial load, popstate, nav).
   const apply = (): void => {
@@ -248,10 +266,10 @@ export default function BlogShell() {
     }
   }, [route, siteName, tagline]);
 
-  // Route change closes the burger row and the "More ▾" menu.
+  // Route change closes the burger row (NavTopics closes its own menu off the
+  // routeKey below).
   useEffect(() => {
     setMenuOpen(false);
-    if (moreRef.current) moreRef.current.open = false;
   }, [route]);
 
   // Topic categories: published tags by frequency.
@@ -264,21 +282,55 @@ export default function BlogShell() {
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([tag]) => tag);
   }, [posts]);
-  const shown = topics.slice(0, NAV_TOPICS_MAX);
-  const overflow = topics.slice(NAV_TOPICS_MAX);
-
   const activeTag = route.kind === "topic" ? route.tag : null;
 
-  const navItem = (tag: string) => (
-    <NavLink
-      key={tag}
-      url={topicUrl(tag)}
-      className={`s-blog-nav__link${tag === activeTag ? " s-blog-nav__link--active" : ""}`}
-      dir="auto"
-    >
-      {tag}
-    </NavLink>
+  // Hover previews for every post link the shell renders — one delegated
+  // install on the scroll container covers dashboard cards, post lists, topic
+  // pages, related, prev/next and search results, so no component below has
+  // to know the feature exists. Reinstalled (and thus re-cached) when the
+  // language changes, because the rendered note chrome carries t() strings.
+  //
+  // Read through a ref rather than a dependency: `posts` and `tree` refresh on
+  // every SSE event, and re-installing on those would tear down a card the
+  // reader is in the middle of reading.
+  const postTags = useRef(new Map<string, string[]>());
+  postTags.current = useMemo(
+    () => new Map((posts ?? []).map((p) => [p.path, p.tags])),
+    [posts],
   );
+  useEffect(() => {
+    if (!scrollEl || locked) return;
+    return installHoverCards({
+      root: scrollEl,
+      scroller: scrollEl,
+      resolve: previewPath,
+      title: noteTitle,
+      render: async (path) => {
+        let content: string;
+        try {
+          // The ordinary visitor-scoped fetch: a note this session may not
+          // read 401/404s here, and no card is ever built for it.
+          content = (await getNote(path)).content;
+        } catch {
+          return null;
+        }
+        const md = previewExcerpt(content, noteTitle(path));
+        if (!md) return null;
+        const tags = postTags.current.get(path);
+        return renderMarkdown(md, {
+          notePath: path,
+          tree: useStore.getState().tree,
+          embedded: true,
+          // Same reading-renderer settings the article page uses: no
+          // broken-link furniture, no ⌀ chips, and only the post's
+          // server-filtered tags may render as pills.
+          brokenLinks: "plain",
+          missingImages: "card",
+          ...(tags ? { visibleTags: new Set(tags.map((x) => x.toLowerCase())) } : {}),
+        });
+      },
+    });
+  }, [scrollEl, locked, language]);
 
   // Dashboard home carries the site identity inside its own hero — rendering
   // the masthead above it would say the site name twice. Every other page
@@ -286,7 +338,7 @@ export default function BlogShell() {
   const dashboardHome = homeMode === "dashboard" && route.kind === "home" && !locked;
 
   return (
-    <div className="s-blog" ref={scrollRef}>
+    <div className="s-blog" ref={attachScroll}>
       {!dashboardHome && (
         <header className="s-blog-mast">
           {!logo && (
@@ -316,15 +368,7 @@ export default function BlogShell() {
             className="s-blog-nav__burger"
             aria-label={t("blogTopics")}
             aria-expanded={menuOpen}
-            onClick={() =>
-              setMenuOpen((v) => {
-                const next = !v;
-                // The burger row shows every topic — including the ones that
-                // live in the (closed) "More ▾" details on wide screens.
-                if (moreRef.current) moreRef.current.open = next;
-                return next;
-              })
-            }
+            onClick={() => setMenuOpen((v) => !v)}
           >
             <svg
               viewBox="0 0 24 24"
@@ -340,25 +384,16 @@ export default function BlogShell() {
             </svg>
             {t("blogTopics")}
           </button>
-          <div className="s-blog-nav__links">
-            <NavLink
-              url="/"
-              className={`s-blog-nav__link${route.kind === "home" ? " s-blog-nav__link--active" : ""}`}
-            >
-              {t("home")}
-            </NavLink>
-            {shown.map(navItem)}
-            {overflow.length > 0 && (
-              <details className="s-blog-more" ref={moreRef}>
-                <summary className="s-blog-nav__link s-blog-more__summary">
-                  {t("blogMore")} <span aria-hidden="true">▾</span>
-                </summary>
-                <div className="s-blog-more__menu">{overflow.map(navItem)}</div>
-              </details>
-            )}
-          </div>
+          <NavTopics
+            topics={topics}
+            activeTag={activeTag}
+            isHome={route.kind === "home"}
+            expandAll={menuOpen}
+            routeKey={`${route.kind}:${activeTag ?? location.pathname}`}
+          />
           <div className="s-blog-nav__tools">
             <BlogSearch />
+            <LangSwitch />
             <ThemeButton />
           </div>
         </div>
@@ -436,6 +471,7 @@ export default function BlogShell() {
         </p>
       </footer>
 
+      <BackToTop scroller={scrollEl} />
       <BlogSearchOverlay />
       {loginOpen && <LoginModal />}
     </div>

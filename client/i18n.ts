@@ -34,9 +34,15 @@ export function getNumerals(): NumeralSystem {
   return numerals;
 }
 
-/** A bare number in the instance's numeral system ("3" / "٣"). */
+/** A bare number in the instance's numeral system ("3" / "٣"), grouped in
+ *  thousands ("1,214" / "١٬٢١٤"). Grouping is not decoration: every caller is
+ *  a COUNT, and the one that matters most sits in a dialog whose whole job is
+ *  conveying magnitude before a subtree is erased — "1214" reads as a token,
+ *  "1,214" reads as a number. The Arabic separator is U+066C, the one that
+ *  belongs with Eastern Arabic digits. */
 export function localeNum(n: number): string {
-  return toNumerals(String(n), numerals);
+  const grouped = new Intl.NumberFormat("en-US").format(n);
+  return numerals === "arab" ? toNumerals(grouped, numerals).replaceAll(",", "٬") : grouped;
 }
 
 interface Entry {
@@ -67,6 +73,27 @@ const DICT = {
     ar: "سيُحذف “{path}” نهائيًا. لا يمكن التراجع عن هذا.",
   },
   creatingFolderFailed: { en: "Creating folder failed", ar: "فشل إنشاء المجلد" },
+  deleteFolder: { en: "Delete folder", ar: "حذف المجلد" },
+  // Folder deletion is a MOVE by default (the vault's .trash/), so the first
+  // dialog promises recovery and the permanent erase is a second, quieter
+  // step with its own confirmation.
+  deleteFolderTitle: { en: "Move “{name}” to .trash?", ar: "نقل “{name}” إلى ‎.trash‎؟" },
+  deleteFolderBody: {
+    en: "{count} will move to the vault’s .trash folder — recoverable from disk.",
+    ar: "ستُنقل {count} إلى مجلد ‎.trash‎ داخل الخزانة — يمكن استرجاعها من القرص.",
+  },
+  moveToTrash: { en: "Move to .trash", ar: "نقل إلى ‎.trash‎" },
+  deletePermanently: { en: "Delete permanently", ar: "حذف نهائي" },
+  deleteFolderPermTitle: { en: "Permanently delete “{name}”?", ar: "حذف “{name}” نهائيًا؟" },
+  deleteFolderPermBody: {
+    en: "{count} will be erased from disk. This cannot be undone.",
+    ar: "ستُمحى {count} من القرص. لا يمكن التراجع عن هذا.",
+  },
+  folderTrashedToast: {
+    en: "Moved “{name}” to .trash — recover it from the vault folder",
+    ar: "نُقل “{name}” إلى ‎.trash‎ — يمكن استرجاعه من مجلد الخزانة",
+  },
+  folderDeletedToast: { en: "Deleted “{name}” permanently", ar: "حُذف “{name}” نهائيًا" },
   viewPublicSite: { en: "View public site", ar: "عرض الموقع العام" },
   publishedOnly: { en: "Published only", ar: "المنشور فقط" },
   showAll: { en: "Show all", ar: "عرض الكل" },
@@ -126,8 +153,14 @@ const DICT = {
 
   // ── Right panel ─────────────────────────────────────────────────────────
   backlinks: { en: "Backlinks", ar: "روابط راجعة" },
-  showBacklinks: { en: "Show backlinks", ar: "إظهار الروابط الراجعة" },
-  hideBacklinks: { en: "Hide backlinks", ar: "إخفاء الروابط الراجعة" },
+  showBacklinks: {
+    en: "Show backlinks (Ctrl/Cmd+Shift+B)",
+    ar: "إظهار الروابط الراجعة (Ctrl/Cmd+Shift+B)",
+  },
+  hideBacklinks: {
+    en: "Hide backlinks (Ctrl/Cmd+Shift+B)",
+    ar: "إخفاء الروابط الراجعة (Ctrl/Cmd+Shift+B)",
+  },
   noNoteOpenDot: { en: "No note open.", ar: "لا توجد ملاحظة مفتوحة." },
   noBacklinks: {
     en: "No backlinks yet — link to this note with [[…]]",
@@ -158,6 +191,16 @@ const DICT = {
   cmdAppearanceHint: { en: "appearance", ar: "المظهر" },
   cmdToggleVim: { en: "Toggle vim", ar: "تبديل vim" },
   cmdEditorHint: { en: "editor", ar: "المحرر" },
+  // The sidebar-side command names a PHYSICAL edge, in both languages: an
+  // Arabic reader moving the sidebar left is asking for the left of the
+  // screen, not for "the trailing side".
+  cmdSidebarRight: { en: "Move sidebar to the right", ar: "نقل الشريط الجانبي إلى اليمين" },
+  cmdSidebarLeft: { en: "Move sidebar to the left", ar: "نقل الشريط الجانبي إلى اليسار" },
+  cmdLayoutHint: { en: "layout", ar: "التخطيط" },
+  cmdToggleSidebar: { en: "Toggle sidebar", ar: "طي الشريط الجانبي" },
+  cmdTogglePanel: { en: "Toggle backlinks panel", ar: "طي لوحة الروابط الراجعة" },
+  cmdZen: { en: "Zen mode", ar: "وضع التركيز" },
+  cmdZenHint: { en: "chrome steps aside", ar: "تنحسر الواجهة" },
   cmdPublishNote: { en: "Publish note", ar: "نشر الملاحظة" },
   cmdPublishHint: { en: "✦ live for visitors", ar: "✦ تصبح متاحة للزوار" },
   cmdUnpublishNote: { en: "Unpublish note", ar: "إلغاء نشر الملاحظة" },
@@ -282,6 +325,11 @@ const DICT = {
     en: "public blog shows only notes in the site language",
     ar: "تعرض المدونة العامة ملاحظات بلغة الموقع فقط",
   },
+  rowLanguageToggle: { en: "Visitor switch", ar: "مبدّل الزائر" },
+  hintLanguageToggle: {
+    en: "adds a public EN/ع switch readers can flip for themselves",
+    ar: "يضيف مبدّل ‎EN/ع‎ عامًا يغيّره القارئ لنفسه",
+  },
   rowDateLocale: { en: "Date locale", ar: "لغة التواريخ" },
   hintDateLocale: { en: "BCP47 — post dates, RSS", ar: "‏‎BCP47‎ — تواريخ المقالات و‎RSS‎" },
   rowExcludeTags: { en: "Excluded tags", ar: "وسوم مستبعدة" },
@@ -351,6 +399,11 @@ const DICT = {
   keyReading: { en: "reading view", ar: "وضع القراءة" },
   openSidebar: { en: "Open sidebar", ar: "فتح الشريط الجانبي" },
   closeSidebar: { en: "Close sidebar", ar: "إغلاق الشريط الجانبي" },
+  showSidebar: { en: "Show sidebar (Ctrl/Cmd+B)", ar: "إظهار الشريط الجانبي (Ctrl/Cmd+B)" },
+  exitZen: { en: "Exit zen mode (Esc)", ar: "إنهاء وضع التركيز (Esc)" },
+  // The one keystroke zen advertises on screen — the ✕ beside it is the mouse
+  // route, this is the one that works when the chrome has faded.
+  zenEscHint: { en: "Esc", ar: "مفتاح Esc" },
   noteGone: { en: "That note does not exist (anymore)", ar: "هذه الملاحظة لم تعد موجودة" },
   changedOnDisk: {
     en: "{path} changed on disk — your unsaved edits were kept",
@@ -453,6 +506,12 @@ const DICT = {
   blogSearchHint: { en: "search", ar: "بحث" },
   blogPoweredBy: { en: "powered by", ar: "مدعوم بـ" },
   blogSwitchTheme: { en: "Switch theme", ar: "تبديل السمة" },
+  // The switch always targets the OTHER language, and this label renders in
+  // the CURRENT one — so the two entries are each other's counterpart, not a
+  // translation pair: English chrome offers Arabic, Arabic chrome offers
+  // English. One key, correct in both directions.
+  blogSwitchLanguage: { en: "Read this site in Arabic", ar: "اقرأ هذا الموقع بالإنجليزية" },
+  blogBackToTop: { en: "Back to top", ar: "العودة للأعلى" },
 
   // ── Blog lists: home, topics, dashboard ─────────────────────────────────
   blogWritings: { en: "Writings", ar: "كتابات" },

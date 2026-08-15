@@ -1,13 +1,13 @@
 // Right panel: backlinks into the open note (store keeps them fresh via
-// openNote + SSE). Collapses to zero width; a floating chip over the center
-// column reopens it. Clicking an entry opens that note.
+// openNote + SSE). Collapses to zero width; a slim handle on the panel's own
+// edge reopens it. Clicking an entry opens that note.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import type { ReactNode } from "react";
 import type { Backlink } from "../../shared/types.ts";
 import { localeNum, t } from "../i18n.ts";
 import TocPanel from "../reading/TocPanel.tsx";
-import { useStore } from "../state.ts";
+import { hasPanelPreference, useStore } from "../state.ts";
 import LocalGraph from "./LocalGraph.tsx";
 
 const WIKILINK_SPLIT_RE =
@@ -64,26 +64,33 @@ export default function BacklinksPanel() {
   const openPath = useStore((s) => s.openPath);
   const openNote = useStore((s) => s.openNote);
   useStore((s) => s.language); // re-render the chrome strings on language change
-  const [collapsed, setCollapsed] = useState(
-    () => window.matchMedia(NARROW_QUERY).matches,
-  );
-  // A deliberate open/close wins over the responsive auto-collapse.
-  const userToggled = useRef(false);
-
+  // Collapse lives in the store now: Ctrl/Cmd+Shift+B and the palette toggle
+  // the same flag this header button does, and it persists across reloads.
+  const collapsed = useStore((s) => s.panelCollapsed);
+  const setCollapsed = useStore((s) => s.setPanelCollapsed);
+  const zen = useStore((s) => s.zen);
+  // A deliberate open/close wins over the responsive auto-collapse. "Deliberate"
+  // is exactly "persisted": every real toggle (this header button, the reopen
+  // handle, Ctrl/Cmd+Shift+B, the palette) writes the flag, and the auto-
+  // collapse never does — so the stored key IS the "the reader has decided"
+  // bit, and it carries across sessions for free.
   useEffect(() => {
     const mq = window.matchMedia(NARROW_QUERY);
+    // A narrow window on first paint collapses the panel too, not just a
+    // resize into one — but as a viewport fact, never as a stored preference.
+    if (!hasPanelPreference() && mq.matches) setCollapsed(true, false);
     const onChange = (e: MediaQueryListEvent) => {
-      if (!userToggled.current) setCollapsed(e.matches);
+      if (!hasPanelPreference()) setCollapsed(e.matches, false);
     };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
-  }, []);
+  }, [setCollapsed]);
 
   return (
     <>
       <aside
         className={`s-panel${collapsed ? " s-panel--collapsed" : ""}`}
-        aria-hidden={collapsed}
+        aria-hidden={collapsed || zen}
       >
         <TocPanel />
         <LocalGraph />
@@ -93,13 +100,10 @@ export default function BacklinksPanel() {
           <button
             type="button"
             className="s-panel-toggle s-iconbtn"
-            onClick={() => {
-              userToggled.current = true;
-              setCollapsed(true);
-            }}
+            onClick={() => setCollapsed(true)}
             aria-expanded={!collapsed}
             title={t("hideBacklinks")}
-            tabIndex={collapsed ? -1 : 0}
+            tabIndex={collapsed || zen ? -1 : 0}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M9 6l6 6-6 6" />
@@ -145,18 +149,15 @@ export default function BacklinksPanel() {
           )}
         </div>
       </aside>
-      {collapsed && (
+      {collapsed && !zen && (
         <button
           type="button"
-          className="s-panel-reopen"
-          onClick={() => {
-            userToggled.current = true;
-            setCollapsed(false);
-          }}
+          className="s-reopen s-reopen--panel"
+          onClick={() => setCollapsed(false)}
           title={t("showBacklinks")}
           aria-label={t("showBacklinks")}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M15 6l-6 6 6 6" />
           </svg>
         </button>

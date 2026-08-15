@@ -47,6 +47,7 @@ export interface MeData {
   siteName?: string;   // instance branding (SITE_NAME; default "Vellum")
   defaultTheme?: string; // theme applied when the visitor has no stored choice (DEFAULT_THEME)
   language?: "en" | "ar"; // site chrome language (settings.language / SITE_LANG; default "en"); "ar" flips the whole chrome RTL. Sent to every session.
+  languageToggle?: boolean; // settings.languageToggle — the public shell offers visitors an EN/ع chrome switch (default off; absent = off)
   customCss?: boolean; // VELLUM_DATA/custom.css exists → client links /api/custom.css
   // Blog mode (PUBLIC_LAYOUT=blog): visitors get a classic blog shell instead
   // of the app chrome; admin sessions keep the full app. Fields below are
@@ -120,6 +121,12 @@ export interface SettingsData {
    *  topics, search, graph, RSS) show only notes written predominantly in
    *  that language's script. Admin surfaces unaffected. Default false. */
   languageFilter?: boolean;
+  /** Offer visitors a small EN/ع switch in the public chrome. Their choice
+   *  lives in their own localStorage and overrides the site language for
+   *  chrome strings and direction only — never for note content, dates or
+   *  numerals (those stay on the instance's blogLocale). Default false:
+   *  off means the public site looks exactly as it does today. */
+  languageToggle?: boolean;
   /** BCP47 date-formatting locale (overrides BLOG_LOCALE). */
   blogLocale?: string;
   /** Tags hidden from visitor surfaces (overrides EXCLUDE_TAGS). Simple
@@ -154,6 +161,7 @@ export interface EffectiveSettings {
   blogLocale: string;
   language: "en" | "ar";
   languageFilter: boolean;
+  languageToggle: boolean;
   excludeTags: string[];
   commentsEnabled: boolean;
   shareButtons: boolean;
@@ -172,6 +180,7 @@ export interface SettingsPatch {
   publicLayout?: "app" | "blog" | null;
   language?: "en" | "ar" | null;
   languageFilter?: boolean | null;
+  languageToggle?: boolean | null;
   blogLocale?: string | null;
   excludeTags?: string[] | null;
   commentsEnabled?: boolean | null;

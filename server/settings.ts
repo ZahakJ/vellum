@@ -5,7 +5,7 @@
 // forever — never read from this file: ADMIN_PASSWORD_HASH, SESSION_SECRET,
 // TRUSTED_PROXIES, PORT, HOST, VELLUM_VAULT, VELLUM_DATA, PUBLIC.
 // Keys: siteName, tagline, footer, defaultTheme, publicLayout, blogLocale,
-// language, languageFilter, excludeTags, commentsEnabled, shareButtons,
+// language, languageFilter, languageToggle, excludeTags, commentsEnabled, shareButtons,
 // favicon, logo, home { mode, note, banner }.
 // Unknown keys in the file are preserved verbatim on every write so external
 // tooling (or future settings) can share the file safely; unknown keys in a
@@ -186,6 +186,7 @@ export function getSettings(): SettingsData {
   }
   if (raw.language === "en" || raw.language === "ar") out.language = raw.language;
   if (typeof raw.languageFilter === "boolean") out.languageFilter = raw.languageFilter;
+  if (typeof raw.languageToggle === "boolean") out.languageToggle = raw.languageToggle;
   if (typeof raw.commentsEnabled === "boolean") out.commentsEnabled = raw.commentsEnabled;
   if (typeof raw.shareButtons === "boolean") out.shareButtons = raw.shareButtons;
   str("favicon", VALUE_MAX);
@@ -217,6 +218,9 @@ export function effectiveSettings(): EffectiveSettings {
     blogLocale: blogLocale(),
     language: siteLanguage(),
     languageFilter: languageFilterEnabled(),
+    // No env counterpart: a visitor-facing switch is a runtime editorial
+    // choice, and its default (off) is the "nothing changes" one.
+    languageToggle: s.languageToggle ?? false,
     excludeTags: [...excludedTags()],
     commentsEnabled: commentsEnabled(),
     shareButtons: s.shareButtons ?? true,
@@ -346,6 +350,11 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     if (value === null) delete raw.languageFilter;
     else if (typeof value === "boolean") raw.languageFilter = value;
     else throw new VaultError(400, 'Settings key "languageFilter" must be a boolean or null');
+  },
+  languageToggle: (raw, value) => {
+    if (value === null) delete raw.languageToggle;
+    else if (typeof value === "boolean") raw.languageToggle = value;
+    else throw new VaultError(400, 'Settings key "languageToggle" must be a boolean or null');
   },
   commentsEnabled: (raw, value) => {
     if (value === null) delete raw.commentsEnabled;

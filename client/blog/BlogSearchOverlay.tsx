@@ -128,6 +128,7 @@ export default function BlogSearchOverlay() {
               <div
                 key={hit.path}
                 className={`s-palette-item${i === active ? " s-palette-item--active" : ""}`}
+                data-preview-path={hit.path}
                 onMouseEnter={() => setActive(i)}
                 onClick={() => pick(hit)}
               >

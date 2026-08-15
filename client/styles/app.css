@@ -177,11 +177,37 @@ select:focus,
   position: relative;
   display: grid;
   height: 100%;
-  grid-template-columns: var(--sidebar-w) minmax(0, 1fr) auto;
+  /* Both side columns size themselves (see .s-sidebar / .s-panel widths), so
+     collapsing one is a width animation on the pane, not a grid reflow. */
+  grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas:
     "sidebar main panel"
     "status  status status";
+}
+
+/* Sidebar on the far side (vellum.sidebarSide). The grid areas above already
+   follow the inline direction — sidebar leading, panel trailing — so this is
+   only for readers who asked for the other arrangement: swap the two areas
+   and hand each pane the other one's separator. */
+.s-app--flip {
+  grid-template-areas:
+    "panel main sidebar"
+    "status status status";
+}
+
+.s-app--flip .s-sidebar {
+  border-inline-end: none;
+  border-inline-start: 1px solid var(--border);
+}
+
+.s-app--flip .s-panel {
+  border-inline-start: none;
+  border-inline-end: 1px solid var(--border);
+}
+
+.s-app--flip .s-panel--collapsed {
+  border-inline-end-color: transparent;
 }
 
 /* -------------------------------------------------------------- sidebar -- */
@@ -191,8 +217,34 @@ select:focus,
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* +1px for the separator: border-box means the token is the CONTENT width,
+     so the rows below still get exactly --sidebar-w. */
+  width: calc(var(--sidebar-w) + 1px);
+  overflow: hidden;
   background: var(--bg-raised);
   border-inline-end: 1px solid var(--border);
+  transition: width 0.18s ease, border-color 0.18s ease;
+}
+
+/* Rows keep their full width while the pane clips to nothing — otherwise
+   every label would reflow to a narrower measure on the way out. The context
+   menu is excluded: it is position:fixed in viewport coordinates. */
+.s-sidebar > *:not(.s-menu) {
+  width: var(--sidebar-w);
+}
+
+/* Collapsed (Ctrl/Cmd+B, or zen): the pane closes to a hairline-free zero and
+   leaves a slim reopen handle on its edge. `visibility: hidden` lands AFTER
+   the width animation (0s delayed by 180ms) and is what takes the tree rows,
+   the search box and the tag pills out of the tab order — a clipped pane is
+   invisible to the eye but not to the keyboard. Reopening restores it at once,
+   because the base rule does not transition visibility at all. */
+.s-app--nosidebar .s-sidebar,
+.s-app--zen .s-sidebar {
+  width: 0;
+  border-color: transparent;
+  visibility: hidden;
+  transition: width 0.18s ease, border-color 0.18s ease, visibility 0s linear 0.18s;
 }
 
 .s-sidebar-header {
@@ -526,6 +578,23 @@ select:focus,
 
 .s-menu__item--danger {
   color: var(--danger);
+}
+
+/* A hairline before the destructive tail: "New note here / New folder /
+   Rename / Delete folder" read as one flat group of four, and the last one
+   moves a subtree. The rule spans the menu's own padding, not just the item. */
+.s-menu__item:not(.s-menu__item--danger) + .s-menu__item--danger {
+  position: relative;
+  margin-top: 7px;
+}
+
+.s-menu__item:not(.s-menu__item--danger) + .s-menu__item--danger::before {
+  content: "";
+  position: absolute;
+  inset-inline: -5px;
+  top: -4px;
+  height: 1px;
+  background: var(--border);
 }
 
 .s-menu__item--danger:hover {
@@ -1057,9 +1126,13 @@ select:focus,
   transition: width 0.18s ease, border-color 0.18s ease;
 }
 
+/* Same collapse mechanics as the sidebar, including the delayed
+   `visibility: hidden` that pulls the backlink cards out of the tab order. */
 .s-panel--collapsed {
   width: 0;
   border-inline-start-color: transparent;
+  visibility: hidden;
+  transition: width 0.18s ease, border-color 0.18s ease, visibility 0s linear 0.18s;
 }
 
 /* Fixed inner width so the collapse clips instead of reflowing. */
@@ -1115,29 +1188,65 @@ select:focus,
   color: var(--text);
 }
 
-/* Floating reopen chip, top-right of the center column, when collapsed. */
-.s-panel-reopen {
+/* ---------------------------------------------------- reopen handles ----- */
+/* A collapsed pane leaves a door where it stood: a hairline strip on its own
+   edge, running the height of the content area. Always visible (never a
+   hover-reveal — a hidden pane with a hidden way back is just a lost pane),
+   but quiet: it reads as a thickened border until the pointer arrives.
+   "Quiet" is not "absent", though: at --bg-raised on --bg the strip was a
+   1.1:1 step in iron-gall, and a 7×10px chevron inside it read as nothing at
+   all. One step up (the hover ground at rest) makes the door findable without
+   raising its voice — and hover still has somewhere to go. */
+
+.s-reopen {
   position: absolute;
-  top: 44px;
-  inset-inline-end: 10px;
+  top: 0;
+  bottom: calc(2.1rem + 1px); /* clears the status bar */
   z-index: 5;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 14px;
   padding: 0;
-  border-radius: 6px;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  color: var(--text-faint);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  border: none;
+  border-radius: 0;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  transition: color 0.15s ease, background 0.15s ease;
 }
 
-.s-panel-reopen:hover {
+.s-reopen:hover {
   color: var(--accent);
-  border-color: var(--accent);
-  background: var(--bg-raised);
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-hover));
+}
+
+.s-reopen:focus-visible {
+  color: var(--accent);
+}
+
+.s-reopen--sidebar {
+  inset-inline-start: 0;
+  border-inline-end: 1px solid var(--border);
+}
+
+.s-reopen--panel {
+  inset-inline-end: 0;
+  border-inline-start: 1px solid var(--border);
+}
+
+/* Sidebar on the far side: each handle follows its pane. */
+.s-app--flip .s-reopen--sidebar {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+  border-inline-end: none;
+  border-inline-start: 1px solid var(--border);
+}
+
+.s-app--flip .s-reopen--panel {
+  inset-inline-end: auto;
+  inset-inline-start: 0;
+  border-inline-start: none;
+  border-inline-end: 1px solid var(--border);
 }
 
 .s-panel-body {
@@ -2269,6 +2378,27 @@ select:focus,
   margin-top: 18px;
 }
 
+/* The quiet third route (e.g. "Delete permanently" beside "Move to .trash"):
+   pushed to the dialog's inline start, plain text, no button chrome — it has
+   to be findable without ever competing with the two real buttons. It earns
+   the danger color only on hover/focus, and its own confirmation after that. */
+.s-confirm__extra {
+  margin-inline-end: auto;
+  padding: 4px 0;
+  font-size: 0.857rem;
+  color: var(--text-faint);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+
+.s-confirm__extra:hover,
+.s-confirm__extra:focus-visible {
+  color: var(--danger);
+  text-decoration-color: currentColor;
+}
+
 .s-confirm__cancel {
   color: var(--text-muted);
 }
@@ -2289,6 +2419,31 @@ select:focus,
   color: #fff;
   background: var(--danger);
   border-color: var(--danger);
+}
+
+/* The irreversible step (Confirm.tsx `grave`). The recoverable dialog and the
+   one that erases 1,214 notes from disk were pixel-identical — same gold
+   outline, red arriving only on a :hover a mouse-opened dialog never reaches.
+   So the last dialog wears the red AT REST: the escalation is visible before
+   the pointer arrives, which is the only moment it matters. */
+.s-confirm__danger--grave {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+  font-weight: 600;
+}
+
+.s-confirm__danger--grave:hover,
+.s-confirm__danger--grave:focus-visible {
+  background: color-mix(in srgb, var(--danger) 82%, #000);
+  border-color: color-mix(in srgb, var(--danger) 82%, #000);
+}
+
+/* …and the whole panel carries a red hairline, so the second dialog is a
+   different object from the first even before a word is read. */
+.s-confirm--grave {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), 0 0 0 1px color-mix(in srgb, var(--danger) 22%, transparent);
 }
 
 /* ------------------------------------------------- wordmark as a button -- */
@@ -2332,6 +2487,129 @@ button.s-title:hover {
   margin-inline-start: 5px;
 }
 
+/* ------------------------------------------------------------------ zen -- */
+/* Ctrl/Cmd+Shift+Z. Every pane, the tab bar and the status bar step aside —
+   by ANIMATING to nothing, never by display:none, so entering and leaving zen
+   is one continuous movement rather than a page that flickers apart. What is
+   left is the prose, centered on a wider gutter, and a single faint ✕. */
+
+.s-app--zen .s-tabs,
+.s-app--zen .s-statusbar {
+  height: 0;
+  padding-block: 0;
+  border-color: transparent;
+  overflow: hidden;
+  /* …and out of the tab order once the collapse has played (as with the
+     panes): a zero-height bar still holds focusable buttons. */
+  visibility: hidden;
+  transition: height 0.18s ease, border-color 0.18s ease, visibility 0s linear 0.18s;
+}
+
+.s-tabs,
+.s-statusbar {
+  transition: height 0.18s ease, border-color 0.18s ease;
+}
+
+.s-app--zen .s-panel {
+  width: 0;
+  border-color: transparent;
+  visibility: hidden;
+  transition: width 0.18s ease, border-color 0.18s ease, visibility 0s linear 0.18s;
+}
+
+/* The drawer toggle is mobile chrome, and zen is chrome-less everywhere. */
+.s-app--zen .s-drawer-btn {
+  display: none;
+}
+
+/* A generous measure and a lot of air above it: nothing else is on screen to
+   set the margin, so the column has to set its own. The extra class beats
+   reading.css's own .s-app--visitor rule at equal specificity-by-order. */
+.s-app--zen .s-view .s-editor .cm-content,
+.s-app--zen .s-view .s-reading__content {
+  max-width: 800px;
+  padding: 96px 64px 180px;
+}
+
+/* Zen's one control: a ✕ with the keystroke spelled out beside it. Both fade
+   after a beat and come back with the pointer (App owns the timer).
+   Two things the first draft got wrong, and why they are worth the pixels:
+   the ✕ rested at 0.5 opacity on --text-faint, which is at the visibility
+   threshold BEFORE the fade — and once faded there was no exit at all for a
+   first-time zen reader, because nothing on screen said Esc. So the glyph
+   rests at full strength on --text-muted, the "Esc" label advertises the
+   route that always works, and the faded state keeps the ✕ faintly present
+   (and clickable) instead of vanishing outright. */
+.s-zen-exit-wrap {
+  position: absolute;
+  top: 14px;
+  inset-inline-end: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.s-zen-exit__hint {
+  font-family: var(--font-ui);
+  font-size: 0.714rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  user-select: none;
+  transition: opacity 0.45s ease;
+}
+
+/* Naskh does not take tracking or a case transform. */
+[dir="rtl"] .s-zen-exit__hint {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.s-zen-exit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  transition: opacity 0.45s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.s-zen-exit:hover,
+.s-zen-exit:focus-visible {
+  opacity: 1;
+  color: var(--accent);
+  border-color: var(--border);
+  background: transparent;
+}
+
+/* Idle: the label goes, the door stays — dimmed to a hairline of itself but
+   still a real, clickable target rather than an invisible one. */
+.s-zen-exit-wrap--idle .s-zen-exit__hint {
+  opacity: 0;
+}
+
+.s-zen-exit-wrap--idle .s-zen-exit {
+  opacity: 0.32;
+}
+
+.s-zen-exit-wrap--idle:hover .s-zen-exit {
+  opacity: 1;
+}
+
+/* Zen is chrome-less, and the frontmatter card is editor chrome — a
+   "› PROPERTIES · 1" panel above the prose is exactly what zen was entered to
+   leave behind. (The blog view hides its own for the same reason.) */
+.s-app--zen .cm-s-props,
+.s-app--zen .s-rv-props {
+  display: none;
+}
+
 /* ------------------------------------------------------ mobile (≤700px) -- */
 /* The app shell collapses to one column: the sidebar becomes an overlay
    drawer behind a floating ☰ toggle (App renders both; they are inert and
@@ -2351,17 +2629,27 @@ button.s-title:hover {
       "status";
   }
 
-  /* Sidebar → overlay drawer (slides in from the left). */
-  .s-sidebar {
+  /* Sidebar → overlay drawer (slides in from the left). The desktop collapse
+     does not apply here: the drawer IS the collapsed state, and its rows fill
+     whatever width the phone gives them. */
+  .s-sidebar,
+  .s-app--nosidebar .s-sidebar,
+  .s-app--zen .s-sidebar {
     position: fixed;
     top: 0;
     bottom: 0;
     inset-inline-start: 0;
     z-index: 400;
     width: min(84vw, 320px);
+    border-color: var(--border);
+    visibility: visible;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
     transform: translateX(-103%);
     transition: transform 0.2s ease;
+  }
+
+  .s-sidebar > *:not(.s-menu) {
+    width: 100%;
   }
 
   .s-app--drawer .s-sidebar {
@@ -2404,9 +2692,10 @@ button.s-title:hover {
     padding-inline-start: 44px;
   }
 
-  /* Backlinks/outline panel would eat the whole viewport on a phone. */
+  /* Backlinks/outline panel would eat the whole viewport on a phone — and a
+     13px edge handle is not a phone affordance either. */
   .s-panel,
-  .s-panel-reopen {
+  .s-reopen {
     display: none;
   }
 
@@ -2626,14 +2915,30 @@ button.s-title:hover {
 /* Icons whose geometry points somewhere and does NOT auto-mirror: SVG paths
    are geometry, not text, so the bidi algorithm never touches them. */
 [dir="rtl"] .s-panel-toggle svg,
-[dir="rtl"] .s-panel-reopen svg,
 [dir="rtl"] .s-statusbar__signout svg {
   transform: scaleX(-1);
 }
 
+/* The pane chevrons point at a PHYSICAL edge, so they answer to two switches:
+   the shell's direction and the sidebar-side preference. Each one flips them;
+   both together cancel out — which is the XOR spelled out below, and the
+   reason this cannot be written as a plain [dir="rtl"] rule. */
+[dir="rtl"] .s-reopen svg,
+.s-app--flip .s-reopen svg,
+.s-app--flip .s-panel-toggle svg {
+  transform: scaleX(-1);
+}
+
+[dir="rtl"] .s-app--flip .s-reopen svg,
+[dir="rtl"] .s-app--flip .s-panel-toggle svg {
+  transform: none;
+}
+
 /* Mobile drawer slides in from the right in RTL (the sidebar lives there). */
 @media (max-width: 700px) {
-  [dir="rtl"] .s-sidebar {
+  [dir="rtl"] .s-sidebar,
+  [dir="rtl"] .s-app--nosidebar .s-sidebar,
+  [dir="rtl"] .s-app--zen .s-sidebar {
     transform: translateX(103%);
   }
 

@@ -17,8 +17,20 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 ```
 
 - Sidebar and backlinks panel have `--bg-raised`; center is `--bg`; 1px `--border` separators.
-- Backlinks collapse: chevron button in the panel header; collapsed = 0 width, and a small floating
-  reopen button top-right of center. Animate width 180ms ease.
+- Backlinks collapse: chevron button in the panel header; collapsed = 0 width. Animate width
+  180ms ease. The sidebar collapses the same way (`Ctrl/Cmd B`; the panel is `Ctrl/Cmd Shift B`).
+- A collapsed pane leaves a **reopen handle**: a 14px full-height strip on that pane's own edge,
+  `--bg-raised` with the shared 1px border and a `--text-muted` chevron pointing into the
+  content; hover fills `--bg-hover` and turns the chevron gold. Always visible while collapsed —
+  a pane with no visible way back is a lost pane — and never a hover-reveal.
+- Which edge the sidebar sits on is a preference (palette: "Move sidebar to the right/left"),
+  defaulting to the reading direction's leading edge. All four dir × side combinations must look
+  deliberate: separators, indent, active-row bars and every chevron follow.
+- **Zen** (`Ctrl/Cmd Shift Z`): sidebar, panel, tab bar and status bar animate to zero — never
+  `display: none`, so entering and leaving is one movement — and the prose column centers at
+  800px with 96px of air above it. The only chrome left is a hairline ✕ in the top inline-end
+  corner at 50% opacity, which fades out after ~2s and returns on mouse movement (and is
+  `pointer-events: none` while faded — no invisible hit targets). `Esc` also leaves.
 - Never let any panel's content overflow the viewport horizontally.
 
 ## Sidebar

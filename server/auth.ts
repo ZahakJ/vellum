@@ -10,7 +10,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { MeData } from "../shared/types.ts";
-import { isNotePublished, publishedCounts, resolveLink } from "./indexer.ts";
+import { isNoteVisibleToVisitor, publishedCounts, resolveLink } from "./indexer.ts";
 import { getSettings } from "./settings.ts";
 import { bannerFallback, blogLocale, customCssPath, defaultTheme, footerLine, publicLayout, siteLanguage, siteName, tagline } from "./site.ts";
 import { normalizeRel } from "./vault.ts";
@@ -284,14 +284,22 @@ export function envHomeNote(): string | null {
   return config.homeNote;
 }
 
-/** True when a home-note ref points at a note visible to visitors: resolvable
- *  as a wikilink-style name within the published set, or an exact published
- *  path. */
-function homeNotePublished(ref: string): boolean {
+/** True when a home-note ref points at a note VISIBLE TO VISITORS: resolvable
+ *  as a wikilink-style name within the visitor collection, or an exact path
+ *  that is published AND not curated away by the languageFilter.
+ *
+ *  Both halves must apply the same rule. The exact-path fallback used to ask
+ *  only isNotePublished(), so an Arabic instance whose HOME_NOTE named an
+ *  English published note put that note's title and full vault path into the
+ *  anonymous /api/me payload (`homeNote` + `home.note`) — the one name every
+ *  other visitor surface, tree and posts and search and RSS and the injected
+ *  <head> included, was hiding — and then rendered it as the public homepage.
+ *  resolveLink(ref, true) already filtered; this line is what leaked. */
+function homeNoteVisible(ref: string): boolean {
   if (resolveLink(ref, true) !== null) return true;
   try {
     const asPath = /\.md$/i.test(ref) ? ref : `${ref}.md`;
-    return isNotePublished(normalizeRel(asPath));
+    return isNoteVisibleToVisitor(normalizeRel(asPath));
   } catch {
     return false;
   }
@@ -319,7 +327,7 @@ authRoutes.get("/me", (c) => {
   // only 404 anyway. Both name-style ("Welcome") and path-style
   // ("guides/Welcome.md") values are honored, mirroring the client.
   const homeRef = settings.home?.note ?? config.homeNote;
-  if (homeRef && (admin || homeNotePublished(homeRef))) {
+  if (homeRef && (admin || homeNoteVisible(homeRef))) {
     me.homeNote = homeRef;
   }
   // Instance customization (settings.json over SITE_NAME / DEFAULT_THEME env,
@@ -328,6 +336,10 @@ authRoutes.get("/me", (c) => {
   // Chrome language, for every session: "ar" localizes the shell and mirrors
   // it RTL for admin and visitor alike.
   me.language = siteLanguage();
+  // Opt-in EN/ع switch in the public chrome. Visitor-safe by definition (it
+  // describes the public shell) and sent to every session so an admin
+  // previewing as a visitor sees exactly what a visitor sees.
+  if (settings.languageToggle === true) me.languageToggle = true;
   // Date/relative-time locale for BOTH shells: the reading view's Marginalia
   // timestamps need it in app layout too, and blogLocale() already derives
   // "ar" from the site language when nothing explicit is configured.
@@ -358,7 +370,7 @@ authRoutes.get("/me", (c) => {
     // definition — it describes the public homepage.
     if (settings.home) {
       const { note, ...rest } = settings.home;
-      const shaped = note && (admin || homeNotePublished(note)) ? { ...rest, note } : rest;
+      const shaped = note && (admin || homeNoteVisible(note)) ? { ...rest, note } : rest;
       if (Object.keys(shaped).length > 0) me.home = shaped;
     }
   }

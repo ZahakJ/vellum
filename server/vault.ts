@@ -310,13 +310,26 @@ export async function deleteFolder(
   const abs = safeAbs(relPath);
   let stat;
   try {
-    stat = await fs.stat(abs);
+    // lstat, not stat: a symlinked folder is a LINK, and the delete that
+    // follows unlinks it without touching the target (fs.rename/fs.rm both
+    // operate on the link itself). Counting through it would answer with the
+    // size of a tree outside the vault — "1,214 notes will be erased from
+    // disk" about files this call will not touch is the one number in the
+    // dialog that must never lie.
+    stat = await fs.lstat(abs);
   } catch {
     throw new VaultError(404, `Folder not found: ${relPath}`);
   }
-  if (!stat.isDirectory()) throw new VaultError(400, `Not a folder: ${relPath}`);
+  if (stat.isSymbolicLink()) {
+    const linkStat = await fs.stat(abs).catch(() => null);
+    if (!linkStat?.isDirectory()) throw new VaultError(400, `Not a folder: ${relPath}`);
+  } else if (!stat.isDirectory()) {
+    throw new VaultError(400, `Not a folder: ${relPath}`);
+  }
 
-  const { paths, notes } = await collectFolder(relPath);
+  const { paths, notes } = stat.isSymbolicLink()
+    ? { paths: [relPath], notes: 0 }
+    : await collectFolder(relPath);
   // The synthetic event below is the whole story; swallow the watcher's
   // unlink/unlinkDir storm for the same removal.
   for (const p of paths) suppress(p);

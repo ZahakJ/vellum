@@ -105,6 +105,19 @@ export function createFolder(path: string): Promise<{ ok: true }> {
   return request<{ ok: true }>("/api/folder", json("POST", { path }));
 }
 
+/** Delete a folder recursively. Default is Obsidian-safe: the folder MOVES to
+ *  the vault's `.trash/` (the answer carries where it landed). `permanent`
+ *  erases it instead, and answers without a `trashPath`. */
+export function deleteFolder(
+  path: string,
+  permanent = false,
+): Promise<{ notes: number; trashPath?: string }> {
+  return request<{ notes: number; trashPath?: string }>(
+    `/api/folder?path=${encodeURIComponent(path)}${permanent ? "&permanent=true" : ""}`,
+    { method: "DELETE" },
+  );
+}
+
 export function search(q: string, signal?: AbortSignal): Promise<SearchHit[]> {
   return request<SearchHit[]>(
     `/api/search?q=${encodeURIComponent(q)}`,

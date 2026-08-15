@@ -66,6 +66,11 @@ interface State {
   theme: "iron-gall" | "parchment";   // persisted localStorage "vellum.theme"; sets data-theme attr on <html>
   vimMode: boolean;                    // persisted "vellum.vim"
   paletteOpen: boolean;
+  // Shell layout, all persisted (see "Shell layout" below):
+  sidebarSide: "left" | "right";       // "vellum.sidebarSide"
+  sidebarCollapsed: boolean;           // "vellum.sidebarCollapsed"
+  panelCollapsed: boolean;             // "vellum.panelCollapsed"
+  zen: boolean;                        // "vellum.zen"
   backlinks: Backlink[];        // for openPath
   // actions:
   loadTree(): Promise<void>;
@@ -122,6 +127,60 @@ interface State {
   `git clone / npm install / npm start`, point-at-your-vault instructions, features, keymap table,
   screenshots placeholder, port table, license MIT). Also `LICENSE` (MIT, holder "avicenna").
 
+## Shell layout (sidebar side, collapse, zen)
+
+Four persisted preferences live on the app root as classes: `s-app--flip`, `s-app--nosidebar`,
+`s-app--zen` (plus the pre-existing `s-app--drawer`/`s-app--visitor`). The panel's own collapse
+stays on `.s-panel--collapsed`, as it always did.
+
+- **Side is PHYSICAL, direction is LOGICAL.** `sidebarSide` stores `"left"`/`"right"` because it
+  is a window preference, not a language one: it must survive a language change, and the palette
+  command that sets it names a screen edge in both languages. The grid areas
+  (`"sidebar main panel"`) already follow the inline direction, so the stylesheet only needs the
+  *disagreement*: `flipped = (lang === "ar") === (side === "left")` — an XOR — swaps the two grid
+  areas and hands each pane the other's separator. Only the DEFAULT follows the language
+  (`loadMe()` sets it when nothing is stored), exactly like `DEFAULT_THEME`.
+- **That XOR is also the icon rule.** The pane chevrons (panel header toggle, both reopen
+  handles) point at a physical edge, so they answer to *both* switches: `[dir="rtl"]` flips them,
+  `.s-app--flip` flips them, and both together cancel. That is why they cannot be a plain
+  `[dir="rtl"]` rule like the other mirrored SVGs, and why the `[dir="rtl"] .s-app--flip` rule
+  that resets them to `none` has to exist.
+- **Collapse animates a width, never `display`.** `.s-sidebar` carries the width
+  (`--sidebar-w` + 1px for its border) and `overflow: hidden`; its children are pinned to
+  `--sidebar-w` so the rows do not reflow to a narrower measure while the pane closes. Same
+  pattern the backlinks panel already used. 180ms, both directions, zen included.
+- **A collapsed pane leaves a door.** `.s-reopen--sidebar` / `.s-reopen--panel` are 14px
+  full-height strips on the respective edges — always visible while collapsed (not hover-
+  revealed), hidden on phones, hidden in zen.
+- **Zen hides chrome; it does not disable behavior.** Editor shortcuts, `Ctrl/Cmd S`, publish
+  and the palette all keep working. `Esc` leaves — unless something else owns Esc (a modal, the
+  palette, a text field, or vim inside the editor), which is the same precedence Ctrl+D
+  established. The ✕ fades after ~2s and returns on mouse movement; while faded it is also
+  `pointer-events: none`, so there is no invisible hit target.
+- **Anything that reveals results must reveal its pane — and focus AFTER the reveal lands.**
+  `Ctrl/Cmd+K` and the editor's tag-pill click both push into the sidebar's search box; both
+  first leave zen and un-collapse the sidebar, because focusing a field the reader cannot see
+  swallows every keystroke after it. But a collapsed pane is `visibility: hidden` until React
+  commits the class removal, and **a hidden element cannot take focus** — `focus()` in the same
+  tick as the un-collapse silently does nothing, which is the *same* failure the rule exists to
+  prevent, only quieter (the field is now visible and empty, and the typing went to the page).
+  So `Sidebar.revealSidebar()` reports whether it had to open anything and the focus waits for
+  the commit (an effect on `zen`/`sidebarCollapsed`); only an already-visible pane is focused
+  synchronously.
+- **The tree's context menu is clamped into the viewport, and opens toward the reading
+  direction.** It is `position: fixed` at the pointer, and the pointer is now regularly at the
+  *trailing* screen edge — the sidebar sits there by default in Arabic and whenever a reader
+  moves it there in English. A menu that only ever grew toward the trailing edge lost its last
+  item (which is "Delete folder") off-screen. A layout effect measures the rendered menu, opens
+  it from the pointer toward the inline direction, folds it back when that edge has no room, and
+  clamps both axes to an 8px margin.
+- **Keyboard.** `Ctrl/Cmd+B` (sidebar) and `Ctrl/Cmd+Shift+B` (panel) are `preventDefault`-ed in
+  the capture-phase handler next to `Ctrl+P`/`Ctrl+K` — Chrome's bookmark bar (`Ctrl+Shift+B`)
+  and Firefox's bookmarks sidebar (`Ctrl+B`) must never fire. Plain `Ctrl+B` inside the editor
+  yields to vim's page-up and to macOS's emacs-style char-left (`Cmd+B` still toggles there);
+  `Ctrl/Cmd+Shift+Z` (zen) `stopPropagation`s so CodeMirror cannot redo on the same keystroke —
+  except on macOS inside the editor, where `Mod-Shift-z` is the *only* redo binding and keeps it.
+
 ## CSS tokens (tokens.css must define exactly these on `:root` / `[data-theme="parchment"]`)
 
 `--bg`, `--bg-raised`, `--bg-hover`, `--text`, `--text-muted`, `--text-faint`, `--accent`,
@@ -166,11 +225,33 @@ names where they exist in app.css; anything extra styled inline is a bug — put
 - Vault API: `deleteFolder(rel, opts?: { permanent?: boolean }): Promise<{ notes, trashPath? }>`
   in `server/vault.ts`; trash dir name exported as `TRASH_DIR`.
 
-Intended UI copy (client wiring still to do — sidebar folder context menu / command palette):
-confirm modal titled **"Move folder to .trash (N notes)?"** with a *Delete permanently* checkbox
-(unchecked by default) that switches the copy to **"Permanently delete folder (N notes)? This cannot
-be undone."**; on success toast `Moved "<name>" to .trash` (or `Deleted "<name>"` when permanent),
-close any open tabs whose path starts with `<folder>/`, then `loadTree()`.
+**Client wiring (shipped).** `api.deleteFolder(path, permanent)` → `state.deleteFolder(path,
+{permanent})`, offered as "Delete folder" on folder rows of the sidebar context menu (admin
+only, never on the root row — the server 400s an empty path). The store action closes every open
+tab whose path starts with `<folder>/` **before** `loadTree()`, then toasts (`folderTrashedToast`
+naming .trash recovery, or `folderDeletedToast`).
+
+The two speeds are two dialogs rather than the checkbox sketched here originally: the default
+confirm ("Move “name” to .trash?" / "N notes will move… recoverable from disk", danger button
+*Move to .trash*) carries a third, deliberately quiet route — `ConfirmOptions.extraLabel`, which
+resolves `confirmModalEx()` as `"extra"` — and that opens a SECOND confirm with the permanent
+copy. A checkbox would have let one click arm an irreversible erase of a whole subtree; a
+quiet-affordance-then-confirm makes the reader say "permanently" twice. The note count comes
+from the client's own tree (`countNotes`), which counts exactly what the server counts: the
+tree holds `.md` files only and applies the same ignore rules.
+
+**The second dialog must LOOK like the second dialog.** `ConfirmOptions.grave` (Confirm.tsx) is
+what carries the escalation, and it is safety, not styling: the danger button is filled
+`--danger` **at rest** instead of wearing the brand gold, the panel takes a red-tinted hairline,
+and the button is **not pre-focused** — a `grave` dialog opens on Cancel and answers Enter only
+from the danger button itself. Saying "permanently" twice does nothing if both dialogs are
+pixel-identical gold-outlined buttons that Enter confirms; the one that erases 1,214 notes from
+disk must never be one stray keypress away. `Rename` is offered on FILE rows only — `/api/rename`
+is a note route and 400s on a folder — so the folder menu holds only actions that work.
+
+Server side, `deleteFolder` lstats before it counts: a symlinked folder is a link, `fs.rename` /
+`fs.rm` unlink it without touching the target, so it reports `notes: 0` rather than describing a
+tree outside the vault that the call will not touch.
 
 ## Localization & RTL (client)
 
@@ -276,6 +357,21 @@ SSE stream**, via `isNoteVisibleToVisitor()`: a push channel that announced a hi
 creation, edit or deletion would leak its existence, full vault path and edit timing unprompted,
 which is precisely what the filter must not do. In that stream a note that becomes hidden reads
 as `deleted` and one that becomes visible as `created`, the same mapping publish/unpublish uses.
+**And `/api/me`'s home-note gate** (`homeNoteVisible()` in `server/auth.ts`): both halves ask
+`isNoteVisibleToVisitor`, the name-resolving one via `resolveLink(ref, true)` and the exact-path
+fallback directly. The fallback used to ask `isNotePublished` alone, so an Arabic instance whose
+`HOME_NOTE`/`settings.home.note` named an English published note put that note's title and full
+vault path into the anonymous payload (`homeNote` **and** `home.note`) — the one name the tree,
+posts, search, RSS and the injected `<head>` were all hiding — and then rendered it as the public
+homepage. An *unpublished* home note was already withheld; the filtered one must be too.
+
+**A folder delete fans out into per-note `deleted` events on the visitor stream.** Visitors have
+no folder structure, so `visitorEvents()` drops every `dir` event — but dropping the *delete*
+outright left a visitor's sidebar holding live links to notes the site now 404s (`client/App.tsx`
+only reloads the tree on an event). It samples `visibleNotesUnder(path)` **synchronously** — the
+synthetic dir event is emitted before the chained reindex removes the records — and emits one
+`{kind:"deleted"}` per note that was visible. Hidden and unpublished notes under the folder are
+never named, so the fan-out says nothing `/api/tree` did not already.
 
 **The served `<head>` is a discovery surface too.** `server/blog.ts` has two exported entry
 points — `renderFeed()` (RSS) and `injectHead()` (the crawler-facing `<title>`/`og:`/canonical
@@ -324,6 +420,16 @@ shells must resolve an article route from the URL itself (`urlToNoteGuess()` →
 the tree has no match, never from the tree alone — the tree is a discovery surface and is
 filtered, so routing through it would 404 exactly the permalinks the filter is not allowed to
 break. The filter is curation, not access control — but it must not *leak* what it curates away.
+
+**`settings.languageToggle` (default false) is a VISITOR override, and it moves two things
+only: the chrome dictionary and `<html dir>`.** `client/langPref.ts` owns the stored value
+(`localStorage["vellum.lang"]`), `state.ts::loadMe()` applies it over `me.language` — and only
+while `me.languageToggle` is true, so turning the setting off restores the site language for
+everyone regardless of what their browser remembers. What it must NOT touch is `blogLocale`:
+dates and numerals are one system per instance chosen by the date locale (see the numerals note
+above), and letting a visitor's chrome choice re-pick the numbering system would reintroduce
+exactly the two-numeral-systems-on-one-line bug that rule exists to prevent. Note content is
+untouched for the usual reason — it was never localized in the first place.
 
 `settings.language` is parsed leniently — `settings.ts` trims and lowercases before matching, so
 `"AR"` and `" ar "` are accepted and stored as `"ar"`. `languageFilter` is the opposite: strict

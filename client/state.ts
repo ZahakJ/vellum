@@ -9,8 +9,9 @@ import type { Backlink, HomeSettings, PublishedCounts, TreeNode } from "../share
 import * as api from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import { collectNotes, resolveLink } from "./editor/links.ts";
-import { setLang, setNumeralLocale, t } from "./i18n.ts";
+import { setLang, setNumeralLocale, t, tf } from "./i18n.ts";
 import type { Lang } from "./i18n.ts";
+import { readVisitorLang, writeVisitorLang } from "./langPref.ts";
 import { isPublishedContent } from "./publish.ts";
 import { toast } from "./toast.ts";
 
@@ -19,6 +20,17 @@ const VIM_KEY = "vellum.vim";
 const READING_KEY = "vellum.reading";
 const TABS_KEY = "vellum.tabs";
 const PREVIEW_KEY = "vellum.preview";
+const SIDE_KEY = "vellum.sidebarSide";
+const SIDEBAR_COLLAPSED_KEY = "vellum.sidebarCollapsed";
+const PANEL_COLLAPSED_KEY = "vellum.panelCollapsed";
+const ZEN_KEY = "vellum.zen";
+
+/** Which physical edge the sidebar sits on. Stored as a PHYSICAL side, not a
+ *  logical one: it is a window-layout preference ("panes on the left"), and it
+ *  must survive a language change rather than silently swap with the text
+ *  direction. The default follows the direction; the choice, once made, does
+ *  not. */
+export type SidebarSide = "left" | "right";
 
 /** Every built-in theme (data-theme attr values; the first is the default).
  *  Order is the status-bar toggle's cycle order and the palette's list. */
@@ -49,6 +61,23 @@ export interface State {
    *  breakpoint; opening a note closes it. Inert on wide viewports. */
   sidebarOpen: boolean;
   setSidebarOpen(b: boolean): void;
+
+  // ------------------------------------------------------------- shell layout
+  /** Physical edge the sidebar sits on (persisted; default follows the
+   *  language direction — ar → right, en → left). */
+  sidebarSide: SidebarSide;
+  setSidebarSide(side: SidebarSide): void;
+  /** Sidebar collapsed to its slim reopen handle (Ctrl/Cmd+B; persisted). */
+  sidebarCollapsed: boolean;
+  setSidebarCollapsed(b: boolean): void;
+  /** Backlinks/outline panel collapsed (Ctrl/Cmd+Shift+B; persisted). Also
+   *  set by the panel's own responsive auto-collapse on narrow viewports. */
+  panelCollapsed: boolean;
+  setPanelCollapsed(b: boolean, persist?: boolean): void;
+  /** Zen mode: every piece of chrome steps aside and the prose column centers
+   *  (Ctrl/Cmd+Shift+Z; persisted, so a reload stays zen). */
+  zen: boolean;
+  setZen(b: boolean): void;
   backlinks: Backlink[];
   /** Bumped when the open note changed externally; App keys the Editor on it. */
   reloadTick: number;
@@ -73,6 +102,12 @@ export interface State {
    *  whole chrome RTL; every component rendering t() strings subscribes to
    *  this so a live settings change re-renders the chrome in place. */
   language: Lang;
+  /** settings.languageToggle — the instance offers visitors an EN/ع switch.
+   *  Off (the default) means no public language chrome exists at all. */
+  languageToggle: boolean;
+  /** Store the visitor's own chrome language and apply it live (strings +
+   *  direction only). Ignored unless `languageToggle` is on. */
+  setVisitorLang(lang: Lang): void;
   loginOpen: boolean;
   /** Admin moderation panel (palette: "Moderate comments"). */
   moderationOpen: boolean;
@@ -155,6 +190,9 @@ export interface State {
   createNote(path: string): Promise<void>;
   renameNote(path: string, toPath: string): Promise<void>;
   deleteNote(path: string): Promise<void>;
+  /** Move a folder (and everything under it) to the vault's .trash — or erase
+   *  it outright. Closes every open tab inside it, then refreshes the tree. */
+  deleteFolder(path: string, opts?: { permanent?: boolean }): Promise<void>;
 
   /** Editor reports unsaved-changes state here. */
   setDirty(path: string, dirty: boolean): void;
@@ -209,6 +247,50 @@ function ensureFavicon(enabled: boolean): void {
 
 function readVim(): boolean {
   return localStorage.getItem(VIM_KEY) === "true";
+}
+
+/** A persisted boolean flag, or `null` when the user never chose. The null is
+ *  load-bearing for the panel: no stored choice means the responsive
+ *  auto-collapse still owns the panel (see BacklinksPanel). */
+function readFlag(key: string): boolean | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? null : raw === "true";
+  } catch {
+    return null;
+  }
+}
+
+function persistFlag(key: string, value: boolean): void {
+  persistFlagValue(key, String(value));
+}
+
+function persistFlagValue(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // storage full/unavailable — the preference still works for this session
+  }
+}
+
+/** True once the reader has explicitly collapsed/expanded the right panel;
+ *  until then the viewport width decides (BacklinksPanel reads this). */
+export function hasPanelPreference(): boolean {
+  return readFlag(PANEL_COLLAPSED_KEY) !== null;
+}
+
+function readSidebarSide(): SidebarSide | null {
+  try {
+    const raw = localStorage.getItem(SIDE_KEY);
+    return raw === "left" || raw === "right" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The side a fresh install lands on: the direction's leading edge. */
+function defaultSide(lang: Lang): SidebarSide {
+  return lang === "ar" ? "right" : "left";
 }
 
 function readReading(): boolean {
@@ -376,6 +458,14 @@ export const useStore = create<State>()((set, get) => {
     readingMode: readReading(),
     paletteOpen: false,
     sidebarOpen: false,
+    // The side is settled again in loadMe() once the instance language is
+    // known — but only while the reader has expressed no preference.
+    sidebarSide: readSidebarSide() ?? defaultSide("en"),
+    sidebarCollapsed: readFlag(SIDEBAR_COLLAPSED_KEY) ?? false,
+    // No stored choice → the panel starts wherever the viewport wants it
+    // (BacklinksPanel's media query), which is collapsed on narrow screens.
+    panelCollapsed: readFlag(PANEL_COLLAPSED_KEY) ?? false,
+    zen: readFlag(ZEN_KEY) ?? false,
     backlinks: [],
     reloadTick: 0,
     pendingHeading: null,
@@ -387,6 +477,18 @@ export const useStore = create<State>()((set, get) => {
     homeNote: null,
     siteName: "Vellum",
     language: "en",
+    languageToggle: false,
+    setVisitorLang: (lang) => {
+      if (!get().languageToggle || get().language === lang) return;
+      writeVisitorLang(lang);
+      // Same order loadMe uses: dictionary + <html dir/lang> first, so the
+      // components re-rendering off `language` already read the new strings.
+      // The date locale is deliberately NOT touched — dates and numerals stay
+      // on the instance's blogLocale (CONTRACTS: one numbering system per
+      // instance, chosen by the date locale).
+      applyLanguage(lang, get().blogLocale);
+      set({ language: lang });
+    },
     loginOpen: false,
     moderationOpen: false,
     previewVisitor: initialPreview,
@@ -433,10 +535,22 @@ export const useStore = create<State>()((set, get) => {
           persistPreview(false);
           set({ previewVisitor: false });
         }
-        const language: Lang = me.language === "ar" ? "ar" : "en";
+        const siteLang: Lang = me.language === "ar" ? "ar" : "en";
+        // A visitor's own choice (langPref.ts) wins over the site language —
+        // but only while the instance actually offers the switch, so turning
+        // settings.languageToggle back off restores the site language for
+        // everyone, stored preference or not.
+        const languageToggle = me.languageToggle === true;
+        const language: Lang = (languageToggle ? readVisitorLang() : null) ?? siteLang;
         const locale = me.blogLocale?.trim() || "en";
         applyLanguage(language, locale); // before set(): re-renders already see t() in the new language
+        // The sidebar's default edge is the direction's leading one, so an
+        // Arabic instance opens with the sidebar on the right. Only the
+        // DEFAULT follows the language: a stored choice is a window-layout
+        // preference and outranks it (same shape as DEFAULT_THEME below).
+        if (readSidebarSide() === null) set({ sidebarSide: defaultSide(language) });
         set({
+          languageToggle,
           admin: me.admin,
           publicReads: me.public,
           authProtected: me.protected ?? false,
@@ -693,6 +807,28 @@ export const useStore = create<State>()((set, get) => {
     setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
     setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
 
+    setSidebarSide: (sidebarSide) => {
+      persistFlagValue(SIDE_KEY, sidebarSide);
+      set({ sidebarSide });
+    },
+
+    setSidebarCollapsed: (sidebarCollapsed) => {
+      persistFlag(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed);
+      set({ sidebarCollapsed });
+    },
+
+    // `persist` is false for the responsive auto-collapse: a narrow window
+    // must not silently become the reader's remembered choice.
+    setPanelCollapsed: (panelCollapsed, persist = true) => {
+      if (persist) persistFlag(PANEL_COLLAPSED_KEY, panelCollapsed);
+      set({ panelCollapsed });
+    },
+
+    setZen: (zen) => {
+      persistFlag(ZEN_KEY, zen);
+      set({ zen });
+    },
+
     refreshBacklinks: async () => {
       const { openPath } = get();
       if (!openPath) {
@@ -730,6 +866,25 @@ export const useStore = create<State>()((set, get) => {
         await api.deleteNote(path);
         get().closeTab(path);
         await get().loadTree();
+      }),
+
+    deleteFolder: (path, opts) =>
+      guarded(`deleting folder ${path}`, async () => {
+        const permanent = opts?.permanent === true;
+        const name = path.split("/").pop() ?? path;
+        await api.deleteFolder(path, permanent);
+        // Tabs pointing INTO the folder now name files that no longer exist —
+        // close them before the tree reload so no stale editor tries to save
+        // into the hole. (The folder itself is never a tab.)
+        for (const open of [...get().openTabs]) {
+          if (open.startsWith(`${path}/`)) get().closeTab(open);
+        }
+        // The server indexes before it answers, so this refetch is already
+        // correct — no wait on the SSE echo (which arrives too, harmlessly).
+        await get().loadTree();
+        void get().refreshBacklinks();
+        void get().loadPublished();
+        toast(tf(permanent ? "folderDeletedToast" : "folderTrashedToast", { name }));
       }),
 
     setDirty: (path, isDirty) =>

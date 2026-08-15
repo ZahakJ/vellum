@@ -48,6 +48,7 @@ import {
   resolveEmbed,
   search,
   tags,
+  visibleNotesUnder,
   whenIndexed,
   wikilinkRegex,
 } from "./indexer.ts";
@@ -780,7 +781,7 @@ api.patch("/settings", async (c) => {
 
 // ---------------------------------------------------------------- SSE events
 
-/** Map a vault event to what a publish-limited visitor may see: only events
+/** Map a vault event to the events a publish-limited visitor may see: only events
  *  about notes that visitor can actually discover — published AND not curated
  *  away by the languageFilter. Undiscoverable paths are stripped from renames;
  *  a transition either way (publish/unpublish, and equally a note that becomes
@@ -792,27 +793,40 @@ api.patch("/settings", async (c) => {
  *  this the one surface that leaked what CONTRACTS says the filter must never
  *  leak — an anonymous stream received the full vault path of a hidden note
  *  the moment it was created, edited or deleted, unprompted. */
-async function visitorEvent(event: VaultEvent): Promise<VaultEvent | null> {
-  if (event.dir) return null; // no folder structure for visitors
-  if (!event.path.toLowerCase().endsWith(".md")) return null; // attachments: never
+async function visitorEvents(event: VaultEvent): Promise<VaultEvent[]> {
+  if (event.dir) {
+    // Visitors have no folder structure, so the dir event itself is nothing
+    // to them — but the notes a folder DELETE takes away are: with the event
+    // dropped outright, a visitor's sidebar kept live links to notes the site
+    // now 404s (client/App.tsx only reloads the tree on an event). Fan it out
+    // into one "deleted" per note that was visible, sampled synchronously —
+    // vault.deleteFolder emits this before the chained reindex removes the
+    // records, the same before/after discipline the note branch relies on.
+    // Hidden and unpublished notes are never named, so nothing leaks.
+    if (event.kind !== "deleted") return [];
+    const gone = visibleNotesUnder(event.path);
+    await whenIndexed();
+    return gone.map((notePath) => ({ kind: "deleted", path: notePath }));
+  }
+  if (!event.path.toLowerCase().endsWith(".md")) return []; // attachments: never
   const wasVisible = isNoteVisibleToVisitor(event.path);
   await whenIndexed();
   switch (event.kind) {
     case "created":
     case "changed": {
       const nowVisible = isNoteVisibleToVisitor(event.path);
-      if (wasVisible && !nowVisible) return { kind: "deleted", path: event.path };
-      if (!wasVisible && nowVisible) return { kind: "created", path: event.path };
-      return nowVisible ? { kind: event.kind, path: event.path } : null;
+      if (wasVisible && !nowVisible) return [{ kind: "deleted", path: event.path }];
+      if (!wasVisible && nowVisible) return [{ kind: "created", path: event.path }];
+      return nowVisible ? [{ kind: event.kind, path: event.path }] : [];
     }
     case "deleted":
-      return wasVisible ? { kind: "deleted", path: event.path } : null;
+      return wasVisible ? [{ kind: "deleted", path: event.path }] : [];
     case "renamed": {
       const nowVisible = event.toPath ? isNoteVisibleToVisitor(event.toPath) : false;
-      if (wasVisible && nowVisible) return event;
-      if (wasVisible) return { kind: "deleted", path: event.path };
-      if (nowVisible && event.toPath) return { kind: "created", path: event.toPath };
-      return null;
+      if (wasVisible && nowVisible) return [event];
+      if (wasVisible) return [{ kind: "deleted", path: event.path }];
+      if (nowVisible && event.toPath) return [{ kind: "created", path: event.toPath }];
+      return [];
     }
   }
 }
@@ -824,9 +838,11 @@ api.get("/events", (c) => {
     const unsubscribe = onEvent((event) => {
       if (!live) return;
       const deliver = async (): Promise<void> => {
-        const visible = limited ? await visitorEvent(event) : event;
-        if (!visible || !live) return;
-        await stream.writeSSE({ event: "message", data: JSON.stringify(visible) });
+        const visible = limited ? await visitorEvents(event) : [event];
+        for (const out of visible) {
+          if (!live) return;
+          await stream.writeSSE({ event: "message", data: JSON.stringify(out) });
+        }
       };
       deliver().catch(() => {});
     });
