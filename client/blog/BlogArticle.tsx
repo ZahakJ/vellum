@@ -66,6 +66,7 @@ export default function BlogArticle({
   const tree = useStore((s) => s.tree);
   const pendingHeading = useStore((s) => s.pendingHeading);
   const bannerFallback = useStore((s) => s.bannerFallback);
+  const shareButtons = useStore((s) => s.shareButtons);
   const [graph, setGraph] = useState<GraphData | null>(null);
 
   const title = path.split("/").pop()!.replace(/\.md$/i, "");
@@ -240,6 +241,7 @@ export default function BlogArticle({
           </div>
         )}
 
+        {shareButtons && (
         <div className="s-blog-share">
           <span className="s-blog-share__label">Share</span>
           {shareLinks(title).map((s) => (
@@ -257,6 +259,7 @@ export default function BlogArticle({
             Copy link
           </button>
         </div>
+        )}
 
         {(newer || older) && (
           <nav className="s-blog-pn" aria-label="More writings">

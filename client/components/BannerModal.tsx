@@ -20,6 +20,7 @@ export default function BannerModal() {
   const [url, setUrl] = useState("");
   const [filter, setFilter] = useState("");
   const [attachments, setAttachments] = useState<string[] | null>(null);
+  const [listFailed, setListFailed] = useState(false);
   const [current, setCurrent] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -48,7 +49,9 @@ export default function BannerModal() {
         if (!disposed) setAttachments(list);
       })
       .catch(() => {
-        if (!disposed) setAttachments([]);
+        // null-with-error, not empty: "no attachments" and "list failed"
+        // must not read the same in the picker.
+        if (!disposed) { setAttachments([]); setListFailed(true); }
       });
     if (openPath) {
       getNote(openPath)
@@ -196,7 +199,11 @@ export default function BannerModal() {
             {attachments === null && <div className="s-bmodal__empty">Loading…</div>}
             {attachments !== null && filtered.length === 0 && (
               <div className="s-bmodal__empty">
-                {attachments.length === 0 ? "No image attachments in the vault yet." : "No matches."}
+                {attachments.length > 0
+                  ? "No matches."
+                  : listFailed
+                    ? "Couldn't load the attachment list — check the server log."
+                    : "No image attachments in the vault yet."}
               </div>
             )}
             {filtered.slice(0, 200).map((p) => (

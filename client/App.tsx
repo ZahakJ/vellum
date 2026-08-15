@@ -157,6 +157,11 @@ export default function App() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
       const store = useStore.getState();
+      const key = e.key.toLowerCase();
+      // Ctrl/Cmd+P and +K are ALWAYS ours — swallow them before any early
+      // return so the browser's print dialog / address-bar search can never
+      // fire, modal open or not, and regardless of what CM does downstream.
+      if (key === "p" || key === "k") e.preventDefault();
       // A modal dialog owns the keyboard: app-level shortcuts firing behind
       // the login/banner/moderation/confirm overlays would steal focus (e.g.
       // Ctrl+K focusing the sidebar search under the modal) or stack modals.
@@ -169,13 +174,10 @@ export default function App() {
       ) {
         return;
       }
-      const key = e.key.toLowerCase();
       if (key === "p" && e.shiftKey) {
         // Ctrl/Cmd+Shift+P: publish toggle (admin, note open) — never the palette.
-        e.preventDefault();
         if (store.admin && store.openPath) void store.togglePublish(store.openPath);
       } else if (key === "p") {
-        e.preventDefault();
         store.setPaletteOpen(!store.paletteOpen);
       } else if (key === "k") {
         // Ctrl/Cmd+K — search everywhere: the sidebar's search box in the
@@ -211,8 +213,10 @@ export default function App() {
         void store.createNote(trimmed.endsWith(".md") ? trimmed : `${trimmed}.md`);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    // Capture phase: run ahead of CodeMirror/vim handlers so a stopPropagation
+    // downstream can never let Ctrl+P fall through to the browser.
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
   // Until /api/me answers, render nothing — no flash of the wrong mode.
