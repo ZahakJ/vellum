@@ -14,6 +14,12 @@ import type { EditorView } from "@codemirror/view";
 import { getNote } from "../api.ts";
 import { useStore } from "../state.ts";
 import { collectNotes, extractHeadings, resolveLink } from "./links.ts";
+import {
+  calloutIconRender,
+  calloutTypeSource,
+  fenceLanguageSource,
+  slashSource,
+} from "./slashMenu.ts";
 
 /** Insert `label`, then "]]" unless the brackets are already closed. */
 function applyInner(
@@ -109,8 +115,14 @@ async function wikilinkSource(
 
 export function wikilinkAutocomplete(): Extension {
   return autocompletion({
-    override: [wikilinkSource],
+    override: [
+      wikilinkSource,
+      calloutTypeSource,
+      fenceLanguageSource,
+      slashSource,
+    ],
     icons: false,
     activateOnTyping: true,
+    addToOptions: [{ render: calloutIconRender, position: 20 }],
   });
 }

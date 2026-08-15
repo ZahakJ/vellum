@@ -7,13 +7,14 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { api } from "./api.ts";
+import { api, contentTypeFor } from "./api.ts";
 import { canRead, initAuth } from "./auth.ts";
 import { injectHead, renderFeed, requestOrigin } from "./blog.ts";
+import { faviconPath } from "./settings.ts";
 import { initSite } from "./site.ts";
 import { initComments } from "./comments.ts";
 import { initIndexer } from "./indexer.ts";
-import { initVault, isIgnoredSegment, resolveVaultRoot, startWatcher } from "./vault.ts";
+import { initVault, isIgnoredSegment, resolveVaultRoot, startWatcher, statAttachment } from "./vault.ts";
 
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const port = Number(process.env.PORT) || 6801;
@@ -70,6 +71,39 @@ app.get("/feed.xml", (c) => {
   if (!canRead(c)) return c.json({ error: "Sign in required" }, 401);
   return c.body(renderFeed(requestOrigin(c)), 200, {
     "Content-Type": "application/rss+xml; charset=utf-8",
+    "Cache-Control": "no-cache",
+  });
+});
+
+// Favicon: settings.favicon (an uploaded vault image) served at the classic
+// path with its real content type; without one (or when the file vanished),
+// the built-in glyph — same one the shell inlines — so the route always
+// answers. Open like custom.css: pure styling, no vault content, and browsers
+// fetch it cookie-less contexts anyway. Checked per request so a settings
+// change applies without a restart.
+const FAVICON_FALLBACK =
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">&#128396;</text></svg>`;
+
+app.get("/favicon.ico", async (c) => {
+  const rel = faviconPath();
+  if (rel) {
+    try {
+      const file = await statAttachment(rel);
+      const headers: Record<string, string> = {
+        "Content-Type": contentTypeFor(file.rel),
+        "Cache-Control": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+      };
+      // Uploaded SVGs are sanitized at write time, but keep the same
+      // belt-and-suspenders sandbox /api/file applies when serving them.
+      if (/\.svg$/i.test(file.rel)) headers["Content-Security-Policy"] = "sandbox";
+      return c.body(new Uint8Array(readFileSync(file.abs)), 200, headers);
+    } catch {
+      // fall through to the built-in glyph
+    }
+  }
+  return c.body(FAVICON_FALLBACK, 200, {
+    "Content-Type": "image/svg+xml",
     "Cache-Control": "no-cache",
   });
 });

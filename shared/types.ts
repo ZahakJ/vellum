@@ -54,17 +54,118 @@ export interface MeData {
   tagline?: string;    // SITE_TAGLINE — masthead subtitle
   footer?: string;     // SITE_FOOTER resolved (default "© <year> <SITE_NAME>")
   blogLocale?: string; // BLOG_LOCALE — BCP47 tag the client uses for date formatting (default "en")
+  bannerFallback?: "generated" | "none"; // BANNER_FALLBACK — blog list/article hero for notes without a banner
+  home?: HomeSettings; // settings.home — what "/" renders for blog visitors (absent = note mode)
+  logo?: string;       // settings.logo — site logo image (banner-style value)
+  favicon?: boolean;   // settings.favicon set — /favicon.ico serves it (client repoints its icon link)
 }
 
 // GET /api/posts (visitor-safe): published notes as blog posts, newest first.
 export interface PostMeta {
   path: string;           // vault-relative note path
   title: string;          // basename without .md
-  date: string;           // ISO 8601: frontmatter date/created when parseable, else file birthtime/mtime
+  date: string;           // ISO 8601: frontmatter date/created/published (first parseable), else file birthtime/mtime
   excerpt: string;        // first real paragraph, markdown stripped, ~220 chars, word-boundary + …
   words: number;          // prose word count
   readingMinutes: number; // ceil(words / 200)
   tags: string[];         // EXCLUDE_TAGS filtered
+  /** Frontmatter `banner:` resolved: an https URL, or a vault-relative
+   *  attachment path (fetch via /api/file?path=). Absent when unset. */
+  banner?: string;
+  /** Comments on this post (COMMENTS=on only; absent otherwise). Visitors
+   *  count visible comments only; admin sessions include hidden ones. */
+  commentCount?: number;
+}
+
+// Instance settings (VELLUM_DATA/settings.json) — admin-editable at runtime,
+// unlike the env-driven site config. GET /api/settings (admin) →
+// SettingsResponse, PATCH /api/settings (admin) body = partial SettingsData
+// (null clears a key back to its env default) → SettingsResponse. Unknown keys
+// already in the file are preserved on write; unknown keys in a PATCH are 400.
+// A stored value overrides its env counterpart; an absent key falls back to
+// env. Env-only forever (never in settings.json): ADMIN_PASSWORD_HASH,
+// SESSION_SECRET, TRUSTED_PROXIES, PORT, HOST, VELLUM_VAULT, VELLUM_DATA,
+// PUBLIC.
+export interface HomeSettings {
+  /** What "/" renders for blog-mode visitors: "note" (default — the classic
+   *  intro + Writings list) or "dashboard" (magazine home: hero banner,
+   *  card grid of latest posts, most-discussed row). */
+  mode?: "note" | "dashboard";
+  /** The intro/home note (mode "note"): vault-relative .md path. Overrides
+   *  the HOME_NOTE env default when set. */
+  note?: string;
+  /** Dashboard hero image: https URL or vault-relative attachment path.
+   *  Absent → generated-gradient fallback seeded from the site name. */
+  banner?: string;
+}
+
+export interface SettingsData {
+  /** Instance branding (overrides SITE_NAME). ≤ 80 chars. */
+  siteName?: string;
+  /** Masthead subtitle (overrides SITE_TAGLINE). ≤ 160 chars. */
+  tagline?: string;
+  /** Footer template, {year}/{siteName} substituted (overrides SITE_FOOTER). ≤ 200 chars. */
+  footer?: string;
+  /** Theme for visitors without a stored choice (overrides DEFAULT_THEME).
+   *  One of: iron-gall, void, lapis, parchment. */
+  defaultTheme?: string;
+  /** Visitor-facing layout (overrides PUBLIC_LAYOUT). */
+  publicLayout?: "app" | "blog";
+  /** BCP47 date-formatting locale (overrides BLOG_LOCALE). */
+  blogLocale?: string;
+  /** Tags hidden from visitor surfaces (overrides EXCLUDE_TAGS). Simple
+   *  tokens, ≤ 50 chars each. */
+  excludeTags?: string[];
+  /** Marginalia comments on/off (overrides COMMENTS). */
+  commentsEnabled?: boolean;
+  /** Favicon: vault-relative image path (uploaded attachment), served at
+   *  /favicon.ico. Absent → the built-in glyph. */
+  favicon?: string;
+  home?: HomeSettings;
+  /** Site logo image (https URL or vault path) shown in place of the
+   *  site-name text where a logo fits (masthead, sidebar, dashboard hero). */
+  logo?: string;
+}
+
+/** What /api/settings answers: the stored keys (settings.json verbatim,
+ *  validated) plus `effective` — the merged values the site is actually
+ *  using right now (stored value when set, else env default). */
+export interface SettingsResponse extends SettingsData {
+  effective: EffectiveSettings;
+}
+
+export interface EffectiveSettings {
+  siteName: string;
+  tagline: string | null;
+  footer: string | null;          // raw template (may contain {year}/{siteName})
+  defaultTheme: string | null;
+  publicLayout: "app" | "blog";
+  blogLocale: string;
+  excludeTags: string[];
+  commentsEnabled: boolean;
+  favicon: string | null;
+  logo: string | null;
+  home: Required<Pick<HomeSettings, "mode">> & Omit<HomeSettings, "mode">;
+}
+
+/** PATCH /api/settings body: only the named keys change; null (or "") clears
+ *  one back to its env default. Strict allowlist — unknown keys are a 400. */
+export interface SettingsPatch {
+  siteName?: string | null;
+  tagline?: string | null;
+  footer?: string | null;
+  defaultTheme?: string | null;
+  publicLayout?: "app" | "blog" | null;
+  blogLocale?: string | null;
+  excludeTags?: string[] | null;
+  commentsEnabled?: boolean | null;
+  favicon?: string | null;
+  home?: {
+    mode?: "note" | "dashboard" | null;
+    note?: string | null;
+    banner?: string | null;
+  } | null;
+  logo?: string | null;
 }
 
 export interface PublishedCounts {
@@ -79,8 +180,25 @@ export interface PublishResult {
   published: boolean; // publish state after the toggle
 }
 
+// POST /api/upload (admin only): multipart image → saved under ATTACHMENTS_DIR.
+export interface UploadResult {
+  path: string; // vault-relative path of the stored attachment
+}
+
+// POST /api/frontmatter { path, key, value } (admin only) → FrontmatterResult.
+// Surgical single-line frontmatter edit; key allowlisted ("banner" for now),
+// value null/"" removes the line.
+export interface FrontmatterResult {
+  ok: true;
+  path: string;         // normalized vault-relative path
+  key: string;
+  value: string | null; // value after the edit (null = removed)
+}
+
 // Comments (COMMENTS=on): GET /api/comments?path= → CommentData[],
 // POST /api/comments { path, author?, body, website? } → CommentData.
+// Moderation (admin only): PATCH /api/comments/:id { hidden } → { ok: true },
+// GET /api/comments/all?limit= → CommentData[] (newest first, across notes).
 // The poster's IP is stored server-side for moderation but never leaves it.
 export interface CommentData {
   id: number;
@@ -88,4 +206,5 @@ export interface CommentData {
   author: string;     // trimmed, ≤40 chars, "Anonymous" when omitted
   body: string;       // plain text, ≤2000 chars
   createdMs: number;
+  hidden?: boolean;   // admin responses only; hidden comments never reach visitors
 }

@@ -1,10 +1,16 @@
-// Instance customization, all env-driven: SITE_NAME (branding), DEFAULT_THEME
-// (theme for visitors with no stored choice), VELLUM_DATA (directory holding
-// instance files such as custom.css). Kept apart from auth so site identity
-// and security config don't tangle. All values reach the client via /api/me.
+// Instance customization: env defaults (SITE_NAME, DEFAULT_THEME, …) merged
+// with the runtime-editable VELLUM_DATA/settings.json (settings.ts) — a stored
+// settings value wins over its env default; absent keys fall back to env.
+// Kept apart from auth so site identity and security config don't tangle.
+// All merged values reach the client via /api/me.
+//
+// The settings.ts import is intentionally circular (settings.ts needs
+// dataDir() from here): both modules only export functions and never call
+// each other at module top level, so the cycle is inert.
 
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { getSettings } from "./settings.ts";
 
 interface SiteConfig {
   siteName: string;
@@ -16,6 +22,8 @@ interface SiteConfig {
   footer: string | null; // raw SITE_FOOTER (may contain {year}/{siteName}); null → default
   blogLocale: string;
   siteUrl: string | null; // canonical origin for absolute links (RSS, canonical); null → derive from request
+  attachmentsDir: string; // vault-relative dir uploads land in (ATTACHMENTS_DIR)
+  bannerFallback: "generated" | "none"; // BANNER_FALLBACK — hero for banner-less blog posts
 }
 
 let config: SiteConfig = {
@@ -28,6 +36,8 @@ let config: SiteConfig = {
   footer: null,
   blogLocale: "en",
   siteUrl: null,
+  attachmentsDir: "attachments",
+  bannerFallback: "generated",
 };
 
 /** Read site settings from the environment. Call once at startup. */
@@ -54,46 +64,69 @@ export function initSite(env: NodeJS.ProcessEnv = process.env): void {
     footer: env.SITE_FOOTER?.trim() || null,
     blogLocale: env.BLOG_LOCALE?.trim() || "en",
     siteUrl: env.SITE_URL?.trim().replace(/\/+$/, "") || null,
+    // Vault-relative directory uploaded images land in (created on demand).
+    // Slashes trimmed; the API layer path-safety-checks the joined result.
+    attachmentsDir:
+      env.ATTACHMENTS_DIR?.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "") || "attachments",
+    // Notes without a banner: "generated" (default) shows a deterministic
+    // abstract gradient in the blog list + article hero; "none" shows nothing.
+    bannerFallback:
+      env.BANNER_FALLBACK?.trim().toLowerCase() === "none" ? "none" : "generated",
   };
 }
 
+// Every getter below merges live: settings.json value when set, env default
+// otherwise. getSettings() is mtime-cached, so the common cost is one stat.
+
 export function siteName(): string {
-  return config.siteName;
+  return getSettings().siteName ?? config.siteName;
 }
 
 export function defaultTheme(): string | null {
-  return config.defaultTheme;
+  return getSettings().defaultTheme ?? config.defaultTheme;
 }
 
-/** Lower-cased tags hidden from visitor-facing tag/topic surfaces (EXCLUDE_TAGS). */
+/** Lower-cased tags hidden from visitor-facing tag/topic surfaces
+ *  (settings.excludeTags, else EXCLUDE_TAGS). */
 export function excludedTags(): Set<string> {
+  const stored = getSettings().excludeTags;
+  if (stored !== undefined) return new Set(stored.map((t) => t.toLowerCase()));
   return config.excludeTags;
 }
 
-/** "blog" → visitors see the classic blog shell (PUBLIC_LAYOUT); admin
- *  sessions always keep the full app regardless. */
+/** "blog" → visitors see the classic blog shell (settings.publicLayout, else
+ *  PUBLIC_LAYOUT); admin sessions always keep the full app regardless. */
 export function publicLayout(): "app" | "blog" {
-  return config.publicLayout;
+  return getSettings().publicLayout ?? config.publicLayout;
 }
 
-/** Masthead subtitle (SITE_TAGLINE), or null when unset. */
+/** Masthead subtitle (settings.tagline, else SITE_TAGLINE), or null. */
 export function tagline(): string | null {
-  return config.tagline;
+  return getSettings().tagline ?? config.tagline;
 }
 
-/** Footer line, resolved: SITE_FOOTER with {year}/{siteName} placeholders
- *  substituted, defaulting to "© <year> <SITE_NAME>". */
+/** Raw footer template (may contain {year}/{siteName}), or null when neither
+ *  settings.footer nor SITE_FOOTER is set — the settings panel edits this. */
+export function footerTemplate(): string | null {
+  return getSettings().footer ?? config.footer;
+}
+
+/** Footer line, resolved: the footer template with {year}/{siteName}
+ *  placeholders substituted, defaulting to "© <year> <site name>". */
 export function footerLine(): string {
   const year = String(new Date().getFullYear());
-  if (config.footer) {
-    return config.footer.replaceAll("{year}", year).replaceAll("{siteName}", config.siteName);
+  const template = footerTemplate();
+  const name = siteName();
+  if (template) {
+    return template.replaceAll("{year}", year).replaceAll("{siteName}", name);
   }
-  return `© ${year} ${config.siteName}`;
+  return `© ${year} ${name}`;
 }
 
-/** BCP47 locale the client uses to format post dates (BLOG_LOCALE, default "en"). */
+/** BCP47 locale the client uses to format post dates
+ *  (settings.blogLocale, else BLOG_LOCALE, default "en"). */
 export function blogLocale(): string {
-  return config.blogLocale;
+  return getSettings().blogLocale ?? config.blogLocale;
 }
 
 /** Configured canonical origin (SITE_URL, no trailing slash) or null —
@@ -108,6 +141,21 @@ export function siteUrl(): string | null {
 export function customCssPath(): string | null {
   const p = path.join(config.dataDir, "custom.css");
   return existsSync(p) ? p : null;
+}
+
+/** Vault-relative directory POST /api/upload writes into (ATTACHMENTS_DIR). */
+export function attachmentsDir(): string {
+  return config.attachmentsDir;
+}
+
+/** Absolute path of the instance data directory (VELLUM_DATA, default ./data). */
+export function dataDir(): string {
+  return config.dataDir;
+}
+
+/** BANNER_FALLBACK: what banner-less blog posts show as their hero. */
+export function bannerFallback(): "generated" | "none" {
+  return config.bannerFallback;
 }
 
 /** VELLUM_DATA/fonts — the directory GET /api/fonts/:file serves from. */

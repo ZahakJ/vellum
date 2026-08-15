@@ -21,11 +21,17 @@ body,
   overflow: clip;
 }
 
+/* The whole app is sized in rem so one token scales it: tokens.css sets
+   --font-base (15.5px default); custom.css may override it. */
+html {
+  font-size: var(--font-base, 15.5px);
+}
+
 body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: 1rem;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -99,7 +105,7 @@ kbd {
 button,
 .s-btn {
   font: inherit;
-  font-size: 13px;
+  font-size: 0.929rem;
   color: var(--text);
   background: transparent;
   border: none;
@@ -142,7 +148,7 @@ textarea,
 select,
 .s-input {
   font: inherit;
-  font-size: 13px;
+  font-size: 0.929rem;
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
@@ -194,7 +200,7 @@ select:focus,
   align-items: center;
   justify-content: space-between;
   flex: none;
-  height: 44px;
+  height: 3rem;
   padding: 0 10px 0 16px;
 }
 
@@ -205,7 +211,7 @@ select:focus,
   align-items: baseline;
   gap: 7px;
   font-family: var(--font-serif);
-  font-size: 15px;
+  font-size: 1.071rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   font-variant-caps: small-caps;
@@ -215,7 +221,7 @@ select:focus,
 
 .s-title__star {
   color: var(--accent);
-  font-size: 13px;
+  font-size: 0.929rem;
   letter-spacing: 0;
 }
 
@@ -257,11 +263,11 @@ select:focus,
   display: flex;
   align-items: center;
   gap: 5px;
-  height: 26px;
+  height: 1.8rem;
   padding-right: 8px;
   border-radius: 4px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 0.929rem;
   white-space: nowrap;
   overflow: hidden;
   cursor: pointer;
@@ -292,7 +298,7 @@ select:focus,
   align-items: center;
   justify-content: center;
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: 0.857rem;
   line-height: 1;
   transform: translateY(-0.5px);
   transition: transform 0.15s ease;
@@ -315,7 +321,7 @@ select:focus,
 .s-tree__rename {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: 0.929rem;
   padding: 1px 6px;
   height: 22px;
   border-color: var(--accent);
@@ -332,7 +338,7 @@ select:focus,
 
 .s-search__none {
   margin: 10px 8px;
-  font-size: 12px;
+  font-size: 0.857rem;
   font-style: italic;
   color: var(--text-faint);
 }
@@ -354,7 +360,7 @@ select:focus,
 .s-search-hit__title {
   display: block;
   font-family: var(--font-serif);
-  font-size: 14px;
+  font-size: 1rem;
   color: var(--text);
   margin-bottom: 2px;
   overflow: hidden;
@@ -367,7 +373,7 @@ select:focus,
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font-size: 12px;
+  font-size: 0.857rem;
   line-height: 1.45;
   color: var(--text-muted);
 }
@@ -376,7 +382,9 @@ select:focus,
 
 .s-tags {
   flex: none;
-  max-height: 30vh;
+  /* Tag-heavy vaults must not squeeze the tree out: a modest cap with its
+     own scroll, plus a collapse toggle in the header. */
+  max-height: 24vh;
   overflow-y: auto;
   padding: 8px 12px 18px;
   border-top: 1px solid var(--border);
@@ -385,15 +393,48 @@ select:focus,
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 12px), transparent);
 }
 
+.s-tags--collapsed {
+  padding-bottom: 8px;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+.s-tags__toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 0 2px;
+  margin: 0 0 7px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.s-tags--collapsed .s-tags__toggle {
+  margin-bottom: 0;
+}
+
+.s-tags__toggle:hover .s-tags__title {
+  color: var(--text-muted);
+}
+
 .s-tags__title {
-  margin: 0 2px 7px;
-  font-size: 11px;
+  font-size: 0.786rem;
   font-weight: 600;
   font-family: var(--font-ui);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-faint);
   user-select: none;
+  transition: color 0.15s ease;
+}
+
+.s-tags__total {
+  margin-left: auto;
+  font-size: 0.714rem;
+  color: var(--text-faint);
 }
 
 .s-tags__list {
@@ -406,7 +447,7 @@ select:focus,
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 500;
   color: var(--text-muted);
   background: var(--bg-hover);
@@ -430,7 +471,7 @@ select:focus,
 .s-tag__count {
   color: var(--text-faint);
   font-weight: 400;
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 
 /* --------------------------------------------------------- sidebar foot -- */
@@ -439,7 +480,7 @@ select:focus,
   flex: none;
   padding: 7px 16px 8px;
   border-top: 1px solid var(--border);
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-faint);
   user-select: none;
 }
@@ -464,7 +505,7 @@ select:focus,
   text-align: left;
   padding: 6px 12px;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 0.929rem;
   color: var(--text);
 }
 
@@ -509,7 +550,7 @@ select:focus,
   align-items: stretch;
   overflow-x: auto;
   flex: none;
-  height: 36px;
+  height: 2.5rem;
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border);
   scrollbar-width: none;
@@ -528,7 +569,7 @@ select:focus,
   border: none;
   border-right: 1px solid var(--border);
   border-radius: 0;
-  font-size: 13px;
+  font-size: 0.929rem;
   color: var(--text-muted);
   background: transparent;
   white-space: nowrap;
@@ -592,7 +633,7 @@ select:focus,
   height: 16px;
   padding: 0;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 1rem;
   line-height: 1;
   color: var(--text-faint);
   background: transparent;
@@ -656,7 +697,7 @@ select:focus,
 /* Manuscript prose: serif body text, generous measure. */
 .s-editor .cm-scroller {
   font-family: var(--font-serif);
-  font-size: 16px;
+  font-size: var(--font-prose, 1.161rem);
   line-height: 1.7;
 }
 
@@ -709,7 +750,7 @@ select:focus,
    (Shown raw only while the cursor is inside the block.) */
 .s-editor .cm-line.cm-s-frontmatter {
   font-family: var(--font-mono) !important;
-  font-size: 12.5px !important;
+  font-size: 0.893rem !important;
   font-weight: 400 !important;
   line-height: 1.7 !important;
   color: var(--text-faint);
@@ -727,7 +768,7 @@ select:focus,
   border-radius: var(--radius);
   background: var(--bg-raised);
   font-family: var(--font-ui);
-  font-size: 12.5px;
+  font-size: 0.893rem;
   line-height: 1.6;
   cursor: text;
 }
@@ -760,7 +801,7 @@ select:focus,
 }
 
 .s-editor .cm-s-props__label {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -799,7 +840,7 @@ select:focus,
 .s-editor .cm-s-props__key {
   flex: none;
   min-width: 64px;
-  font-size: 10.5px;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -818,7 +859,42 @@ select:focus,
   background: var(--accent-soft);
   border-radius: 999px;
   padding: 1px 8px;
-  font-size: 11px;
+  font-size: 0.786rem;
+}
+
+/* "Set banner…" header action: quiet until the header is hovered. */
+.s-editor .cm-s-props__action {
+  margin-inline-start: auto;
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.s-editor .cm-s-props__head:hover .cm-s-props__action,
+.s-editor .cm-s-props__action:focus-visible {
+  opacity: 1;
+}
+
+.s-editor .cm-s-props__action:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Note banner hero above the properties card (frontmatter `banner:`). */
+.s-editor .cm-s-banner {
+  margin: 2px 0 12px;
+}
+
+.s-editor .cm-s-banner__img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  border-radius: calc(var(--radius) + 2px);
+  border: 1px solid var(--border);
 }
 
 /* Empty state shown when no note is open. */
@@ -835,7 +911,7 @@ select:focus,
 }
 
 .s-empty__glyph {
-  font-size: 44px;
+  font-size: 3.143rem;
   line-height: 1;
   color: var(--text-faint);
   opacity: 0.7;
@@ -845,7 +921,7 @@ select:focus,
 .s-empty__title {
   margin: 0 0 22px;
   font-family: var(--font-serif);
-  font-size: 18px;
+  font-size: 1.286rem;
   color: var(--text-muted);
 }
 
@@ -853,7 +929,7 @@ select:focus,
   display: grid;
   grid-template-columns: auto auto;
   gap: 10px 28px;
-  font-size: 12.5px;
+  font-size: 0.893rem;
   color: var(--text-faint);
 }
 
@@ -918,7 +994,7 @@ select:focus,
   align-items: center;
   justify-content: center;
   font-family: var(--font-serif);
-  font-size: 15px;
+  font-size: 1.071rem;
   color: var(--text-faint);
   pointer-events: none;
 }
@@ -927,7 +1003,7 @@ select:focus,
   position: absolute;
   left: 14px;
   bottom: 12px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-faint);
   user-select: none;
   pointer-events: none;
@@ -988,10 +1064,10 @@ select:focus,
   align-items: center;
   gap: 8px;
   flex: none;
-  height: 36px;
+  height: 2.5rem;
   padding: 0 8px 0 14px;
   border-bottom: 1px solid var(--border);
-  font-size: 11px;
+  font-size: 0.786rem;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1015,7 +1091,7 @@ select:focus,
   border-radius: 999px;
   background: var(--bg-hover);
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 600;
   letter-spacing: 0;
 }
@@ -1083,7 +1159,7 @@ select:focus,
 .s-backlink-title {
   display: block;
   font-family: var(--font-serif);
-  font-size: 13.5px;
+  font-size: 0.964rem;
   font-weight: 600;
   color: var(--text);
   margin-bottom: 3px;
@@ -1105,7 +1181,7 @@ select:focus,
   background: var(--accent-soft);
   color: var(--accent);
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 600;
   vertical-align: 2px;
 }
@@ -1115,7 +1191,7 @@ select:focus,
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font-size: 12px;
+  font-size: 0.857rem;
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -1133,7 +1209,7 @@ select:focus,
 
 .s-panel-empty {
   padding: 18px 14px;
-  font-size: 12px;
+  font-size: 0.857rem;
   line-height: 1.6;
   color: var(--text-faint);
   font-style: italic;
@@ -1147,11 +1223,11 @@ select:focus,
   align-items: center;
   gap: 4px;
   flex: none;
-  height: 28px;
+  height: 2.1rem;
   padding: 0 10px 0 14px;
   background: var(--bg-raised);
   border-top: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-muted);
   user-select: none;
   overflow: hidden;
@@ -1178,7 +1254,7 @@ select:focus,
 
 .s-statusbar__crumb-sep {
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 
 .s-statusbar__spacer {
@@ -1197,11 +1273,12 @@ select:focus,
 
 .s-statusbar__btn,
 .s-statusbar button {
-  font-size: 12px;
+  font-size: 0.857rem;
   padding: 2px 7px;
   color: var(--text-muted);
   border-radius: 4px;
   line-height: 1.4;
+  white-space: nowrap; /* "Sign in" must never wrap inside the 28px bar (mobile) */
 }
 
 .s-statusbar__btn:hover,
@@ -1275,7 +1352,7 @@ select:focus,
   background: transparent;
   padding: 14px 16px;
   font-family: var(--font-serif);
-  font-size: 15px;
+  font-size: 1.071rem;
 }
 
 .s-palette-input:focus,
@@ -1299,11 +1376,11 @@ select:focus,
   align-items: center;
   gap: 10px;
   width: 100%;
-  height: 34px;
+  height: 2.5rem;
   text-align: left;
   padding: 0 12px 0 14px;
   border-radius: var(--radius);
-  font-size: 13px;
+  font-size: 0.929rem;
   color: var(--text);
   cursor: pointer;
 }
@@ -1375,7 +1452,7 @@ select:focus,
 
 .s-palette-item-hint {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-faint);
   white-space: nowrap;
   overflow: hidden;
@@ -1388,7 +1465,7 @@ select:focus,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-muted);
 }
 
@@ -1399,13 +1476,13 @@ select:focus,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-faint);
 }
 
 .s-palette-section {
   padding: 9px 12px 3px;
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1415,7 +1492,7 @@ select:focus,
 
 .s-palette-prompt-label {
   padding: 10px 16px 0;
-  font-size: 11px;
+  font-size: 0.786rem;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1425,7 +1502,7 @@ select:focus,
 
 .s-palette-empty {
   padding: 18px 16px;
-  font-size: 13px;
+  font-size: 0.929rem;
   font-style: italic;
   color: var(--text-faint);
 }
@@ -1446,7 +1523,7 @@ select:focus,
   border-left: 3px solid var(--accent);
   border-radius: var(--radius);
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
-  font-size: 13px;
+  font-size: 0.929rem;
   animation: s-toast-in 0.18s ease;
 }
 
@@ -1471,6 +1548,194 @@ select:focus,
 }
 
 /* ---------------------------------------------------------------- login -- */
+
+/* ------------------------------------------------------- banner modal ---- */
+/* Rides the palette overlay (same backdrop + entrance). */
+
+.s-bmodal {
+  width: min(600px, calc(100vw - 32px));
+  max-height: 68vh;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px 18px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  overflow: auto;
+  animation: s-palette-in 0.14s ease;
+}
+
+.s-bmodal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.s-bmodal__title {
+  font-family: var(--font-serif);
+  font-size: 1.071rem;
+  color: var(--text);
+}
+
+.s-bmodal__title em {
+  color: var(--accent);
+  font-style: normal;
+}
+
+.s-bmodal__close {
+  font-size: 1.286rem;
+  line-height: 1;
+  padding: 2px 8px;
+  color: var(--text-faint);
+}
+
+.s-bmodal__close:hover {
+  color: var(--text);
+}
+
+.s-bmodal__current {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.s-bmodal__current img {
+  display: block;
+  width: 148px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.s-bmodal__currentpath {
+  font-family: var(--font-mono);
+  font-size: 0.786rem;
+  color: var(--text-faint);
+  word-break: break-all;
+}
+
+.s-bmodal__row {
+  display: flex;
+  gap: 10px;
+}
+
+.s-bmodal__input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.929rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 7px 11px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.s-bmodal__input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.s-bmodal__input::placeholder {
+  color: var(--text-faint);
+}
+
+.s-bmodal__drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 22px 16px;
+  border: 1px dashed var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  color: var(--text-muted);
+  font-size: 0.929rem;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.s-bmodal__drop:hover,
+.s-bmodal__drop--over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.s-bmodal__drophint {
+  font-size: 0.786rem;
+  color: var(--text-faint);
+}
+
+.s-bmodal__pick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.s-bmodal__list {
+  overflow-y: auto;
+  max-height: 200px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.s-bmodal__empty {
+  padding: 14px;
+  font-size: 0.857rem;
+  color: var(--text-faint);
+}
+
+.s-bmodal__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 0;
+  text-align: start;
+}
+
+.s-bmodal__item:hover {
+  background: var(--accent-soft);
+}
+
+.s-bmodal__thumb {
+  flex: none;
+  width: 56px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.s-bmodal__itempath {
+  font-size: 0.821rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.s-bmodal__foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.s-btn--danger {
+  color: var(--danger);
+  border: 1px solid var(--border);
+}
+
+.s-btn--danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: var(--danger);
+}
 
 .s-login-overlay {
   position: fixed;
@@ -1507,7 +1772,7 @@ select:focus,
 }
 
 .s-login__glyph {
-  font-size: 22px;
+  font-size: 1.571rem;
   line-height: 1;
   text-align: center;
   color: var(--accent);
@@ -1517,7 +1782,7 @@ select:focus,
 .s-login__title {
   margin: 8px 0 2px;
   font-family: var(--font-serif);
-  font-size: 18px;
+  font-size: 1.286rem;
   font-weight: 400;
   letter-spacing: 0.02em;
   text-align: center;
@@ -1526,7 +1791,7 @@ select:focus,
 
 .s-login__hint {
   margin: 0 0 18px;
-  font-size: 12px;
+  font-size: 0.857rem;
   text-align: center;
   color: var(--text-muted);
 }
@@ -1535,7 +1800,7 @@ select:focus,
   width: 100%;
   padding: 9px 12px;
   font-family: var(--font-serif);
-  font-size: 15px;
+  font-size: 1.071rem;
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
@@ -1545,7 +1810,7 @@ select:focus,
 .s-login__error {
   min-height: 16px;
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--danger);
 }
 
@@ -1591,7 +1856,7 @@ select:focus,
 /* Small gold ✦ suffix marking published notes (tree rows, search hits). */
 .s-pubstar {
   margin-left: 6px;
-  font-size: 9px;
+  font-size: 0.643rem;
   color: var(--accent);
   opacity: 0.9;
   vertical-align: 1px;
@@ -1607,7 +1872,7 @@ select:focus,
 }
 
 .s-statusbar__pubstar {
-  font-size: 11px;
+  font-size: 0.786rem;
   line-height: 1;
   transform: translateY(-0.5px);
 }
@@ -1638,7 +1903,7 @@ select:focus,
   align-items: center;
   gap: 6px;
   padding: 4px 8px 8px;
-  font-size: 11px;
+  font-size: 0.786rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -1647,7 +1912,7 @@ select:focus,
 
 .s-publist__headstar {
   color: var(--accent);
-  font-size: 10px;
+  font-size: 0.714rem;
   letter-spacing: 0;
 }
 
@@ -1662,7 +1927,7 @@ select:focus,
   margin-bottom: 1px;
   border-radius: 4px;
   font-family: var(--font-serif);
-  font-size: 14px;
+  font-size: 1rem;
   line-height: 1.35;
   color: var(--text-muted);
   cursor: pointer;
@@ -1683,7 +1948,7 @@ select:focus,
 .s-publist__home {
   flex: none;
   color: var(--accent);
-  font-size: 10px;
+  font-size: 0.714rem;
   transform: translateY(-0.5px);
   user-select: none;
 }
@@ -1696,7 +1961,7 @@ select:focus,
 
 .s-publist__none {
   margin: 12px 8px;
-  font-size: 12px;
+  font-size: 0.857rem;
   font-style: italic;
   color: var(--text-faint);
 }
@@ -1729,7 +1994,7 @@ select:focus,
   font-family: var(--font-serif);
   font-variant: small-caps;
   letter-spacing: 0.06em;
-  font-size: 14px;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
@@ -1761,7 +2026,7 @@ select:focus,
   color: var(--text-faint);
   font-family: var(--font-ui);
   font-variant: normal;
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 600;
   letter-spacing: 0;
 }
@@ -1771,7 +2036,7 @@ select:focus,
 }
 
 .s-topic .s-publist__item {
-  font-size: 13.5px;
+  font-size: 0.964rem;
   padding: 5px 8px;
 }
 
@@ -1831,7 +2096,7 @@ select:focus,
 .s-localgraph__empty {
   margin: 0;
   padding: 14px 16px 18px;
-  font-size: 12px;
+  font-size: 0.857rem;
   line-height: 1.5;
   color: var(--text-faint);
 }
@@ -1840,11 +2105,11 @@ select:focus,
 .s-graph__empty--visitor {
   flex-direction: column;
   gap: 12px;
-  font-size: 16px;
+  font-size: 1.143rem;
 }
 
 .s-graph__empty-star {
-  font-size: 28px;
+  font-size: 2rem;
   color: var(--accent);
   opacity: 0.5;
 }
@@ -1868,14 +2133,14 @@ select:focus,
   background: var(--accent-soft);
   border: 1px solid var(--accent);
   border-radius: var(--radius);
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--accent);
 }
 .s-filterbar__clear {
   background: none;
   border: none;
   padding: 2px 4px;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-muted);
   cursor: pointer;
   text-decoration: underline;
@@ -1911,7 +2176,7 @@ select:focus,
   border-radius: 999px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-muted);
   white-space: nowrap;
 }
@@ -1932,7 +2197,7 @@ select:focus,
   background: var(--accent-soft);
   color: var(--accent);
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 600;
   cursor: pointer;
   transition: background 150ms ease, color 150ms ease;
@@ -1941,4 +2206,358 @@ select:focus,
 .s-preview-banner__exit:hover {
   background: var(--accent);
   color: var(--bg);
+}
+
+/* -------------------------------------------------------- confirm modal -- */
+/* Styled stand-in for window.confirm on destructive actions (Confirm.tsx):
+   raised panel, serif title, danger button gold-outline → red fill. */
+
+.s-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 24vh;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(3px);
+  animation: s-fade-in 0.12s ease;
+}
+
+.s-confirm {
+  width: min(400px, calc(100vw - 32px));
+  padding: 22px 24px 18px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  animation: s-palette-in 0.14s ease;
+}
+
+.s-confirm__title {
+  margin: 0 0 6px;
+  font-family: var(--font-serif);
+  font-size: 1.214rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text);
+}
+
+.s-confirm__body {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  overflow-wrap: break-word;
+}
+
+.s-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.s-confirm__cancel {
+  color: var(--text-muted);
+}
+
+.s-confirm__cancel:hover {
+  color: var(--text);
+}
+
+.s-confirm__danger {
+  padding: 4px 14px;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  background: transparent;
+}
+
+.s-confirm__danger:hover,
+.s-confirm__danger:focus-visible {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+/* ------------------------------------------------- wordmark as a button -- */
+/* Admin: clicking ✦ Vellum toggles "preview as visitor". Same .s-title
+   look; only the affordance changes. */
+
+button.s-title {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+button.s-title:hover {
+  background: none;
+  color: var(--accent);
+}
+
+/* ------------------------------------------------- status bar sign-out -- */
+/* Quiet door icon at the end of the admin status bar; the label slides out
+   on hover/focus so the row stays calm. */
+
+.s-statusbar__signout {
+  display: inline-flex;
+  align-items: center;
+}
+
+.s-statusbar__signout-label {
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  transition: max-width 0.18s ease, opacity 0.18s ease, margin 0.18s ease;
+}
+
+.s-statusbar__signout:hover .s-statusbar__signout-label,
+.s-statusbar__signout:focus-visible .s-statusbar__signout-label {
+  max-width: 5rem;
+  opacity: 1;
+  margin-left: 5px;
+}
+
+/* ------------------------------------------------------ mobile (≤700px) -- */
+/* The app shell collapses to one column: the sidebar becomes an overlay
+   drawer behind a floating ☰ toggle (App renders both; they are inert and
+   hidden on wide viewports), the backlinks panel steps aside, and the
+   desktop 56px prose gutters relax so a 390px phone gets a real measure. */
+
+.s-drawer-btn,
+.s-drawer-backdrop {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .s-app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "main"
+      "status";
+  }
+
+  /* Sidebar → overlay drawer (slides in from the left). */
+  .s-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 400;
+    width: min(84vw, 320px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+    transform: translateX(-103%);
+    transition: transform 0.2s ease;
+  }
+
+  .s-app--drawer .s-sidebar {
+    transform: none;
+  }
+
+  .s-app--drawer .s-drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 390;
+    background: rgba(0, 0, 0, 0.45);
+  }
+
+  .s-drawer-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 5px;
+    left: 8px;
+    z-index: 60;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-radius: 6px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+
+  .s-drawer-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--bg-raised);
+  }
+
+  /* Tab bar clears the floating toggle. */
+  .s-tabs {
+    padding-left: 44px;
+  }
+
+  /* Backlinks/outline panel would eat the whole viewport on a phone. */
+  .s-panel,
+  .s-panel-reopen {
+    display: none;
+  }
+
+  /* Prose gutters: 56px each side crushes a 390px column. */
+  .s-editor .cm-content,
+  .s-reading__content {
+    padding: 44px 18px 110px;
+  }
+}
+
+/* ── Site settings panel (SettingsModal) ─────────────────────────────────── */
+
+.s-smodal {
+  width: min(680px, calc(100vw - 32px));
+  max-height: 82vh;
+  position: relative;
+}
+
+.s-smodal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 2px;
+}
+
+.s-smodal__note {
+  margin: 0;
+  font-size: 0.821rem;
+  color: var(--text-faint);
+}
+
+.s-smodal__group {
+  margin-top: 10px;
+  font-size: 0.714rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 5px;
+}
+
+.s-smodal__row {
+  display: grid;
+  grid-template-columns: 168px 1fr;
+  align-items: start;
+  gap: 12px;
+}
+
+.s-smodal__label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+  font-size: 0.857rem;
+  color: var(--text);
+}
+
+.s-smodal__hint {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+.s-smodal__control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.s-smodal__control .s-bmodal__input {
+  width: 100%;
+}
+
+.s-smodal__select {
+  appearance: auto;
+  cursor: pointer;
+}
+
+.s-smodal__error {
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
+.s-smodal__row--invalid .s-bmodal__input {
+  border-color: var(--danger);
+}
+
+.s-smodal__imgfield {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.s-smodal__imgfield .s-bmodal__input {
+  flex: 1;
+}
+
+.s-smodal__imgthumb {
+  flex: none;
+  width: 44px;
+  height: 30px;
+  object-fit: contain;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+/* Invalid / unloadable value: a designed ⌀ chip, never the browser's raw
+   broken-image glyph. */
+.s-smodal__imgthumb--missing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  color: var(--text-faint);
+  font-size: 0.857rem;
+  user-select: none;
+}
+
+.s-smodal__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.s-smodal__dirty {
+  margin-inline-end: auto;
+  font-size: 0.786rem;
+  color: var(--text-faint);
+}
+
+.s-smodal__row--invalid .s-smodal__error,
+.s-smodal__dirty {
+  transition: color 0.15s ease;
+}
+
+/* Nested picker overlay sits above the settings panel. */
+.s-smodal-picker {
+  z-index: 60;
+}
+
+@media (max-width: 560px) {
+  .s-smodal__row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .s-smodal__label {
+    padding-top: 0;
+  }
+}
+
+/* ── Sidebar logo wordmark (settings.logo) ───────────────────────────────── */
+
+.s-title__logo {
+  display: block;
+  max-height: 24px;
+  max-width: 168px;
+  object-fit: contain;
 }

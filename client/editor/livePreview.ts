@@ -31,7 +31,8 @@ import type { SyntaxNode } from "@lezer/common";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { parseWikilink, resolveLink, WIKILINK_RE } from "./links.ts";
-import { buildPropsCard, parseProps, TAG_RE } from "./noteMeta.ts";
+import { bannerFromYaml } from "../banner.ts";
+import { buildBannerEl, buildPropsCard, parseProps, TAG_RE } from "./noteMeta.ts";
 import {
   FileCardWidget,
   ImageWidget,
@@ -709,10 +710,19 @@ function handleMousedown(event: MouseEvent, view: EditorView): boolean {
     return true;
   }
 
+  // The "Set banner…" header action opens the banner modal (App listens).
+  if (target.closest(".cm-s-props__action")) {
+    event.preventDefault();
+    window.dispatchEvent(new CustomEvent("vellum:set-banner"));
+    return true;
+  }
+
   // Properties-card header expands/collapses the card (the widget's own
   // click handler does the toggle) — it must not drop the cursor into the
-  // raw YAML the way clicks on the card body do.
-  if (target.closest(".cm-s-props__head")) {
+  // raw YAML the way clicks on the card body do. The banner hero above the
+  // card is equally inert: clicking a hero image must not dump the cursor
+  // into raw YAML.
+  if (target.closest(".cm-s-props__head, .cm-s-banner")) {
     event.preventDefault();
     return true;
   }
@@ -778,8 +788,17 @@ class FrontmatterWidget extends WidgetType {
     return other.yaml === this.yaml;
   }
   toDOM(): HTMLElement {
+    // Header action: opens the banner modal (handled in the shell via a
+    // window event — the editor chunk stays UI-framework-free here).
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "cm-s-props__action";
+    action.dataset.action = "set-banner";
+    action.textContent = bannerFromYaml(this.yaml) ? "Banner…" : "Set banner…";
+    action.title = "Set a banner image for this note";
     const card = buildPropsCard(this.yaml, {
       prefix: "cm-s-props",
+      action,
       makeTag: (value) => {
         const pill = document.createElement("button");
         pill.type = "button";
@@ -798,7 +817,17 @@ class FrontmatterWidget extends WidgetType {
       },
     });
     // buildBlockDecorations only mounts the widget when parseProps found rows.
-    return card ?? document.createElement("div");
+    if (!card) return document.createElement("div");
+    // Banner hero above the card (subtle, rounded, capped height).
+    const banner = bannerFromYaml(this.yaml);
+    if (banner) {
+      const wrap = document.createElement("div");
+      wrap.className = "cm-s-fmblock";
+      wrap.appendChild(buildBannerEl(banner, "cm-s-banner"));
+      wrap.appendChild(card);
+      return wrap;
+    }
+    return card;
   }
 }
 

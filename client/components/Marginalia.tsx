@@ -8,6 +8,7 @@ import type { CommentData } from "../../shared/types.ts";
 import { withPreview } from "../api.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
+import { confirmModal } from "./Confirm.tsx";
 import "../styles/comments.css";
 
 const AUTHOR_KEY = "vellum.comment.author";
@@ -40,9 +41,30 @@ async function postComment(payload: {
   return data as CommentData;
 }
 
-async function deleteComment(id: number): Promise<void> {
+export async function deleteComment(id: number): Promise<void> {
   const res = await fetch(`/api/comments/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+/** Admin-only: hide (or unhide) a comment. Hidden ones vanish for visitors. */
+export async function setCommentHidden(id: number, hidden: boolean): Promise<void> {
+  const res = await fetch(`/api/comments/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ hidden }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+/** Eye-with-slash glyph for the hide toggle (crossed out = currently hidden). */
+export function IconEyeSlash({ off }: { off: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+      <circle cx="12" cy="12" r="2.6" />
+      {off && <path d="M4 4l16 16" />}
+    </svg>
+  );
 }
 
 function relativeTime(ms: number): string {
@@ -137,9 +159,23 @@ export default function Marginalia({ path }: { path: string }) {
   };
 
   const remove = (id: number): void => {
-    deleteComment(id)
-      .then(() => setComments((list) => (list ?? []).filter((cm) => cm.id !== id)))
-      .catch(() => toast("Deleting comment failed"));
+    void confirmModal({
+      title: "Delete comment?",
+      body: "The comment will be removed for everyone. This cannot be undone.",
+    }).then((ok) => {
+      if (!ok) return;
+      deleteComment(id)
+        .then(() => setComments((list) => (list ?? []).filter((cm) => cm.id !== id)))
+        .catch(() => toast("Deleting comment failed"));
+    });
+  };
+
+  const toggleHidden = (id: number, hidden: boolean): void => {
+    setCommentHidden(id, hidden)
+      .then(() =>
+        setComments((list) => (list ?? []).map((cm) => (cm.id === id ? { ...cm, hidden } : cm))),
+      )
+      .catch(() => toast(hidden ? "Hiding comment failed" : "Unhiding comment failed"));
   };
 
   return (
@@ -158,20 +194,36 @@ export default function Marginalia({ path }: { path: string }) {
       {comments.length > 0 && (
         <ul className="s-marginalia__list">
           {comments.map((cm) => (
-            <li key={cm.id} className="s-comment">
+            <li
+              key={cm.id}
+              className={`s-comment${cm.hidden ? " s-comment--hidden" : ""}`}
+            >
               <div className="s-comment__meta">
                 <span className="s-comment__author">{cm.author}</span>
                 <span className="s-comment__time">{relativeTime(cm.createdMs)}</span>
+                {cm.hidden && <span className="s-comment__chip">hidden</span>}
                 {admin && cm.id > 0 && (
-                  <button
-                    type="button"
-                    className="s-comment__delete"
-                    title="Delete comment"
-                    aria-label="Delete comment"
-                    onClick={() => remove(cm.id)}
-                  >
-                    ×
-                  </button>
+                  <span className="s-comment__tools">
+                    <button
+                      type="button"
+                      className={`s-comment__hide${cm.hidden ? " s-comment__hide--on" : ""}`}
+                      title={cm.hidden ? "Unhide comment" : "Hide comment from visitors"}
+                      aria-label={cm.hidden ? "Unhide comment" : "Hide comment"}
+                      aria-pressed={cm.hidden === true}
+                      onClick={() => toggleHidden(cm.id, !cm.hidden)}
+                    >
+                      <IconEyeSlash off={!cm.hidden} />
+                    </button>
+                    <button
+                      type="button"
+                      className="s-comment__delete"
+                      title="Delete comment"
+                      aria-label="Delete comment"
+                      onClick={() => remove(cm.id)}
+                    >
+                      ×
+                    </button>
+                  </span>
                 )}
               </div>
               <p className="s-comment__body">{cm.body}</p>

@@ -125,7 +125,9 @@ interface State {
 
 `--bg`, `--bg-raised`, `--bg-hover`, `--text`, `--text-muted`, `--text-faint`, `--accent`,
 `--accent-soft` (translucent accent for backgrounds), `--border`, `--danger`, `--font-ui`,
-`--font-serif`, `--font-mono`, `--radius` (6px), `--sidebar-w` (280px). Default (no attr) =
+`--font-serif`, `--font-mono`, `--radius` (6px), `--sidebar-w` (292px), `--font-base` (15.5px —
+drives `html { font-size }`; ALL chrome is sized in rem so this one token scales the whole UI),
+`--font-prose` (1.161rem ≈ 18px — editor/reading prose). Default (no attr) =
 iron-gall dark. `data-theme` attr lives on `<html>`. app.css: layout grid, sidebar, tabs, panels,
 palette, scrollbars (thin, themed), `::selection` gold. Class names are BEM-ish plain CSS,
 prefix `s-` (e.g. `.s-sidebar`, `.s-tab`, `.s-palette`). Components must use these exact class

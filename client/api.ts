@@ -3,14 +3,18 @@
 
 import type {
   Backlink,
+  FrontmatterResult,
   GraphData,
   MeData,
   NoteData,
   PostMeta,
   PublishResult,
   SearchHit,
+  SettingsPatch,
+  SettingsResponse,
   TagCount,
   TreeNode,
+  UploadResult,
   VaultEvent,
 } from "../shared/types.ts";
 
@@ -36,8 +40,11 @@ export function withPreview(init?: RequestInit): RequestInit | undefined {
   return { ...init, headers };
 }
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, withPreview(init));
+async function request<T>(url: string, init?: RequestInit, asAdmin = false): Promise<T> {
+  // asAdmin: skip the preview header — for admin actions offered INSIDE the
+  // visitor preview (the dashboard's "Change banner…"), which must reach the
+  // server as the real admin session or the guard would 401/404 them.
+  const res = await fetch(url, asAdmin ? init : withPreview(init));
   let body: unknown = null;
   try {
     body = await res.json();
@@ -129,6 +136,42 @@ export function getPosts(): Promise<PostMeta[]> {
 /** Toggle a note's frontmatter publish flag (admin only). */
 export function publishNote(path: string, publish: boolean): Promise<PublishResult> {
   return request<PublishResult>("/api/publish", json("POST", { path, publish }));
+}
+
+/** Surgically set (value) or remove (null) one frontmatter key (admin only;
+ *  server allowlists the keys — "banner" for now). */
+export function setFrontmatter(
+  path: string,
+  key: string,
+  value: string | null,
+): Promise<FrontmatterResult> {
+  return request<FrontmatterResult>("/api/frontmatter", json("POST", { path, key, value }));
+}
+
+/** Upload an image into the vault's attachments dir (admin only). `asAdmin`
+ *  bypasses the visitor-preview header (see request). */
+export function uploadAttachment(file: File, asAdmin = false): Promise<UploadResult> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  // No Content-Type header: the browser sets the multipart boundary itself.
+  return request<UploadResult>("/api/upload", { method: "POST", body: form }, asAdmin);
+}
+
+/** Every image attachment in the vault (admin only) — the banner picker.
+ *  `asAdmin` bypasses the visitor-preview header (see request). */
+export function listAttachments(asAdmin = false): Promise<string[]> {
+  return request<string[]>("/api/attachments", undefined, asAdmin);
+}
+
+/** Instance settings (admin only; VELLUM_DATA/settings.json). */
+export function getSettings(): Promise<SettingsResponse> {
+  return request<SettingsResponse>("/api/settings", undefined, true);
+}
+
+/** Partial settings update (admin only; null values clear keys). Always sent
+ *  as the real admin session — the affordance lives inside visitor preview. */
+export function patchSettings(patch: SettingsPatch): Promise<SettingsResponse> {
+  return request<SettingsResponse>("/api/settings", json("PATCH", patch), true);
 }
 
 /**

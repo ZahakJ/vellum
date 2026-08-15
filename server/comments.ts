@@ -1,11 +1,13 @@
 // Marginalia: visitor comments under published notes, stored in a local
-// SQLite file (node:sqlite — zero dependencies). Opt-in via COMMENTS=on;
+// SQLite file (node:sqlite — zero dependencies). Opt-in via COMMENTS=on or
+// the settings panel (settings.commentsEnabled overrides the env value, live);
 // off (the default) keeps the whole feature dark: no db file, routes 404.
 
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { CommentData } from "../shared/types.ts";
+import { getSettings } from "./settings.ts";
 
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX_POSTS = 5;
@@ -14,32 +16,64 @@ export const AUTHOR_MAX = 40;
 export const BODY_MAX = 2000;
 
 let db: DatabaseSync | null = null;
+let envOn = false;
+let commentsDataDir = path.resolve("data");
+let lastOpenErrorAt = 0;
 
 /** Read COMMENTS / VELLUM_DATA from the environment. Call once at startup. */
 export function initComments(env: NodeJS.ProcessEnv = process.env): void {
-  const on = /^(on|true|1|yes)$/i.test(env.COMMENTS?.trim() ?? "");
-  if (!on) return;
-  const dataDir = path.resolve(env.VELLUM_DATA?.trim() || "data");
-  mkdirSync(dataDir, { recursive: true });
-  const file = path.join(dataDir, "comments.db");
-  db = new DatabaseSync(file);
-  db.exec(`
-    PRAGMA journal_mode = WAL;
-    CREATE TABLE IF NOT EXISTS comments (
-      id        INTEGER PRIMARY KEY AUTOINCREMENT,
-      notePath  TEXT    NOT NULL,
-      author    TEXT    NOT NULL,
-      body      TEXT    NOT NULL,
-      createdMs INTEGER NOT NULL,
-      ip        TEXT    NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_comments_notePath ON comments (notePath, createdMs);
-  `);
-  console.log(`vellum: comments enabled — ${file}`);
+  envOn = /^(on|true|1|yes)$/i.test(env.COMMENTS?.trim() ?? "");
+  commentsDataDir = path.resolve(env.VELLUM_DATA?.trim() || "data");
+  if (envOn) openDb();
 }
 
+/** Open (or reuse) the comments db. Failures are logged, not thrown — the
+ *  feature then just stays dark (commentsEnabled() false). */
+function openDb(): void {
+  if (db) return;
+  try {
+    mkdirSync(commentsDataDir, { recursive: true });
+    const file = path.join(commentsDataDir, "comments.db");
+    const opened = new DatabaseSync(file);
+    opened.exec(`
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE IF NOT EXISTS comments (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        notePath  TEXT    NOT NULL,
+        author    TEXT    NOT NULL,
+        body      TEXT    NOT NULL,
+        createdMs INTEGER NOT NULL,
+        ip        TEXT    NOT NULL,
+        hidden    INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_comments_notePath ON comments (notePath, createdMs);
+    `);
+    // Migration: databases created before moderation lack the `hidden` column
+    // (CREATE TABLE IF NOT EXISTS never touches an existing table). Add it once.
+    const cols = opened.prepare("PRAGMA table_info(comments)").all() as unknown as { name: string }[];
+    if (!cols.some((col) => col.name === "hidden")) {
+      opened.exec("ALTER TABLE comments ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
+      console.log("vellum: comments db migrated — added hidden column");
+    }
+    db = opened;
+    console.log(`vellum: comments enabled — ${file}`);
+  } catch (err) {
+    // Warn at most once a minute — this runs on every comments check while
+    // the toggle wants comments on but the db cannot open.
+    if (Date.now() - lastOpenErrorAt > 60_000) {
+      lastOpenErrorAt = Date.now();
+      console.error("vellum: could not open the comments db:", err);
+    }
+  }
+}
+
+/** Live merge: settings.commentsEnabled when set, else COMMENTS. Turning the
+ *  feature on at runtime opens the db lazily right here; turning it off keeps
+ *  the db file (and the open handle) but darkens every route/UI surface. */
 export function commentsEnabled(): boolean {
-  return db !== null;
+  const want = getSettings().commentsEnabled ?? envOn;
+  if (want && db === null) openDb();
+  return want && db !== null;
 }
 
 interface CommentRow {
@@ -48,15 +82,54 @@ interface CommentRow {
   author: string;
   body: string;
   createdMs: number;
+  hidden: number;
 }
 
-/** All comments for a note, oldest first. The stored IP never leaves the server. */
-export function listComments(notePath: string): CommentData[] {
+function toComment(r: CommentRow, moderator: boolean): CommentData {
+  const { hidden, ...rest } = r;
+  // Visitors never learn a hidden flag exists; moderators always get it.
+  return moderator ? { ...rest, hidden: hidden === 1 } : { ...rest };
+}
+
+/** All comments for a note, oldest first. The stored IP never leaves the
+ *  server. Moderators see hidden comments (flagged); visitors never do. */
+export function listComments(notePath: string, moderator = false): CommentData[] {
+  if (!db) return [];
+  const sql = `SELECT id, notePath, author, body, createdMs, hidden FROM comments
+    WHERE notePath = ?${moderator ? "" : " AND hidden = 0"} ORDER BY createdMs, id`;
+  const rows = db.prepare(sql).all(notePath) as unknown as CommentRow[];
+  return rows.map((r) => toComment(r, moderator));
+}
+
+/** Comment counts per note path in one query (the blog's commentCount).
+ *  Visitors count visible comments only; moderators include hidden ones. */
+export function commentCounts(includeHidden: boolean): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!db) return out;
+  const rows = db
+    .prepare(
+      `SELECT notePath, COUNT(*) AS n FROM comments${includeHidden ? "" : " WHERE hidden = 0"} GROUP BY notePath`,
+    )
+    .all() as unknown as { notePath: string; n: number | bigint }[];
+  for (const row of rows) out.set(row.notePath, Number(row.n));
+  return out;
+}
+
+/** Newest comments across every note (moderation panel), hidden included. */
+export function listAllComments(limit: number): CommentData[] {
   if (!db) return [];
   const rows = db
-    .prepare("SELECT id, notePath, author, body, createdMs FROM comments WHERE notePath = ? ORDER BY createdMs, id")
-    .all(notePath) as unknown as CommentRow[];
-  return rows.map((r) => ({ ...r }));
+    .prepare(
+      "SELECT id, notePath, author, body, createdMs, hidden FROM comments ORDER BY createdMs DESC, id DESC LIMIT ?",
+    )
+    .all(limit) as unknown as CommentRow[];
+  return rows.map((r) => toComment(r, true));
+}
+
+/** Flip a comment's hidden flag. True when the row exists. */
+export function setCommentHidden(id: number, hidden: boolean): boolean {
+  if (!db) return false;
+  return db.prepare("UPDATE comments SET hidden = ? WHERE id = ?").run(hidden ? 1 : 0, id).changes > 0;
 }
 
 export function addComment(notePath: string, author: string, body: string, ip: string): CommentData {

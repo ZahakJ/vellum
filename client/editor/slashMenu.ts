@@ -1,0 +1,224 @@
+// Slash commands + structural autocompletes:
+//
+//   - "/" at the start of a line opens a fuzzy menu of block inserts
+//     (callout, code fence, table, task list, math block, divider, date,
+//     daily-note link) — arrow keys + Enter, Esc, all via CM autocomplete;
+//   - "> [!" completes Obsidian callout types, each row showing the callout's
+//     icon in its color;
+//   - "```lang" completes fence languages from @codemirror/language-data.
+//
+// All three are extra sources for the autocompletion() instance assembled in
+// autocomplete.ts, so they share the palette-grade tooltip styling.
+
+import {
+  snippet,
+  startCompletion,
+  type Completion,
+  type CompletionContext,
+  type CompletionResult,
+} from "@codemirror/autocomplete";
+import type { EditorView } from "@codemirror/view";
+import { languages } from "@codemirror/language-data";
+import { dailyNotePath } from "../daily.ts";
+import { CALLOUT_TYPES, calloutGroup, calloutIconSvg } from "./calloutDefs.ts";
+
+// ── Slash menu ──────────────────────────────────────────────────────────────
+
+function isoToday(): string {
+  return dailyNotePath().replace(/^daily\/|\.md$/g, "");
+}
+
+/** Insert plain text, cursor at `text.length - back`. */
+function insertText(text: string, back = 0) {
+  return (view: EditorView, _c: Completion, from: number, to: number): void => {
+    view.dispatch({
+      changes: { from, to, insert: text },
+      selection: { anchor: from + text.length - back },
+      userEvent: "input.complete",
+    });
+  };
+}
+
+/** snippet(), then pop the follow-up completion (fence language search). */
+function snippetThenComplete(template: string) {
+  const apply = snippet(template);
+  return (view: EditorView, c: Completion, from: number, to: number): void => {
+    apply(view, c, from, to);
+    window.setTimeout(() => startCompletion(view), 0);
+  };
+}
+
+interface SlashItem {
+  label: string;
+  detail: string;
+  boost: number;
+  apply: (view: EditorView, c: Completion, from: number, to: number) => void;
+}
+
+function slashItems(): SlashItem[] {
+  return [
+    {
+      label: "Callout",
+      detail: "> [!note]",
+      boost: 9,
+      apply: snippet("> [!${note}] ${}"),
+    },
+    {
+      label: "Code block",
+      detail: "``` with language search",
+      boost: 8,
+      apply: snippetThenComplete("```${}\n${}\n```"),
+    },
+    {
+      label: "Table",
+      detail: "3-column skeleton",
+      boost: 7,
+      apply: snippet(
+        "| ${Column 1} | ${Column 2} | ${Column 3} |\n| --- | --- | --- |\n| ${} |  |  |",
+      ),
+    },
+    {
+      label: "Task list",
+      detail: "- [ ]",
+      boost: 6,
+      apply: snippet("- [ ] ${}"),
+    },
+    {
+      label: "Math block",
+      detail: "$$ display math $$",
+      boost: 5,
+      apply: snippet("$$\n${}\n$$"),
+    },
+    {
+      label: "Divider",
+      detail: "---",
+      boost: 4,
+      apply: insertText("---\n"),
+    },
+    {
+      label: "Date",
+      detail: isoToday(),
+      boost: 3,
+      apply: insertText(isoToday()),
+    },
+    {
+      label: "Daily note link",
+      detail: `[[daily/${isoToday()}]]`,
+      boost: 2,
+      apply: insertText(`[[daily/${isoToday()}]]`),
+    },
+  ];
+}
+
+export function slashSource(context: CompletionContext): CompletionResult | null {
+  const line = context.state.doc.lineAt(context.pos);
+  const before = line.text.slice(0, context.pos - line.from);
+  const match = /^(\s*)\/([\w -]*)$/.exec(before);
+  if (!match) return null;
+  const slashPos = line.from + match[1].length;
+  const options: Completion[] = slashItems().map((item) => ({
+    label: item.label,
+    detail: item.detail,
+    boost: item.boost,
+    // The match region starts after "/" (so typing filters by label), but the
+    // insert must also swallow the slash itself.
+    apply: (view, c, from, to) => item.apply(view, c, Math.min(slashPos, from - 1), to),
+  }));
+  return { from: slashPos + 1, options, validFor: /^[\w -]*$/ };
+}
+
+// ── Callout-type autocomplete ("> [!") ──────────────────────────────────────
+
+interface CalloutCompletion extends Completion {
+  calloutGroup: string;
+}
+
+function applyCalloutType(
+  view: EditorView,
+  completion: Completion,
+  from: number,
+  to: number,
+): void {
+  // closeBrackets means "[" usually arrived with its "]" — step over it.
+  const closed = view.state.sliceDoc(to, to + 1) === "]";
+  if (closed) {
+    view.dispatch({
+      changes: [
+        { from, to, insert: completion.label },
+        { from: to + 1, to: to + 1, insert: " " },
+      ],
+      selection: { anchor: from + completion.label.length + 2 },
+      userEvent: "input.complete",
+    });
+  } else {
+    const insert = `${completion.label}] `;
+    view.dispatch({
+      changes: { from, to, insert },
+      selection: { anchor: from + insert.length },
+      userEvent: "input.complete",
+    });
+  }
+}
+
+export function calloutTypeSource(
+  context: CompletionContext,
+): CompletionResult | null {
+  const match = context.matchBefore(/>\s*\[!\w*$/);
+  if (!match) return null;
+  const typed = /\w*$/.exec(match.text)?.[0] ?? "";
+  const options: CalloutCompletion[] = CALLOUT_TYPES.map((type, i) => ({
+    label: type,
+    calloutGroup: calloutGroup(type),
+    apply: applyCalloutType,
+    boost: CALLOUT_TYPES.length - i, // keep canonical order, not alphabetical
+  }));
+  return { from: context.pos - typed.length, options, validFor: /^\w*$/ };
+}
+
+/** addToOptions renderer: callout rows get their icon in the callout color. */
+export function calloutIconRender(completion: Completion): Node | null {
+  const group = (completion as Partial<CalloutCompletion>).calloutGroup;
+  if (!group) return null;
+  const span = document.createElement("span");
+  span.className = "cm-s-complete-callout";
+  span.dataset.group = group;
+  span.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${calloutIconSvg(group)}</svg>`;
+  return span;
+}
+
+// ── Fence language search ("```lang") ───────────────────────────────────────
+
+let langOptions: Completion[] | null = null;
+
+function fenceLanguages(): Completion[] {
+  if (langOptions) return langOptions;
+  const seen = new Set<string>();
+  langOptions = [];
+  for (const desc of languages) {
+    const label = (desc.alias[0] ?? desc.name).toLowerCase();
+    if (seen.has(label)) continue;
+    seen.add(label);
+    langOptions.push({
+      label,
+      detail: desc.name.toLowerCase() === label ? undefined : desc.name,
+      type: "text",
+    });
+  }
+  langOptions.sort((a, b) => a.label.localeCompare(b.label));
+  return langOptions;
+}
+
+export function fenceLanguageSource(
+  context: CompletionContext,
+): CompletionResult | null {
+  const line = context.state.doc.lineAt(context.pos);
+  const before = line.text.slice(0, context.pos - line.from);
+  // Allow quote prefixes: fences also live inside callouts ("> ```py").
+  const match = /^\s*(?:>\s*)*(?:```|~~~)([\w+#-]*)$/.exec(before);
+  if (!match) return null;
+  return {
+    from: context.pos - match[1].length,
+    options: fenceLanguages(),
+    validFor: /^[\w+#-]*$/,
+  };
+}

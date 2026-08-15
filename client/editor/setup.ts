@@ -16,9 +16,15 @@ import {
   history,
   historyKeymap,
   indentWithTab,
+  moveLineDown,
+  moveLineUp,
 } from "@codemirror/commands";
 import { bracketMatching, indentOnInput } from "@codemirror/language";
-import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import {
+  markdown,
+  markdownLanguage,
+  pasteURLAsLink,
+} from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import {
@@ -30,6 +36,9 @@ import { autoLineDirection } from "./bidi.ts";
 import { editorTheme, vellumHighlighting } from "./theme.ts";
 import { livePreview } from "./livePreview.ts";
 import { wikilinkAutocomplete } from "./autocomplete.ts";
+import { imageUploads } from "./uploads.ts";
+import { hoverPreviews } from "./hoverPreview.ts";
+import { headingFolds } from "./folding.ts";
 
 export interface EditorSetupOptions {
   doc: string;
@@ -99,10 +108,19 @@ export function buildEditorState(options: EditorSetupOptions): EditorState {
       vellumHighlighting(),
       livePreview(options.path),
       wikilinkAutocomplete(),
+      // Editing delight: paste/drop image uploads, pasting a URL over a
+      // selection makes a markdown link, wikilink/footnote hover previews,
+      // heading-section folding.
+      imageUploads(),
+      pasteURLAsLink,
+      hoverPreviews(),
+      headingFolds(),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) options.onDocChanged(update.view);
       }),
       keymap.of([
+        { key: "Mod-ArrowUp", run: moveLineUp },
+        { key: "Mod-ArrowDown", run: moveLineDown },
         ...closeBracketsKeymap,
         ...completionKeymap,
         ...searchKeymap,

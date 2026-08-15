@@ -2,6 +2,25 @@
 // shared by the live-preview plugin (editor chunk) and the reading-view
 // renderer (first-paint chunk). No CodeMirror imports here.
 
+import { bannerSrc } from "../banner.ts";
+
+/** Frontmatter `banner:` → hero image element (editor + reading view share
+ *  the DOM shape; callers pass their prefix class). Unloadable images remove
+ *  themselves — no broken-image furniture above a note. */
+export function buildBannerEl(value: string, className: string): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = className;
+  const img = document.createElement("img");
+  img.className = `${className}__img`;
+  img.alt = "";
+  img.loading = "lazy";
+  img.decoding = "async";
+  img.addEventListener("error", () => wrap.remove(), { once: true });
+  img.src = bannerSrc(value);
+  wrap.appendChild(img);
+  return wrap;
+}
+
 /** Inline #tag matcher (unicode letters, digits, _, /, -). */
 export const TAG_RE = /(^|[\s([{])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu;
 
@@ -77,6 +96,9 @@ export interface PropsCardOpts {
    *  The returned element must carry a `data-tag` attribute so header
    *  clicks on a pill don't also toggle the card. */
   makeTag: (value: string) => HTMLElement;
+  /** Optional trailing header action (the editor's "Set banner…" button).
+   *  Must carry `data-tag` (or stop propagation) so it doesn't toggle. */
+  action?: HTMLElement;
 }
 
 /** Frontmatter → collapsible properties card. Collapsed (the default) it is a
@@ -120,6 +142,7 @@ export function buildPropsCard(yaml: string, opts: PropsCardOpts): HTMLElement |
     for (const value of tags) inline.appendChild(opts.makeTag(value));
     head.appendChild(inline);
   }
+  if (opts.action) head.appendChild(opts.action);
 
   const toggle = (): void => {
     const nowCollapsed = box.classList.toggle(`${p}--collapsed`);
@@ -127,7 +150,7 @@ export function buildPropsCard(yaml: string, opts: PropsCardOpts): HTMLElement |
     setPropsExpanded(!nowCollapsed);
   };
   head.addEventListener("click", (ev) => {
-    if ((ev.target as HTMLElement).closest("[data-tag]")) return; // pill wins
+    if ((ev.target as HTMLElement).closest("[data-tag], [data-action]")) return; // pill/action wins
     ev.preventDefault();
     ev.stopPropagation();
     toggle();

@@ -30,6 +30,13 @@ export default function BlogHome({
     [homeNote, tree],
   );
 
+  // Inline #tag pill allowlist for the intro note (see BlogArticle):
+  // excluded workflow tags render as plain text, not pills.
+  const introTags = useMemo(() => {
+    const meta = introPath ? (posts ?? []).find((p) => p.path === introPath) : null;
+    return meta ? new Set(meta.tags.map((t) => t.toLowerCase())) : null;
+  }, [posts, introPath]);
+
   useEffect(() => {
     const host = introRef.current;
     if (!host || !introPath) return;
@@ -43,6 +50,7 @@ export default function BlogHome({
           // Same reader-facing polish as the article page.
           brokenLinks: "plain",
           missingImages: "card",
+          ...(introTags ? { visibleTags: introTags } : {}),
         });
         el.classList.add("s-reading__content");
         introRef.current.replaceChildren(el);
@@ -53,7 +61,7 @@ export default function BlogHome({
     return () => {
       disposed = true;
     };
-  }, [introPath]);
+  }, [introPath, introTags]);
 
   const listed = useMemo(
     () => (posts ?? []).filter((p) => p.path !== introPath),

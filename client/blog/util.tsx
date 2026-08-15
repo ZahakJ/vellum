@@ -2,7 +2,7 @@
 // BLOG_LOCALE and the intercepted <a> used for every internal link (real href
 // for middle-click / copy-link semantics, client-side navigation on plain click).
 
-import type { MouseEvent, ReactNode } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { go } from "./nav.ts";
 
 /** ISO date → localized long date ("14 August 2026", "١٤ أغسطس ٢٠٢٦"…).
@@ -32,13 +32,19 @@ export function NavLink({
   className,
   dir,
   title,
+  style,
+  tabIndex,
+  "aria-hidden": ariaHidden,
   children,
 }: {
   url: string;
   className?: string;
   dir?: string;
   title?: string;
-  children: ReactNode;
+  style?: CSSProperties;
+  tabIndex?: number;
+  "aria-hidden"?: boolean | "true" | "false";
+  children?: ReactNode;
 }) {
   const onClick = (e: MouseEvent<HTMLAnchorElement>): void => {
     if (e.defaultPrevented || e.button !== 0) return;
@@ -47,7 +53,16 @@ export function NavLink({
     go(url);
   };
   return (
-    <a href={url} className={className} dir={dir} title={title} onClick={onClick}>
+    <a
+      href={url}
+      className={className}
+      dir={dir}
+      title={title}
+      style={style}
+      tabIndex={tabIndex}
+      aria-hidden={ariaHidden}
+      onClick={onClick}
+    >
       {children}
     </a>
   );

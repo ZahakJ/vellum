@@ -8,11 +8,15 @@ import { subscribeEvents } from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import BlogShell from "./blog/BlogShell.tsx";
 import BacklinksPanel from "./components/BacklinksPanel.tsx";
+import BannerModal from "./components/BannerModal.tsx";
 import CommandPalette from "./components/CommandPalette.tsx";
+import ConfirmHost from "./components/Confirm.tsx";
 import GraphView from "./components/GraphView.tsx";
 import LoginModal from "./components/LoginModal.tsx";
+import ModerationPanel from "./components/ModerationPanel.tsx";
 import PreviewBanner from "./components/PreviewBanner.tsx";
 import ReadingView from "./reading/ReadingView.tsx";
+import SettingsModal from "./components/SettingsModal.tsx";
 import Sidebar from "./components/Sidebar.tsx";
 import StatusBar from "./components/StatusBar.tsx";
 import Tabs from "./components/Tabs.tsx";
@@ -36,10 +40,14 @@ export default function App() {
   const readingMode = useStore((s) => s.readingMode);
   const paletteOpen = useStore((s) => s.paletteOpen);
   const loginOpen = useStore((s) => s.loginOpen);
+  const bannerModalOpen = useStore((s) => s.bannerModalOpen);
+  const moderationOpen = useStore((s) => s.moderationOpen);
+  const settingsOpen = useStore((s) => s.settingsOpen);
   const reloadTick = useStore((s) => s.reloadTick);
   const admin = useStore((s) => s.admin);
   const authReady = useStore((s) => s.authReady);
   const publicLayout = useStore((s) => s.publicLayout);
+  const sidebarOpen = useStore((s) => s.sidebarOpen);
   const locked = useStore((s) => !s.admin && !s.publicReads);
   const lastSaveRef = useRef(0);
 
@@ -134,11 +142,33 @@ export default function App() {
     return subscribeEvents(onEvent);
   }, [admin]);
 
+  // "Set banner…" requests from the editor's properties-card action.
+  useEffect(() => {
+    const onSetBanner = (): void => {
+      const store = useStore.getState();
+      if (store.admin && store.openPath) store.setBannerModalOpen(true);
+    };
+    window.addEventListener("vellum:set-banner", onSetBanner);
+    return () => window.removeEventListener("vellum:set-banner", onSetBanner);
+  }, []);
+
   // Global keyboard shortcuts.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
       const store = useStore.getState();
+      // A modal dialog owns the keyboard: app-level shortcuts firing behind
+      // the login/banner/moderation/confirm overlays would steal focus (e.g.
+      // Ctrl+K focusing the sidebar search under the modal) or stack modals.
+      if (
+        store.loginOpen ||
+        store.bannerModalOpen ||
+        store.moderationOpen ||
+        store.settingsOpen ||
+        document.querySelector(".s-confirm-overlay") !== null
+      ) {
+        return;
+      }
       const key = e.key.toLowerCase();
       if (key === "p" && e.shiftKey) {
         // Ctrl/Cmd+Shift+P: publish toggle (admin, note open) — never the palette.
@@ -147,6 +177,14 @@ export default function App() {
       } else if (key === "p") {
         e.preventDefault();
         store.setPaletteOpen(!store.paletteOpen);
+      } else if (key === "k") {
+        // Ctrl/Cmd+K — search everywhere: the sidebar's search box in the
+        // app shell, a centered overlay in the blog shell. Whichever shell is
+        // mounted owns the event. An open palette hands over to search
+        // instead of fighting it for focus.
+        e.preventDefault();
+        if (store.paletteOpen) store.setPaletteOpen(false);
+        window.dispatchEvent(new Event("vellum:quicksearch"));
       } else if (key === "g") {
         e.preventDefault();
         store.setView(store.view === "graph" ? "editor" : "graph");
@@ -188,14 +226,33 @@ export default function App() {
       <>
         <BlogShell />
         <PreviewBanner />
+        <ConfirmHost />
       </>
     );
   }
 
   return (
-    <div className={`s-app${admin ? "" : " s-app--visitor"}`}>
+    <div className={`s-app${admin ? "" : " s-app--visitor"}${sidebarOpen ? " s-app--drawer" : ""}`}>
       <Sidebar />
+      {/* Mobile drawer chrome: backdrop dismisses; the toggle floats over the
+          main column. Both are display:none above the narrow breakpoint. */}
+      <div
+        className="s-drawer-backdrop"
+        onClick={() => useStore.getState().setSidebarOpen(false)}
+        aria-hidden="true"
+      />
       <main className="s-main">
+        <button
+          type="button"
+          className="s-drawer-btn"
+          aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+          title={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+          onClick={() => useStore.getState().setSidebarOpen(!sidebarOpen)}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
         <Tabs />
         <section className="s-view">
           {view === "graph" ? (
@@ -232,6 +289,9 @@ export default function App() {
                 <span className="s-empty__key">
                   <kbd>Ctrl G</kbd> graph view
                 </span>
+                <span className="s-empty__key">
+                  <kbd>Ctrl K</kbd> search notes
+                </span>
                 {admin && (
                   <>
                     <span className="s-empty__key">
@@ -255,6 +315,10 @@ export default function App() {
       <PreviewBanner />
       {paletteOpen && <CommandPalette />}
       {loginOpen && <LoginModal />}
+      {bannerModalOpen && admin && <BannerModal />}
+      {moderationOpen && admin && <ModerationPanel />}
+      {settingsOpen && admin && <SettingsModal />}
+      <ConfirmHost />
     </div>
   );
 }

@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GraphData, PostMeta } from "../../shared/types.ts";
 import { getGraph, getNote } from "../api.ts";
+import { bannerSrc, generatedBannerCss } from "../banner.ts";
 import Marginalia from "../components/Marginalia.tsx";
 import { renderMarkdown } from "../reading/render.ts";
 import { notePathToUrl } from "../router.ts";
@@ -64,10 +65,19 @@ export default function BlogArticle({
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const tree = useStore((s) => s.tree);
   const pendingHeading = useStore((s) => s.pendingHeading);
+  const bannerFallback = useStore((s) => s.bannerFallback);
   const [graph, setGraph] = useState<GraphData | null>(null);
 
   const title = path.split("/").pop()!.replace(/\.md$/i, "");
   const meta = posts?.find((p) => p.path === path) ?? null;
+
+  // The post's server-filtered tag list (EXCLUDE_TAGS already applied) is
+  // the allowlist for inline #tag pills in the body — an excluded workflow
+  // tag ("Status: #child") renders as plain text, not a styled pill.
+  const visibleTags = useMemo(
+    () => (meta ? new Set(meta.tags.map((t) => t.toLowerCase())) : null),
+    [meta],
+  );
 
   // Keep the store's notion of "the open note" in sync — same-note heading
   // links and other store consumers rely on it.
@@ -91,6 +101,7 @@ export default function BlogArticle({
           // card (or vanish when the filename is machine noise).
           brokenLinks: "plain",
           missingImages: "card",
+          ...(visibleTags ? { visibleTags } : {}),
         });
         el.classList.add("s-reading__content");
         dropDuplicateTitle(el, title);
@@ -109,7 +120,7 @@ export default function BlogArticle({
     return () => {
       disposed = true;
     };
-  }, [path, tree]);
+  }, [path, tree, visibleTags]);
 
   // A wikilink to a heading of the note already on screen: openPath doesn't
   // change, only pendingHeading does — consume it here.
@@ -191,6 +202,34 @@ export default function BlogArticle({
           </div>
         )}
       </header>
+
+      {meta?.banner ? (
+        <div className="s-blog-hero">
+          <img
+            className="s-blog-hero__img"
+            src={bannerSrc(meta.banner)}
+            alt=""
+            onLoad={(e) => {
+              // Portrait-ish banners (tall screenshots): object-fit cover
+              // would decapitate them — switch to a letterboxed contain.
+              const img = e.currentTarget;
+              const tall = img.naturalHeight > 0 && img.naturalWidth / img.naturalHeight < 4 / 3;
+              img.classList.toggle("s-blog-hero__img--tall", tall);
+            }}
+            onError={(e) => {
+              // Unloadable banner: no broken-image furniture above an article.
+              const wrap = e.currentTarget.parentElement;
+              if (wrap) wrap.style.display = "none";
+            }}
+          />
+        </div>
+      ) : bannerFallback === "generated" ? (
+        <div
+          className="s-blog-hero s-blog-hero--gen"
+          style={{ background: generatedBannerCss(title) }}
+          aria-hidden="true"
+        />
+      ) : null}
 
       <div className="s-blog-article__body" ref={bodyRef} />
 

@@ -52,6 +52,24 @@ const GROUP_ICON: Record<string, string> = {
 
 const TITLE_RE = /^(\s*>\s*)\[!(\w+)\]([+-]?)\s*(.*)$/;
 
+/** Canonical callout types (one per color group), in display order — the
+ *  editor's "> [!" autocomplete offers these. */
+export const CALLOUT_TYPES: readonly string[] = [
+  "note",
+  "abstract",
+  "info",
+  "todo",
+  "tip",
+  "success",
+  "question",
+  "warning",
+  "failure",
+  "danger",
+  "bug",
+  "example",
+  "quote",
+];
+
 // ── Shared with the reading-view renderer (client/reading/render.ts) ────────
 
 /** Matches a callout title line INCLUDING its "> " prefix. No `g` flag. */
