@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { PostMeta } from "../../shared/types.ts";
 import { getNote } from "../api.ts";
+import { t } from "../i18n.ts";
 import { resolveLink } from "../editor/links.ts";
 import { renderMarkdown } from "../reading/render.ts";
 import { useStore } from "../state.ts";
@@ -20,6 +21,7 @@ export default function BlogHome({
 }) {
   const tree = useStore((s) => s.tree);
   const homeNote = useStore((s) => s.homeNote);
+  useStore((s) => s.language); // re-render chrome strings on a live language switch
   const introRef = useRef<HTMLDivElement | null>(null);
 
   // HOME_NOTE resolves like a wikilink against the visitor tree — so only a
@@ -72,7 +74,7 @@ export default function BlogHome({
     <div className="s-blog-page">
       {introPath && <section className="s-blog-intro" ref={introRef} />}
       <h2 className="s-blog-heading">
-        <span>Writings</span>
+        <span>{t("blogWritings")}</span>
       </h2>
       {posts === null ? (
         <p className="s-blog-empty">…</p>

@@ -3,6 +3,7 @@
 // renderer (first-paint chunk). No CodeMirror imports here.
 
 import { bannerSrc } from "../banner.ts";
+import { localeNum, t } from "../i18n.ts";
 
 /** Frontmatter `banner:` → hero image element (editor + reading view share
  *  the DOM shape; callers pass their prefix class). Unloadable images remove
@@ -124,7 +125,7 @@ export function buildPropsCard(yaml: string, opts: PropsCardOpts): HTMLElement |
   head.setAttribute("role", "button");
   head.tabIndex = 0;
   head.setAttribute("aria-expanded", String(!collapsed));
-  head.title = "Toggle properties";
+  head.title = t("toggleProperties");
 
   const chevron = document.createElement("span");
   chevron.className = `${p}__chevron`;
@@ -133,7 +134,7 @@ export function buildPropsCard(yaml: string, opts: PropsCardOpts): HTMLElement |
     '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
   const label = document.createElement("span");
   label.className = `${p}__label`;
-  label.textContent = `Properties · ${rows.length}`;
+  label.textContent = `${t("properties")} · ${localeNum(rows.length)}`;
   head.append(chevron, label);
 
   if (tags.length > 0) {

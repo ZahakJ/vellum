@@ -24,7 +24,7 @@ body,
 /* The whole app is sized in rem so one token scales it: tokens.css sets
    --font-base (15.5px default); custom.css may override it. */
 html {
-  font-size: var(--font-base, 15.5px);
+  font-size: calc(var(--font-base, 15.5px) * var(--font-scale, 1));
 }
 
 body {
@@ -192,7 +192,7 @@ select:focus,
   flex-direction: column;
   min-height: 0;
   background: var(--bg-raised);
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
 }
 
 .s-sidebar-header {
@@ -264,7 +264,7 @@ select:focus,
   align-items: center;
   gap: 5px;
   height: 1.8rem;
-  padding-right: 8px;
+  padding-inline-end: 8px;
   border-radius: 4px;
   color: var(--text-muted);
   font-size: 0.929rem;
@@ -310,7 +310,7 @@ select:focus,
 
 /* Files have no chevron: nudge them so names line up with folder names. */
 .s-tree__item--file .s-tree__label {
-  padding-left: 16px;
+  padding-inline-start: 16px;
 }
 
 .s-tree__label {
@@ -346,7 +346,7 @@ select:focus,
 .s-search-hit {
   display: block;
   width: 100%;
-  text-align: left;
+  text-align: start;
   padding: 7px 9px;
   margin-bottom: 2px;
   border-radius: var(--radius);
@@ -432,7 +432,7 @@ select:focus,
 }
 
 .s-tags__total {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: 0.714rem;
   color: var(--text-faint);
 }
@@ -462,6 +462,16 @@ select:focus,
 .s-tag:hover {
   background: var(--accent-soft);
   color: var(--text);
+}
+
+/* Hash + tag name are one bidi isolate (a <bdi> in Sidebar.tsx), so a Latin
+   tag in an RTL sidebar still reads "#baby" instead of splitting into
+   "baby #" with the hash pinned to the pill's far edge. The count stays
+   outside the isolate: it is chrome and follows the shell's direction. */
+.s-tag__name {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
 }
 
 .s-tag__hash {
@@ -502,7 +512,7 @@ select:focus,
 .s-menu__item {
   display: block;
   width: 100%;
-  text-align: left;
+  text-align: start;
   padding: 6px 12px;
   border-radius: 4px;
   font-size: 0.929rem;
@@ -567,7 +577,7 @@ select:focus,
   max-width: 180px;
   padding: 0 12px;
   border: none;
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   border-radius: 0;
   font-size: 0.929rem;
   color: var(--text-muted);
@@ -697,7 +707,7 @@ select:focus,
 /* Manuscript prose: serif body text, generous measure. */
 .s-editor .cm-scroller {
   font-family: var(--font-serif);
-  font-size: var(--font-prose, 1.161rem);
+  font-size: calc(var(--font-prose, 1.161rem) * var(--prose-scale, 1));
   line-height: 1.7;
 }
 
@@ -1001,7 +1011,7 @@ select:focus,
 
 .s-graph__hud {
   position: absolute;
-  left: 14px;
+  inset-inline-start: 14px;
   bottom: 12px;
   font-size: 0.786rem;
   color: var(--text-faint);
@@ -1012,7 +1022,7 @@ select:focus,
 
 .s-graph__controls {
   position: absolute;
-  right: 12px;
+  inset-inline-end: 12px;
   bottom: 12px;
   display: flex;
   flex-direction: column;
@@ -1042,14 +1052,14 @@ select:focus,
   flex-direction: column;
   min-height: 0;
   background: var(--bg-raised);
-  border-left: 1px solid var(--border);
+  border-inline-start: 1px solid var(--border);
   overflow: hidden;
   transition: width 0.18s ease, border-color 0.18s ease;
 }
 
 .s-panel--collapsed {
   width: 0;
-  border-left-color: transparent;
+  border-inline-start-color: transparent;
 }
 
 /* Fixed inner width so the collapse clips instead of reflowing. */
@@ -1097,7 +1107,7 @@ select:focus,
 }
 
 .s-panel-toggle {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: var(--text-faint);
 }
 
@@ -1109,7 +1119,7 @@ select:focus,
 .s-panel-reopen {
   position: absolute;
   top: 44px;
-  right: 10px;
+  inset-inline-end: 10px;
   z-index: 5;
   display: inline-flex;
   align-items: center;
@@ -1141,7 +1151,7 @@ select:focus,
 .s-backlink {
   display: block;
   width: 100%;
-  text-align: left;
+  text-align: start;
   padding: 10px;
   margin-bottom: 8px;
   border-radius: var(--radius);
@@ -1175,7 +1185,7 @@ select:focus,
   justify-content: center;
   min-width: 16px;
   height: 15px;
-  margin-left: 6px;
+  margin-inline-start: 6px;
   padding: 0 4px;
   border-radius: 999px;
   background: var(--accent-soft);
@@ -1377,7 +1387,7 @@ select:focus,
   gap: 10px;
   width: 100%;
   height: 2.5rem;
-  text-align: left;
+  text-align: start;
   padding: 0 12px 0 14px;
   border-radius: var(--radius);
   font-size: 0.929rem;
@@ -1392,7 +1402,7 @@ select:focus,
 .s-palette-item--active::before {
   content: "";
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   top: 5px;
   bottom: 5px;
   width: 2px;
@@ -1451,7 +1461,7 @@ select:focus,
 }
 
 .s-palette-item-hint {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: 0.786rem;
   color: var(--text-faint);
   white-space: nowrap;
@@ -1471,7 +1481,7 @@ select:focus,
 
 .s-palette-item-path {
   flex: none;
-  margin-left: auto;
+  margin-inline-start: auto;
   max-width: 34%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1520,7 +1530,7 @@ select:focus,
   background: var(--bg-raised);
   color: var(--text);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
+  border-inline-start: 3px solid var(--accent);
   border-radius: var(--radius);
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
   font-size: 0.929rem;
@@ -1528,7 +1538,7 @@ select:focus,
 }
 
 .s-toast--error {
-  border-left-color: var(--danger);
+  border-inline-start-color: var(--danger);
 }
 
 .s-toast--leaving {
@@ -1855,7 +1865,7 @@ select:focus,
 
 /* Small gold ✦ suffix marking published notes (tree rows, search hits). */
 .s-pubstar {
-  margin-left: 6px;
+  margin-inline-start: 6px;
   font-size: 0.643rem;
   color: var(--accent);
   opacity: 0.9;
@@ -1922,7 +1932,7 @@ select:focus,
   align-items: center;
   gap: 7px;
   width: 100%;
-  text-align: left;
+  text-align: start;
   padding: 6px 10px;
   margin-bottom: 1px;
   border-radius: 4px;
@@ -1990,7 +2000,7 @@ select:focus,
   width: 100%;
   padding: 5px 8px 5px 5px;
   border-radius: 4px;
-  text-align: left;
+  text-align: start;
   font-family: var(--font-serif);
   font-variant: small-caps;
   letter-spacing: 0.06em;
@@ -2017,7 +2027,7 @@ select:focus,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: auto;
+  margin-inline-start: auto;
   min-width: 18px;
   height: 16px;
   padding: 0 5px;
@@ -2051,7 +2061,7 @@ select:focus,
 
 .s-localgraph__header {
   border-bottom: none;
-  padding-left: 8px;
+  padding-inline-start: 8px;
 }
 
 .s-localgraph__toggle {
@@ -2063,7 +2073,7 @@ select:focus,
   height: 100%;
   padding: 0 2px;
   border-radius: 4px;
-  text-align: left;
+  text-align: start;
   font: inherit;
   letter-spacing: inherit;
   text-transform: inherit;
@@ -2077,7 +2087,7 @@ select:focus,
 }
 
 .s-localgraph__toggle .s-panel-count {
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 .s-localgraph__body {
@@ -2319,7 +2329,7 @@ button.s-title:hover {
 .s-statusbar__signout:focus-visible .s-statusbar__signout-label {
   max-width: 5rem;
   opacity: 1;
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }
 
 /* ------------------------------------------------------ mobile (≤700px) -- */
@@ -2346,7 +2356,7 @@ button.s-title:hover {
     position: fixed;
     top: 0;
     bottom: 0;
-    left: 0;
+    inset-inline-start: 0;
     z-index: 400;
     width: min(84vw, 320px);
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
@@ -2372,7 +2382,7 @@ button.s-title:hover {
     justify-content: center;
     position: absolute;
     top: 5px;
-    left: 8px;
+    inset-inline-start: 8px;
     z-index: 60;
     width: 30px;
     height: 30px;
@@ -2391,7 +2401,7 @@ button.s-title:hover {
 
   /* Tab bar clears the floating toggle. */
   .s-tabs {
-    padding-left: 44px;
+    padding-inline-start: 44px;
   }
 
   /* Backlinks/outline panel would eat the whole viewport on a phone. */
@@ -2421,7 +2431,7 @@ button.s-title:hover {
   gap: 10px;
   overflow-y: auto;
   min-height: 0;
-  padding-right: 2px;
+  padding-inline-end: 2px;
 }
 
 .s-smodal__note {
@@ -2560,4 +2570,74 @@ button.s-title:hover {
   max-height: 24px;
   max-width: 168px;
   object-fit: contain;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RTL (settings.language = "ar" → <html dir="rtl">)
+
+   The chrome mirrors almost entirely on its own: the app shell is CSS grid and
+   the panels are flexbox, both of which follow the inline direction, so the
+   sidebar swaps to the right and the backlinks/outline panel to the left with
+   no rules at all. Everything above uses logical properties (margin-inline-*,
+   padding-inline-*, inset-inline-*, border-inline-*, text-align: start), which
+   mirror by definition.
+
+   What lands below is only what logical properties CANNOT express: transforms,
+   inset box-shadows (no logical form), and glyphs/icons that encode a
+   direction in their geometry. English rendering is untouched — every rule
+   here is scoped to [dir="rtl"].
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Active-row accent bar: box-shadow has no logical inset, so flip the offset
+   to paint the bar on the row's LEADING edge — which under RTL is the right
+   one. (The LTR rule paints it on the left, also the leading edge.) */
+[dir="rtl"] .s-tree__item--active,
+[dir="rtl"] .s-publist__item--active {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
+/* Disclosure chevrons and the breadcrumb separator are "›" (U+203A) glyphs.
+   That codepoint is Bidi_Mirrored, so the browser ALREADY draws it pointing
+   left under dir=rtl — adding scaleX(-1) here would flip it back to pointing
+   right. Collapsed chevrons and the crumb separator therefore need no rule at
+   all. Only the OPEN chevron does: rotating the already-mirrored glyph by the
+   base +90deg would aim it up, so it rotates the other way to still read down. */
+[dir="rtl"] .s-tree__chevron--open {
+  transform: rotate(-90deg);
+}
+
+/* The properties-card chevron is an SVG path, NOT a glyph, so bidi leaves it
+   alone and the mirroring has to be explicit. Only the collapsed state points
+   sideways and needs it; expanded already points down, which is down in any
+   direction — rotating it again would aim it up. */
+[dir="rtl"] .s-editor .cm-s-props--collapsed .cm-s-props__chevron {
+  transform: scaleX(-1);
+}
+
+/* Same story for the heading-fold chevron in the editor gutter: an SVG path,
+   so bidi never touches it. Only the FOLDED state points sideways — the open
+   state is rotate(90deg), i.e. down, which is down in either direction. The
+   rotate is respecified because transform is one property: scaleX(-1) alone
+   would drop the rotation the base rule sets. */
+[dir="rtl"] .s-editor .cm-s-foldbtn--folded {
+  transform: rotate(0deg) scaleX(-1);
+}
+
+/* Icons whose geometry points somewhere and does NOT auto-mirror: SVG paths
+   are geometry, not text, so the bidi algorithm never touches them. */
+[dir="rtl"] .s-panel-toggle svg,
+[dir="rtl"] .s-panel-reopen svg,
+[dir="rtl"] .s-statusbar__signout svg {
+  transform: scaleX(-1);
+}
+
+/* Mobile drawer slides in from the right in RTL (the sidebar lives there). */
+@media (max-width: 700px) {
+  [dir="rtl"] .s-sidebar {
+    transform: translateX(103%);
+  }
+
+  [dir="rtl"] .s-app--drawer .s-sidebar {
+    transform: none;
+  }
 }

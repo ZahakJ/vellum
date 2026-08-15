@@ -5,8 +5,9 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import MiniSearch from "minisearch";
 import type { Backlink, GraphData, GraphEdge, PostMeta, SearchHit, TagCount, VaultEvent } from "../shared/types.ts";
+import { stripBidiControls } from "../shared/bidi.ts";
 import { publishFlag, readFrontmatter } from "./publish.ts";
-import { excludedTags } from "./site.ts";
+import { excludedTags, languageFilterEnabled, siteLanguage } from "./site.ts";
 import { listVaultFiles, onEvent, readNote, safeAbs } from "./vault.ts";
 
 interface NoteRecord {
@@ -23,6 +24,13 @@ interface NoteRecord {
   /** Post date in epoch ms: frontmatter date/created/published (first that
    *  parses wins), else file birthtime (mtime where the fs has no birthtime). */
   dateMs: number;
+  /** True when the body is predominantly Arabic script (Arabic-block
+   *  codepoints ≥ 40% of the letter codepoints in its PROSE), false when it
+   *  is predominantly something else, and null when the prose holds no
+   *  letters at all — an image-only or numeric note has no language, so the
+   *  filter leaves it alone rather than guessing. Computed once per
+   *  (re)index: the languageFilter's per-note cache. */
+  arabic: boolean | null;
   /** Lazily computed prose-stripped body for snippets (null until first use).
    *  Records are replaced wholesale on reindex, so this never goes stale. */
   flat: string | null;
@@ -61,6 +69,93 @@ const mini = new MiniSearch<{ path: string; title: string; body: string; tags: s
 /** Matches [[Name]], [[Name#heading]], [[Name|alias]], [[Name#heading|alias]]. */
 export function wikilinkRegex(): RegExp {
   return /\[\[([^[\]|#]+)(#[^[\]|]*)?(\|[^[\]]*)?\]\]/g;
+}
+
+// -------------------------------------------------------- language detection
+
+/** Arabic-script blocks: Arabic, Supplement, Extended-A, Presentation Forms. */
+const ARABIC_RE = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/u;
+const LETTER_RE = /\p{L}/u;
+
+/** Language-detection budget: sampling the first chunk of a note is plenty
+ *  to call its script, and keeps giant notes cheap to reindex. */
+const DETECT_MAX_CHARS = 64 * 1024;
+
+/** Everything a reader never reads as prose. Counting it is what made real
+ *  Arabic notes score English: a Readwise export of an Arabic book is one
+ *  `readwise.io/to_kindle?action=open&asin=…` per highlight, an embedded
+ *  YouTube player is ~40 Latin letters of markup around one Arabic caption,
+ *  and a "المصادر" list is three English URLs under one Arabic word. None of
+ *  those letters are the note's language. Frontmatter is already excluded by
+ *  the caller (it splits the body first). Order matters: code fences before
+ *  inline code, HTML before markdown links (an <a href> is markup, not a
+ *  link destination), destinations before bare URLs. */
+const NON_PROSE: { re: RegExp; keepGroup: boolean }[] = [
+  // Fenced code (``` or ~~~), then inline code.
+  { re: /^[ \t]*(?:```|~~~)[^\n]*\n[\s\S]*?^[ \t]*(?:```|~~~)[^\n]*$/gm, keepGroup: false },
+  { re: /`[^`\n]*`/g, keepGroup: false },
+  // HTML comments, then tags and autolinks (<https://…>) — attribute values,
+  // alt text and element names are all markup, none of it prose.
+  { re: /<!--[\s\S]*?-->/g, keepGroup: false },
+  { re: /<[^>\n]{1,300}>/g, keepGroup: false },
+  // Markdown links and images: keep the visible text, drop the destination.
+  { re: /!?\[([^\]]*)\]\([^)]*\)/g, keepGroup: true },
+  // Reference-link definitions ("[label]: https://…") are destinations too.
+  { re: /^[ \t]*\[[^\]]+\]:[^\n]*$/gm, keepGroup: false },
+  // Bare URLs pasted straight into the text.
+  { re: /\b(?:https?|mailto|obsidian|zotero):\/*\S+/gi, keepGroup: false },
+  { re: /\bwww\.[^\s)\]]+/gi, keepGroup: false },
+];
+
+/** The note's prose: what a reader actually reads, with markup, code and link
+ *  destinations removed. `[text](url)` keeps `text` (visible), drops the url. */
+function proseOnly(markdown: string): string {
+  let out = markdown;
+  for (const { re, keepGroup } of NON_PROSE) {
+    out = keepGroup ? out.replace(re, (_match, text: string) => ` ${text} `) : out.replace(re, " ");
+  }
+  return out;
+}
+
+/** True when Arabic-block codepoints make up ≥ 40% of the letter codepoints in
+ *  the note's PROSE — "written predominantly in Arabic" for the languageFilter.
+ *  null when the prose has no letters at all (nothing to judge). */
+function detectArabic(body: string): boolean | null {
+  const sample = body.length > DETECT_MAX_CHARS ? body.slice(0, DETECT_MAX_CHARS) : body;
+  let letters = 0;
+  let arabic = 0;
+  for (const ch of proseOnly(sample)) {
+    if (!LETTER_RE.test(ch)) continue;
+    letters++;
+    if (ARABIC_RE.test(ch)) arabic++;
+  }
+  if (letters === 0) return null;
+  return arabic / letters >= 0.4;
+}
+
+/** True when the languageFilter hides this record from PUBLIC blog surfaces:
+ *  filter on + language "ar" hides non-Arabic notes; filter on + "en" hides
+ *  Arabic-majority ones. Curation, not access control — direct URL access to
+ *  any published note stays allowed (/api/note is never filtered), only the
+ *  discovery surfaces (posts, topics, graph, search, backlinks, RSS) skip
+ *  filtered notes, and they must never leak their existence. */
+function languageHidden(record: NoteRecord): boolean {
+  if (!languageFilterEnabled()) return false;
+  // A note with no prose letters (arabic === null) belongs to no language:
+  // hiding it from one site and showing it on the other would be a coin toss.
+  // It stays visible in both.
+  if (record.arabic === null) return false;
+  return siteLanguage() === "ar" ? !record.arabic : record.arabic;
+}
+
+/** Published AND not curated away by the languageFilter — the visibility rule
+ *  every visitor DISCOVERY surface applies, including the push channel: an SSE
+ *  stream that announced a filtered-out note would leak its existence, path
+ *  and edit timing to exactly the visitors the filter hides it from. (Direct
+ *  access stays allowed: /api/note deliberately checks publication only.) */
+export function isNoteVisibleToVisitor(relPath: string): boolean {
+  const record = notes.get(relPath);
+  return publishedSet.has(relPath) && record !== undefined && !languageHidden(record);
 }
 
 // ------------------------------------------------------------------ building
@@ -147,7 +242,13 @@ export async function indexFile(relPath: string): Promise<void> {
     return;
   }
   removeFile(relPath);
-  const title = path.posix.basename(relPath, ".md");
+  // Display title: bidi controls out. A filename may legitimately be Arabic
+  // or mixed-script, but an embedded RLO makes "invoice<U+202E>fdp.exe.md"
+  // render as "invoiceexe.pdf" in the public post list, in RSS <title> and in
+  // the og: tags third parties consume. The RESOLUTION key below keeps the raw
+  // basename, so [[wikilinks]] written with the same characters still resolve.
+  const rawTitle = path.posix.basename(relPath, ".md");
+  const title = stripBidiControls(rawTitle);
   const { body, frontmatter } = splitFrontmatter(content);
   const fm = readFrontmatter(content);
   const record: NoteRecord = {
@@ -163,11 +264,12 @@ export async function indexFile(relPath: string): Promise<void> {
       parseFmDate(fm.created) ??
       parseFmDate(fm.published) ??
       (stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs),
+    arabic: detectArabic(body),
     flat: null,
     post: null,
   };
   notes.set(relPath, record);
-  addName(title, relPath);
+  addName(rawTitle, relPath);
   byPathLower.set(relPath.toLowerCase(), relPath);
   if (record.published) publishedSet.add(relPath);
   allowedAttachmentsCache = null;
@@ -179,7 +281,9 @@ function removeFile(relPath: string): void {
   const record = notes.get(relPath);
   if (!record) return;
   notes.delete(relPath);
-  removeName(record.title, relPath);
+  // The resolution key is the RAW basename (record.title is the sanitized
+  // display title) — addName registered it, removeName must unregister it.
+  removeName(path.posix.basename(relPath, ".md"), relPath);
   if (byPathLower.get(relPath.toLowerCase()) === relPath) byPathLower.delete(relPath.toLowerCase());
   publishedSet.delete(relPath);
   allowedAttachmentsCache = null;
@@ -314,14 +418,28 @@ function pickShortest(candidates: Set<string>): string {
   })[0];
 }
 
-/** Restrict a candidate set to `keep`; null when nothing survives. */
-function filterCandidates(candidates: Set<string>, keep: Set<string>): Set<string> | null {
-  const kept = new Set([...candidates].filter((p) => keep.has(p)));
+/** Restrict a candidate set to those `keep` accepts; null when none survive. */
+function filterCandidates(
+  candidates: Set<string>,
+  keep: (relPath: string) => boolean,
+): Set<string> | null {
+  const kept = new Set([...candidates].filter(keep));
   return kept.size === 0 ? null : kept;
 }
 
 /** Resolve a wikilink target to a note path: case-insensitive basename, shortest
- *  path wins. `publishedOnly` resolves within the published collection only. */
+ *  path wins. `publishedOnly` resolves within the collection the VISITOR can
+ *  discover — published AND not curated away by the languageFilter.
+ *
+ *  The languageFilter half is not optional here. GET /api/resolve hands this
+ *  function's answer to anonymous callers, and it takes only a guessable
+ *  TITLE: gating on publication alone made it a title→path existence oracle
+ *  for exactly the notes the filter hides ("Eppur si muove" → its full vault
+ *  path, while a nonexistent name answered null). That is the leak CONTRACTS
+ *  says the filter must never produce, and it is a strictly bigger surface
+ *  than the by-design /api/note allowance, which requires the exact path the
+ *  caller is trying to learn. Direct access by full path stays allowed — this
+ *  changes discovery, not reads. */
 export function resolveLink(name: string, publishedOnly = false): string | null {
   let key = name.split(/[#|]/)[0].trim().toLowerCase();
   if (key.endsWith(".md")) key = key.slice(0, -3);
@@ -329,11 +447,11 @@ export function resolveLink(name: string, publishedOnly = false): string | null 
   // (with or without .md, case-insensitive), mirroring the client resolver.
   const asPath = path.posix.normalize(key.replace(/\\/g, "/")).replace(/^\.?\/+/, "");
   const pathHit = byPathLower.get(`${asPath}.md`) ?? byPathLower.get(asPath);
-  if (pathHit && (!publishedOnly || publishedSet.has(pathHit))) return pathHit;
+  if (pathHit && (!publishedOnly || isNoteVisibleToVisitor(pathHit))) return pathHit;
   let candidates = byName.get(key);
   if (!candidates || candidates.size === 0) return null;
   if (publishedOnly) {
-    const kept = filterCandidates(candidates, publishedSet);
+    const kept = filterCandidates(candidates, isNoteVisibleToVisitor);
     if (!kept) return null;
     candidates = kept;
   }
@@ -342,7 +460,10 @@ export function resolveLink(name: string, publishedOnly = false): string | null 
 
 /** Resolve a link/embed target to a note OR attachment path. Notes win
  *  (attachment basenames carry an extension, so collisions are rare).
- *  `publishedOnly` sees only published notes + allowlisted attachments. */
+ *  `publishedOnly` sees only visitor-visible notes (resolveLink applies the
+ *  languageFilter) + allowlisted attachments. Attachments are deliberately NOT
+ *  language-filtered: an attachment belongs to no language, and a hidden
+ *  note's images must keep loading on its own still-working permalink. */
 export function resolveEmbed(name: string, publishedOnly = false): string | null {
   const asNote = resolveLink(name, publishedOnly);
   if (asNote) return asNote;
@@ -351,7 +472,8 @@ export function resolveEmbed(name: string, publishedOnly = false): string | null
   let candidates = attachmentsByName.get(key);
   if (!candidates || candidates.size === 0) return null;
   if (publishedOnly) {
-    const kept = filterCandidates(candidates, allowedAttachments());
+    const allowed = allowedAttachments();
+    const kept = filterCandidates(candidates, (p) => allowed.has(p));
     if (!kept) return null;
     candidates = kept;
   }
@@ -415,11 +537,14 @@ export function isAllowedAttachment(relPath: string): boolean {
 }
 
 /** Published notes as { path, title }, unsorted. */
+/** The visitor sidebar's flat note list. This is a discovery surface like any
+ *  other, so the languageFilter applies: leaving it unfiltered would list the
+ *  titles and paths of notes every other public surface is hiding. */
 export function publishedNotes(): { path: string; title: string }[] {
   const out: { path: string; title: string }[] = [];
   for (const notePath of publishedSet) {
     const record = notes.get(notePath);
-    if (record) out.push({ path: record.path, title: record.title });
+    if (record && !languageHidden(record)) out.push({ path: record.path, title: record.title });
   }
   return out;
 }
@@ -548,12 +673,14 @@ function postMeta(record: NoteRecord): PostMeta {
 
 /** Published notes as blog posts, newest first (visitor-safe: published only,
  *  EXCLUDE_TAGS filtered). Per-note fields are cached on the index record and
- *  refresh incrementally as notes reindex. */
-export function posts(): PostMeta[] {
+ *  refresh incrementally as notes reindex. `visitor` additionally applies the
+ *  languageFilter (public lists only — admin surfaces are never filtered). */
+export function posts(visitor = false): PostMeta[] {
   const out: { dateMs: number; meta: PostMeta }[] = [];
   for (const notePath of publishedSet) {
     const record = notes.get(notePath);
     if (!record) continue;
+    if (visitor && languageHidden(record)) continue;
     out.push({ dateMs: record.dateMs, meta: postMeta(record) });
   }
   return out
@@ -577,8 +704,15 @@ export function search(query: string, publishedOnly = false): SearchHit[] {
     return 2;
   };
 
+  // Visitor scoping: published notes only, minus language-filtered ones
+  // (the filter must not leak filtered-out note existence through search).
+  const visitorHidden = (p: string): boolean => {
+    if (!publishedSet.has(p)) return true;
+    const record = notes.get(p);
+    return record !== undefined && languageHidden(record);
+  };
   let results = mini.search(q);
-  if (publishedOnly) results = results.filter((r) => publishedSet.has(String(r.id)));
+  if (publishedOnly) results = results.filter((r) => !visitorHidden(String(r.id)));
   const seen = new Set(results.map((r) => String(r.id)));
   const ranked = results
     .map((result, order) => {
@@ -599,7 +733,7 @@ export function search(query: string, publishedOnly = false): SearchHit[] {
   // Exact-title short-circuit: if a note titled exactly `q` exists but
   // minisearch left it out (tokenizer/fuzzy quirks), force it in at #1.
   const exactPaths = [...(byName.get(qLower) ?? [])]
-    .filter((p) => !seen.has(p) && (!publishedOnly || publishedSet.has(p)))
+    .filter((p) => !seen.has(p) && (!publishedOnly || !visitorHidden(p)))
     .sort((a, b) => a.localeCompare(b));
   if (exactPaths.length > 0) {
     const topScore = (hits[0]?.score ?? 0) + 1;
@@ -618,11 +752,17 @@ export function graph(publishedOnly = false): GraphData {
   const edgeKeys = new Set<string>();
   const edges: GraphEdge[] = [];
   const degree = new Map<string, number>();
+  // Visitor graphs honor the languageFilter on both endpoints — a filtered
+  // note must appear neither as a node nor via an edge.
+  const hidden = (record: NoteRecord): boolean => publishedOnly && languageHidden(record);
   for (const record of notes.values()) {
     if (publishedOnly && !record.published) continue;
+    if (hidden(record)) continue;
     for (const link of record.links) {
       const target = resolveLink(link.target, publishedOnly);
       if (!target || target === record.path) continue;
+      const targetRecord = notes.get(target);
+      if (targetRecord !== undefined && hidden(targetRecord)) continue;
       const key = `${record.path}\0${target}`;
       if (edgeKeys.has(key)) continue;
       edgeKeys.add(key);
@@ -632,7 +772,7 @@ export function graph(publishedOnly = false): GraphData {
     }
   }
   const nodes = [...notes.values()]
-    .filter((record) => !publishedOnly || record.published)
+    .filter((record) => (!publishedOnly || record.published) && !hidden(record))
     .map((record) => ({
       id: record.path,
       title: record.title,
@@ -646,10 +786,16 @@ export function graph(publishedOnly = false): GraphData {
 
 export function backlinks(targetPath: string, publishedOnly = false): Backlink[] {
   const hits: Backlink[] = [];
+  // The TARGET has to pass the visitor filter too, not just the sources: a
+  // language-hidden note that answered with backlinks confirmed to an
+  // anonymous caller that it exists and is published. (resolveLink() now
+  // refuses to resolve to it as well, so this is belt and braces — but it is
+  // the check the reader of this function expects to find.)
+  if (publishedOnly && !isNoteVisibleToVisitor(targetPath)) return hits;
   const seen = new Set<string>();
   for (const record of notes.values()) {
     if (record.path === targetPath) continue;
-    if (publishedOnly && !record.published) continue;
+    if (publishedOnly && (!record.published || languageHidden(record))) continue;
     let bodyLines: string[] | null = null; // split lazily, once per record
     for (const link of record.links) {
       if (resolveLink(link.target, publishedOnly) !== targetPath) continue;
@@ -703,6 +849,10 @@ export function tags(publishedOnly = false): TagCount[] {
   const hidden = publishedOnly ? excludedTags() : null;
   for (const record of notes.values()) {
     if (publishedOnly && !record.published) continue;
+    // A topic carried ONLY by language-filtered notes must not appear at all:
+    // a visible pill with a count is exactly the existence leak the filter
+    // has to avoid, and its topic page would come back empty anyway.
+    if (publishedOnly && languageHidden(record)) continue;
     for (const tag of record.tags) {
       if (hidden?.has(tag.toLowerCase())) continue; // EXCLUDE_TAGS: visitor pills
       counts.set(tag, (counts.get(tag) ?? 0) + 1);

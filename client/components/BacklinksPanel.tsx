@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Backlink } from "../../shared/types.ts";
+import { localeNum, t } from "../i18n.ts";
 import TocPanel from "../reading/TocPanel.tsx";
 import { useStore } from "../state.ts";
 import LocalGraph from "./LocalGraph.tsx";
@@ -62,6 +63,7 @@ export default function BacklinksPanel() {
   const backlinks = useStore((s) => s.backlinks);
   const openPath = useStore((s) => s.openPath);
   const openNote = useStore((s) => s.openNote);
+  useStore((s) => s.language); // re-render the chrome strings on language change
   const [collapsed, setCollapsed] = useState(
     () => window.matchMedia(NARROW_QUERY).matches,
   );
@@ -86,8 +88,8 @@ export default function BacklinksPanel() {
         <TocPanel />
         <LocalGraph />
         <header className="s-panel-header">
-          <span className="s-panel-title">Backlinks</span>
-          <span className="s-panel-count">{backlinks.length}</span>
+          <span className="s-panel-title">{t("backlinks")}</span>
+          <span className="s-panel-count">{localeNum(backlinks.length)}</span>
           <button
             type="button"
             className="s-panel-toggle s-iconbtn"
@@ -96,7 +98,7 @@ export default function BacklinksPanel() {
               setCollapsed(true);
             }}
             aria-expanded={!collapsed}
-            title="Hide backlinks"
+            title={t("hideBacklinks")}
             tabIndex={collapsed ? -1 : 0}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -106,11 +108,9 @@ export default function BacklinksPanel() {
         </header>
         <div className="s-panel-body">
           {!openPath ? (
-            <p className="s-panel-empty">No note open.</p>
+            <p className="s-panel-empty">{t("noNoteOpenDot")}</p>
           ) : backlinks.length === 0 ? (
-            <p className="s-panel-empty">
-              No backlinks yet — link to this note with [[…]]
-            </p>
+            <p className="s-panel-empty">{t("noBacklinks")}</p>
           ) : (
             groupBacklinks(backlinks).map((group) => (
               <button
@@ -120,16 +120,23 @@ export default function BacklinksPanel() {
                 onClick={() => openNote(group.path)}
                 title={group.path}
               >
+                {/* Note-derived text inside chrome: direction per note — but
+                    per NOTE, not per card. The title line is a chrome block
+                    (it also carries the mention-count badge), so it keeps the
+                    shell's direction and start-alignment and only the title
+                    itself is isolated; `dir="auto"` on the block would have
+                    left-aligned an English title inside an otherwise
+                    right-aligned Arabic card and moved the badge with it. */}
                 <span className="s-backlink-title">
-                  {group.title}
+                  <bdi>{group.title}</bdi>
                   {group.contexts.length > 1 && (
                     <span className="s-backlink-count">
-                      {group.contexts.length}
+                      {localeNum(group.contexts.length)}
                     </span>
                   )}
                 </span>
                 {group.contexts.map((context, i) => (
-                  <span key={i} className="s-backlink-context">
+                  <span key={i} className="s-backlink-context" dir="auto">
                     {renderContext(context)}
                   </span>
                 ))}
@@ -146,8 +153,8 @@ export default function BacklinksPanel() {
             userToggled.current = true;
             setCollapsed(false);
           }}
-          title="Show backlinks"
-          aria-label="Show backlinks"
+          title={t("showBacklinks")}
+          aria-label={t("showBacklinks")}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M15 6l-6 6 6 6" />

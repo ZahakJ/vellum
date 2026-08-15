@@ -9,6 +9,8 @@ import type { Backlink, HomeSettings, PublishedCounts, TreeNode } from "../share
 import * as api from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import { collectNotes, resolveLink } from "./editor/links.ts";
+import { setLang, setNumeralLocale, t } from "./i18n.ts";
+import type { Lang } from "./i18n.ts";
 import { isPublishedContent } from "./publish.ts";
 import { toast } from "./toast.ts";
 
@@ -67,6 +69,10 @@ export interface State {
   homeNote: string | null;
   /** Instance branding from SITE_NAME (wordmark, titles, login modal). */
   siteName: string;
+  /** Site chrome language (settings.language / SITE_LANG). "ar" mirrors the
+   *  whole chrome RTL; every component rendering t() strings subscribes to
+   *  this so a live settings change re-renders the chrome in place. */
+  language: Lang;
   loginOpen: boolean;
   /** Admin moderation panel (palette: "Moderate comments"). */
   moderationOpen: boolean;
@@ -211,6 +217,25 @@ function readReading(): boolean {
 
 function applyTheme(theme: Theme): void {
   document.documentElement.setAttribute("data-theme", theme);
+}
+
+/** Apply the chrome language to the document: <html dir/lang> drive the CSS
+ *  logical properties (the whole chrome mirrors under dir="rtl") and the
+ *  i18n module's active dictionary. Called from loadMe, so saving a new
+ *  language in the settings panel re-skins the shell live — no reload. */
+function applyLanguage(lang: Lang, locale: string): void {
+  setLang(lang);
+  // The date locale also decides the numerals every COUNT renders in — one
+  // numbering system per instance (shared/numerals.ts).
+  setNumeralLocale(locale);
+  const root = document.documentElement;
+  if (lang === "ar") {
+    root.setAttribute("dir", "rtl");
+    root.setAttribute("lang", "ar");
+  } else {
+    root.removeAttribute("dir");
+    root.setAttribute("lang", "en");
+  }
 }
 
 // Open tabs survive reloads; their absence marks a fresh visitor (→ home note).
@@ -361,6 +386,7 @@ export const useStore = create<State>()((set, get) => {
     publicReads: true,
     homeNote: null,
     siteName: "Vellum",
+    language: "en",
     loginOpen: false,
     moderationOpen: false,
     previewVisitor: initialPreview,
@@ -407,6 +433,9 @@ export const useStore = create<State>()((set, get) => {
           persistPreview(false);
           set({ previewVisitor: false });
         }
+        const language: Lang = me.language === "ar" ? "ar" : "en";
+        const locale = me.blogLocale?.trim() || "en";
+        applyLanguage(language, locale); // before set(): re-renders already see t() in the new language
         set({
           admin: me.admin,
           publicReads: me.public,
@@ -414,11 +443,12 @@ export const useStore = create<State>()((set, get) => {
           homeNote: me.homeNote ?? null,
           publishedCounts: me.published ?? null,
           siteName: me.siteName?.trim() || "Vellum",
+          language,
           publicLayout: me.publicLayout === "blog" ? "blog" : "app",
           tagline: me.tagline?.trim() || null,
           shareButtons: me.shareButtons === true,
           footerLine: me.footer?.trim() || null,
-          blogLocale: me.blogLocale?.trim() || "en",
+          blogLocale: locale,
           bannerFallback: me.bannerFallback === "none" ? "none" : "generated",
           home: me.home ?? null,
           logo: me.logo ?? null,
@@ -580,7 +610,7 @@ export const useStore = create<State>()((set, get) => {
         // The note's bytes changed on disk: refresh the open editor/reading
         // pane so its buffer carries the new frontmatter.
         if (get().openPath === result.path) get().bumpReload();
-        toast(result.published ? "Published — live for visitors" : "Unpublished");
+        toast(result.published ? t("publishedToast") : t("unpublishedToast"));
       }),
 
     setPublishedFilter: (publishedFilter) => set({ publishedFilter }),
@@ -600,7 +630,7 @@ export const useStore = create<State>()((set, get) => {
         // The note's bytes changed on disk: refresh the open editor/reading
         // pane so its buffer carries the new frontmatter.
         if (get().openPath === path) get().bumpReload();
-        toast(value === null ? "Banner removed" : "Banner set");
+        toast(value === null ? t("bannerRemovedToast") : t("bannerSetToast"));
       }),
 
     loadTree: () =>

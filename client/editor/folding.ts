@@ -23,6 +23,8 @@ import {
   unfoldEffect,
 } from "@codemirror/language";
 import { keymap } from "@codemirror/view";
+import { countPhrase, getLang, t } from "../i18n.ts";
+import { languageChanged } from "./langEffect.ts";
 
 const HEADING_LINE_RE = /^\s{0,3}#{1,6}\s/;
 
@@ -40,6 +42,11 @@ function foldedAt(view: EditorView, lineTo: number): { from: number; to: number 
 }
 
 class ChevronWidget extends WidgetType {
+  // The chrome language is part of the widget's identity: CM reuses a widget's
+  // DOM whenever eq() says it is the same, so a widget that renders t() copy
+  // must go unequal when the language flips or a live settings change leaves
+  // an Arabic tooltip on an English editor (and vice versa).
+  readonly lang = getLang();
   constructor(
     readonly linePos: number, // line.from — stable identity for eq()
     readonly folded: boolean,
@@ -47,7 +54,11 @@ class ChevronWidget extends WidgetType {
     super();
   }
   override eq(other: ChevronWidget): boolean {
-    return other.linePos === this.linePos && other.folded === this.folded;
+    return (
+      other.linePos === this.linePos &&
+      other.folded === this.folded &&
+      other.lang === this.lang
+    );
   }
   toDOM(view: EditorView): HTMLElement {
     const btn = document.createElement("button");
@@ -55,7 +66,7 @@ class ChevronWidget extends WidgetType {
     btn.className = this.folded
       ? "cm-s-foldbtn cm-s-foldbtn--folded"
       : "cm-s-foldbtn";
-    btn.title = this.folded ? "Unfold section" : "Fold section";
+    btn.title = t(this.folded ? "unfoldSection" : "foldSection");
     btn.setAttribute("aria-label", btn.title);
     btn.innerHTML =
       '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>';
@@ -108,9 +119,14 @@ const chevrons = ViewPlugin.fromClass(
       this.decorations = buildChevrons(view);
     }
     update(update: ViewUpdate): void {
+      const langFlip = update.transactions.some((tr) =>
+        tr.effects.some((e) => e.is(languageChanged)),
+      );
+      if (langFlip) queueMicrotask(refreshChips);
       if (
         update.docChanged ||
         update.viewportChanged ||
+        langFlip ||
         update.transactions.some((tr) =>
           tr.effects.some((e) => e.is(foldEffect) || e.is(unfoldEffect)),
         )
@@ -122,24 +138,46 @@ const chevrons = ViewPlugin.fromClass(
   { decorations: (plugin) => plugin.decorations },
 );
 
-/** Placeholder shown for a folded section: "N lines" chip; click unfolds. */
+// A section folded BEFORE a live language flip keeps its widget (CM compares
+// the prepared value, which is the line count — deliberately a number, so the
+// chip's identity is language-free) and would otherwise keep its old-language
+// text forever. Track the live chips and relabel them when the flip arrives.
+const liveChips = new Set<HTMLElement>();
+
+function labelChip(el: HTMLElement): void {
+  const lines = Number(el.dataset.foldedLines);
+  el.textContent = Number.isFinite(lines) ? countPhrase(lines, "foldedLines") : "…";
+  el.title = t("unfoldSection");
+}
+
+/** Relabel every folded-section chip currently on screen (language flip). */
+function refreshChips(): void {
+  for (const el of [...liveChips]) {
+    if (el.isConnected) labelChip(el);
+    else liveChips.delete(el); // the fold was opened / the view was destroyed
+  }
+}
+
+/** Placeholder shown for a folded section: "N folded lines" chip; click unfolds. */
 function placeholder(view: EditorView, onclick: (event: Event) => void, prepared: unknown): HTMLElement {
   const el = document.createElement("span");
   el.className = "cm-s-foldmore";
-  el.textContent = typeof prepared === "string" ? prepared : "…";
-  el.title = "Unfold section";
+  if (typeof prepared === "number") el.dataset.foldedLines = String(prepared);
+  labelChip(el);
   el.onclick = onclick;
+  liveChips.add(el);
   return el;
 }
 
 export function headingFolds(): Extension {
   return [
     codeFolding({
-      preparePlaceholder: (state, range) => {
-        const lines =
-          state.doc.lineAt(range.to).number - state.doc.lineAt(range.from).number;
-        return `${lines} folded line${lines === 1 ? "" : "s"}`;
-      },
+      // The prepared value is the LINE COUNT, not the finished label: CM's
+      // fold widget compares prepared values for identity, so keeping it
+      // language-free means a language flip does not have to rebuild folds —
+      // placeholder()/refreshChips() render the label instead.
+      preparePlaceholder: (state, range) =>
+        state.doc.lineAt(range.to).number - state.doc.lineAt(range.from).number,
       placeholderDOM: placeholder,
     }),
     chevrons,

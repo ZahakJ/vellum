@@ -5,15 +5,16 @@
 // danger button gold-outline → red fill on hover, focus-trapped.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { t } from "../i18n.ts";
 
 export interface ConfirmOptions {
   /** Serif dialog title ("Delete note?"). */
   title: string;
   /** Optional detail line under the title. */
   body?: string;
-  /** Danger button label (default "Delete"). */
+  /** Danger button label (default: the localized "Delete"). */
   confirmLabel?: string;
-  /** Quiet button label (default "Cancel"). */
+  /** Quiet button label (default: the localized "Cancel"). */
   cancelLabel?: string;
 }
 
@@ -129,7 +130,7 @@ export default function ConfirmHost() {
             className="s-confirm__cancel"
             onClick={() => settle(false)}
           >
-            {opts.cancelLabel ?? "Cancel"}
+            {opts.cancelLabel ?? t("cancel")}
           </button>
           <button
             ref={confirmRef}
@@ -137,7 +138,7 @@ export default function ConfirmHost() {
             className="s-confirm__danger"
             onClick={() => settle(true)}
           >
-            {opts.confirmLabel ?? "Delete"}
+            {opts.confirmLabel ?? t("delete")}
           </button>
         </div>
       </div>

@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GraphData, GraphNode } from "../../shared/types.ts";
 import { getGraph } from "../api.ts";
+import { autoDir, localeNum, t } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { mixColors, readThemeColors } from "./GraphView.tsx";
 
@@ -363,6 +364,8 @@ function createMiniSim(
       const sy = cy + n.y + n.r + (n.isCenter ? 6 : 4);
       const label = trimLabel(n.title);
       const ly = Math.min(sy, height - 14);
+      // Note-derived text: own direction, not the chrome's (see autoDir).
+      ctx!.direction = autoDir(label);
       ctx!.globalAlpha = 1;
       // Subtle bg-colored halo so the label stays legible when a settled
       // neighbor disc drifts underneath it.
@@ -627,6 +630,7 @@ export default function LocalGraph() {
   const openPath = useStore((s) => s.openPath);
   const tree = useStore((s) => s.tree);
   const admin = useStore((s) => s.admin);
+  useStore((s) => s.language); // re-render the chrome strings on language change
   const [data, setData] = useState<GraphData | null>(null);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -690,7 +694,7 @@ export default function LocalGraph() {
           className="s-localgraph__toggle"
           onClick={toggle}
           aria-expanded={!collapsed}
-          title={collapsed ? "Show local graph" : "Hide local graph"}
+          title={t(collapsed ? "showLocalGraph" : "hideLocalGraph")}
         >
           <span
             className={`s-tree__chevron${collapsed ? "" : " s-tree__chevron--open"}`}
@@ -698,8 +702,8 @@ export default function LocalGraph() {
           >
             ›
           </span>
-          <span className="s-panel-title">Local graph</span>
-          <span className="s-panel-count">{hood.neighborCount}</span>
+          <span className="s-panel-title">{t("localGraph")}</span>
+          <span className="s-panel-count">{localeNum(hood.neighborCount)}</span>
         </button>
       </header>
       {!collapsed &&
@@ -707,9 +711,7 @@ export default function LocalGraph() {
           // A lone unlabeled disc with a 0 badge reads as broken — say why
           // the pane is quiet instead of drawing an empty sky.
           <p className="s-localgraph__empty">
-            {admin
-              ? "No links yet — link to or from this note with [[…]]."
-              : "No published links yet."}
+            {t(admin ? "noLinksYet" : "noPublishedLinks")}
           </p>
         ) : (
           <div className="s-localgraph__body" ref={wrapRef}>

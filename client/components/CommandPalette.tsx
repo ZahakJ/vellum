@@ -10,6 +10,7 @@ import { THEMES, useStore } from "../state.ts";
 import type { Theme } from "../state.ts";
 import { search } from "../api.ts";
 import { dailyNotePath, openDailyNote } from "../daily.ts";
+import { t, tf, type I18nKey } from "../i18n.ts";
 import { confirmModal } from "./Confirm.tsx";
 import { toast } from "../toast.ts";
 import type { SearchHit } from "../../shared/types.ts";
@@ -95,8 +96,12 @@ interface CommandCtx {
 
 interface Command {
   id: string;
-  label: string;
-  hint?: string;
+  // Label and hint are thunks, not strings: COMMANDS is a module-level table
+  // built once at import, while the chrome language can change at runtime.
+  // Evaluating them per render keeps both the visible text and the fuzzy-match
+  // haystack in the active language.
+  label: () => string;
+  hint?: () => string;
   /** Commands that need a text argument switch the palette into prompt mode. */
   prompt?: { placeholder: string; initial: () => string };
   /** Theme-switch commands show a color-dot glyph instead of the ⌘ icon. */
@@ -107,72 +112,72 @@ interface Command {
 const COMMANDS: Command[] = [
   {
     id: "new-note",
-    label: "New note",
-    hint: "create",
+    label: () => t("newNote"),
+    hint: () => t("cmdCreateHint"),
     prompt: { placeholder: "path/to/note.md", initial: () => "" },
     available: ({ admin }) => admin,
   },
   {
     id: "daily-note",
-    label: "Open daily note",
-    hint: dailyNotePath(),
+    label: () => t("cmdDailyNote"),
+    hint: () => dailyNotePath(),
     available: ({ admin }) => admin,
   },
   {
     id: "toggle-graph",
-    label: "Toggle graph",
-    hint: "view",
+    label: () => t("cmdToggleGraph"),
+    hint: () => t("cmdViewHint"),
     available: () => true,
   },
   {
     id: "toggle-reading",
-    label: "Toggle reading view",
-    hint: "Ctrl/Cmd E",
+    label: () => t("cmdToggleReading"),
+    hint: () => "Ctrl/Cmd E",
     available: ({ openPath, admin }) => admin && openPath !== null,
   },
-  ...THEMES.map<Command>((t) => ({
-    id: `theme-${t}`,
-    label: `Theme: ${t}`,
-    hint: "appearance",
-    themeDot: t,
+  ...THEMES.map<Command>((theme) => ({
+    id: `theme-${theme}`,
+    label: () => tf("cmdTheme", { t: theme }),
+    hint: () => t("cmdAppearanceHint"),
+    themeDot: theme,
     available: () => true,
   })),
   {
     id: "toggle-vim",
-    label: "Toggle vim",
-    hint: "editor",
+    label: () => t("cmdToggleVim"),
+    hint: () => t("cmdEditorHint"),
     available: ({ admin }) => admin,
   },
   {
     id: "publish-note",
-    label: "Publish note",
-    hint: "✦ live for visitors",
+    label: () => t("cmdPublishNote"),
+    hint: () => t("cmdPublishHint"),
     available: ({ openPath, admin, openPublished }) =>
       admin && openPath !== null && !openPublished,
   },
   {
     id: "unpublish-note",
-    label: "Unpublish note",
-    hint: "✧ visitors lose it",
+    label: () => t("cmdUnpublishNote"),
+    hint: () => t("cmdUnpublishHint"),
     available: ({ openPath, admin, openPublished }) =>
       admin && openPath !== null && openPublished,
   },
   {
     id: "set-banner",
-    label: "Set banner…",
-    hint: "hero image",
+    label: () => t("cmdSetBanner"),
+    hint: () => t("cmdSetBannerHint"),
     available: ({ openPath, admin }) => admin && openPath !== null,
   },
   {
     id: "remove-banner",
-    label: "Remove banner",
-    hint: "clear the hero image",
+    label: () => t("cmdRemoveBanner"),
+    hint: () => t("cmdRemoveBannerHint"),
     available: ({ openPath, admin }) => admin && openPath !== null,
   },
   {
     id: "rename-current",
-    label: "Rename current note",
-    hint: "move",
+    label: () => t("cmdRenameCurrent"),
+    hint: () => t("cmdMoveHint"),
     prompt: {
       placeholder: "new/path.md",
       initial: () => useStore.getState().openPath ?? "",
@@ -181,44 +186,44 @@ const COMMANDS: Command[] = [
   },
   {
     id: "delete-current",
-    label: "Delete current note",
-    hint: "irreversible",
+    label: () => t("cmdDeleteCurrent"),
+    hint: () => t("cmdIrreversibleHint"),
     available: ({ openPath, admin }) => admin && openPath !== null,
   },
   {
     id: "moderate-comments",
-    label: "Moderate comments",
-    hint: "marginalia",
+    label: () => t("cmdModerateComments"),
+    hint: () => t("cmdMarginaliaHint"),
     available: ({ admin }) => admin,
   },
   {
     id: "site-settings",
-    label: "Site settings",
-    hint: "identity · home · behavior",
+    label: () => t("siteSettings"),
+    hint: () => t("cmdSiteSettingsHint"),
     available: ({ admin, preview }) => admin && !preview,
   },
   {
     id: "preview-visitor",
-    label: "Preview as visitor",
-    hint: "see the public site",
+    label: () => t("previewAsVisitor"),
+    hint: () => t("cmdPreviewHint"),
     available: ({ admin, preview }) => admin && !preview,
   },
   {
     id: "exit-preview",
-    label: "Exit visitor preview",
-    hint: "back to the vault",
+    label: () => t("cmdExitPreview"),
+    hint: () => t("cmdExitPreviewHint"),
     available: ({ preview }) => preview,
   },
   {
     id: "sign-in",
-    label: "Sign in",
-    hint: "unlock editing",
+    label: () => t("signIn"),
+    hint: () => t("cmdSignInHint"),
     available: ({ admin, preview }) => !admin && !preview,
   },
   {
     id: "sign-out",
-    label: "Sign out",
-    hint: "back to reading",
+    label: () => t("signOut"),
+    hint: () => t("cmdSignOutHint"),
     available: ({ admin, authProtected }) => admin && authProtected,
   },
 ];
@@ -228,10 +233,10 @@ type Item =
   | { kind: "tab"; path: string }
   | { kind: "note"; hit: SearchHit };
 
-const SECTION_LABEL: Record<Item["kind"], string> = {
-  command: "Commands",
-  tab: "Open tabs",
-  note: "Notes",
+const SECTION_KEY: Record<Item["kind"], I18nKey> = {
+  command: "paletteCommands",
+  tab: "paletteOpenTabs",
+  note: "paletteNotes",
 };
 
 function IconFile() {
@@ -268,6 +273,7 @@ export default function CommandPalette() {
   const admin = useStore((s) => s.admin);
   const authProtected = useStore((s) => s.authProtected);
   const preview = useStore((s) => s.previewVisitor);
+  useStore((s) => s.language); // re-render the chrome strings on language change
   const openPublished = useStore(
     (s) =>
       s.openPublished ??
@@ -354,15 +360,22 @@ export default function CommandPalette() {
         ...openTabs.map<Item>((path) => ({ kind: "tab", path })),
       ];
     }
+    // The hint is visible text on the row ("marginalia" / «الحواشي»), so it is
+    // searchable too — typing what you can read must never answer "no matches".
+    // A hint hit carries no highlight indices (they index the LABEL) and ranks
+    // below every label hit.
+    const HINT_PENALTY = 1000;
     const matchedCommands = available
-      .map((command) => ({ command, match: fuzzyMatch(q, command.label) }))
-      .filter((x): x is { command: Command; match: FuzzyResult } => x.match !== null)
-      .sort((a, b) => b.match.score - a.match.score)
-      .map<Item>(({ command, match }) => ({
-        kind: "command",
-        command,
-        indices: match.indices,
-      }));
+      .map((command) => {
+        const onLabel = fuzzyMatch(q, command.label());
+        if (onLabel) return { command, indices: onLabel.indices, score: onLabel.score };
+        const hint = command.hint?.();
+        const onHint = hint ? fuzzyMatch(q, hint) : null;
+        return onHint ? { command, indices: [], score: onHint.score - HINT_PENALTY } : null;
+      })
+      .filter((x): x is { command: Command; indices: number[]; score: number } => x !== null)
+      .sort((a, b) => b.score - a.score)
+      .map<Item>(({ command, indices }) => ({ kind: "command", command, indices }));
     return [...matchedCommands, ...hits.map<Item>((hit) => ({ kind: "note", hit }))];
   }, [mode.type, query, openPath, admin, authProtected, openPublished, preview, openTabs, hits]);
 
@@ -413,8 +426,8 @@ export default function CommandPalette() {
           if (store.openPath) {
             const path = store.openPath;
             void confirmModal({
-              title: "Delete note?",
-              body: `"${path}" will be deleted. This cannot be undone.`,
+              title: t("deleteNoteTitle"),
+              body: tf("deleteNoteBody", { path }),
             }).then((ok) => {
               if (!ok) return;
               useStore
@@ -422,7 +435,7 @@ export default function CommandPalette() {
                 .deleteNote(path)
                 .catch((err: unknown) => {
                   console.error("CommandPalette: delete failed", err);
-                  toast("Could not delete note");
+                  toast(t("couldNotDeleteNote"));
                 });
             });
           }
@@ -475,12 +488,12 @@ export default function CommandPalette() {
         .then(() => store.openNote(path))
         .catch((err: unknown) => {
           console.error("CommandPalette: create failed", err);
-          toast("Could not create note");
+          toast(t("couldNotCreateNote"));
         });
     } else if (command.id === "rename-current" && store.openPath) {
       store.renameNote(store.openPath, ensureMd(value)).catch((err: unknown) => {
         console.error("CommandPalette: rename failed", err);
-        toast("Could not rename note");
+        toast(t("couldNotRenameNote"));
       });
     }
     close();
@@ -556,11 +569,11 @@ export default function CommandPalette() {
       <div
         className="s-palette"
         role="dialog"
-        aria-label="Command palette"
+        aria-label={t("keyPalette")}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {isPrompt && mode.command && (
-          <div className="s-palette-prompt-label">{mode.command.label}</div>
+          <div className="s-palette-prompt-label">{mode.command.label()}</div>
         )}
         <input
           ref={inputRef}
@@ -570,7 +583,7 @@ export default function CommandPalette() {
           placeholder={
             isPrompt
               ? mode.command?.prompt?.placeholder
-              : "Type a command or search notes…"
+              : t("palettePlaceholder")
           }
           onChange={(e) => {
             setQuery(e.target.value);
@@ -594,7 +607,7 @@ export default function CommandPalette() {
                     : `note:${item.hit.path}`;
               const heading =
                 items[i - 1]?.kind !== item.kind ? (
-                  <div className="s-palette-section">{SECTION_LABEL[item.kind]}</div>
+                  <div className="s-palette-section">{t(SECTION_KEY[item.kind])}</div>
                 ) : null;
               return (
                 <div key={key}>
@@ -621,22 +634,22 @@ export default function CommandPalette() {
                     {item.kind === "command" && (
                       <>
                         <span className="s-palette-item-title">
-                          {highlight(item.command.label, item.indices)}
+                          {highlight(item.command.label(), item.indices)}
                         </span>
                         {item.command.hint && (
                           <span className="s-palette-item-hint">
-                            {item.command.hint}
+                            {item.command.hint()}
                           </span>
                         )}
                       </>
                     )}
                     {item.kind === "tab" && (
                       <>
-                        <span className="s-palette-item-title">
+                        <span className="s-palette-item-title" dir="auto">
                           {titleOf(item.path)}
                         </span>
                         {folderOf(item.path) && (
-                          <span className="s-palette-item-path">
+                          <span className="s-palette-item-path" dir="auto">
                             {folderOf(item.path)}
                           </span>
                         )}
@@ -644,16 +657,16 @@ export default function CommandPalette() {
                     )}
                     {item.kind === "note" && (
                       <>
-                        <span className="s-palette-item-title">
+                        <span className="s-palette-item-title" dir="auto">
                           {item.hit.title}
                         </span>
                         {!snippetIsEmpty(item.hit.snippet) && (
-                          <span className="s-palette-item-snippet">
+                          <span className="s-palette-item-snippet" dir="auto">
                             {renderSnippet(item.hit.snippet)}
                           </span>
                         )}
                         {folderOf(item.hit.path) && (
-                          <span className="s-palette-item-path">
+                          <span className="s-palette-item-path" dir="auto">
                             {folderOf(item.hit.path)}
                           </span>
                         )}
@@ -664,7 +677,7 @@ export default function CommandPalette() {
               );
             })}
             {items.length === 0 && (
-              <div className="s-palette-empty">No matches</div>
+              <div className="s-palette-empty">{t("paletteNoMatches")}</div>
             )}
           </div>
         )}

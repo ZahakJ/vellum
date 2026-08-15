@@ -5,7 +5,8 @@
 // forever — never read from this file: ADMIN_PASSWORD_HASH, SESSION_SECRET,
 // TRUSTED_PROXIES, PORT, HOST, VELLUM_VAULT, VELLUM_DATA, PUBLIC.
 // Keys: siteName, tagline, footer, defaultTheme, publicLayout, blogLocale,
-// excludeTags, commentsEnabled, favicon, logo, home { mode, note, banner }.
+// language, languageFilter, excludeTags, commentsEnabled, shareButtons,
+// favicon, logo, home { mode, note, banner }.
 // Unknown keys in the file are preserved verbatim on every write so external
 // tooling (or future settings) can share the file safely; unknown keys in a
 // PATCH are a 400 (strict allowlist).
@@ -21,7 +22,9 @@ import {
   defaultTheme,
   excludedTags,
   footerTemplate,
+  languageFilterEnabled,
   publicLayout,
+  siteLanguage,
   siteName,
   tagline,
 } from "./site.ts";
@@ -181,6 +184,8 @@ export function getSettings(): SettingsData {
     // Presence of the key (even empty) is meaningful: it overrides EXCLUDE_TAGS.
     out.excludeTags = tags;
   }
+  if (raw.language === "en" || raw.language === "ar") out.language = raw.language;
+  if (typeof raw.languageFilter === "boolean") out.languageFilter = raw.languageFilter;
   if (typeof raw.commentsEnabled === "boolean") out.commentsEnabled = raw.commentsEnabled;
   if (typeof raw.shareButtons === "boolean") out.shareButtons = raw.shareButtons;
   str("favicon", VALUE_MAX);
@@ -210,9 +215,11 @@ export function effectiveSettings(): EffectiveSettings {
     defaultTheme: defaultTheme(),
     publicLayout: publicLayout(),
     blogLocale: blogLocale(),
+    language: siteLanguage(),
+    languageFilter: languageFilterEnabled(),
     excludeTags: [...excludedTags()],
     commentsEnabled: commentsEnabled(),
-    shareButtons: s.shareButtons ?? false,
+    shareButtons: s.shareButtons ?? true,
     favicon: s.favicon ?? null,
     logo: s.logo ?? null,
     home: {
@@ -326,6 +333,19 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     // all despite EXCLUDE_TAGS" has no use case worth the extra state.
     if (tags.length === 0) delete raw.excludeTags;
     else raw.excludeTags = tags;
+  },
+  language: stringKey("language", (v) => {
+    const clean = cleanValue(v, "language")?.toLowerCase() ?? null;
+    if (clean === null) return null;
+    if (clean !== "en" && clean !== "ar") {
+      throw new VaultError(400, 'Settings key "language" must be "en" or "ar"');
+    }
+    return clean;
+  }),
+  languageFilter: (raw, value) => {
+    if (value === null) delete raw.languageFilter;
+    else if (typeof value === "boolean") raw.languageFilter = value;
+    else throw new VaultError(400, 'Settings key "languageFilter" must be a boolean or null');
   },
   commentsEnabled: (raw, value) => {
     if (value === null) delete raw.commentsEnabled;

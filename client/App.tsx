@@ -21,6 +21,7 @@ import Sidebar from "./components/Sidebar.tsx";
 import StatusBar from "./components/StatusBar.tsx";
 import Tabs from "./components/Tabs.tsx";
 import { openDailyNote } from "./daily.ts";
+import { t, tf } from "./i18n.ts";
 import { applyUrl, installRouter, syncUrl } from "./router.ts";
 import { recentPublishWrite, useStore } from "./state.ts";
 import { dismissToasts, toast } from "./toast.ts";
@@ -49,6 +50,7 @@ export default function App() {
   const publicLayout = useStore((s) => s.publicLayout);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const locked = useStore((s) => !s.admin && !s.publicReads);
+  useStore((s) => s.language); // re-render the chrome strings on language change
   const lastSaveRef = useRef(0);
 
   // Blog mode (PUBLIC_LAYOUT=blog): visitors get the classic blog shell,
@@ -77,7 +79,7 @@ export default function App() {
       // Blog-only routes (/topic/…) name nothing in the app shell — land
       // home quietly instead of complaining about a missing note.
       if (hadDeepLink && !location.pathname.startsWith("/topic/")) {
-        toast("That note does not exist (anymore)");
+        toast(t("noteGone"));
       }
       syncUrl();
     }
@@ -127,7 +129,7 @@ export default function App() {
           recentPublishWrite(SELF_SAVE_WINDOW_MS);
         if (!selfSave) {
           if (store.dirty[ev.path]) {
-            toast(`${ev.path} changed on disk — your unsaved edits were kept`);
+            toast(tf("changedOnDisk", { path: ev.path }));
           } else {
             store.bumpReload();
           }
@@ -206,7 +208,7 @@ export default function App() {
       } else if (key === "n") {
         if (!store.admin) return;
         e.preventDefault();
-        const path = window.prompt("New note path (e.g. ideas/Untitled.md):", "Untitled.md");
+        const path = window.prompt(t("newNotePathPrompt"), "Untitled.md");
         if (!path) return;
         const trimmed = path.trim().replace(/^\/+|\/+$/g, "");
         if (!trimmed) return;
@@ -249,8 +251,8 @@ export default function App() {
         <button
           type="button"
           className="s-drawer-btn"
-          aria-label={sidebarOpen ? "Close sidebar" : "Open sidebar"}
-          title={sidebarOpen ? "Close sidebar" : "Open sidebar"}
+          aria-label={t(sidebarOpen ? "closeSidebar" : "openSidebar")}
+          title={t(sidebarOpen ? "closeSidebar" : "openSidebar")}
           onClick={() => useStore.getState().setSidebarOpen(!sidebarOpen)}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -273,39 +275,39 @@ export default function App() {
           ) : locked ? (
             <div className="s-empty">
               <div className="s-empty__glyph" aria-hidden="true">✦</div>
-              <p className="s-empty__title">This vault is private.</p>
+              <p className="s-empty__title">{t("vaultPrivate")}</p>
               <button
                 type="button"
                 className="s-btn s-btn--accent"
                 onClick={() => useStore.getState().setLoginOpen(true)}
               >
-                Sign in
+                {t("signIn")}
               </button>
             </div>
           ) : (
             <div className="s-empty">
               <div className="s-empty__glyph" aria-hidden="true">✦</div>
-              <p className="s-empty__title">The vault is open.</p>
+              <p className="s-empty__title">{t("vaultOpen")}</p>
               <div className="s-empty__keys">
                 <span className="s-empty__key">
-                  <kbd>Ctrl P</kbd> command palette
+                  <kbd>Ctrl P</kbd> {t("keyPalette")}
                 </span>
                 <span className="s-empty__key">
-                  <kbd>Ctrl G</kbd> graph view
+                  <kbd>Ctrl G</kbd> {t("keyGraph")}
                 </span>
                 <span className="s-empty__key">
-                  <kbd>Ctrl K</kbd> search notes
+                  <kbd>Ctrl K</kbd> {t("keySearch")}
                 </span>
                 {admin && (
                   <>
                     <span className="s-empty__key">
-                      <kbd>Ctrl N</kbd> new note
+                      <kbd>Ctrl N</kbd> {t("keyNewNote")}
                     </span>
                     <span className="s-empty__key">
-                      <kbd>Ctrl S</kbd> save now
+                      <kbd>Ctrl S</kbd> {t("keySave")}
                     </span>
                     <span className="s-empty__key">
-                      <kbd>Ctrl E</kbd> reading view
+                      <kbd>Ctrl E</kbd> {t("keyReading")}
                     </span>
                   </>
                 )}

@@ -4,9 +4,11 @@
 // Marginalia (reader comments) at the end.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { stripBidiControls } from "../../shared/bidi.ts";
 import type { GraphData, PostMeta } from "../../shared/types.ts";
 import { getGraph, getNote } from "../api.ts";
 import { bannerSrc, generatedBannerCss } from "../banner.ts";
+import { countPhrase, t, tf } from "../i18n.ts";
 import Marginalia from "../components/Marginalia.tsx";
 import { renderMarkdown } from "../reading/render.ts";
 import { notePathToUrl } from "../router.ts";
@@ -49,8 +51,8 @@ function shareLinks(title: string): { name: string; href: string }[] {
 function copyLink(): void {
   navigator.clipboard
     .writeText(location.href)
-    .then(() => toast("Link copied"))
-    .catch(() => toast("Could not copy the link"));
+    .then(() => toast(t("blogLinkCopied")))
+    .catch(() => toast(t("blogCopyFailed")));
 }
 
 export default function BlogArticle({
@@ -67,9 +69,16 @@ export default function BlogArticle({
   const pendingHeading = useStore((s) => s.pendingHeading);
   const bannerFallback = useStore((s) => s.bannerFallback);
   const shareButtons = useStore((s) => s.shareButtons);
+  // Re-render chrome strings on a live language switch. The value is also a
+  // dependency of the body render below: the rendered markdown carries t()
+  // chrome (properties card, transclusion cards) built as imperative DOM.
+  const language = useStore((s) => s.language);
   const [graph, setGraph] = useState<GraphData | null>(null);
 
-  const title = path.split("/").pop()!.replace(/\.md$/i, "");
+  // Bidi controls out: the H1 is the note's own filename, and an RLO in it
+  // reorders the headline. Same normalization the server applies to the title
+  // it puts in /api/posts, RSS and the og: tags.
+  const title = stripBidiControls(path.split("/").pop()!.replace(/\.md$/i, ""));
   const meta = posts?.find((p) => p.path === path) ?? null;
 
   // The post's server-filtered tag list (EXCLUDE_TAGS already applied) is
@@ -116,12 +125,12 @@ export default function BlogArticle({
       })
       .catch((err: unknown) => {
         console.error(`vellum: failed to open ${path}`, err);
-        toast(`Failed to open ${title}`);
+        toast(tf("openFailed", { path: title }));
       });
     return () => {
       disposed = true;
     };
-  }, [path, tree, visibleTags]);
+  }, [path, tree, visibleTags, language]);
 
   // A wikilink to a heading of the note already on screen: openPath doesn't
   // change, only pendingHeading does — consume it here.
@@ -195,11 +204,11 @@ export default function BlogArticle({
             <span className="s-blog-meta__dot" aria-hidden="true">
               ·
             </span>
-            <span>{meta.words.toLocaleString(locale)} words</span>
+            <span>{countPhrase(meta.words, "words")}</span>
             <span className="s-blog-meta__dot" aria-hidden="true">
               ·
             </span>
-            <span>{meta.readingMinutes} min read</span>
+            <span>{countPhrase(meta.readingMinutes, "readMinutes")}</span>
           </div>
         )}
       </header>
@@ -243,7 +252,7 @@ export default function BlogArticle({
 
         {shareButtons && (
         <div className="s-blog-share">
-          <span className="s-blog-share__label">Share</span>
+          <span className="s-blog-share__label">{t("blogShare")}</span>
           {shareLinks(title).map((s) => (
             <a
               key={s.name}
@@ -256,16 +265,21 @@ export default function BlogArticle({
             </a>
           ))}
           <button type="button" className="s-blog-share__link" onClick={copyLink}>
-            Copy link
+            {t("blogCopyLink")}
           </button>
         </div>
         )}
 
         {(newer || older) && (
-          <nav className="s-blog-pn" aria-label="More writings">
+          <nav className="s-blog-pn" aria-label={t("blogMoreWritings")}>
             {older ? (
               <NavLink url={notePathToUrl(older.path)} className="s-blog-pn__card">
-                <span className="s-blog-pn__label">← Older</span>
+                <span className="s-blog-pn__label">
+                  <span className="s-blog-pn__arrow" aria-hidden="true">
+                    ←
+                  </span>
+                  {t("blogOlder")}
+                </span>
                 <span className="s-blog-pn__title" dir="auto">
                   {older.title}
                 </span>
@@ -278,7 +292,12 @@ export default function BlogArticle({
                 url={notePathToUrl(newer.path)}
                 className="s-blog-pn__card s-blog-pn__card--next"
               >
-                <span className="s-blog-pn__label">Newer →</span>
+                <span className="s-blog-pn__label">
+                  {t("blogNewer")}
+                  <span className="s-blog-pn__arrow" aria-hidden="true">
+                    →
+                  </span>
+                </span>
                 <span className="s-blog-pn__title" dir="auto">
                   {newer.title}
                 </span>
@@ -290,9 +309,9 @@ export default function BlogArticle({
         )}
 
         {related.length > 0 && (
-          <section className="s-blog-related" aria-label="Related writings">
+          <section className="s-blog-related" aria-label={t("blogRelatedWritings")}>
             <h2 className="s-blog-heading">
-              <span>Related</span>
+              <span>{t("blogRelated")}</span>
             </h2>
             <ul className="s-blog-related__list">
               {related.map((p) => (

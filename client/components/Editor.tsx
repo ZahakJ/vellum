@@ -6,9 +6,11 @@
 import { useEffect, useRef } from "react";
 import { EditorView } from "@codemirror/view";
 import { getNote, putNote } from "../api.ts";
+import { tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { buildEditorState, setVim } from "../editor/setup.ts";
+import { languageChanged } from "../editor/langEffect.ts";
 import { findHeadingLine } from "../editor/links.ts";
 
 const AUTOSAVE_MS = 600;
@@ -37,6 +39,12 @@ export default function Editor({ path }: { path: string }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const vimMode = useStore((s) => s.vimMode);
+  // The editor's chrome (properties card, fold chevrons, transclusion cards,
+  // upload pills) is CM6 widget DOM, not React, so it cannot subscribe to the
+  // store the way i18n.ts asks components to. This is its subscription: a
+  // settings language flip dispatches one effect into the live view, which is
+  // what makes the decoration builders rebuild (see editor/langEffect.ts).
+  const language = useStore((s) => s.language);
 
   useEffect(() => {
     let disposed = false;
@@ -55,7 +63,7 @@ export default function Editor({ path }: { path: string }) {
         }
       } catch (err) {
         console.error(`Failed to save ${path}`, err);
-        toast(`Failed to save ${path}`);
+        toast(tf("saveFailed", { path }));
       }
     };
 
@@ -119,7 +127,7 @@ export default function Editor({ path }: { path: string }) {
       })
       .catch((err) => {
         console.error(`Failed to open ${path}`, err);
-        toast(`Failed to open ${path}`);
+        toast(tf("openFailed", { path }));
       });
 
     return () => {
@@ -136,7 +144,7 @@ export default function Editor({ path }: { path: string }) {
           .then(() => markDirty(path, false))
           .catch((err) => {
             console.error(`Failed to save ${path}`, err);
-            toast(`Failed to save ${path}`);
+            toast(tf("saveFailed", { path }));
           });
       }
       view.destroy();
@@ -146,6 +154,10 @@ export default function Editor({ path }: { path: string }) {
   useEffect(() => {
     if (viewRef.current) setVim(viewRef.current, vimMode);
   }, [vimMode]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: languageChanged.of(null) });
+  }, [language]);
 
   // Outline (TOC) clicks: jump the editor to the heading's source line.
   useEffect(() => {

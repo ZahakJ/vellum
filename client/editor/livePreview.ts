@@ -32,6 +32,7 @@ import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { parseWikilink, resolveLink, WIKILINK_RE } from "./links.ts";
 import { bannerFromYaml } from "../banner.ts";
+import { getLang, t, tf } from "../i18n.ts";
 import { buildBannerEl, buildPropsCard, parseProps, TAG_RE } from "./noteMeta.ts";
 import {
   FileCardWidget,
@@ -596,11 +597,11 @@ function openWikilink(inner: string): void {
   // Unresolved link: clicking it creates the note (Obsidian behavior).
   // Admin only — visitors never mount the editor, but stay safe regardless.
   if (!store.admin) {
-    toast(`"${target}" does not exist`);
+    toast(tf("linkMissing", { name: target }));
     return;
   }
   const path = /\.md$/i.test(target) ? target : `${target}.md`;
-  toast(`Creating "${target}"…`);
+  toast(tf("creatingNote", { name: target }));
   void store.createNote(path);
 }
 
@@ -781,11 +782,17 @@ function handleMousedown(event: MouseEvent, view: EditorView): boolean {
 //    $$ math renders as display widgets, and folded callout bodies hide. ──
 
 class FrontmatterWidget extends WidgetType {
+  // The properties card renders four t() strings ("Properties · N", the
+  // toggle tooltip, the "Set banner…" action and its title). CM reuses a
+  // widget's DOM whenever eq() says it is the same widget, so without the
+  // language in the identity a live settings flip left an Arabic card sitting
+  // above English editor chrome (and vice versa) until a full reload.
+  readonly lang = getLang();
   constructor(readonly yaml: string) {
     super();
   }
   override eq(other: FrontmatterWidget): boolean {
-    return other.yaml === this.yaml;
+    return other.yaml === this.yaml && other.lang === this.lang;
   }
   toDOM(): HTMLElement {
     // Header action: opens the banner modal (handled in the shell via a
@@ -794,8 +801,8 @@ class FrontmatterWidget extends WidgetType {
     action.type = "button";
     action.className = "cm-s-props__action";
     action.dataset.action = "set-banner";
-    action.textContent = bannerFromYaml(this.yaml) ? "Banner…" : "Set banner…";
-    action.title = "Set a banner image for this note";
+    action.textContent = t(bannerFromYaml(this.yaml) ? "bannerAction" : "setBannerAction");
+    action.title = t("setBannerTitle");
     // Direct listener, like the tag pills: FrontmatterWidget keeps CM's
     // default ignoreEvent()=true, so the editor's mousedown handler never
     // sees clicks inside this widget — the button must dispatch itself.
@@ -813,7 +820,7 @@ class FrontmatterWidget extends WidgetType {
         pill.className = "cm-s-props__tag";
         pill.dataset.tag = value;
         pill.textContent = `#${value}`;
-        pill.title = `Search #${value}`;
+        pill.title = tf("searchTag", { tag: value });
         pill.addEventListener("click", (ev) => {
           ev.preventDefault();
           ev.stopPropagation();

@@ -17,7 +17,7 @@
   margin: 0 auto;
   padding: 48px 56px 120px;
   font-family: var(--font-serif);
-  font-size: var(--font-prose, 1.161rem);
+  font-size: calc(var(--font-prose, 1.161rem) * var(--prose-scale, 1));
   line-height: 1.7;
   color: var(--text);
   overflow-wrap: break-word;
@@ -190,8 +190,9 @@
 
 .s-rv-quote {
   margin: 0.9em 0;
-  padding: 0.1em 0 0.1em 0.9em;
-  border-left: 3px solid var(--accent);
+  padding-block: 0.1em;
+  padding-inline: 0.9em 0;
+  border-inline-start: 3px solid var(--accent);
   color: var(--text-muted);
   font-style: italic;
 }
@@ -203,9 +204,10 @@
 .s-rv-callout {
   --co: var(--callout-note);
   margin: 0.9em 0;
-  padding: 0.55em 0.9em 0.6em 1em;
+  padding-block: 0.55em 0.6em;
+  padding-inline: 1em 0.9em;
   background: color-mix(in srgb, var(--co) 9%, transparent);
-  border-left: 3px solid var(--co);
+  border-inline-start: 3px solid var(--co);
   border-radius: var(--radius);
 }
 
@@ -275,7 +277,7 @@
 
 .s-rv-list {
   margin: 0.35em 0 0.9em;
-  padding-left: 1.6em;
+  padding-inline-start: 1.6em;
 }
 
 .s-rv-list .s-rv-list {
@@ -292,7 +294,7 @@
 
 li.s-rv-task {
   list-style: none;
-  margin-left: -1.35em;
+  margin-inline-start: -1.35em;
 }
 
 li.s-rv-task input[type="checkbox"] {
@@ -348,7 +350,7 @@ li.s-rv-task--done > span {
 .s-rv-table td {
   border: 1px solid var(--border);
   padding: 0.4em 0.8em;
-  text-align: left;
+  text-align: start;
 }
 
 .s-rv-table th {
@@ -457,7 +459,7 @@ li.s-rv-task--done > span {
 .s-rv-transclude {
   margin: 0.9em 0;
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
+  border-inline-start: 3px solid var(--accent);
   border-radius: var(--radius);
   background: var(--bg-raised);
   overflow: hidden;
@@ -538,7 +540,7 @@ li.s-rv-task--done > span {
 }
 
 .s-rv-transclude--broken {
-  border-left-color: color-mix(in srgb, var(--danger) 65%, var(--border));
+  border-inline-start-color: color-mix(in srgb, var(--danger) 65%, var(--border));
 }
 
 .s-rv-transclude--broken .s-rv-transclude__title {
@@ -633,7 +635,7 @@ span.s-rv-math-live {
 
 .s-rv-footnotes ol {
   margin: 0;
-  padding-left: 1.6em;
+  padding-inline-start: 1.6em;
 }
 
 .s-rv-footnotes li {
@@ -793,7 +795,7 @@ span.s-rv-math-live {
   position: relative;
   display: block;
   width: 100%;
-  text-align: left;
+  text-align: start;
   font-size: 0.893rem;
   line-height: 1.4;
   padding: 4px 8px;
@@ -818,11 +820,11 @@ span.s-rv-math-live {
 }
 
 .s-toc__item--l1 { font-weight: 600; color: var(--text); }
-.s-toc__item--l2 { padding-left: 18px; }
-.s-toc__item--l3 { padding-left: 28px; }
-.s-toc__item--l4 { padding-left: 38px; }
-.s-toc__item--l5 { padding-left: 48px; }
-.s-toc__item--l6 { padding-left: 58px; }
+.s-toc__item--l2 { padding-inline-start: 18px; }
+.s-toc__item--l3 { padding-inline-start: 28px; }
+.s-toc__item--l4 { padding-inline-start: 38px; }
+.s-toc__item--l5 { padding-inline-start: 48px; }
+.s-toc__item--l6 { padding-inline-start: 58px; }
 .s-toc__item--l1.s-toc__item--active { color: var(--text); }
 
 /* ── Visitor typography — the public face ──────────────────────────────────
@@ -881,4 +883,28 @@ span.s-rv-math-live {
    properties card (publish flags, sync ids…) is admin furniture. */
 .s-app--visitor .s-rv-props {
   display: none;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   RTL (settings.language = "ar" → <html dir="rtl">)
+
+   Everything above is written in logical properties, so the reading column,
+   its lists, callouts, quotes and the outline mirror on their own — and the
+   rendered note blocks, which carry dir="auto", each mirror by their OWN
+   direction rather than the shell's. Only what logical properties cannot
+   express is listed here.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Active outline row: box-shadow has no logical inset, so flip the offset to
+   paint the accent bar on the row's LEADING edge — which under RTL is the
+   right one. (The LTR rule paints it on the left, also the leading edge.) */
+[dir="rtl"] .s-toc__item--active {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
+/* The properties-card chevron is an SVG path, not a glyph — the bidi
+   algorithm never touches geometry, so mirroring is explicit. Only the
+   collapsed state points sideways; expanded already points down. */
+[dir="rtl"] .s-rv-props--collapsed .s-rv-props__chevron {
+  transform: scaleX(-1);
 }

@@ -46,6 +46,7 @@ export interface MeData {
   published?: PublishedCounts; // publish stats for admin UI copy (admin sessions only)
   siteName?: string;   // instance branding (SITE_NAME; default "Vellum")
   defaultTheme?: string; // theme applied when the visitor has no stored choice (DEFAULT_THEME)
+  language?: "en" | "ar"; // site chrome language (settings.language / SITE_LANG; default "en"); "ar" flips the whole chrome RTL. Sent to every session.
   customCss?: boolean; // VELLUM_DATA/custom.css exists → client links /api/custom.css
   // Blog mode (PUBLIC_LAYOUT=blog): visitors get a classic blog shell instead
   // of the app chrome; admin sessions keep the full app. Fields below are
@@ -112,6 +113,13 @@ export interface SettingsData {
   defaultTheme?: string;
   /** Visitor-facing layout (overrides PUBLIC_LAYOUT). */
   publicLayout?: "app" | "blog";
+  /** Chrome language (overrides SITE_LANG): "ar" localizes all chrome
+   *  strings to Arabic and mirrors the UI right-to-left. */
+  language?: "en" | "ar";
+  /** When true AND the site language matches, public blog surfaces (lists,
+   *  topics, search, graph, RSS) show only notes written predominantly in
+   *  that language's script. Admin surfaces unaffected. Default false. */
+  languageFilter?: boolean;
   /** BCP47 date-formatting locale (overrides BLOG_LOCALE). */
   blogLocale?: string;
   /** Tags hidden from visitor surfaces (overrides EXCLUDE_TAGS). Simple
@@ -144,6 +152,8 @@ export interface EffectiveSettings {
   defaultTheme: string | null;
   publicLayout: "app" | "blog";
   blogLocale: string;
+  language: "en" | "ar";
+  languageFilter: boolean;
   excludeTags: string[];
   commentsEnabled: boolean;
   shareButtons: boolean;
@@ -160,6 +170,8 @@ export interface SettingsPatch {
   footer?: string | null;
   defaultTheme?: string | null;
   publicLayout?: "app" | "blog" | null;
+  language?: "en" | "ar" | null;
+  languageFilter?: boolean | null;
   blogLocale?: string | null;
   excludeTags?: string[] | null;
   commentsEnabled?: boolean | null;

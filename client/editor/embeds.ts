@@ -3,6 +3,7 @@
 // this file is what lets the reading view ship without the editor bundle.
 
 import { withPreview } from "../api.ts";
+import { t } from "../i18n.ts";
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 const ATTACHMENT_EXT = /\.(pdf|mp4|webm|mp3|ogg|wav|flac|zip|canvas|json|csv|txt)$/i;
@@ -152,7 +153,7 @@ export function missingImageCard(name: string): HTMLElement {
     '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>';
   const label = document.createElement("span");
   label.className = "s-rv-imgmissing__label";
-  label.textContent = "Missing image";
+  label.textContent = t("missingImage");
   box.append(icon, label);
   if (!isNoiseImageName(name)) {
     const which = document.createElement("span");

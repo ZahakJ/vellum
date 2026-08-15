@@ -8,6 +8,7 @@ import type { SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
 import { createFolder, getGraph, getTags, search } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
 import { collectNotes, resolveLink, type NoteRef } from "../editor/links.ts";
+import { countPhrase, localeNum, t, tf, type Lang } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { confirmModal } from "./Confirm.tsx";
@@ -138,7 +139,7 @@ function buildTopics(
     .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
     .map(([tag, list]) => ({ key: `#${tag}`, label: tag, notes: list }));
   if (untagged.length > 0) {
-    sections.push({ key: "untagged", label: "Notes", notes: untagged });
+    sections.push({ key: "untagged", label: t("notes"), notes: untagged });
   }
   return sections;
 }
@@ -178,6 +179,9 @@ export default function Sidebar() {
   const admin = useStore((s) => s.admin);
   const homeNote = useStore((s) => s.homeNote);
   const siteName = useStore((s) => s.siteName);
+  // Re-renders the chrome strings on a live language change; also threaded
+  // into the memoized rows below so their tooltips follow.
+  const lang = useStore((s) => s.language);
   const logo = useStore((s) => s.logo);
   const publishedFilter = useStore((s) => s.publishedFilter);
   const publishedPaths = useStore((s) => s.publishedPaths);
@@ -280,26 +284,26 @@ export default function Sidebar() {
   const cancelRename = useCallback(() => setRenaming(null), []);
 
   const promptNewNote = (dir: string) => {
-    const name = window.prompt("New note name:", "Untitled.md");
+    const name = window.prompt(t("newNotePrompt"), "Untitled.md");
     if (!name || !name.trim()) return;
     void createNote(joinPath(dir, ensureMd(name.trim())));
   };
 
   const promptNewFolder = (dir: string) => {
-    const name = window.prompt("New folder name:");
+    const name = window.prompt(t("newFolderPrompt"));
     if (!name || !name.trim()) return;
     createFolder(joinPath(dir, name.trim()))
       .then(() => loadTree())
       .catch((err: unknown) => {
         console.error("vellum: creating folder failed", err);
-        toast(err instanceof Error ? err.message : "Creating folder failed");
+        toast(err instanceof Error ? err.message : t("creatingFolderFailed"));
       });
   };
 
   const confirmDelete = (node: TreeNode) => {
     void confirmModal({
-      title: "Delete note?",
-      body: `"${node.path}" will be deleted. This cannot be undone.`,
+      title: t("deleteNoteTitle"),
+      body: tf("deleteNoteBody", { path: node.path }),
     }).then((ok) => {
       if (ok) void deleteNote(node.path);
     });
@@ -351,7 +355,7 @@ export default function Sidebar() {
           <button
             type="button"
             className="s-title"
-            title="View public site"
+            title={t("viewPublicSite")}
             onClick={() => void useStore.getState().setPreviewVisitor(true)}
           >
             {logo ? (
@@ -380,8 +384,8 @@ export default function Sidebar() {
             <button
               type="button"
               className="s-iconbtn"
-              title="New note"
-              aria-label="New note"
+              title={t("newNote")}
+              aria-label={t("newNote")}
               onClick={() => promptNewNote("")}
             >
               <IconNewNote />
@@ -389,8 +393,8 @@ export default function Sidebar() {
             <button
               type="button"
               className="s-iconbtn"
-              title="New folder"
-              aria-label="New folder"
+              title={t("newFolder")}
+              aria-label={t("newFolder")}
               onClick={() => promptNewFolder("")}
             >
               <IconNewFolder />
@@ -403,8 +407,8 @@ export default function Sidebar() {
           ref={searchRef}
           className="s-search__input"
           type="search"
-          placeholder="Search notes…"
-          title="Search notes (Ctrl/Cmd+K)"
+          placeholder={t("searchPlaceholder")}
+          title={t("searchTitle")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -420,21 +424,21 @@ export default function Sidebar() {
       {admin && publishedFilter && (
         <div className="s-filterbar">
           <span className="s-filterbar__label">
-            <span aria-hidden="true">✦</span> Published only
+            <span aria-hidden="true">✦</span> {t("publishedOnly")}
           </span>
           <button
             type="button"
             className="s-filterbar__clear"
             onClick={() => useStore.getState().setPublishedFilter(false)}
           >
-            Show all
+            {t("showAll")}
           </button>
         </div>
       )}
 
       {hits !== null ? (
         <div className="s-search__results">
-          {hits.length === 0 && <p className="s-search__none">No matches.</p>}
+          {hits.length === 0 && <p className="s-search__none">{t("noMatchesDot")}</p>}
           {hits.map((hit) => (
             <button
               key={hit.path}
@@ -442,16 +446,19 @@ export default function Sidebar() {
               className="s-search-hit"
               onClick={() => openNote(hit.path)}
             >
+              {/* Direction per note, alignment per chrome (see BacklinksPanel):
+                  the isolate goes around the title, not around the line that
+                  also carries the ✦ published star. */}
               <span className="s-search-hit__title">
-                {hit.title}
+                <bdi>{hit.title}</bdi>
                 {admin && publishedPaths?.has(hit.path) && (
-                  <span className="s-pubstar" title="Published" aria-label="Published">
+                  <span className="s-pubstar" title={t("published")} aria-label={t("published")}>
                     ✦
                   </span>
                 )}
               </span>
               {!snippetIsEmpty(hit.snippet) && (
-                <span className="s-search-hit__snippet">
+                <span className="s-search-hit__snippet" dir="auto">
                   {renderSnippet(hit.snippet)}
                 </span>
               )}
@@ -459,7 +466,7 @@ export default function Sidebar() {
           ))}
         </div>
       ) : topics !== null && flatNotes !== null ? (
-        <nav className="s-publist s-topics" aria-label="Notes by topic">
+        <nav className="s-publist s-topics" aria-label={t("notesByTopic")}>
           {flatNotes.home !== null &&
             flatNotes.notes
               .filter((note) => note.path === flatNotes.home)
@@ -469,6 +476,7 @@ export default function Sidebar() {
                   path={note.path}
                   title={note.title}
                   isHome
+                  lang={lang}
                   onOpen={openNote}
                 />
               ))}
@@ -476,18 +484,18 @@ export default function Sidebar() {
             <div className="s-topics__rule" aria-hidden="true" />
           )}
           {topics.map((section) => (
-            <TopicSection key={section.key} section={section} onOpen={openNote} />
+            <TopicSection key={section.key} section={section} lang={lang} onOpen={openNote} />
           ))}
           {flatNotes.notes.length === 0 && (
-            <p className="s-publist__none">Nothing published yet.</p>
+            <p className="s-publist__none">{t("nothingPublished")}</p>
           )}
         </nav>
       ) : flatNotes !== null ? (
-        <nav className="s-publist" aria-label={admin ? "Published notes" : "Notes"}>
+        <nav className="s-publist" aria-label={admin ? t("publishedNotes") : t("notes")}>
           {admin && (
             <div className="s-publist__head">
               <span className="s-publist__headstar" aria-hidden="true">✦</span>
-              Published only
+              {t("publishedOnly")}
             </div>
           )}
           {flatNotes.notes.map((note) => (
@@ -496,11 +504,12 @@ export default function Sidebar() {
               path={note.path}
               title={note.title}
               isHome={note.path === flatNotes.home}
+              lang={lang}
               onOpen={openNote}
             />
           ))}
           {flatNotes.notes.length === 0 && (
-            <p className="s-publist__none">Nothing published yet.</p>
+            <p className="s-publist__none">{t("nothingPublished")}</p>
           )}
         </nav>
       ) : (
@@ -516,6 +525,7 @@ export default function Sidebar() {
               node={child}
               depth={0}
               renaming={renaming}
+              lang={lang}
               onOpen={openNote}
               onStartRename={startRename}
               onCommitRename={commitRename}
@@ -541,7 +551,7 @@ export default function Sidebar() {
               }
             }}
             aria-expanded={!tagsCollapsed}
-            title={tagsCollapsed ? "Show tags" : "Hide tags"}
+            title={tagsCollapsed ? t("showTags") : t("hideTags")}
           >
             <span
               className={`s-tree__chevron${tagsCollapsed ? "" : " s-tree__chevron--open"}`}
@@ -549,8 +559,8 @@ export default function Sidebar() {
             >
               ›
             </span>
-            <span className="s-tags__title">Tags</span>
-            <span className="s-tags__total">{tags.length}</span>
+            <span className="s-tags__title">{t("tags")}</span>
+            <span className="s-tags__total">{localeNum(tags.length)}</span>
           </button>
           {!tagsCollapsed && (
           <div className="s-tags__list">
@@ -562,11 +572,19 @@ export default function Sidebar() {
                 type="button"
                 className={active ? "s-tag s-tag--active" : "s-tag"}
                 onClick={() => setQuery(active ? "" : `#${tag}`)}
-                title={active ? `Clear #${tag} filter` : `Search #${tag}`}
+                title={tf(active ? "clearTagFilter" : "searchTag", { tag })}
               >
-                <span className="s-tag__hash" aria-hidden="true">#</span>
-                {tag}
-                <span className="s-tag__count">{count}</span>
+                {/* The hash belongs TO the tag name, so the two share one
+                    bidi isolate: without it the RTL shell drew a Latin tag as
+                    "baby #", the hash flush against the pill's right edge.
+                    The count stays outside the isolate — it is chrome, and
+                    keeps the pill's own inline order. Same rendering as the
+                    blog's .s-blog-chip. */}
+                <bdi className="s-tag__name">
+                  <span className="s-tag__hash" aria-hidden="true">#</span>
+                  {tag}
+                </bdi>
+                <span className="s-tag__count">{localeNum(count)}</span>
               </button>
               );
             })}
@@ -575,9 +593,7 @@ export default function Sidebar() {
         </div>
       )}
 
-      <footer className="s-sidebar-foot">
-        {noteCount} note{noteCount === 1 ? "" : "s"}
-      </footer>
+      <footer className="s-sidebar-foot">{countPhrase(noteCount, "notes")}</footer>
 
       {menu && (
         <div
@@ -595,7 +611,7 @@ export default function Sidebar() {
                   promptNewNote(menu.node.path);
                 }}
               >
-                New note here
+                {t("newNoteHere")}
               </button>
               <button
                 type="button"
@@ -605,7 +621,7 @@ export default function Sidebar() {
                   promptNewFolder(menu.node.path);
                 }}
               >
-                New folder
+                {t("newFolder")}
               </button>
             </>
           )}
@@ -618,7 +634,7 @@ export default function Sidebar() {
                 setRenaming(menu.node.path);
               }}
             >
-              Rename
+              {t("rename")}
             </button>
           )}
           {menu.node.type === "file" && (
@@ -630,7 +646,7 @@ export default function Sidebar() {
                 confirmDelete(menu.node);
               }}
             >
-              Delete
+              {t("delete")}
             </button>
           )}
         </div>
@@ -649,6 +665,7 @@ const PubRow = memo(function PubRow({
   path: string;
   title: string;
   isHome: boolean;
+  lang: Lang; // memo-buster for the t() tooltip; see TreeRowProps.lang
   onOpen(path: string): void;
 }) {
   const isActive = useStore((s) => s.openPath === path);
@@ -660,11 +677,11 @@ const PubRow = memo(function PubRow({
       title={title}
     >
       {isHome && (
-        <span className="s-publist__home" title="Home" aria-hidden="true">
+        <span className="s-publist__home" title={t("home")} aria-hidden="true">
           ✦
         </span>
       )}
-      <span className="s-publist__title">{title}</span>
+      <span className="s-publist__title" dir="auto">{title}</span>
     </button>
   );
 });
@@ -673,9 +690,11 @@ const PubRow = memo(function PubRow({
  *  header + count, notes beneath). Collapse persists per section key. */
 const TopicSection = memo(function TopicSection({
   section,
+  lang,
   onOpen,
 }: {
   section: TopicSectionData;
+  lang: Lang; // memo-buster for the t() tooltips; see TreeRowProps.lang
   onOpen(path: string): void;
 }) {
   const [open, setOpen] = useState(
@@ -696,7 +715,7 @@ const TopicSection = memo(function TopicSection({
         className="s-topic__head"
         onClick={toggle}
         aria-expanded={open}
-        title={open ? `Collapse ${section.label}` : `Expand ${section.label}`}
+        title={tf(open ? "collapseSection" : "expandSection", { label: section.label })}
       >
         <span
           className={`s-tree__chevron${open ? " s-tree__chevron--open" : ""}`}
@@ -704,8 +723,8 @@ const TopicSection = memo(function TopicSection({
         >
           ›
         </span>
-        <span className="s-topic__label">{section.label}</span>
-        <span className="s-topic__count">{section.notes.length}</span>
+        <span className="s-topic__label" dir="auto">{section.label}</span>
+        <span className="s-topic__count">{localeNum(section.notes.length)}</span>
       </button>
       {open && (
         <div className="s-topic__list" role="group">
@@ -715,6 +734,7 @@ const TopicSection = memo(function TopicSection({
               path={note.path}
               title={note.title}
               isHome={false}
+              lang={lang}
               onOpen={onOpen}
             />
           ))}
@@ -728,6 +748,10 @@ interface TreeRowProps {
   node: TreeNode;
   depth: number;
   renaming: string | null;
+  /** Active chrome language. Not read directly — it is a prop purely so a
+   *  live language change busts memo() on every row and re-renders the
+   *  t() tooltips, without paying for a store subscription per row. */
+  lang: Lang;
   onOpen(path: string): void;
   onStartRename(path: string): void;
   onCommitRename(node: TreeNode, name: string): void;
@@ -769,7 +793,7 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
     <div className="s-tree__node">
       <div
         className={classes}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
         onClick={() => (isFolder ? toggle() : props.onOpen(node.path))}
         onDoubleClick={(e) => {
           e.stopPropagation();
@@ -791,10 +815,10 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
             onCancel={props.onCancelRename}
           />
         ) : (
-          <span className="s-tree__label">
+          <span className="s-tree__label" dir="auto">
             {label}
             {isPublished && (
-              <span className="s-pubstar" title="Published" aria-label="Published">
+              <span className="s-pubstar" title={t("published")} aria-label={t("published")}>
                 ✦
               </span>
             )}

@@ -5,6 +5,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { getNote } from "../api.ts";
+import { countPhrase, t, tf } from "../i18n.ts";
 import { isPublishedContent } from "../publish.ts";
 import { nextTheme, useStore } from "../state.ts";
 
@@ -33,6 +34,7 @@ export default function StatusBar() {
   const publishedFilter = useStore((s) => s.publishedFilter);
   const setPublishedFilter = useStore((s) => s.setPublishedFilter);
   const togglePublish = useStore((s) => s.togglePublish);
+  useStore((s) => s.language); // re-render the chrome strings on language change
 
   const [counts, setCounts] = useState<{ words: number; chars: number } | null>(null);
 
@@ -82,6 +84,9 @@ export default function StatusBar() {
                 className={`s-statusbar__crumb${
                   i === crumbs.length - 1 ? " s-statusbar__crumb--leaf" : ""
                 }`}
+                // Per segment, not per crumb trail: a folder/note name picks
+                // its own direction while the trail keeps the chrome's order.
+                dir="auto"
               >
                 {part}
               </span>
@@ -89,14 +94,13 @@ export default function StatusBar() {
           ))}
         </span>
       ) : (
-        <span className="s-statusbar__crumbs s-statusbar__crumb">No note open</span>
+        <span className="s-statusbar__crumbs s-statusbar__crumb">{t("noNoteOpen")}</span>
       )}
       <span className="s-statusbar__spacer" />
       {counts && (
         <>
           <span className="s-statusbar__counts">
-            {counts.words} word{counts.words === 1 ? "" : "s"} · {counts.chars}{" "}
-            chars
+            {countPhrase(counts.words, "words")} · {countPhrase(counts.chars, "chars")}
           </span>
           <span className="s-statusbar__dot" aria-hidden="true">
             ·
@@ -111,16 +115,12 @@ export default function StatusBar() {
               openPublished ? " s-statusbar__pub--on" : ""
             }`}
             onClick={() => void togglePublish(openPath)}
-            title={
-              openPublished
-                ? "Unpublish this note (Ctrl/Cmd+Shift+P)"
-                : "Publish this note for visitors (Ctrl/Cmd+Shift+P)"
-            }
+            title={t(openPublished ? "unpublishTitle" : "publishTitle")}
           >
             <span className="s-statusbar__pubstar" aria-hidden="true">
               {openPublished ? "✦" : "✧"}
             </span>
-            {openPublished ? "Published" : "Publish"}
+            {t(openPublished ? "published" : "publish")}
           </button>
           <span className="s-statusbar__dot" aria-hidden="true">
             ·
@@ -135,13 +135,9 @@ export default function StatusBar() {
               publishedFilter ? " s-statusbar__btn--on" : ""
             }`}
             onClick={() => setPublishedFilter(!publishedFilter)}
-            title={
-              publishedFilter
-                ? "Show the full vault in the sidebar"
-                : "Filter the sidebar to published notes"
-            }
+            title={t(publishedFilter ? "showFullVault" : "filterToPublished")}
           >
-            {publishedCounts.notes} published
+            {countPhrase(publishedCounts.notes, "publishedNotes")}
           </button>
           <span className="s-statusbar__dot" aria-hidden="true">
             ·
@@ -154,8 +150,8 @@ export default function StatusBar() {
             type="button"
             className="s-statusbar__btn s-statusbar__gear"
             onClick={() => useStore.getState().setSettingsOpen(true)}
-            title="Site settings — identity, home page, behavior"
-            aria-label="Site settings"
+            title={t("siteSettingsTitle")}
+            aria-label={t("siteSettings")}
           >
             <svg
               viewBox="0 0 24 24"
@@ -179,8 +175,8 @@ export default function StatusBar() {
             type="button"
             className="s-statusbar__btn s-statusbar__eye"
             onClick={() => void useStore.getState().setPreviewVisitor(true)}
-            title="Preview as visitor — see exactly what the public site serves"
-            aria-label="Preview as visitor"
+            title={t("previewAsVisitorTitle")}
+            aria-label={t("previewAsVisitor")}
           >
             <svg
               viewBox="0 0 24 24"
@@ -204,9 +200,9 @@ export default function StatusBar() {
             type="button"
             className={`s-statusbar__btn${readingMode ? " s-statusbar__btn--on" : ""}`}
             onClick={toggleReading}
-            title="Toggle reading view (Ctrl/Cmd+E)"
+            title={t("readTitle")}
           >
-            read
+            {t("read")}
           </button>
           <span className="s-statusbar__dot" aria-hidden="true">
             ·
@@ -215,7 +211,7 @@ export default function StatusBar() {
             type="button"
             className={`s-statusbar__btn${vimMode ? " s-statusbar__btn--on" : ""}`}
             onClick={toggleVim}
-            title="Toggle vim keybindings"
+            title={t("vimTitle")}
           >
             vim
           </button>
@@ -228,8 +224,8 @@ export default function StatusBar() {
         type="button"
         className="s-statusbar__btn"
         onClick={() => setTheme(nextTheme(theme))}
-        title={`Theme: ${theme} — click for ${nextTheme(theme)}`}
-        aria-label="Cycle theme"
+        title={tf("themeTitle", { theme, next: nextTheme(theme) })}
+        aria-label={t("cycleTheme")}
       >
         {theme === "parchment" ? "☀" : "☾"}
       </button>
@@ -240,9 +236,9 @@ export default function StatusBar() {
         type="button"
         className={`s-statusbar__btn${view === "graph" ? " s-statusbar__btn--on" : ""}`}
         onClick={() => setView(view === "graph" ? "editor" : "graph")}
-        title="Toggle graph view (Ctrl/Cmd+G)"
+        title={t("graphTitle")}
       >
-        graph
+        {t("graph")}
       </button>
       {admin && authProtected && (
         <>
@@ -253,8 +249,8 @@ export default function StatusBar() {
             type="button"
             className="s-statusbar__btn s-statusbar__signout"
             onClick={() => void useStore.getState().logout()}
-            title="Sign out — back to the visitor view"
-            aria-label="Sign out"
+            title={t("signOutTitle")}
+            aria-label={t("signOut")}
           >
             <svg
               viewBox="0 0 24 24"
@@ -271,7 +267,7 @@ export default function StatusBar() {
               <path d="M16 17l5-5-5-5" />
               <path d="M21 12H9" />
             </svg>
-            <span className="s-statusbar__signout-label">Sign out</span>
+            <span className="s-statusbar__signout-label">{t("signOut")}</span>
           </button>
         </>
       )}
@@ -284,9 +280,9 @@ export default function StatusBar() {
             type="button"
             className="s-statusbar__btn s-statusbar__signin"
             onClick={() => setLoginOpen(true)}
-            title="Sign in to edit this vault"
+            title={t("signInTitle")}
           >
-            Sign in
+            {t("signIn")}
           </button>
         </>
       )}

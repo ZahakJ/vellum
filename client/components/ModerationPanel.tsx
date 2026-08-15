@@ -5,10 +5,11 @@
 
 import { useEffect, useState } from "react";
 import type { CommentData } from "../../shared/types.ts";
+import { countPhrase, localeDigits, t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { confirmModal } from "./Confirm.tsx";
-import { deleteComment, IconEyeSlash, setCommentHidden } from "./Marginalia.tsx";
+import { authorName, deleteComment, IconEyeSlash, setCommentHidden } from "./Marginalia.tsx";
 import "../styles/comments.css";
 
 const FEED_LIMIT = 100;
@@ -36,18 +37,25 @@ function snippetOf(body: string): string {
   return flat.length > 140 ? `${flat.slice(0, 139).trimEnd()}…` : flat;
 }
 
+// The instance's date locale, not the browser's: an Arabic site formats its
+// timestamps in Arabic for every admin — including the numerals. Without
+// localeDigits() this row printed "15 أغسطس" while the blog printed
+// "١٥ أغسطس" for the same day: two numeral systems for dates in one product.
 function shortDate(ms: number): string {
+  const locale = useStore.getState().blogLocale;
   const d = new Date(ms);
   const sameYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleDateString(undefined, {
+  return d.toLocaleDateString(locale, {
     month: "short",
     day: "numeric",
     ...(sameYear ? {} : { year: "numeric" }),
+    ...localeDigits(locale),
   });
 }
 
 export default function ModerationPanel() {
   const setModerationOpen = useStore((s) => s.setModerationOpen);
+  useStore((s) => s.language); // re-render the chrome strings on language change
   const [feed, setFeed] = useState<Feed>({ state: "loading" });
 
   useEffect(() => {
@@ -91,13 +99,13 @@ export default function ModerationPanel() {
             : f,
         ),
       )
-      .catch(() => toast(hidden ? "Hiding comment failed" : "Unhiding comment failed"));
+      .catch(() => toast(t(hidden ? "hideCommentFailed" : "unhideCommentFailed")));
   };
 
   const remove = (id: number) => {
     void confirmModal({
-      title: "Delete comment?",
-      body: "The comment will be removed for everyone. This cannot be undone.",
+      title: t("deleteCommentTitle"),
+      body: t("deleteCommentBody"),
     }).then((ok) => {
       if (!ok) return;
       deleteComment(id)
@@ -108,7 +116,7 @@ export default function ModerationPanel() {
               : f,
           ),
         )
-        .catch(() => toast("Deleting comment failed"));
+        .catch(() => toast(t("deleteCommentFailed")));
     });
   };
 
@@ -117,24 +125,22 @@ export default function ModerationPanel() {
       <div
         className="s-moderation"
         role="dialog"
-        aria-label="Moderate comments"
+        aria-label={t("cmdModerateComments")}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="s-moderation__header">
-          <h2 className="s-moderation__title">Marginalia — moderation</h2>
+          <h2 className="s-moderation__title">{t("moderationTitle")}</h2>
           {feed.state === "ready" && feed.comments.length > 0 && (
             <span className="s-moderation__count">
-              {feed.comments.length === 1
-                ? "1 comment"
-                : `${feed.comments.length} comments`}
-              {feed.comments.length >= FEED_LIMIT ? " (newest)" : ""}
+              {countPhrase(feed.comments.length, "comments")}
+              {feed.comments.length >= FEED_LIMIT ? t("newestSuffix") : ""}
             </span>
           )}
           <button
             type="button"
             className="s-moderation__close"
-            title="Close"
-            aria-label="Close moderation panel"
+            title={t("close")}
+            aria-label={t("closeModeration")}
             onClick={close}
           >
             ×
@@ -143,23 +149,16 @@ export default function ModerationPanel() {
 
         <div className="s-moderation__list">
           {feed.state === "loading" && (
-            <div className="s-moderation__empty">Reading the margins…</div>
+            <div className="s-moderation__empty">{t("readingMargins")}</div>
           )}
           {feed.state === "disabled" && (
-            <div className="s-moderation__empty">
-              Comments are switched off on this instance — start the server with{" "}
-              <code>COMMENTS=on</code> to open the margins.
-            </div>
+            <div className="s-moderation__empty">{t("commentsOff")}</div>
           )}
           {feed.state === "error" && (
-            <div className="s-moderation__empty">
-              Could not load comments — try again in a moment.
-            </div>
+            <div className="s-moderation__empty">{t("commentsLoadFailed")}</div>
           )}
           {feed.state === "ready" && feed.comments.length === 0 && (
-            <div className="s-moderation__empty">
-              The margins are clean — no comments anywhere yet.
-            </div>
+            <div className="s-moderation__empty">{t("marginsClean")}</div>
           )}
           {feed.state === "ready" &&
             feed.comments.map((cm) => (
@@ -168,26 +167,26 @@ export default function ModerationPanel() {
                 className={`s-modrow${cm.hidden ? " s-modrow--hidden" : ""}`}
               >
                 <div className="s-modrow__meta">
-                  <span className="s-modrow__author">{cm.author}</span>
+                  <span className="s-modrow__author" dir="auto">{authorName(cm.author)}</span>
                   <span className="s-modrow__time">{shortDate(cm.createdMs)}</span>
-                  {cm.hidden && <span className="s-comment__chip">hidden</span>}
+                  {cm.hidden && <span className="s-comment__chip">{t("hiddenChip")}</span>}
                   <button
                     type="button"
-                    className="s-modrow__note"
-                    title={`Open ${cm.notePath}`}
+                    className="s-modrow__note" dir="auto"
+                    title={tf("openNote", { path: cm.notePath })}
                     onClick={() => jump(cm.notePath)}
                   >
                     {titleOf(cm.notePath)}
                   </button>
                 </div>
                 <div className="s-modrow__body">
-                  <span className="s-modrow__snippet">{snippetOf(cm.body)}</span>
+                  <span className="s-modrow__snippet" dir="auto">{snippetOf(cm.body)}</span>
                   <span className="s-modrow__tools">
                     <button
                       type="button"
                       className={`s-comment__hide${cm.hidden ? " s-comment__hide--on" : ""}`}
-                      title={cm.hidden ? "Unhide comment" : "Hide comment from visitors"}
-                      aria-label={cm.hidden ? "Unhide comment" : "Hide comment"}
+                      title={t(cm.hidden ? "unhideComment" : "hideComment")}
+                      aria-label={t(cm.hidden ? "unhideComment" : "hideComment")}
                       aria-pressed={cm.hidden === true}
                       onClick={() => toggleHidden(cm.id, !cm.hidden)}
                     >
@@ -196,8 +195,8 @@ export default function ModerationPanel() {
                     <button
                       type="button"
                       className="s-comment__delete s-modrow__delete"
-                      title="Delete comment"
-                      aria-label="Delete comment"
+                      title={t("deleteComment")}
+                      aria-label={t("deleteComment")}
                       onClick={() => remove(cm.id)}
                     >
                       ×

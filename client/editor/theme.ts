@@ -66,7 +66,7 @@ export function editorTheme(): Extension {
     "&.cm-focused": { outline: "none" },
     ".cm-scroller": {
       fontFamily: "var(--font-serif)",
-      fontSize: "var(--font-prose, 1.161rem)",
+      fontSize: "calc(var(--font-prose, 1.161rem) * var(--prose-scale, 1))",
       lineHeight: "1.7",
       overflow: "auto",
       scrollbarWidth: "thin",

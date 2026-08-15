@@ -6,6 +6,7 @@
 import { useEffect, useRef } from "react";
 import { getNote } from "../api.ts";
 import Marginalia from "../components/Marginalia.tsx";
+import { t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { renderMarkdown } from "./render.ts";
@@ -34,6 +35,10 @@ export default function ReadingView({ path }: { path: string }) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const tree = useStore((s) => s.tree);
   const isDirty = useStore((s) => !!s.dirty[path]);
+  // The rendered body carries t() chrome (properties card, transclusion cards,
+  // the empty-note hint), and it is imperative DOM — so this component's own
+  // subscription to `language` is what re-renders it on a live settings flip.
+  const language = useStore((s) => s.language);
 
   // Load + render (re-runs when the tree resolves or a pending save lands).
   useEffect(() => {
@@ -51,9 +56,9 @@ export default function ReadingView({ path }: { path: string }) {
         if (note.content.trim() === "") {
           const hint = document.createElement("p");
           hint.className = "s-reading__empty";
-          hint.textContent = useStore.getState().admin
-            ? "This note is empty — press Ctrl+E to edit it."
-            : "This page is intentionally blank.";
+          hint.textContent = t(
+            useStore.getState().admin ? "emptyNoteAdmin" : "emptyNoteVisitor",
+          );
           el.appendChild(hint);
         }
         bodyRef.current?.replaceChildren(el);
@@ -82,13 +87,13 @@ export default function ReadingView({ path }: { path: string }) {
       })
       .catch((err: unknown) => {
         console.error(`vellum: failed to open ${path} for reading`, err);
-        toast(`Failed to open ${path}`);
+        toast(tf("openFailed", { path }));
       });
     return () => {
       disposed = true;
       scrollPositions.set(path, host.scrollTop);
     };
-  }, [path, tree, isDirty]);
+  }, [path, tree, isDirty, language]);
 
   // Active-heading tracking while scrolling.
   useEffect(() => {

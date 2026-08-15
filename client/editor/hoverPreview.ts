@@ -12,6 +12,7 @@ import {
   type Tooltip,
 } from "@codemirror/view";
 import { getNote } from "../api.ts";
+import { t } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { renderMarkdown } from "../reading/render.ts";
 import { findHeadingLine, parseWikilink, resolveLink, WIKILINK_RE } from "./links.ts";
@@ -107,13 +108,13 @@ function noteTooltip(
       const { dom, body } = card(title);
       if (!path) {
         dom.classList.add("cm-s-hovercard--missing");
-        body.textContent = "Not created yet — click the link to create it.";
+        body.textContent = t("embedNotCreated");
         return { dom };
       }
       void noteContent(path).then((content) => {
         if (!dom.isConnected) return;
         if (content === null) {
-          body.textContent = "Could not load note.";
+          body.textContent = t("noteLoadFailed");
           return;
         }
         const md = excerpt(content, heading, title);
@@ -125,7 +126,7 @@ function noteTooltip(
                 embedded: true,
                 ancestors: new Set([hostPath]),
               })
-            : document.createTextNode("This note is empty."),
+            : document.createTextNode(t("noteEmpty")),
         );
         repositionTooltips(view);
       });

@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PostMeta } from "../../shared/types.ts";
 import { bannerSrc, generatedBannerCss } from "../banner.ts";
+import { countPhrase, localeNum, t } from "../i18n.ts";
 import { notePathToUrl } from "../router.ts";
 import { useStore } from "../state.ts";
 import HomeBannerModal from "./HomeBannerModal.tsx";
@@ -71,7 +72,7 @@ function Card({ post, locale }: { post: PostMeta; locale: string }) {
           <span className="s-blog-meta__dot" aria-hidden="true">
             ·
           </span>
-          <span>{post.readingMinutes} min read</span>
+          <span>{countPhrase(post.readingMinutes, "readMinutes")}</span>
         </div>
         {post.excerpt !== "" && (
           <p className="s-dash-card__excerpt" dir="auto">
@@ -120,6 +121,7 @@ export default function BlogDashboard({
   // The affordance shows for admins looking through visitor preview — the
   // only way an admin ever sees the dashboard (the app is their home view).
   const previewing = useStore((s) => s.previewVisitor);
+  useStore((s) => s.language); // re-render chrome strings on a live language switch
   const [pickerOpen, setPickerOpen] = useState(false);
   const [bannerBroken, setBannerBroken] = useState(false);
 
@@ -134,7 +136,9 @@ export default function BlogDashboard({
     const el = hotRowRef.current;
     if (!el) return;
     const update = (): void => {
-      setHotMore(el.scrollWidth - el.clientWidth - el.scrollLeft > 8);
+      // In RTL the browser reports scrollLeft as a negative offset from the
+      // start edge — abs() makes "distance scrolled" direction-agnostic.
+      setHotMore(el.scrollWidth - el.clientWidth - Math.abs(el.scrollLeft) > 8);
     };
     update();
     el.addEventListener("scroll", update, { passive: true });
@@ -203,20 +207,20 @@ export default function BlogDashboard({
             className="s-dash-hero__change"
             onClick={() => setPickerOpen(true)}
           >
-            Change banner…
+            {t("blogChangeBanner")}
           </button>
         )}
       </section>
 
       <div className="s-dash-body">
-        <section aria-label="Latest writings">
+        <section aria-label={t("blogLatestWritings")}>
           <h2 className="s-blog-heading">
-            <span>Latest</span>
+            <span>{t("blogLatest")}</span>
           </h2>
           {posts === null ? (
             <p className="s-blog-empty">…</p>
           ) : posts.length === 0 ? (
-            <p className="s-blog-empty">Nothing published here yet.</p>
+            <p className="s-blog-empty">{t("blogNothingPublished")}</p>
           ) : (
             <div className="s-dash-grid">
               {posts.map((post) => (
@@ -227,9 +231,9 @@ export default function BlogDashboard({
         </section>
 
         {hottest.length > 0 && (
-          <section className="s-dash-hot" aria-label="Most discussed">
+          <section className="s-dash-hot" aria-label={t("blogMostDiscussed")}>
             <h2 className="s-blog-heading">
-              <span>Most discussed</span>
+              <span>{t("blogMostDiscussed")}</span>
             </h2>
             <div className="s-dash-hot__scroll">
               <div className="s-dash-hot__row" ref={hotRowRef}>
@@ -241,7 +245,7 @@ export default function BlogDashboard({
                   >
                     <span className="s-dash-hot__count">
                       <CommentBubble />
-                      {post.commentCount}
+                      {localeNum(post.commentCount ?? 0)}
                     </span>
                     <span className="s-dash-hot__title" dir="auto">
                       {post.title}

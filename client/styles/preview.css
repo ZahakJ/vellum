@@ -1,7 +1,12 @@
 /* Vellum — live-preview widget styles (round B2: embeds, callouts, math,
    highlights, comments, footnotes). Imported by client/editor/livePreview.ts.
    Everything reads tokens from tokens.css — no hard-coded colors beyond the
-   --callout-* / --syn-* tokens defined there. */
+   --callout-* / --syn-* tokens defined there.
+
+   Directional edges use logical properties on purpose: setup.ts decorates each
+   cm-line with dir="auto", so a callout or transclude bar follows the
+   direction of ITS OWN line — an Arabic callout is barred on the right while
+   an English one beside it is barred on the left. */
 
 /* ── Image embeds ─────────────────────────────────────────────────────── */
 
@@ -90,7 +95,7 @@
   display: block;
   margin: 0.35em 0;
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
+  border-inline-start: 3px solid var(--accent);
   border-radius: var(--radius);
   background: var(--bg-raised);
   overflow: hidden;
@@ -132,7 +137,7 @@
 }
 
 .s-editor .cm-s-transclude--broken {
-  border-left-color: color-mix(in srgb, var(--danger) 65%, var(--border));
+  border-inline-start-color: color-mix(in srgb, var(--danger) 65%, var(--border));
 }
 
 .s-editor .cm-s-transclude--broken .cm-s-transclude__title {
@@ -194,9 +199,8 @@
 .s-editor .cm-line.cm-s-callout {
   --co: var(--callout-note);
   background: color-mix(in srgb, var(--co) 9%, transparent);
-  border-left: 3px solid var(--co);
-  padding-left: 1em;
-  padding-right: 0.8em;
+  border-inline-start: 3px solid var(--co);
+  padding-inline: 1em 0.8em;
 }
 
 .s-editor .cm-line.cm-s-callout--note { --co: var(--callout-note); }
@@ -562,7 +566,7 @@
 .s-editor .cm-s-complete-callout {
   display: inline-flex;
   align-items: center;
-  margin-right: 0.55em;
+  margin-inline-end: 0.55em;
   vertical-align: -2px;
 }
 

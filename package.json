@@ -10,7 +10,8 @@
     "start": "npm run build && node --env-file-if-exists=.env server/index.ts",
     "serve": "node --env-file-if-exists=.env server/index.ts",
     "hash-password": "node scripts/hash-password.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check-i18n": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",

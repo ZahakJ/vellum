@@ -5,11 +5,13 @@
 // navigation, popstate, per-page document.title.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { stripBidiControls } from "../../shared/bidi.ts";
 import type { PostMeta } from "../../shared/types.ts";
-import { getPosts } from "../api.ts";
+import { getNote, getPosts } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
+import { t, tf } from "../i18n.ts";
 import LoginModal from "../components/LoginModal.tsx";
-import { notePathToUrl, urlToNotePath } from "../router.ts";
+import { notePathToUrl, urlToNoteGuess, urlToNotePath } from "../router.ts";
 import { nextTheme, useStore } from "../state.ts";
 import BlogArticle from "./BlogArticle.tsx";
 import BlogDashboard from "./BlogDashboard.tsx";
@@ -27,7 +29,11 @@ type Route =
   | { kind: "home" }
   | { kind: "topic"; tag: string }
   | { kind: "article"; path: string }
-  | { kind: "missing" };
+  // A path the tree cannot answer, waiting on /api/note (see parseRoute).
+  | { kind: "probe"; path: string }
+  // `pathname` records which URL was found missing, so re-parsing on a tree
+  // change does not send the same dead link round the probe again.
+  | { kind: "missing"; pathname: string };
 
 function parseRoute(pathname: string): Route {
   if (pathname === "/") return { kind: "home" };
@@ -46,17 +52,26 @@ function parseRoute(pathname: string): Route {
       // malformed percent-encoding — nothing to show
     }
   }
-  return { kind: "missing" };
+  // The tree is a DISCOVERY surface — publishedNotes() prunes it for the
+  // languageFilter — so "not in the tree" is not "not there": every published
+  // note stays reachable by its own URL (CONTRACTS: /api/note is never
+  // filtered). Hand the URL to the server rather than 404ing on a list that
+  // was never meant to answer this question.
+  const guess = urlToNoteGuess(pathname);
+  if (guess !== null) return { kind: "probe", path: guess };
+  return { kind: "missing", pathname };
 }
 
 function ThemeButton() {
   const theme = useStore((s) => s.theme);
+  // Subscribe to the language so a live settings change re-renders the labels.
+  useStore((s) => s.language);
   return (
     <button
       type="button"
       className="s-blog-iconbtn"
-      title={`Theme: ${theme}`}
-      aria-label="Switch theme"
+      title={tf("cmdTheme", { t: theme })}
+      aria-label={t("blogSwitchTheme")}
       onClick={() => useStore.getState().setTheme(nextTheme(theme))}
     >
       {theme === "parchment" ? (
@@ -104,6 +119,9 @@ export default function BlogShell() {
   const tree = useStore((s) => s.tree);
   const homeMode = useStore((s) => s.home?.mode ?? "note");
   const logo = useStore((s) => s.logo);
+  // Chrome strings come from t(); subscribing to the language re-renders the
+  // shell when the admin switches it in settings (loadMe → store) — no reload.
+  useStore((s) => s.language);
 
   const [route, setRoute] = useState<Route>(() => parseRoute(location.pathname));
   const [posts, setPosts] = useState<PostMeta[] | null>(null);
@@ -114,7 +132,7 @@ export default function BlogShell() {
   // Map the current location into the route (initial load, popstate, nav).
   const apply = (): void => {
     const next = parseRoute(location.pathname);
-    if (next.kind === "article" && location.hash) {
+    if ((next.kind === "article" || next.kind === "probe") && location.hash) {
       try {
         useStore.getState().setPendingHeading(decodeURIComponent(location.hash.slice(1)));
       } catch {
@@ -187,6 +205,9 @@ export default function BlogShell() {
   // changes, keeping the current route object when nothing differs.
   useEffect(() => {
     setRoute((r) => {
+      // A URL already answered "no such note" by the server stays answered:
+      // re-probing it on every tree change would only ask again.
+      if (r.kind === "missing" && r.pathname === location.pathname) return r;
       const next = parseRoute(location.pathname);
       const same =
         next.kind === r.kind &&
@@ -196,10 +217,29 @@ export default function BlogShell() {
     });
   }, [tree]);
 
+  // Resolve a probe route: the note exists (and is published) iff /api/note
+  // answers. Nothing renders in between — one request, no flash of a 404 page
+  // in front of an article that is about to load.
+  useEffect(() => {
+    if (route.kind !== "probe") return;
+    const pathname = location.pathname;
+    let disposed = false;
+    getNote(route.path)
+      .then(() => {
+        if (!disposed) setRoute({ kind: "article", path: route.path });
+      })
+      .catch(() => {
+        if (!disposed) setRoute({ kind: "missing", pathname });
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [route]);
+
   // Per-page document title.
   useEffect(() => {
     if (route.kind === "article") {
-      const title = route.path.split("/").pop()!.replace(/\.md$/i, "");
+      const title = stripBidiControls(route.path.split("/").pop()!.replace(/\.md$/i, ""));
       document.title = `${title} · ${siteName}`;
     } else if (route.kind === "topic") {
       document.title = `${route.tag} · ${siteName}`;
@@ -274,7 +314,7 @@ export default function BlogShell() {
           <button
             type="button"
             className="s-blog-nav__burger"
-            aria-label="Topics"
+            aria-label={t("blogTopics")}
             aria-expanded={menuOpen}
             onClick={() =>
               setMenuOpen((v) => {
@@ -298,20 +338,20 @@ export default function BlogShell() {
             >
               <path d="M4 7h16M4 12h16M4 17h16" />
             </svg>
-            Topics
+            {t("blogTopics")}
           </button>
           <div className="s-blog-nav__links">
             <NavLink
               url="/"
               className={`s-blog-nav__link${route.kind === "home" ? " s-blog-nav__link--active" : ""}`}
             >
-              Home
+              {t("home")}
             </NavLink>
             {shown.map(navItem)}
             {overflow.length > 0 && (
               <details className="s-blog-more" ref={moreRef}>
                 <summary className="s-blog-nav__link s-blog-more__summary">
-                  More <span aria-hidden="true">▾</span>
+                  {t("blogMore")} <span aria-hidden="true">▾</span>
                 </summary>
                 <div className="s-blog-more__menu">{overflow.map(navItem)}</div>
               </details>
@@ -330,13 +370,13 @@ export default function BlogShell() {
             <div className="s-blog-locked__glyph" aria-hidden="true">
               ✦
             </div>
-            <p className="s-blog-locked__title">This journal is private.</p>
+            <p className="s-blog-locked__title">{t("blogPrivate")}</p>
             <button
               type="button"
               className="s-btn s-btn--accent"
               onClick={() => useStore.getState().setLoginOpen(true)}
             >
-              Sign in
+              {t("signIn")}
             </button>
           </div>
         ) : route.kind === "home" ? (
@@ -349,14 +389,17 @@ export default function BlogShell() {
           <BlogTopic tag={route.tag} posts={posts} locale={locale} />
         ) : route.kind === "article" ? (
           <BlogArticle key={route.path} path={route.path} posts={posts} locale={locale} />
-        ) : (
+        ) : route.kind === "probe" ? null : (
           <div className="s-blog-page s-blog-locked">
             <div className="s-blog-locked__glyph" aria-hidden="true">
               ✦
             </div>
-            <p className="s-blog-locked__title">There is no page here.</p>
+            <p className="s-blog-locked__title">{t("blogNoPage")}</p>
             <NavLink url="/" className="s-blog-locked__home">
-              ← Back to the writings
+              <span className="s-blog-backarrow" aria-hidden="true">
+                ←
+              </span>
+              {t("blogBackToWritings")}
             </NavLink>
           </div>
         )}
@@ -370,7 +413,7 @@ export default function BlogShell() {
         )}
         <p className="s-blog-footer__meta">
           <span className="s-blog-footer__hint">
-            <kbd>Ctrl K</kbd> search
+            <kbd>Ctrl K</kbd> {t("blogSearchHint")}
           </span>
           <a className="s-blog-footer__link" href="/feed.xml">
             RSS
@@ -381,11 +424,11 @@ export default function BlogShell() {
               className="s-blog-footer__link"
               onClick={() => useStore.getState().setLoginOpen(true)}
             >
-              Sign in
+              {t("signIn")}
             </button>
           )}
           <span className="s-blog-powered">
-            powered by{" "}
+            {t("blogPoweredBy")}{" "}
             <a href="https://github.com/ZahakJ/vellum" target="_blank" rel="noopener noreferrer">
               Vellum
             </a>

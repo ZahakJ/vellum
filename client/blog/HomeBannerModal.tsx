@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listAttachments, patchSettings, uploadAttachment } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
+import { localeNum, t, tf } from "../i18n.ts";
+import { UPLOAD_MAX_MB } from "../../shared/limits.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 
@@ -55,12 +57,12 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
       patchSettings({ home: { banner: value } })
         .then((settings) => {
           useStore.getState().setHome(settings.home ?? null);
-          toast(value === null ? "Home banner removed" : "Home banner set");
+          toast(value === null ? t("homeBannerRemoved") : t("homeBannerSet"));
           onClose();
         })
         .catch((err: unknown) => {
           console.error("vellum: saving home banner failed", err);
-          toast(err instanceof Error ? err.message : "Saving the banner failed");
+          toast(err instanceof Error ? err.message : t("homeBannerFailed"));
         })
         .finally(() => setBusy(false));
     },
@@ -79,7 +81,7 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
         .catch((err: unknown) => {
           setBusy(false);
           console.error("vellum: upload failed", err);
-          toast(err instanceof Error ? err.message : "Upload failed");
+          toast(err instanceof Error ? err.message : t("uploadFailed"));
         });
     },
     [busy, apply],
@@ -94,14 +96,14 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
       <div
         className="s-bmodal"
         role="dialog"
-        aria-label="Change home banner"
+        aria-label={t("homeBannerAria")}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="s-bmodal__head">
           <span className="s-bmodal__title">
-            Home banner — <em>dashboard hero</em>
+            {t("homeBannerTitle")} — <em>{t("homeBannerSubtitle")}</em>
           </span>
-          <button type="button" className="s-bmodal__close" onClick={onClose} aria-label="Close">
+          <button type="button" className="s-bmodal__close" onClick={onClose} aria-label={t("close")}>
             ×
           </button>
         </div>
@@ -120,7 +122,7 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
             ref={urlInputRef}
             className="s-bmodal__input"
             type="text"
-            placeholder="Paste an image URL (https://…) or a vault path"
+            placeholder={t("bannerUrlPlaceholder")}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
@@ -134,7 +136,7 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
             disabled={!url.trim() || busy}
             onClick={() => apply(url.trim())}
           >
-            Use
+            {t("use")}
           </button>
         </div>
 
@@ -153,8 +155,8 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
             if (file) upload(file);
           }}
         >
-          {busy ? "Working…" : "Drop an image here, or click to choose a file"}
-          <span className="s-bmodal__drophint">png · jpeg · webp · gif · svg — 10 MB max</span>
+          {busy ? t("working") : t("dropImage")}
+          <span className="s-bmodal__drophint">{tf("dropHint", { max: localeNum(UPLOAD_MAX_MB) })}</span>
           <input
             ref={fileInputRef}
             type="file"
@@ -172,16 +174,16 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
           <input
             className="s-bmodal__input"
             type="text"
-            placeholder="Search vault attachments…"
+            placeholder={t("searchAttachments")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             spellCheck={false}
           />
           <div className="s-bmodal__list">
-            {attachments === null && <div className="s-bmodal__empty">Loading…</div>}
+            {attachments === null && <div className="s-bmodal__empty">{t("loading")}</div>}
             {attachments !== null && filtered.length === 0 && (
               <div className="s-bmodal__empty">
-                {attachments.length === 0 ? "No image attachments in the vault yet." : "No matches."}
+                {attachments.length === 0 ? t("noAttachments") : t("noMatchesDot")}
               </div>
             )}
             {filtered.slice(0, 200).map((p) => (
@@ -209,7 +211,7 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
               disabled={busy}
               onClick={() => apply(null)}
             >
-              Remove banner
+              {t("removeBanner")}
             </button>
           </div>
         )}

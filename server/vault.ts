@@ -78,6 +78,10 @@ export function assertMarkdown(rel: string): string {
 // .git) plus a few well-known junk dirs that may not be dot-prefixed everywhere.
 const IGNORED_NAMES = new Set([".obsidian", ".git", ".trash", "node_modules"]);
 
+/** Where deleted folders go (vault root). Dot-prefixed, so it is already
+ *  invisible to the tree, the indexer and the watcher via isIgnoredSegment. */
+export const TRASH_DIR = ".trash";
+
 /** True for a single path segment that must be invisible to the whole app. */
 export function isIgnoredSegment(name: string): boolean {
   return name.startsWith(".") || IGNORED_NAMES.has(name.toLowerCase());
@@ -199,6 +203,12 @@ export async function writeNote(rel: string, content: string): Promise<NoteData>
   return { path: relPath, content, mtimeMs: stat.mtimeMs };
 }
 
+/** True when `rel` names an existing note file. Callers that emit their own
+ *  synthetic event for a write need it to say "created" or "changed". */
+export async function noteExists(rel: string): Promise<boolean> {
+  return exists(safeAbs(assertMarkdown(rel)));
+}
+
 export async function createNote(rel: string): Promise<NoteData> {
   const relPath = assertMarkdown(rel);
   const abs = safeAbs(relPath);
@@ -231,6 +241,102 @@ export async function createFolder(rel: string): Promise<void> {
   const relPath = normalizeRel(rel);
   if (!relPath) throw new VaultError(400, "Folder path required");
   await fs.mkdir(safeAbs(relPath), { recursive: true });
+}
+
+export interface DeleteFolderResult {
+  /** How many `.md` files were inside the folder (recursively) — the UI
+   *  phrases its confirm/toast with this ("Move folder to .trash (N notes)?"). */
+  notes: number;
+  /** Vault-relative path the folder now lives at under `.trash/`
+   *  (absent when `permanent` deleted it outright). */
+  trashPath?: string;
+}
+
+/** Everything under a folder, ignore rules applied: the vault-relative paths
+ *  of its files and sub-folders (deepest first) plus the markdown count. */
+async function collectFolder(relFolder: string): Promise<{ paths: string[]; notes: number }> {
+  const paths: string[] = [];
+  let notes = 0;
+  async function walk(relDir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(path.join(vaultRoot, relDir), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (isIgnoredSegment(entry.name)) continue;
+      const relPath = `${relDir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        await walk(relPath);
+        paths.push(relPath);
+      } else if (entry.isFile()) {
+        if (entry.name.toLowerCase().endsWith(".md")) notes++;
+        paths.push(relPath);
+      }
+    }
+  }
+  await walk(relFolder);
+  paths.push(relFolder);
+  return { paths, notes };
+}
+
+/** Free name for a folder moved into `.trash/`: "guides", then "guides-2", … */
+async function trashDestination(name: string): Promise<string> {
+  const trashAbs = path.join(vaultRoot, TRASH_DIR);
+  await fs.mkdir(trashAbs, { recursive: true });
+  for (let n = 1; ; n++) {
+    const candidate = n === 1 ? name : `${name}-${n}`;
+    const abs = path.join(trashAbs, candidate);
+    if (!(await exists(abs))) return abs;
+  }
+}
+
+/** Delete a folder, Obsidian-style: by default MOVE it to `.trash/` at the
+ *  vault root (recoverable; `.trash` is ignored by the watcher, indexer and
+ *  tree, so the notes simply vanish from the app). `permanent: true` removes
+ *  it outright. Emits one synthetic `{kind:"deleted", dir:true}` event and
+ *  suppresses the watcher's per-file echo of the same removal. */
+export async function deleteFolder(
+  rel: string,
+  opts?: { permanent?: boolean },
+): Promise<DeleteFolderResult> {
+  const relPath = normalizeRel(rel);
+  if (!relPath) throw new VaultError(400, "Folder path required");
+  // Ignored trees (.trash, .obsidian, .git, node_modules…) are not deletable
+  // through the API. A 400 on the *name* — not the 404 safeAbs uses for reads —
+  // reveals nothing about what exists: the rule is static.
+  if (isIgnoredRel(relPath)) throw new VaultError(400, `Invalid folder path: ${rel}`);
+  const abs = safeAbs(relPath);
+  let stat;
+  try {
+    stat = await fs.stat(abs);
+  } catch {
+    throw new VaultError(404, `Folder not found: ${relPath}`);
+  }
+  if (!stat.isDirectory()) throw new VaultError(400, `Not a folder: ${relPath}`);
+
+  const { paths, notes } = await collectFolder(relPath);
+  // The synthetic event below is the whole story; swallow the watcher's
+  // unlink/unlinkDir storm for the same removal.
+  for (const p of paths) suppress(p);
+
+  let trashPath: string | undefined;
+  if (opts?.permanent) {
+    await fs.rm(abs, { recursive: true, force: true });
+  } else {
+    const destAbs = await trashDestination(path.posix.basename(relPath));
+    try {
+      await fs.rename(abs, destAbs);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+      await fs.cp(abs, destAbs, { recursive: true });
+      await fs.rm(abs, { recursive: true, force: true });
+    }
+    trashPath = `${TRASH_DIR}/${path.basename(destAbs)}`;
+  }
+  emit({ kind: "deleted", path: relPath, dir: true });
+  return trashPath ? { notes, trashPath } : { notes };
 }
 
 async function exists(abs: string): Promise<boolean> {
