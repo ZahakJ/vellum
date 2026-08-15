@@ -1,6 +1,10 @@
+<p align="center"><img src="docs/gh-hero.png" alt="Vellum" width="720"></p>
+
 # Vellum
 
 **Your Obsidian-style vault, self-hosted — and, when you want it, published as a beautiful blog. One small Node process.**
+
+<p align="center"><a href="https://zahakj.github.io/vellum/"><strong>✦ Visit the project site ✦</strong></a></p>
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-b8912f.svg)](LICENSE)
 [![Node ≥ 22](https://img.shields.io/badge/node-%E2%89%A5%2022-339933?logo=node.js&logoColor=white)](package.json)
