@@ -8,18 +8,29 @@ import type { Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import type { CommentData, NoteData, PublishResult, TreeNode, VaultEvent } from "../shared/types.ts";
+import type {
+  CommentData,
+  FrontmatterResult,
+  NoteData,
+  PublishResult,
+  TreeNode,
+  UploadResult,
+  VaultEvent,
+} from "../shared/types.ts";
 import { authGuard, authRoutes, clientIp, isPublishLimited } from "./auth.ts";
 import {
   AUTHOR_MAX,
   BODY_MAX,
   addComment,
+  commentCounts,
   commentRateLimited,
   commentsEnabled,
+  listAllComments,
   listComments,
   phantomComment,
   recordCommentPost,
   removeComment,
+  setCommentHidden,
 } from "./comments.ts";
 import {
   backlinks,
@@ -27,16 +38,19 @@ import {
   indexFile,
   isAllowedAttachment,
   isNotePublished,
+  listImageAttachments,
   posts,
   publishedNotes,
+  registerAttachment,
   resolveEmbed,
   search,
   tags,
   whenIndexed,
   wikilinkRegex,
 } from "./indexer.ts";
-import { setPublishFlag } from "./publish.ts";
-import { customCssPath, fontsDir } from "./site.ts";
+import { setFrontmatterLine, setPublishFlag, yamlQuote } from "./publish.ts";
+import { patchSettings, settingsAssetPaths, settingsResponse } from "./settings.ts";
+import { attachmentsDir, customCssPath, fontsDir } from "./site.ts";
 import {
   VaultError,
   buildTree,
@@ -49,6 +63,7 @@ import {
   onEvent,
   readNote,
   renameNote,
+  safeAbs,
   statAttachment,
   suppressWatcherEcho,
   writeNote,
@@ -70,6 +85,10 @@ export const api = new Hono();
 // cap (nginx `client_max_body_size`) is still a sensible extra layer — README.
 const API_BODY_MAX = 10 * 1024 * 1024; // 10 MB: any /api request
 const COMMENT_BODY_MAX = 64 * 1024; //    64 KB: comment posts + login
+const UPLOAD_MAX_BYTES = 10 * 1024 * 1024; // 10 MB: the image itself
+// The multipart envelope (boundary lines, field headers) rides on top of the
+// image bytes, so the wire cap leaves a little headroom above the image cap.
+const UPLOAD_BODY_MAX = UPLOAD_MAX_BYTES + 64 * 1024;
 
 function tooLarge(maxBytes: number) {
   return (c: Context) => c.json({ error: `Request body too large (${maxBytes} bytes max)` }, 413);
@@ -77,8 +96,12 @@ function tooLarge(maxBytes: number) {
 
 const TIGHT_BODY_PATHS = new Set(["/api/comments", "/api/login"]);
 api.use("*", async (c, next) => {
-  const max =
-    c.req.method === "POST" && TIGHT_BODY_PATHS.has(c.req.path) ? COMMENT_BODY_MAX : API_BODY_MAX;
+  const post = c.req.method === "POST";
+  const max = post && TIGHT_BODY_PATHS.has(c.req.path)
+    ? COMMENT_BODY_MAX
+    : post && c.req.path === "/api/upload"
+      ? UPLOAD_BODY_MAX
+      : API_BODY_MAX;
   return bodyLimit({ maxSize: max, onError: tooLarge(max) })(c, next);
 });
 
@@ -283,6 +306,45 @@ api.post("/publish", async (c) => {
   return c.json(result);
 });
 
+// Surgical single-key frontmatter setter (admin-only via the auth guard).
+// Same machinery as /api/publish: line edit, watcher-echo suppression,
+// immediate reindex. Keys are allowlisted; values are single-line strings.
+const FRONTMATTER_KEYS = new Set(["banner"]);
+const FRONTMATTER_VALUE_MAX = 500;
+
+api.post("/frontmatter", async (c) => {
+  const body = await jsonBody(c);
+  const notePath = requiredString(body, "path");
+  const key = requiredString(body, "key");
+  if (!FRONTMATTER_KEYS.has(key)) {
+    throw new VaultError(400, `Frontmatter key not editable: ${key}`);
+  }
+  let value: string | null = null;
+  if (body.value !== undefined && body.value !== null) {
+    if (typeof body.value !== "string") {
+      throw new VaultError(400, 'Body field "value" must be a string or null');
+    }
+    // Single line, no control chars — a frontmatter line edit must never be
+    // able to smuggle extra YAML lines into the block.
+    value = body.value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+    if (value.length > FRONTMATTER_VALUE_MAX) {
+      throw new VaultError(400, `Value too long (${FRONTMATTER_VALUE_MAX} characters max)`);
+    }
+    if (value === "") value = null;
+  }
+  const note = await readNote(notePath);
+  const line = value === null ? null : `${key}: ${yamlQuote(value)}`;
+  const updated = setFrontmatterLine(note.content, key, line);
+  if (updated !== note.content) {
+    suppressWatcherEcho(note.path);
+    await writeNote(note.path, updated);
+    emitEvent({ kind: "changed", path: note.path });
+  }
+  await indexFile(note.path);
+  const result: FrontmatterResult = { ok: true, path: note.path, key, value };
+  return c.json(result);
+});
+
 api.get("/resolve", (c) => {
   const name = requiredQuery(c.req.query("name"), "name");
   // A miss is an EXPECTED outcome (broken embeds are normal in a real vault):
@@ -321,7 +383,7 @@ const MIME_TYPES: Record<string, string> = {
   canvas: "application/json",
 };
 
-function contentTypeFor(relPath: string): string {
+export function contentTypeFor(relPath: string): string {
   const ext = relPath.slice(relPath.lastIndexOf(".") + 1).toLowerCase();
   return MIME_TYPES[ext] ?? "application/octet-stream";
 }
@@ -351,7 +413,13 @@ api.get("/file", async (c) => {
   const relQuery = requiredQuery(c.req.query("path"), "path");
   // Visitors may fetch only attachments embedded/linked by published notes —
   // checked before stat so unpublished files 404 without revealing existence.
-  if (isPublishLimited(c) && !isAllowedAttachment(normalizeRel(relQuery))) {
+  // Settings-named assets (dashboard home banner, logo) are visitor-visible
+  // by definition: the admin pointed the public homepage at them.
+  if (
+    isPublishLimited(c) &&
+    !isAllowedAttachment(normalizeRel(relQuery)) &&
+    !settingsAssetPaths().has(normalizeRel(relQuery))
+  ) {
     throw new VaultError(404, `File not found: ${normalizeRel(relQuery)}`);
   }
   const file = await statAttachment(relQuery);
@@ -399,6 +467,121 @@ api.get("/file", async (c) => {
   return c.body(body, 200, headers);
 });
 
+// ------------------------------------------------------- attachment uploads
+
+/** Sniff the actual image type from file bytes — extension and Content-Type
+ *  are attacker-controlled and ignored. Returns the canonical extension. */
+function sniffImageType(buf: Buffer): string | null {
+  if (buf.length >= 8 && buf[0] === 0x89 && buf.toString("latin1", 1, 4) === "PNG") return "png";
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "jpg";
+  if (buf.length >= 6 && /^GIF8[79]a/.test(buf.toString("latin1", 0, 6))) return "gif";
+  if (
+    buf.length >= 12 &&
+    buf.toString("latin1", 0, 4) === "RIFF" &&
+    buf.toString("latin1", 8, 12) === "WEBP"
+  ) {
+    return "webp";
+  }
+  // SVG has no magic bytes: accept text that opens with an <svg …> root
+  // (optionally after a BOM, an XML declaration, comments, or a DOCTYPE).
+  const head = buf.toString("utf8", 0, Math.min(buf.length, 2048)).replace(/^\uFEFF/, "");
+  const trimmed = head
+    .replace(/^\s*<\?xml[^>]*\?>/i, "")
+    .replace(/^(\s*<!--[\s\S]*?-->)*/, "")
+    .replace(/^\s*<!DOCTYPE[^>]*>/i, "")
+    .replace(/^(\s*<!--[\s\S]*?-->)*/, "")
+    .trimStart();
+  if (/^<svg[\s>]/i.test(trimmed)) return "svg";
+  return null;
+}
+
+/** Defense-in-depth scrub for uploaded SVGs. The primary defense is that
+ *  /api/file serves them under `Content-Security-Policy: sandbox` + nosniff,
+ *  but the stored bytes should not depend on every future serving path
+ *  repeating those headers: strip script/foreignObject subtrees, on* event
+ *  handler attributes, and javascript: URLs at write time. Regex scrubbing is
+ *  not a full XML sanitizer — it is belt-and-suspenders, not the belt. */
+function sanitizeSvg(src: string): string {
+  return src
+    .replace(/<script\b[\s\S]*?(?:<\/script\s*>|$)/gi, "")
+    .replace(/<foreignObject\b[\s\S]*?(?:<\/foreignObject\s*>|$)/gi, "")
+    .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, "")
+    .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, "")
+    .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, "")
+    .replace(/((?:xlink:)?href\s*=\s*)(["']?)\s*javascript:[^"'\s>]*\2/gi, "$1$2#$2");
+}
+
+/** Client filename → safe basename (no extension): directories stripped,
+ *  anything outside letters/digits/space/._- dropped, sensible fallback. */
+function sanitizeBaseName(name: string): string {
+  const base = name.split(/[/\\]/).pop() ?? "";
+  const noExt = base.replace(/\.[A-Za-z0-9]{1,8}$/, "");
+  const clean = noExt
+    .replace(/[^\p{L}\p{N} ._-]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[._-]+|[._-]+$/g, "")
+    .slice(0, 80);
+  return clean || `upload-${new Date().toISOString().slice(0, 10)}`;
+}
+
+// Admin-only via the auth guard (POST on a non-exempt path). Multipart field
+// "file"; bytes sniffed for a real image type; stored under ATTACHMENTS_DIR
+// (vault-relative, created on demand) with a collision-free sanitized name.
+api.post("/upload", async (c) => {
+  let form: Record<string, unknown>;
+  try {
+    form = await c.req.parseBody();
+  } catch {
+    throw new VaultError(400, "Invalid multipart body");
+  }
+  const file = form.file;
+  if (!(file instanceof File)) {
+    throw new VaultError(400, 'Multipart field "file" (the image) is required');
+  }
+  if (file.size > UPLOAD_MAX_BYTES) {
+    throw new VaultError(413, `Image too large (${UPLOAD_MAX_BYTES} bytes max)`);
+  }
+  let buf = Buffer.from(await file.arrayBuffer());
+  const ext = sniffImageType(buf);
+  if (!ext) {
+    throw new VaultError(400, "Not a recognized image (png, jpeg, webp, gif, svg)");
+  }
+  if (ext === "svg") buf = Buffer.from(sanitizeSvg(buf.toString("utf8")), "utf8");
+  const dir = attachmentsDir();
+  const base = sanitizeBaseName(file.name ?? "");
+  // First free filename: name.ext, name-2.ext, name-3.ext, …
+  let rel = "";
+  let abs = "";
+  for (let i = 1; i <= 200; i++) {
+    const candidate = normalizeRel(`${dir}/${i === 1 ? base : `${base}-${i}`}.${ext}`);
+    const candidateAbs = safeAbs(candidate); // throws 400/404 on unsafe config/paths
+    try {
+      await fsp.access(candidateAbs);
+    } catch {
+      rel = candidate;
+      abs = candidateAbs;
+      break;
+    }
+  }
+  if (!rel) throw new VaultError(409, "Could not find a free filename for the upload");
+  await fsp.mkdir(path.dirname(abs), { recursive: true });
+  await fsp.writeFile(abs, buf);
+  // Register now — the picker and banner resolution must see it before the
+  // watcher debounce echoes the write.
+  registerAttachment(rel);
+  const result: UploadResult = { path: rel };
+  return c.json(result);
+});
+
+// The banner picker's list: every indexed image attachment. Admin-eyes-only —
+// visitors would learn unpublished filenames from it, so they get the same
+// 404 an unknown route answers.
+api.get("/attachments", (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  return c.json(listImageAttachments());
+});
+
 // ------------------------------------------------------ comments (marginalia)
 // Live only with COMMENTS=on; otherwise every route 404s like it doesn't exist.
 // Comments hang off published notes: for visitors (and posting, for everyone)
@@ -416,15 +599,36 @@ function commentNotePath(rel: string): string {
   return notePath;
 }
 
+// Moderation feed: newest comments across all notes, hidden ones included.
+// Registered before GET /comments so nothing shadows it; admin sessions only —
+// visitors (and admin-as-visitor preview) get the same 404 a missing route
+// would give. Must be admin-gated explicitly: the auth guard passes GETs.
+api.get("/comments/all", (c) => {
+  assertCommentsEnabled();
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  const raw = c.req.query("limit");
+  let limit = 100;
+  if (raw !== undefined) {
+    limit = Number(raw);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+      throw new VaultError(400, "limit must be an integer between 1 and 500");
+    }
+  }
+  return c.json(listAllComments(limit));
+});
+
 api.get("/comments", (c) => {
   assertCommentsEnabled();
   const notePath = commentNotePath(requiredQuery(c.req.query("path"), "path"));
   // Admins may read (moderate) comments on any note; visitors only where
   // the note itself is visible to them.
-  if (isPublishLimited(c) && !isNotePublished(notePath)) {
+  const limited = isPublishLimited(c);
+  if (limited && !isNotePublished(notePath)) {
     throw new VaultError(404, `Note not found: ${notePath}`);
   }
-  return c.json(listComments(notePath));
+  // Admin responses carry the hidden flag (and hidden comments); visitor
+  // responses exclude hidden rows and never mention the flag at all.
+  return c.json(listComments(notePath, !limited));
 });
 
 // NOTE: the 64 KB body cap (see the body-limit middleware up top) runs ahead
@@ -460,6 +664,21 @@ api.post("/comments", async (c) => {
   return c.json(comment);
 });
 
+// Admin-only via the auth guard (mutation on a non-exempt path). Hide/unhide:
+// a hidden comment stays in the db (evidence, reversibility) but vanishes from
+// every visitor-facing response.
+api.patch("/comments/:id", async (c) => {
+  assertCommentsEnabled();
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id) || id < 1) throw new VaultError(400, "Invalid comment id");
+  const payload = await jsonBody(c);
+  if (typeof payload.hidden !== "boolean") {
+    throw new VaultError(400, 'Body field "hidden" must be a boolean');
+  }
+  if (!setCommentHidden(id, payload.hidden)) throw new VaultError(404, "Comment not found");
+  return c.json({ ok: true });
+});
+
 // Admin-only via the auth guard (mutation on a non-exempt path).
 api.delete("/comments/:id", (c) => {
   assertCommentsEnabled();
@@ -481,9 +700,37 @@ api.get("/backlinks", (c) => {
 api.get("/tags", (c) => c.json(tags(isPublishLimited(c))));
 
 // Blog: published notes as posts, newest first. Visitor-safe by construction
-// (published notes only, EXCLUDE_TAGS filtered) — admin and visitor see the
-// same list, so no branch on session here.
-api.get("/posts", (c) => c.json(posts()));
+// (published notes only, EXCLUDE_TAGS filtered). With COMMENTS=on each post
+// carries its comment count — the one per-session branch: visitors count
+// visible comments only, admin sessions include hidden ones.
+api.get("/posts", (c) => {
+  const list = posts();
+  if (commentsEnabled()) {
+    const counts = commentCounts(!isPublishLimited(c));
+    for (const post of list) post.commentCount = counts.get(post.path) ?? 0;
+  }
+  return c.json(list);
+});
+
+// ------------------------------------------------------------------ settings
+// Instance settings (VELLUM_DATA/settings.json): siteName / tagline / footer /
+// defaultTheme / publicLayout / blogLocale / excludeTags / commentsEnabled /
+// favicon / logo / home { mode, note, banner }. A stored value overrides its
+// env default, live. Admin-eyes-only both ways — the visitor-relevant subset
+// travels via /api/me instead. GET answers a 404 to visitors (like
+// /api/attachments); PATCH is admin-gated by the auth guard (mutation on a
+// non-exempt path). Both answer the stored keys plus `effective` (the merged
+// values the site is using right now).
+
+api.get("/settings", (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  return c.json(settingsResponse());
+});
+
+api.patch("/settings", async (c) => {
+  const body = await jsonBody(c);
+  return c.json(patchSettings(body));
+});
 
 // ---------------------------------------------------------------- SSE events
 
@@ -558,19 +805,30 @@ async function renameWithLinkRewrite(from: string, to: string): Promise<void> {
   const oldTitle = basenameNoExt(from);
   const newTitle = basenameNoExt(to);
   const titleChanged = oldTitle.toLowerCase() !== newTitle.toLowerCase();
-  // Capture linkers before the rename, while links still resolve to the old path.
-  const linkers = titleChanged ? [...new Set(backlinks(from).map((b) => b.path))] : [];
+  const oldPathNoExt = from.replace(/\.md$/i, "").toLowerCase();
+  const newPathNoExt = to.replace(/\.md$/i, "");
+  // Capture linkers before the rename, while links still resolve to the old
+  // path. Path-form links ([[Folder/Note]]) break on ANY move, so linkers are
+  // captured even when the basename is unchanged.
+  const linkers = [...new Set(backlinks(from).map((b) => b.path))];
 
   await renameNote(from, to);
 
   for (const linker of linkers) {
     try {
       const note: NoteData = await readNote(linker);
-      const rewritten = note.content.replace(wikilinkRegex(), (whole, target: string, heading?: string, alias?: string) =>
-        target.trim().toLowerCase() === oldTitle.toLowerCase()
-          ? `[[${newTitle}${heading ?? ""}${alias ?? ""}]]`
-          : whole,
-      );
+      const rewritten = note.content.replace(wikilinkRegex(), (whole, target: string, heading?: string, alias?: string) => {
+        const t = target.trim();
+        if (titleChanged && t.toLowerCase() === oldTitle.toLowerCase()) {
+          return `[[${newTitle}${heading ?? ""}${alias ?? ""}]]`;
+        }
+        // Path-form target pointing at the old path → rewrite to the new path.
+        const norm = t.toLowerCase().replace(/\\/g, "/").replace(/^\.?\/+/, "");
+        if (norm === oldPathNoExt || norm === `${oldPathNoExt}.md`) {
+          return `[[${newPathNoExt}${heading ?? ""}${alias ?? ""}]]`;
+        }
+        return whole;
+      });
       if (rewritten !== note.content) await writeNote(linker, rewritten);
     } catch (err) {
       console.error(`rename: failed to rewrite links in ${linker}:`, err);

@@ -5,7 +5,8 @@
 
 import type { Context } from "hono";
 import type { PostMeta } from "../shared/types.ts";
-import { posts } from "./indexer.ts";
+import { posts, publishedBanner } from "./indexer.ts";
+import { faviconPath } from "./settings.ts";
 import { blogLocale, siteName, siteUrl, tagline } from "./site.ts";
 
 // ------------------------------------------------------------------ helpers
@@ -120,6 +121,15 @@ export function injectHead(html: string, origin: string, pathname: string): stri
     tags.push(`<meta name="description" content="${xmlEscape(description)}" />`);
   }
   tags.push(`<meta property="og:title" content="${xmlEscape(title)}" />`);
+  // A published note's banner doubles as its social card image. Attachment
+  // banners are visitor-fetchable by construction (publish allowlist).
+  const banner = post ? publishedBanner(post.path) : null;
+  if (banner) {
+    const image = /^https:\/\//i.test(banner)
+      ? banner
+      : `${origin}/api/file?path=${encodeURIComponent(banner)}`;
+    tags.push(`<meta property="og:image" content="${xmlEscape(image)}" />`);
+  }
   if (description) {
     tags.push(`<meta property="og:description" content="${xmlEscape(description)}" />`);
   }
@@ -129,7 +139,19 @@ export function injectHead(html: string, origin: string, pathname: string): stri
     `<link rel="canonical" href="${xmlEscape(canonical)}" />`,
     `<link rel="alternate" type="application/rss+xml" title="${xmlEscape(name)}" href="/feed.xml" />`,
   );
-  return html
+  let out = html
     .replace(/<title>[^<]*<\/title>/, `<title>${xmlEscape(title)}</title>`)
     .replace(HEAD_PLACEHOLDER, tags.join("\n    "));
+  // A configured favicon (settings.json) replaces the shell's inline default
+  // so the tab icon is right from the very first paint, before any JS runs.
+  // NB: the default href is a data: URI that CONTAINS ">" characters (inline
+  // SVG), so the match must consume quoted attribute values, not stop at the
+  // first ">" like a naive [^>]* would.
+  if (faviconPath()) {
+    out = out.replace(
+      /<link\s+rel="icon"(?:\s+(?:[a-z-]+="[^"]*"|[a-z-]+))*\s*\/?>/i,
+      `<link rel="icon" href="/favicon.ico" />`,
+    );
+  }
+  return out;
 }

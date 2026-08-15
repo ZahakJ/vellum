@@ -1,0 +1,262 @@
+// Magazine home (settings.home.mode === "dashboard"): a full-width hero
+// carrying the site identity (settings banner image or a generated gradient
+// seeded from the site name, with the name/logo + tagline overlaid on a
+// scrim), a responsive card grid of the latest posts, and — when readers have
+// been talking — a slim "Most discussed" row ranked by comment count.
+// Admins looking through visitor preview get a hover "Change banner…"
+// affordance that writes settings.home.banner via PATCH /api/settings.
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { PostMeta } from "../../shared/types.ts";
+import { bannerSrc, generatedBannerCss } from "../banner.ts";
+import { notePathToUrl } from "../router.ts";
+import { useStore } from "../state.ts";
+import HomeBannerModal from "./HomeBannerModal.tsx";
+import { TagChips } from "./PostList.tsx";
+import { formatDate, NavLink } from "./util.tsx";
+
+const HOTTEST_MAX = 6;
+
+function CardThumb({ post }: { post: PostMeta }) {
+  const fallback = useStore((s) => s.bannerFallback);
+  if (post.banner) {
+    return (
+      <NavLink
+        url={notePathToUrl(post.path)}
+        className="s-dash-card__thumb"
+        aria-hidden="true"
+        tabIndex={-1}
+      >
+        <img
+          src={bannerSrc(post.banner)}
+          alt=""
+          loading="lazy"
+          onError={(e) => {
+            // Unloadable banner image: fall back to the generated gradient
+            // rather than a broken-image glyph on the card.
+            const wrap = e.currentTarget.closest<HTMLElement>(".s-dash-card__thumb");
+            if (wrap) {
+              e.currentTarget.remove();
+              wrap.style.background = generatedBannerCss(post.title, "thumb");
+            }
+          }}
+        />
+      </NavLink>
+    );
+  }
+  if (fallback !== "generated") return null;
+  return (
+    <NavLink
+      url={notePathToUrl(post.path)}
+      className="s-dash-card__thumb"
+      style={{ background: generatedBannerCss(post.title, "thumb") }}
+      aria-hidden="true"
+      tabIndex={-1}
+    />
+  );
+}
+
+function Card({ post, locale }: { post: PostMeta; locale: string }) {
+  return (
+    <article className="s-dash-card">
+      <CardThumb post={post} />
+      <div className="s-dash-card__body">
+        <h3 className="s-dash-card__title" dir="auto">
+          <NavLink url={notePathToUrl(post.path)}>{post.title}</NavLink>
+        </h3>
+        <div className="s-blog-meta s-dash-card__meta">
+          <time className="s-blog-meta__date" dateTime={post.date}>
+            {formatDate(post.date, locale)}
+          </time>
+          <span className="s-blog-meta__dot" aria-hidden="true">
+            ·
+          </span>
+          <span>{post.readingMinutes} min read</span>
+        </div>
+        {post.excerpt !== "" && (
+          <p className="s-dash-card__excerpt" dir="auto">
+            {post.excerpt}
+          </p>
+        )}
+        {post.tags.length > 0 && (
+          <div className="s-dash-card__tags">
+            <TagChips tags={post.tags} />
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function CommentBubble() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="13"
+      height="13"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.9 8.9 0 0 1-4-.9L3 20l1-4.6a8.4 8.4 0 1 1 17-3.9z" />
+    </svg>
+  );
+}
+
+export default function BlogDashboard({
+  posts,
+  locale,
+}: {
+  posts: PostMeta[] | null;
+  locale: string;
+}) {
+  const siteName = useStore((s) => s.siteName);
+  const tagline = useStore((s) => s.tagline);
+  const home = useStore((s) => s.home);
+  const logo = useStore((s) => s.logo);
+  // The affordance shows for admins looking through visitor preview — the
+  // only way an admin ever sees the dashboard (the app is their home view).
+  const previewing = useStore((s) => s.previewVisitor);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [bannerBroken, setBannerBroken] = useState(false);
+
+  const banner = home?.banner ?? null;
+
+  // Most-discussed row: a right-edge fade signals "more cards this way" while
+  // there is horizontal overflow left to scroll — and disappears at the end
+  // of the row (and entirely when everything fits).
+  const hotRowRef = useRef<HTMLDivElement | null>(null);
+  const [hotMore, setHotMore] = useState(false);
+  useEffect(() => {
+    const el = hotRowRef.current;
+    if (!el) return;
+    const update = (): void => {
+      setHotMore(el.scrollWidth - el.clientWidth - el.scrollLeft > 8);
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, [posts]);
+
+  // Most discussed: posts with visible comments, busiest first. The section
+  // vanishes entirely when nobody has commented (or comments are off —
+  // commentCount is absent then and every count reads 0).
+  const hottest = useMemo(
+    () =>
+      (posts ?? [])
+        .filter((p) => (p.commentCount ?? 0) > 0)
+        .sort(
+          (a, b) =>
+            (b.commentCount ?? 0) - (a.commentCount ?? 0) ||
+            b.date.localeCompare(a.date),
+        )
+        .slice(0, HOTTEST_MAX),
+    [posts],
+  );
+
+  return (
+    <div className="s-dash">
+      <section
+        className={`s-dash-hero${banner && !bannerBroken ? "" : " s-dash-hero--gen"}`}
+        style={
+          banner && !bannerBroken
+            ? undefined
+            : { background: generatedBannerCss(siteName, "thumb") }
+        }
+      >
+        {banner && !bannerBroken && (
+          <img
+            className="s-dash-hero__img"
+            src={bannerSrc(banner)}
+            alt=""
+            onError={() => setBannerBroken(true)}
+          />
+        )}
+        <div className="s-dash-hero__scrim" aria-hidden="true" />
+        <div className="s-dash-hero__inner">
+          {logo ? (
+            <NavLink url="/" className="s-dash-hero__logolink" aria-hidden={false}>
+              <img className="s-dash-hero__logo" src={bannerSrc(logo)} alt={siteName} />
+            </NavLink>
+          ) : (
+            <h1 className="s-dash-hero__name" dir="auto">
+              <NavLink url="/">{siteName}</NavLink>
+            </h1>
+          )}
+          {tagline && (
+            <p className="s-dash-hero__tagline" dir="auto">
+              {tagline}
+            </p>
+          )}
+        </div>
+        {previewing && (
+          <button
+            type="button"
+            className="s-dash-hero__change"
+            onClick={() => setPickerOpen(true)}
+          >
+            Change banner…
+          </button>
+        )}
+      </section>
+
+      <div className="s-dash-body">
+        <section aria-label="Latest writings">
+          <h2 className="s-blog-heading">
+            <span>Latest</span>
+          </h2>
+          {posts === null ? (
+            <p className="s-blog-empty">…</p>
+          ) : posts.length === 0 ? (
+            <p className="s-blog-empty">Nothing published here yet.</p>
+          ) : (
+            <div className="s-dash-grid">
+              {posts.map((post) => (
+                <Card key={post.path} post={post} locale={locale} />
+              ))}
+            </div>
+          )}
+        </section>
+
+        {hottest.length > 0 && (
+          <section className="s-dash-hot" aria-label="Most discussed">
+            <h2 className="s-blog-heading">
+              <span>Most discussed</span>
+            </h2>
+            <div className="s-dash-hot__scroll">
+              <div className="s-dash-hot__row" ref={hotRowRef}>
+                {hottest.map((post) => (
+                  <NavLink
+                    key={post.path}
+                    url={notePathToUrl(post.path)}
+                    className="s-dash-hot__card"
+                  >
+                    <span className="s-dash-hot__count">
+                      <CommentBubble />
+                      {post.commentCount}
+                    </span>
+                    <span className="s-dash-hot__title" dir="auto">
+                      {post.title}
+                    </span>
+                    <span className="s-dash-hot__date">{formatDate(post.date, locale)}</span>
+                  </NavLink>
+                ))}
+              </div>
+              {hotMore && <div className="s-dash-hot__fade" aria-hidden="true" />}
+            </div>
+          </section>
+        )}
+      </div>
+
+      {pickerOpen && <HomeBannerModal onClose={() => setPickerOpen(false)} />}
+    </div>
+  );
+}

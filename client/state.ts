@@ -5,7 +5,7 @@
 // (bumped when the open note changed on disk, so the Editor remounts).
 
 import { create } from "zustand";
-import type { Backlink, PublishedCounts, TreeNode } from "../shared/types.ts";
+import type { Backlink, HomeSettings, PublishedCounts, TreeNode } from "../shared/types.ts";
 import * as api from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import { collectNotes, resolveLink } from "./editor/links.ts";
@@ -43,6 +43,10 @@ export interface State {
   /** Ctrl/Cmd+E: render the open note read-only instead of editing. */
   readingMode: boolean;
   paletteOpen: boolean;
+  /** Mobile drawer: the sidebar overlays the content below the narrow
+   *  breakpoint; opening a note closes it. Inert on wide viewports. */
+  sidebarOpen: boolean;
+  setSidebarOpen(b: boolean): void;
   backlinks: Backlink[];
   /** Bumped when the open note changed externally; App keys the Editor on it. */
   reloadTick: number;
@@ -64,6 +68,9 @@ export interface State {
   /** Instance branding from SITE_NAME (wordmark, titles, login modal). */
   siteName: string;
   loginOpen: boolean;
+  /** Admin moderation panel (palette: "Moderate comments"). */
+  moderationOpen: boolean;
+  setModerationOpen(b: boolean): void;
   /** Admin previewing the public site: every API call carries the preview
    *  flag and the server answers along its real visitor code path, so what
    *  renders IS the visitor experience (blog shell / visitor app view). */
@@ -81,6 +88,14 @@ export interface State {
   footerLine: string | null;
   /** BCP47 locale for post dates (BLOG_LOCALE, default "en"). */
   blogLocale: string;
+  /** BANNER_FALLBACK — what banner-less blog posts show as hero/thumb. */
+  bannerFallback: "generated" | "none";
+  /** settings.home — "/" mode + dashboard hero banner (blog mode; null = note). */
+  home: HomeSettings | null;
+  /** settings.logo — site logo image (banner-style value), blog mode. */
+  logo: string | null;
+  /** Merge a fresh home config into the store (the dashboard's banner save). */
+  setHome(home: HomeSettings | null): void;
 
   // --------------------------------------------------------------- publish
   /** Published note paths (admin marks/filter); null = unknown/unavailable. */
@@ -99,6 +114,18 @@ export interface State {
   togglePublish(path: string, publish?: boolean): Promise<void>;
   setPublishedFilter(b: boolean): void;
   setOpenPublished(b: boolean | null): void;
+
+  // ---------------------------------------------------------------- banners
+  /** "Set banner…" modal (admin; acts on the open note). */
+  bannerModalOpen: boolean;
+  setBannerModalOpen(b: boolean): void;
+  /** Write (value) or clear (null) a note's frontmatter banner. */
+  setBanner(path: string, value: string | null): Promise<void>;
+
+  // --------------------------------------------------------------- settings
+  /** Site settings panel (admin; status-bar gear / palette "Site settings"). */
+  settingsOpen: boolean;
+  setSettingsOpen(b: boolean): void;
 
   /** Boot: fetch /api/me, then load the vault + restore session/home note. */
   bootstrap(): Promise<void>;
@@ -150,6 +177,26 @@ function ensureCustomCss(enabled: boolean): void {
     document.head.appendChild(link);
   } else if (!enabled && existing) {
     existing.remove();
+  }
+}
+
+/** Point the shell's icon link at /favicon.ico when the instance configured a
+ *  favicon (settings.json), restoring the built-in inline glyph otherwise.
+ *  The ?v= buster makes a just-saved favicon show up in the tab immediately —
+ *  browsers cache favicons aggressively. */
+let defaultFaviconHref: string | null = null;
+function ensureFavicon(enabled: boolean): void {
+  const link = document.head.querySelector<HTMLLinkElement>('link[rel="icon"]');
+  if (!link) return;
+  if (defaultFaviconHref === null) {
+    // First sight: remember the shell's own icon (the inline glyph — or
+    // /favicon.ico already, when the server injected it before first paint).
+    defaultFaviconHref = link.getAttribute("href") ?? "";
+  }
+  if (enabled) {
+    link.href = `/favicon.ico?v=${Date.now()}`;
+  } else if (link.getAttribute("href")?.startsWith("/favicon.ico") && !defaultFaviconHref.startsWith("/favicon.ico")) {
+    link.href = defaultFaviconHref;
   }
 }
 
@@ -302,6 +349,7 @@ export const useStore = create<State>()((set, get) => {
     vimMode: readVim(),
     readingMode: readReading(),
     paletteOpen: false,
+    sidebarOpen: false,
     backlinks: [],
     reloadTick: 0,
     pendingHeading: null,
@@ -313,12 +361,20 @@ export const useStore = create<State>()((set, get) => {
     homeNote: null,
     siteName: "Vellum",
     loginOpen: false,
+    moderationOpen: false,
     previewVisitor: initialPreview,
 
     publicLayout: "app",
     tagline: null,
     footerLine: null,
     blogLocale: "en",
+    bannerFallback: "generated",
+    home: null,
+    logo: null,
+    setHome: (home) => set({ home }),
+    bannerModalOpen: false,
+    settingsOpen: false,
+    setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
 
     publishedPaths: null,
     publishedCounts: null,
@@ -360,6 +416,9 @@ export const useStore = create<State>()((set, get) => {
           tagline: me.tagline?.trim() || null,
           footerLine: me.footer?.trim() || null,
           blogLocale: me.blogLocale?.trim() || "en",
+          bannerFallback: me.bannerFallback === "none" ? "none" : "generated",
+          home: me.home ?? null,
+          logo: me.logo ?? null,
         });
         // DEFAULT_THEME applies only while the user has made no explicit
         // choice (nothing in localStorage) — and is deliberately NOT
@@ -369,6 +428,7 @@ export const useStore = create<State>()((set, get) => {
           set({ theme: me.defaultTheme });
         }
         ensureCustomCss(me.customCss === true);
+        ensureFavicon(me.favicon === true);
       } catch (err) {
         // Server unreachable/old — behave like open local mode.
         console.error("vellum: fetching /api/me failed", err);
@@ -391,7 +451,7 @@ export const useStore = create<State>()((set, get) => {
       guarded("signing out", async () => {
         await api.logout();
         await get().loadMe();
-        set({ publishedPaths: null, publishedFilter: false, openPublished: null });
+        set({ publishedPaths: null, publishedFilter: false, openPublished: null, moderationOpen: false });
         const { admin, publicReads } = get();
         if (!admin && !publicReads) {
           // Vault is locked again for this session — drop everything readable.
@@ -415,6 +475,8 @@ export const useStore = create<State>()((set, get) => {
 
     setLoginOpen: (loginOpen) => set({ loginOpen }),
 
+    setModerationOpen: (moderationOpen) => set({ moderationOpen }),
+
     setPreviewVisitor: (on) =>
       guarded("toggling visitor preview", async () => {
         if (on === get().previewVisitor) return;
@@ -428,7 +490,7 @@ export const useStore = create<State>()((set, get) => {
         clearBrokenEmbeds();
         if (on) {
           previewSnapshot = { tabs: [...get().openTabs], open: get().openPath };
-          set({ previewVisitor: true, paletteOpen: false });
+          set({ previewVisitor: true, paletteOpen: false, moderationOpen: false });
           // Tree BEFORE me: the shell swap (admin flips false on loadMe) must
           // find the visitor tree already in place, or the blog router would
           // transiently resolve routes against the full admin tree.
@@ -522,6 +584,22 @@ export const useStore = create<State>()((set, get) => {
 
     setOpenPublished: (openPublished) => set({ openPublished }),
 
+    setBannerModalOpen: (bannerModalOpen) => set({ bannerModalOpen }),
+
+    setBanner: (path, value) =>
+      guarded("setting banner", async () => {
+        // Same choreography as togglePublish: let a pending autosave land so
+        // the server-side line edit and the editor buffer don't clobber each
+        // other, and claim the SSE echo as our own write.
+        if (get().dirty[path]) await waitForClean(path, 2000);
+        lastPublishWrite = Date.now();
+        await api.setFrontmatter(path, "banner", value);
+        // The note's bytes changed on disk: refresh the open editor/reading
+        // pane so its buffer carries the new frontmatter.
+        if (get().openPath === path) get().bumpReload();
+        toast(value === null ? "Banner removed" : "Banner set");
+      }),
+
     loadTree: () =>
       guarded("loading vault tree", async () => {
         const tree = await api.getTree();
@@ -536,6 +614,8 @@ export const useStore = create<State>()((set, get) => {
         // Unknown until the status bar reads the new note's frontmatter —
         // unless the published set already knows the answer.
         openPublished: s.openPath === path ? s.openPublished : s.publishedPaths?.has(path) ?? null,
+        // Mobile drawer: picking a note dismisses the overlay sidebar.
+        sidebarOpen: false,
       }));
       void get().refreshBacklinks();
     },
@@ -578,6 +658,7 @@ export const useStore = create<State>()((set, get) => {
     },
 
     setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
+    setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
 
     refreshBacklinks: async () => {
       const { openPath } = get();

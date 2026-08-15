@@ -24,7 +24,7 @@
 
 .s-blog-mast__star {
   color: var(--accent);
-  font-size: 15px;
+  font-size: 1.071rem;
   letter-spacing: 0.6em;
   margin-bottom: 10px;
   user-select: none;
@@ -33,7 +33,7 @@
 .s-blog-mast__name {
   display: inline-block;
   font-family: var(--font-serif);
-  font-size: 42px;
+  font-size: 3rem;
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: 0.01em;
@@ -51,7 +51,7 @@
   max-width: 560px;
   font-family: var(--font-serif);
   font-style: italic;
-  font-size: 15.5px;
+  font-size: 1.107rem;
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -93,7 +93,7 @@
   display: inline-block;
   padding: 5px 10px;
   border-radius: var(--radius);
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.09em;
@@ -186,7 +186,7 @@
   background: transparent;
   color: var(--text-muted);
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.09em;
@@ -225,7 +225,7 @@
   background: var(--bg-raised);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: 0.929rem;
   outline: none;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
   transition: border-color 150ms ease, box-shadow 150ms ease;
@@ -259,7 +259,7 @@
 
 .s-blog-search__none {
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: 0.929rem;
   color: var(--text-faint);
 }
 
@@ -283,14 +283,14 @@
 .s-blog-search__title {
   display: block;
   font-family: var(--font-serif);
-  font-size: 14px;
+  font-size: 1rem;
   line-height: 1.35;
 }
 
 .s-blog-search__snippet {
   display: block;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: 0.857rem;
   line-height: 1.45;
   color: var(--text-muted);
   overflow: hidden;
@@ -323,7 +323,7 @@
   border-radius: var(--radius);
   color: var(--text-faint);
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: 0.857rem;
   opacity: 0.8;
 }
 
@@ -334,7 +334,7 @@
 
 .s-rv-imgmissing__name {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.786rem;
   overflow-wrap: anywhere;
 }
 
@@ -358,7 +358,7 @@
   gap: 14px;
   margin: 0 0 6px;
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.16em;
@@ -381,13 +381,16 @@
   padding: 28px 0;
   font-family: var(--font-serif);
   font-style: italic;
-  font-size: 15px;
+  font-size: 1.071rem;
   color: var(--text-faint);
 }
 
 /* ── Post list ─────────────────────────────────────────────────────────── */
 
 .s-blog-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
   padding: 30px 0 32px;
   border-bottom: 1px solid var(--border);
 }
@@ -396,10 +399,35 @@
   border-bottom: none;
 }
 
+.s-blog-entry__text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Right-aligned banner thumbnail (or generated stand-in). The layout is a
+   plain single column when an entry has neither. */
+.s-blog-entry__thumb {
+  flex: none;
+  display: block;
+  width: 132px;
+  height: 88px;
+  margin-top: 6px;
+  border-radius: calc(var(--radius) + 2px);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.s-blog-entry__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .s-blog-entry__title {
   margin: 0 0 8px;
   font-family: var(--font-serif);
-  font-size: 25px;
+  font-size: 1.786rem;
   font-weight: 700;
   line-height: 1.3;
 }
@@ -417,7 +445,7 @@
 .s-blog-entry__excerpt {
   margin: 10px 0 0;
   font-family: var(--font-serif);
-  font-size: 15.5px;
+  font-size: 1.107rem;
   line-height: 1.65;
   color: var(--text-muted);
 }
@@ -429,7 +457,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 8px;
-  font-size: 12.5px;
+  font-size: 0.893rem;
   color: var(--text-faint);
 }
 
@@ -453,7 +481,7 @@
   padding: 2px 9px;
   border-radius: 999px;
   background: var(--bg-hover);
-  font-size: 11.5px;
+  font-size: 0.821rem;
   color: var(--text-muted);
   text-decoration: none;
   transition: background 150ms ease, color 150ms ease;
@@ -524,8 +552,54 @@
 
 /* Reading column, a step larger than the app's editor. */
 .s-blog-article .s-reading__content {
-  font-size: 17px;
+  font-size: 1.214rem;
   line-height: 1.75;
+}
+
+/* The article renders its own hero — the reading renderer's inline banner
+   (app furniture, like the props card) stays hidden in the blog shell. */
+.s-blog .s-rv-banner {
+  display: none;
+}
+
+/* ── Article hero (frontmatter banner / generated fallback) ────────────── */
+
+.s-blog-hero {
+  margin: 6px 0 32px;
+}
+
+.s-blog-hero__img {
+  display: block;
+  width: 100%;
+  max-height: 380px;
+  object-fit: cover;
+  border-radius: calc(var(--radius) + 4px);
+  border: 1px solid var(--border);
+}
+
+/* Tall banners (portrait-ish screenshots): cover would crop most of the
+   image — decapitated titles, stray glyph descenders along the hero's top
+   edge. The article adds this class from the image's intrinsic ratio;
+   contain letterboxes on a raised ground instead. */
+.s-blog-hero__img--tall {
+  height: 380px;
+  object-fit: contain;
+  background: var(--bg-raised);
+}
+
+.s-blog-hero--gen {
+  height: 168px;
+  border-radius: calc(var(--radius) + 4px);
+  border: 1px solid var(--border);
+}
+
+/* Full-bleed-ish: a touch wider than the text column when the viewport
+   affords it. */
+@media (min-width: 900px) {
+  .s-blog-hero {
+    margin-left: -56px;
+    margin-right: -56px;
+  }
 }
 
 .s-blog-article__foot {
@@ -537,7 +611,7 @@
 }
 
 .s-blog-article__tags .s-blog-chip {
-  font-size: 12.5px;
+  font-size: 0.893rem;
   padding: 3px 11px;
 }
 
@@ -554,7 +628,7 @@
 }
 
 .s-blog-share__label {
-  font-size: 11px;
+  font-size: 0.786rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -567,7 +641,7 @@
   border: none;
   background: none;
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: 0.929rem;
   color: var(--text-muted);
   text-decoration: none;
   cursor: pointer;
@@ -610,7 +684,7 @@
 }
 
 .s-blog-pn__label {
-  font-size: 11px;
+  font-size: 0.786rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--text-faint);
@@ -618,7 +692,7 @@
 
 .s-blog-pn__title {
   font-family: var(--font-serif);
-  font-size: 15px;
+  font-size: 1.071rem;
   line-height: 1.35;
   color: var(--text);
 }
@@ -658,7 +732,7 @@
 
 .s-blog-related__link {
   font-family: var(--font-serif);
-  font-size: 15.5px;
+  font-size: 1.107rem;
   color: var(--text);
   text-decoration: none;
   transition: color 150ms ease;
@@ -670,13 +744,13 @@
 
 .s-blog-related__star {
   color: var(--accent);
-  font-size: 11px;
+  font-size: 0.786rem;
   margin-inline-end: 9px;
 }
 
 .s-blog-related__date {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-faint);
 }
 
@@ -694,7 +768,7 @@
 }
 
 .s-blog-locked__glyph {
-  font-size: 34px;
+  font-size: 2.429rem;
   color: var(--text-faint);
   margin-bottom: 14px;
   user-select: none;
@@ -702,13 +776,13 @@
 
 .s-blog-locked__title {
   font-family: var(--font-serif);
-  font-size: 18px;
+  font-size: 1.286rem;
   color: var(--text);
   margin: 0 0 20px;
 }
 
 .s-blog-locked__home {
-  font-size: 13.5px;
+  font-size: 0.964rem;
   color: var(--accent);
   text-decoration: none;
 }
@@ -728,7 +802,7 @@
 .s-blog-footer__line {
   margin: 0 0 10px;
   font-family: var(--font-serif);
-  font-size: 13.5px;
+  font-size: 0.964rem;
   color: var(--text-muted);
 }
 
@@ -738,7 +812,7 @@
   align-items: center;
   justify-content: center;
   gap: 16px;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-faint);
 }
 
@@ -747,7 +821,7 @@
   border: none;
   background: none;
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-faint);
   text-decoration: none;
   cursor: pointer;
@@ -760,7 +834,7 @@
 
 /* Removable via VELLUM_DATA/custom.css: .s-blog-powered { display: none } */
 .s-blog-powered {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-faint);
   opacity: 0.8;
 }
@@ -783,23 +857,13 @@
   }
 
   .s-blog-mast__name {
-    font-size: 34px;
+    font-size: 2.429rem;
   }
 }
 
-@media (max-width: 640px) {
-  .s-blog-mast {
-    padding: 30px 16px 20px;
-  }
-
-  .s-blog-mast__name {
-    font-size: 28px;
-  }
-
-  .s-blog-mast__tagline {
-    font-size: 14px;
-  }
-
+/* Nav collapses well before the links row would wrap: a second, ragged
+   left-aligned row of topics (tablet widths) reads worse than the burger. */
+@media (max-width: 840px) {
   /* Nav collapses: burger toggles a wrapping row of topics. */
   .s-blog-nav__burger {
     display: inline-flex;
@@ -841,6 +905,20 @@
     background: none;
     padding: 0;
   }
+}
+
+@media (max-width: 640px) {
+  .s-blog-mast {
+    padding: 30px 16px 20px;
+  }
+
+  .s-blog-mast__name {
+    font-size: 2rem;
+  }
+
+  .s-blog-mast__tagline {
+    font-size: 1rem;
+  }
 
   .s-blog-page {
     padding: 26px 18px 56px;
@@ -855,7 +933,24 @@
   }
 
   .s-blog-entry__title {
-    font-size: 21px;
+    font-size: 1.5rem;
+  }
+
+  .s-blog-entry {
+    gap: 16px;
+  }
+
+  .s-blog-entry__thumb {
+    width: 92px;
+    height: 64px;
+  }
+
+  .s-blog-hero__img {
+    max-height: 240px;
+  }
+
+  .s-blog-hero--gen {
+    height: 120px;
   }
 
   .s-blog-pn {
@@ -869,4 +964,350 @@
   .s-blog-search__input {
     width: min(180px, 38vw);
   }
+}
+
+/* Quiet keymap hint in the footer meta row (Ctrl/Cmd+K search overlay). */
+.s-blog-footer__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.786rem;
+  color: var(--text-faint);
+}
+
+.s-blog-footer__hint kbd {
+  font-size: 0.714rem;
+  padding: 0 5px;
+}
+
+/* ── Dashboard home (settings.home.mode = "dashboard") ─────────────────────
+   Magazine front page: full-width hero carrying the site identity, a card
+   grid of the latest writings, a slim "Most discussed" row. The hero scrim
+   is deliberately theme-independent dark glass — white type on it stays
+   legible over any banner image in all four themes. */
+
+.s-dash-hero {
+  position: relative;
+  height: clamp(280px, 40vh, 440px);
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
+
+.s-dash-hero__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.s-dash-hero__scrim {
+  position: absolute;
+  inset: 0;
+  /* Radial pool behind the identity block + bottom-weighted wash: white type
+     stays legible even over a near-white banner photograph. */
+  background:
+    radial-gradient(58% 88% at 50% 52%, rgba(14, 12, 8, 0.42) 0%, rgba(14, 12, 8, 0) 72%),
+    linear-gradient(
+      180deg,
+      rgba(14, 12, 8, 0.34) 0%,
+      rgba(14, 12, 8, 0.22) 38%,
+      rgba(14, 12, 8, 0.6) 100%
+    );
+}
+
+.s-dash-hero__inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 28px 24px;
+  text-align: center;
+}
+
+.s-dash-hero__name {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(2.1rem, 5vw, 3.3rem);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: 0.01em;
+}
+
+.s-dash-hero__name a {
+  color: #fff;
+  text-decoration: none;
+  text-shadow: 0 2px 22px rgba(0, 0, 0, 0.55);
+  transition: color 150ms ease;
+}
+
+.s-dash-hero__name a:hover {
+  color: #ecd489;
+}
+
+.s-dash-hero__logolink {
+  display: inline-flex;
+}
+
+.s-dash-hero__logo {
+  max-height: 104px;
+  max-width: min(70vw, 440px);
+  filter: drop-shadow(0 2px 14px rgba(0, 0, 0, 0.45));
+}
+
+.s-dash-hero__tagline {
+  margin: 8px 0 0;
+  max-width: 560px;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 1.107rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.5);
+}
+
+/* Admin-in-preview affordance: quiet until the hero is hovered/focused. */
+.s-dash-hero__change {
+  position: absolute;
+  top: 14px;
+  inset-inline-end: 14px;
+  z-index: 2;
+  padding: 7px 15px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 999px;
+  background: rgba(10, 9, 7, 0.52);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 0.857rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms ease, background 150ms ease;
+}
+
+.s-dash-hero:hover .s-dash-hero__change,
+.s-dash-hero__change:focus-visible {
+  opacity: 1;
+}
+
+.s-dash-hero__change:hover {
+  background: rgba(10, 9, 7, 0.75);
+}
+
+@media (hover: none) {
+  .s-dash-hero__change {
+    opacity: 1;
+  }
+}
+
+/* Content column: wider than the reading pages — the grid needs room. */
+.s-dash-body {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 40px 24px 72px;
+}
+
+/* Latest: 1 / 2 / 3 columns (≈390 / 768 / 1200 viewports). */
+.s-dash-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 22px;
+  padding-top: 16px;
+}
+
+@media (min-width: 660px) {
+  .s-dash-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1020px) {
+  .s-dash-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.s-dash-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px);
+  background: var(--bg-raised);
+  overflow: hidden;
+  transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+}
+
+.s-dash-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.22);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.s-dash-card__thumb {
+  display: block;
+  aspect-ratio: 16 / 9;
+  background: var(--bg-hover);
+}
+
+.s-dash-card__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.s-dash-card__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px 18px;
+}
+
+.s-dash-card__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.286rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.s-dash-card__title a {
+  color: var(--text);
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+
+.s-dash-card__title a:hover {
+  color: var(--accent);
+}
+
+.s-dash-card__meta {
+  font-size: 0.857rem;
+}
+
+.s-dash-card__excerpt {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 0.964rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.s-dash-card__tags {
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+/* Most discussed: a slim horizontally scrolling row of pill cards. */
+.s-dash-hot {
+  margin-top: 44px;
+}
+
+/* Wrapper so the overflow fade can sit over the row's right edge. */
+.s-dash-hot__scroll {
+  position: relative;
+}
+
+.s-dash-hot__row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 16px 2px 8px;
+  scrollbar-width: thin;
+}
+
+/* "More cards this way": shown by the dashboard only while the row still has
+   overflow to the right — gone at scroll end and when everything fits. */
+.s-dash-hot__fade {
+  position: absolute;
+  top: 16px;
+  bottom: 8px;
+  right: 0;
+  width: 72px;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--bg));
+}
+
+.s-dash-hot__card {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 400px;
+  padding: 9px 16px 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  text-decoration: none;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.s-dash-hot__card:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--bg-hover);
+}
+
+.s-dash-hot__count {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.821rem;
+  font-weight: 600;
+}
+
+.s-dash-hot__title {
+  font-family: var(--font-serif);
+  font-size: 0.964rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-dash-hot__card:hover .s-dash-hot__title {
+  color: var(--accent);
+}
+
+.s-dash-hot__date {
+  flex-shrink: 0;
+  font-size: 0.786rem;
+  color: var(--text-faint);
+}
+
+@media (max-width: 640px) {
+  .s-dash-hero {
+    height: clamp(220px, 34vh, 300px);
+  }
+
+  .s-dash-body {
+    padding: 28px 18px 56px;
+  }
+
+  .s-dash-grid {
+    gap: 16px;
+  }
+}
+
+/* ── Masthead logo (settings.logo) ───────────────────────────────────────── */
+
+.s-blog-mast__logo {
+  display: block;
+  margin: 0 auto;
+  max-height: 64px;
+  max-width: min(420px, 80vw);
+  object-fit: contain;
 }

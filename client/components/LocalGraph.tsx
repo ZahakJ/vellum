@@ -2,9 +2,14 @@
 // direct wikilink neighbors (in + out). Data comes from /api/graph — already
 // publish-scoped for visitors — and the neighborhood is derived client-side.
 // Same visual language as the big graph (gold-leaf discs, token colors, label
-// on hover + always for the center), gentle physics, HiDPI canvas, click to
-// navigate. Collapse state persists in localStorage; the whole section stays
-// fresh through SSE because the store's tree identity changes on vault events.
+// on hover + always for the center), springy physics you can grab: any node
+// drags with the pointer (grab/grabbing cursors), linked neighbors follow
+// elastically, and release carries momentum. Click-without-drag (4px
+// threshold) or double-click navigates. HiDPI canvas; the rAF loop parks
+// itself when the sim has settled and nothing needs drawing, and while the
+// tab is hidden. Collapse state persists in localStorage; the whole section
+// stays fresh through SSE because the store's tree identity changes on vault
+// events.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GraphData, GraphNode } from "../../shared/types.ts";
@@ -25,6 +30,12 @@ const FRICTION = 0.85;
 const ALPHA_DECAY = 0.962;
 const ALPHA_MIN = 0.02;
 const MAX_NEIGHBORS = 24; // a hub note would otherwise become a fur ball
+const CENTER_ANCHOR_K = 0.08; // spring pulling the center disc home to (0,0)
+const MAX_STEP_SPEED = 12; // per-frame speed cap so momentum can't launch nodes
+const DRAG_THRESHOLD = 4; // px of pointer travel before a press becomes a drag
+const MOMENTUM_SCALE = 16.7; // px/ms (pointer velocity) → px/frame (sim velocity)
+const MOMENTUM_MAX = 9; // release-velocity cap (px/frame)
+const PULSE_MS = 900; // one-shot center pulse on note switch
 
 /** Positions survive note switches so clicking a neighbor animates gently
  *  instead of reshuffling the whole pane. Values are offsets from center. */
@@ -105,6 +116,7 @@ function createMiniSim(
 
   let nodes: MiniNode[] = [];
   let edges: [MiniNode, MiniNode][] = [];
+  const adj = new Map<MiniNode, Set<MiniNode>>();
   let colors = readThemeColors();
   let width = 0;
   let height = 0;
@@ -113,12 +125,25 @@ function createMiniSim(
   let needsDraw = true;
   let hovered: MiniNode | null = null;
 
+  // Drag interaction state. A press becomes a drag only after 4px of travel;
+  // a press-and-release inside the threshold is a click (navigation).
+  let pressed: MiniNode | null = null;
+  let dragging: MiniNode | null = null;
+  let downAt = { x: 0, y: 0 };
+  let dragVel = { x: 0, y: 0 }; // smoothed pointer velocity, px/ms
+  let lastDrag = { x: 0, y: 0, t: 0 };
+
+  // One-shot pulse ring around the center on note switch.
+  let pulseT0 = 0;
+  let lastCenterId: string | null = null;
+
   const abort = new AbortController();
   const { signal } = abort;
 
   function setData(hood: Hood) {
     const golden = 2.399963;
     const all = [hood.center, ...hood.neighbors];
+    const prevDragging = dragging;
     nodes = all.map((n, i) => {
       const isCenter = i === 0;
       const kept = isCenter ? null : lastOffsets.get(n.id);
@@ -141,19 +166,45 @@ function createMiniSim(
     });
     const byId = new Map(nodes.map((n) => [n.id, n]));
     edges = [];
+    adj.clear();
     for (const [a, b] of hood.edges) {
       const na = byId.get(a);
       const nb = byId.get(b);
-      if (na && nb) edges.push([na, nb]);
+      if (na && nb) {
+        edges.push([na, nb]);
+        if (!adj.has(na)) adj.set(na, new Set());
+        if (!adj.has(nb)) adj.set(nb, new Set());
+        adj.get(na)!.add(nb);
+        adj.get(nb)!.add(na);
+      }
     }
     hovered = null;
+    // Re-bind an in-flight drag across SSE refreshes so the node doesn't
+    // snap out from under the pointer.
+    if (prevDragging) {
+      const nd = byId.get(prevDragging.id);
+      if (nd) {
+        nd.x = prevDragging.x;
+        nd.y = prevDragging.y;
+        dragging = nd;
+        pressed = nd;
+      } else {
+        dragging = null;
+        pressed = null;
+      }
+    }
+    if (hood.center.id !== lastCenterId) {
+      lastCenterId = hood.center.id;
+      pulseT0 = performance.now();
+    }
     alpha = 1;
     needsDraw = true;
+    wake();
   }
 
   function step() {
     for (const n of nodes) {
-      if (n.isCenter) continue;
+      if (n === dragging) continue;
       let fx = 0;
       let fy = 0;
       // Repulsion from every other shown node (tiny N — brute force is fine).
@@ -173,6 +224,12 @@ function createMiniSim(
         fx += (dx / d) * f;
         fy += (dy / d) * f;
       }
+      // The center isn't pinned any more (so dragging it tugs the whole
+      // hood), but a home spring keeps it settling back to the middle.
+      if (n.isCenter) {
+        fx -= n.x * CENTER_ANCHOR_K * 12;
+        fy -= n.y * CENTER_ANCHOR_K * 12;
+      }
       n.vx += fx * alpha;
       n.vy += fy * alpha;
     }
@@ -187,11 +244,11 @@ function createMiniSim(
       const f = k * (d - rest) * alpha;
       const ux = dx / d;
       const uy = dy / d;
-      if (!a.isCenter) {
+      if (a !== dragging) {
         a.vx += ux * f;
         a.vy += uy * f;
       }
-      if (!b.isCenter) {
+      if (b !== dragging) {
         b.vx -= ux * f;
         b.vy -= uy * f;
       }
@@ -200,14 +257,19 @@ function createMiniSim(
     const bx = Math.max(30, width / 2 - 16);
     const by = Math.max(24, height / 2 - 18);
     for (const n of nodes) {
-      if (n.isCenter) continue;
+      if (n === dragging) continue;
       n.vx *= FRICTION;
       n.vy *= FRICTION;
+      const speed = Math.hypot(n.vx, n.vy);
+      if (speed > MAX_STEP_SPEED) {
+        n.vx *= MAX_STEP_SPEED / speed;
+        n.vy *= MAX_STEP_SPEED / speed;
+      }
       n.x += n.vx;
       n.y += n.vy;
       n.x = Math.max(-bx, Math.min(bx, n.x));
       n.y = Math.max(-by, Math.min(by, n.y));
-      lastOffsets.set(n.id, { x: n.x, y: n.y });
+      if (!n.isCenter) lastOffsets.set(n.id, { x: n.x, y: n.y });
     }
     if (lastOffsets.size > 800) lastOffsets.clear(); // unbounded-growth guard
   }
@@ -217,12 +279,21 @@ function createMiniSim(
     ctx!.clearRect(0, 0, width, height);
     const cx = width / 2;
     const cy = height / 2;
+    const active = dragging ?? hovered;
+    const hoverSet = active
+      ? new Set<MiniNode>([active, ...(adj.get(active) ?? [])])
+      : null;
+    const softAlpha = 0.28;
 
-    // Edges.
+    // Edges: incident to the active node glow accent; the rest soften.
     ctx!.lineWidth = 1;
     for (const [a, b] of edges) {
-      const hot = hovered !== null && (a === hovered || b === hovered);
-      ctx!.globalAlpha = hot ? 0.9 : colors.idleEdgeAlpha * 0.9;
+      const hot = active !== null && (a === active || b === active);
+      ctx!.globalAlpha = hoverSet
+        ? hot
+          ? 0.9
+          : softAlpha * 0.6
+        : colors.idleEdgeAlpha * 0.9;
       ctx!.strokeStyle = hot ? colors.accent : colors.idleEdge;
       ctx!.beginPath();
       ctx!.moveTo(cx + a.x, cy + a.y);
@@ -237,8 +308,10 @@ function createMiniSim(
       const sx = cx + n.x;
       const sy = cy + n.y;
       const degree = n.links / maxLinks;
+      const inFocus = hoverSet === null || hoverSet.has(n);
+      ctx!.globalAlpha = inFocus ? 1 : softAlpha;
       ctx!.fillStyle =
-        n === hovered || n.isCenter
+        n === active || n.isCenter
           ? mixColors(colors.accent, colors.bg, n.isCenter ? 0.08 : 0)
           : mixColors(colors.accent, colors.bg, 0.45 - 0.3 * degree);
       ctx!.beginPath();
@@ -256,36 +329,105 @@ function createMiniSim(
         ctx!.lineWidth = 1;
       }
     }
+    ctx!.globalAlpha = 1;
 
-    // Labels: always for the center, on hover for neighbors.
+    // One-shot pulse ring on note switch: an accent ring breathes outward
+    // from the center disc and fades.
+    if (pulseT0 > 0) {
+      const t = (performance.now() - pulseT0) / PULSE_MS;
+      if (t >= 1) {
+        pulseT0 = 0;
+      } else {
+        const center = nodes[0];
+        if (center) {
+          const ease = 1 - (1 - t) * (1 - t);
+          ctx!.globalAlpha = 0.5 * (1 - t);
+          ctx!.strokeStyle = colors.accent;
+          ctx!.lineWidth = 1.5;
+          ctx!.beginPath();
+          ctx!.arc(cx + center.x, cy + center.y, center.r + 4 + 15 * ease, 0, Math.PI * 2);
+          ctx!.stroke();
+          ctx!.lineWidth = 1;
+          ctx!.globalAlpha = 1;
+        }
+      }
+    }
+
+    // Labels: always for the center, on hover/drag for neighbors.
     ctx!.font = `10.5px ${colors.fontUI}`;
     ctx!.textAlign = "center";
     ctx!.textBaseline = "top";
     for (const n of nodes) {
-      if (!n.isCenter && n !== hovered) continue;
+      if (!n.isCenter && n !== active) continue;
       const sx = Math.max(34, Math.min(width - 34, cx + n.x));
       const sy = cy + n.y + n.r + (n.isCenter ? 6 : 4);
-      ctx!.fillStyle = n.isCenter ? colors.text : colors.muted;
+      const label = trimLabel(n.title);
+      const ly = Math.min(sy, height - 14);
       ctx!.globalAlpha = 1;
-      ctx!.fillText(trimLabel(n.title), sx, Math.min(sy, height - 14));
+      // Subtle bg-colored halo so the label stays legible when a settled
+      // neighbor disc drifts underneath it.
+      ctx!.lineJoin = "round";
+      ctx!.lineWidth = 3;
+      ctx!.strokeStyle = colors.bg;
+      ctx!.globalAlpha = 0.8;
+      ctx!.strokeText(label, sx, ly);
+      ctx!.globalAlpha = 1;
+      ctx!.lineWidth = 1;
+      ctx!.fillStyle = n.isCenter ? colors.text : colors.muted;
+      ctx!.fillText(label, sx, ly);
     }
     ctx!.globalAlpha = 1;
   }
 
+  // rAF loop that parks itself: when the sim has settled, nothing is being
+  // dragged, no pulse is running, and no draw is pending, we stop scheduling
+  // frames. Anything that changes state calls wake(). The whole loop also
+  // stays parked while the document is hidden.
   let raf = 0;
+  let running = false;
   function frame() {
-    raf = requestAnimationFrame(frame);
-    if (alpha > ALPHA_MIN && nodes.length > 0) {
+    const pulsing = pulseT0 > 0;
+    const simActive = (alpha > ALPHA_MIN || dragging !== null) && nodes.length > 0;
+    if (simActive) {
       step();
-      alpha *= ALPHA_DECAY;
+      if (!dragging) alpha *= ALPHA_DECAY;
       needsDraw = true;
     }
+    if (pulsing) needsDraw = true;
     if (needsDraw) {
       draw();
       needsDraw = false;
     }
+    if (simActive || pulsing || pulseT0 > 0) {
+      raf = requestAnimationFrame(frame);
+    } else {
+      running = false;
+      raf = 0;
+    }
   }
-  raf = requestAnimationFrame(frame);
+  function wake() {
+    if (running || document.hidden) return;
+    running = true;
+    raf = requestAnimationFrame(frame);
+  }
+  wake();
+
+  document.addEventListener(
+    "visibilitychange",
+    () => {
+      if (document.hidden) {
+        if (running) {
+          cancelAnimationFrame(raf);
+          running = false;
+          raf = 0;
+        }
+      } else {
+        needsDraw = true;
+        wake();
+      }
+    },
+    { signal },
+  );
 
   function resize() {
     const rect = wrap.getBoundingClientRect();
@@ -298,6 +440,7 @@ function createMiniSim(
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     needsDraw = true;
+    wake();
   }
   const ro = new ResizeObserver(resize);
   ro.observe(wrap);
@@ -306,6 +449,7 @@ function createMiniSim(
   const themeObserver = new MutationObserver(() => {
     colors = readThemeColors();
     needsDraw = true;
+    wake();
   });
   themeObserver.observe(document.documentElement, {
     attributes: true,
@@ -330,16 +474,126 @@ function createMiniSim(
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
+  function updateCursor() {
+    canvas.style.cursor = pressed ? "grabbing" : hovered ? "grab" : "default";
+  }
+
+  canvas.style.touchAction = "none";
+
+  canvas.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (e.button !== 0) return;
+      const p = pointerPos(e);
+      const hit = hitTest(p.x, p.y);
+      if (!hit) return;
+      pressed = hit;
+      downAt = p;
+      dragVel = { x: 0, y: 0 };
+      lastDrag = { x: p.x, y: p.y, t: performance.now() };
+      canvas.setPointerCapture(e.pointerId);
+      updateCursor();
+    },
+    { signal },
+  );
+
   canvas.addEventListener(
     "pointermove",
     (e) => {
       const p = pointerPos(e);
+      if (pressed) {
+        if (
+          !dragging &&
+          Math.hypot(p.x - downAt.x, p.y - downAt.y) > DRAG_THRESHOLD
+        ) {
+          dragging = pressed;
+        }
+        if (dragging) {
+          // Pin the node to the pointer (world = screen offset here, k=1),
+          // clamped to the pane, and keep a smoothed pointer velocity for
+          // momentum on release.
+          const bx = Math.max(30, width / 2 - 16);
+          const by = Math.max(24, height / 2 - 18);
+          dragging.x = Math.max(-bx, Math.min(bx, p.x - width / 2));
+          dragging.y = Math.max(-by, Math.min(by, p.y - height / 2));
+          dragging.vx = 0;
+          dragging.vy = 0;
+          const now = performance.now();
+          const dt = now - lastDrag.t;
+          if (dt > 0) {
+            const s = Math.min(1, dt / 50);
+            dragVel.x += ((p.x - lastDrag.x) / dt - dragVel.x) * s;
+            dragVel.y += ((p.y - lastDrag.y) / dt - dragVel.y) * s;
+          }
+          lastDrag = { x: p.x, y: p.y, t: now };
+          alpha = Math.max(alpha, 0.5); // keep neighbors elastic while held
+          needsDraw = true;
+          wake();
+        }
+        return;
+      }
       const hit = hitTest(p.x, p.y);
       if (hit !== hovered) {
         hovered = hit;
-        canvas.style.cursor = hit && !hit.isCenter ? "pointer" : "default";
+        updateCursor();
         needsDraw = true;
+        wake();
       }
+    },
+    { signal },
+  );
+
+  canvas.addEventListener(
+    "pointerup",
+    (e) => {
+      const wasDragging = dragging !== null;
+      if (dragging) {
+        // Release with momentum: hand the smoothed pointer velocity to the sim.
+        let vx = dragVel.x * MOMENTUM_SCALE;
+        let vy = dragVel.y * MOMENTUM_SCALE;
+        const speed = Math.hypot(vx, vy);
+        if (speed > MOMENTUM_MAX) {
+          vx *= MOMENTUM_MAX / speed;
+          vy *= MOMENTUM_MAX / speed;
+        }
+        dragging.vx = vx;
+        dragging.vy = vy;
+        alpha = Math.max(alpha, 0.6); // let it glide and settle
+      }
+      const clicked = pressed;
+      pressed = null;
+      dragging = null;
+      if (canvas.hasPointerCapture(e.pointerId)) {
+        canvas.releasePointerCapture(e.pointerId);
+      }
+      const p = pointerPos(e);
+      hovered = hitTest(p.x, p.y);
+      updateCursor();
+      needsDraw = true;
+      wake();
+      if (!wasDragging && clicked && !clicked.isCenter) onOpen(clicked.id);
+    },
+    { signal },
+  );
+
+  canvas.addEventListener(
+    "pointercancel",
+    () => {
+      pressed = null;
+      dragging = null;
+      updateCursor();
+      needsDraw = true;
+      wake();
+    },
+    { signal },
+  );
+
+  canvas.addEventListener(
+    "dblclick",
+    (e) => {
+      const p = pointerPos(e);
+      const hit = hitTest(p.x, p.y);
+      if (hit && !hit.isCenter) onOpen(hit.id);
     },
     { signal },
   );
@@ -349,18 +603,10 @@ function createMiniSim(
     () => {
       if (hovered) {
         hovered = null;
+        updateCursor();
         needsDraw = true;
+        wake();
       }
-    },
-    { signal },
-  );
-
-  canvas.addEventListener(
-    "click",
-    (e) => {
-      const p = pointerPos(e);
-      const hit = hitTest(p.x, p.y);
-      if (hit && !hit.isCenter) onOpen(hit.id);
     },
     { signal },
   );
@@ -368,7 +614,8 @@ function createMiniSim(
   return {
     setData,
     destroy() {
-      cancelAnimationFrame(raf);
+      if (raf) cancelAnimationFrame(raf);
+      running = false;
       ro.disconnect();
       themeObserver.disconnect();
       abort.abort();

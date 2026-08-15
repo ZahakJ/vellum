@@ -6,12 +6,26 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
 import { createFolder, getGraph, getTags, search } from "../api.ts";
+import { bannerSrc } from "../banner.ts";
 import { collectNotes, resolveLink, type NoteRef } from "../editor/links.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
+import { confirmModal } from "./Confirm.tsx";
 import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
 
 const SEARCH_DEBOUNCE_MS = 200;
+
+// Tags section collapse (tag-heavy vaults: the pill cloud can eat the tree's
+// room) — persisted like the tree's folder expansion.
+const TAGS_COLLAPSED_KEY = "vellum.tags-collapsed";
+
+function loadTagsCollapsed(): boolean {
+  try {
+    return localStorage.getItem(TAGS_COLLAPSED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 
 function parentOf(path: string): string {
   const i = path.lastIndexOf("/");
@@ -164,14 +178,27 @@ export default function Sidebar() {
   const admin = useStore((s) => s.admin);
   const homeNote = useStore((s) => s.homeNote);
   const siteName = useStore((s) => s.siteName);
+  const logo = useStore((s) => s.logo);
   const publishedFilter = useStore((s) => s.publishedFilter);
   const publishedPaths = useStore((s) => s.publishedPaths);
 
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [tags, setTags] = useState<TagCount[]>([]);
+  const [tagsCollapsed, setTagsCollapsed] = useState(loadTagsCollapsed);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Ctrl/Cmd+K (App dispatches "vellum:quicksearch"): focus the search box.
+  useEffect(() => {
+    const onQuickSearch = () => {
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    };
+    window.addEventListener("vellum:quicksearch", onQuickSearch);
+    return () => window.removeEventListener("vellum:quicksearch", onQuickSearch);
+  }, []);
 
   // Debounced search.
   useEffect(() => {
@@ -270,9 +297,12 @@ export default function Sidebar() {
   };
 
   const confirmDelete = (node: TreeNode) => {
-    if (window.confirm(`Delete "${node.path}"? This cannot be undone.`)) {
-      void deleteNote(node.path);
-    }
+    void confirmModal({
+      title: "Delete note?",
+      body: `"${node.path}" will be deleted. This cannot be undone.`,
+    }).then((ok) => {
+      if (ok) void deleteNote(node.path);
+    });
   };
 
   const openMenu = useCallback((e: ReactMouseEvent, node: TreeNode) => {
@@ -315,10 +345,36 @@ export default function Sidebar() {
   return (
     <aside className="s-sidebar">
       <header className="s-sidebar-header">
-        <h1 className="s-title">
-          <span className="s-title__star" aria-hidden="true">✦</span>
-          {siteName}
-        </h1>
+        {admin ? (
+          // The wordmark doubles as the preview toggle: one click shows the
+          // site exactly as a visitor gets it (same path as the status-bar eye).
+          <button
+            type="button"
+            className="s-title"
+            title="View public site"
+            onClick={() => void useStore.getState().setPreviewVisitor(true)}
+          >
+            {logo ? (
+              <img className="s-title__logo" src={bannerSrc(logo)} alt={siteName} />
+            ) : (
+              <>
+                <span className="s-title__star" aria-hidden="true">✦</span>
+                {siteName}
+              </>
+            )}
+          </button>
+        ) : (
+          <h1 className="s-title">
+            {logo ? (
+              <img className="s-title__logo" src={bannerSrc(logo)} alt={siteName} />
+            ) : (
+              <>
+                <span className="s-title__star" aria-hidden="true">✦</span>
+                {siteName}
+              </>
+            )}
+          </h1>
+        )}
         {admin && (
           <span className="s-sidebar-actions">
             <button
@@ -344,11 +400,19 @@ export default function Sidebar() {
       </header>
       <div className="s-search">
         <input
+          ref={searchRef}
           className="s-search__input"
           type="search"
           placeholder="Search notes…"
+          title="Search notes (Ctrl/Cmd+K)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && query) {
+              e.preventDefault();
+              setQuery("");
+            }
+          }}
           spellCheck={false}
         />
       </div>
@@ -463,8 +527,32 @@ export default function Sidebar() {
       )}
 
       {tags.length > 0 && (
-        <div className="s-tags">
-          <h3 className="s-tags__title">Tags</h3>
+        <div className={`s-tags${tagsCollapsed ? " s-tags--collapsed" : ""}`}>
+          <button
+            type="button"
+            className="s-tags__toggle"
+            onClick={() => {
+              const next = !tagsCollapsed;
+              setTagsCollapsed(next);
+              try {
+                localStorage.setItem(TAGS_COLLAPSED_KEY, String(next));
+              } catch {
+                // storage unavailable — collapse still works for this session
+              }
+            }}
+            aria-expanded={!tagsCollapsed}
+            title={tagsCollapsed ? "Show tags" : "Hide tags"}
+          >
+            <span
+              className={`s-tree__chevron${tagsCollapsed ? "" : " s-tree__chevron--open"}`}
+              aria-hidden="true"
+            >
+              ›
+            </span>
+            <span className="s-tags__title">Tags</span>
+            <span className="s-tags__total">{tags.length}</span>
+          </button>
+          {!tagsCollapsed && (
           <div className="s-tags__list">
             {tags.map(({ tag, count }) => {
               const active = query.trim() === `#${tag}`;
@@ -483,6 +571,7 @@ export default function Sidebar() {
               );
             })}
           </div>
+          )}
         </div>
       )}
 

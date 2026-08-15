@@ -32,7 +32,8 @@ import {
   calloutGroup,
   calloutIconSvg,
 } from "../editor/calloutDefs.ts";
-import { buildPropsCard, TAG_RE } from "../editor/noteMeta.ts";
+import { bannerFromYaml } from "../banner.ts";
+import { buildBannerEl, buildPropsCard, TAG_RE } from "../editor/noteMeta.ts";
 import { htmlBlockStart, sanitizeHtml, sanitizeInlineTag } from "./rawHtml.ts";
 import { Slugger, stripInline } from "./toc.ts";
 
@@ -53,6 +54,12 @@ export interface RenderOptions {
    *  "card" is a faint minimal "missing image" card, hidden entirely when
    *  the filename is machine noise ("Pasted image 2026…"). */
   missingImages?: "placeholder" | "card";
+  /** Lowercased tag names that may render as clickable pills. When set
+   *  (blog surfaces), an inline #tag outside this set renders as plain
+   *  text — EXCLUDE_TAGS-hidden workflow tags must not become styled
+   *  pills linking toward topics the public nav hides. Absent (the app
+   *  shell) every tag stays a pill. */
+  visibleTags?: Set<string>;
 }
 
 interface Ctx extends RenderOptions {
@@ -253,13 +260,17 @@ function renderInline(raw: string, ctx: Ctx, multiline = false): string {
   s = s.replace(/(^|[\s(])_([^_\s][^_]*?)_(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>");
   s = s.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
 
-  // #tags → search pills.
-  s = s.replace(TAG_RE, (_m, pre: string, name: string) =>
-    pre +
-    keep(
-      `<button type="button" class="s-rv-tag" data-tag="${esc(name)}">#${esc(name)}</button>`,
-    ),
-  );
+  // #tags → search pills. Tags hidden from the surface (EXCLUDE_TAGS on
+  // blog renders) stay plain text — no pill styling, no dead-end topic link.
+  s = s.replace(TAG_RE, (_m, pre: string, name: string) => {
+    if (ctx.visibleTags && !ctx.visibleTags.has(name.toLowerCase())) return `${pre}#${name}`;
+    return (
+      pre +
+      keep(
+        `<button type="button" class="s-rv-tag" data-tag="${esc(name)}">#${esc(name)}</button>`,
+      )
+    );
+  });
 
   // Hard-wrapped paragraph lines become <br> — but only in the plain text,
   // never inside protected tokens (a <br> dropped into raw SVG path data or
@@ -837,7 +848,12 @@ function renderNote(md: string, ctx: Ctx, root: HTMLElement): void {
     }
     if (close > 0) {
       if (ctx.depth === 0) {
-        const card = propsCard(lines.slice(1, close).join("\n"));
+        const yaml = lines.slice(1, close).join("\n");
+        // Banner hero above the properties card (the blog shell hides this
+        // and renders its own full-width hero instead).
+        const banner = bannerFromYaml(yaml);
+        if (banner) root.appendChild(buildBannerEl(banner, "s-rv-banner"));
+        const card = propsCard(yaml);
         if (card) root.appendChild(card);
       }
       lines = lines.slice(close + 1);

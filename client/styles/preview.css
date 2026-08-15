@@ -403,3 +403,179 @@
   color: var(--text-faint);
   font-style: italic;
 }
+
+/* ── Paste/drop image upload placeholder ───────────────────────────────── */
+
+.s-editor .cm-s-uploading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.2em 0.75em;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.78em;
+  line-height: 1.5;
+  vertical-align: baseline;
+}
+
+.s-editor .cm-s-uploading__spinner {
+  width: 0.85em;
+  height: 0.85em;
+  border-radius: 50%;
+  border: 2px solid var(--accent-soft);
+  border-top-color: var(--accent);
+  animation: cm-s-upload-spin 700ms linear infinite;
+}
+
+@keyframes cm-s-upload-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Wikilink / footnote hover preview card ────────────────────────────── */
+
+.s-editor .cm-tooltip:has(> .cm-s-hovercard) {
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+
+.s-editor .cm-s-hovercard {
+  width: 340px;
+  max-width: 70vw;
+  max-height: 280px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.s-editor .cm-s-hovercard__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.5em 0.9em 0.45em;
+  font-family: var(--font-serif);
+  font-size: 0.83rem;
+  font-weight: 700;
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.s-editor .cm-s-hovercard__title::before {
+  content: "✦";
+  font-size: 0.8em;
+  opacity: 0.7;
+}
+
+.s-editor .cm-s-hovercard__body {
+  padding: 0.55em 0.9em 0.8em;
+  font-family: var(--font-serif);
+  font-size: 0.83rem;
+  line-height: 1.55;
+  color: var(--text);
+  overflow: hidden;
+  /* excerpt fades out instead of cutting off mid-word */
+  mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
+}
+
+.s-editor .cm-s-hovercard__body > * {
+  max-width: 100%;
+}
+
+.s-editor .cm-s-hovercard--missing .cm-s-hovercard__body {
+  color: var(--text-faint);
+  font-style: italic;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+.s-editor .cm-s-hovercard--footnote .cm-s-hovercard__body {
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+/* ── Heading fold chevrons + folded placeholder ────────────────────────── */
+
+.s-editor .cm-s-foldbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-inline-start: -26px;
+  margin-inline-end: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  vertical-align: baseline;
+  opacity: 0;
+  transition: opacity 150ms ease, color 150ms ease, transform 150ms ease;
+  transform: rotate(90deg); /* open section: chevron points down */
+}
+
+.s-editor .cm-line:hover .cm-s-foldbtn,
+.s-editor .cm-s-foldbtn:focus-visible {
+  opacity: 0.6;
+}
+
+.s-editor .cm-s-foldbtn:hover {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.s-editor .cm-s-foldbtn--folded {
+  transform: rotate(0deg); /* folded: chevron points at the hidden text */
+  opacity: 0.85;
+  color: var(--accent);
+}
+
+.s-editor .cm-s-foldmore {
+  display: inline-block;
+  margin-inline-start: 0.5em;
+  padding: 0.05em 0.7em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 0.75rem; /* rem: don't scale with the heading */
+  font-weight: 400;
+  line-height: 1.6;
+  cursor: pointer;
+  vertical-align: baseline;
+  transition: border-color 150ms ease;
+}
+
+.s-editor .cm-s-foldmore:hover {
+  border-color: var(--accent);
+}
+
+/* ── Callout-type autocomplete icons ("> [!") ──────────────────────────── */
+
+.s-editor .cm-s-complete-callout {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 0.55em;
+  vertical-align: -2px;
+}
+
+.s-editor .cm-s-complete-callout[data-group="note"] { color: var(--callout-note); }
+.s-editor .cm-s-complete-callout[data-group="abstract"] { color: var(--callout-abstract); }
+.s-editor .cm-s-complete-callout[data-group="info"] { color: var(--callout-info); }
+.s-editor .cm-s-complete-callout[data-group="todo"] { color: var(--callout-todo); }
+.s-editor .cm-s-complete-callout[data-group="tip"] { color: var(--callout-tip); }
+.s-editor .cm-s-complete-callout[data-group="success"] { color: var(--callout-success); }
+.s-editor .cm-s-complete-callout[data-group="question"] { color: var(--callout-question); }
+.s-editor .cm-s-complete-callout[data-group="warning"] { color: var(--callout-warning); }
+.s-editor .cm-s-complete-callout[data-group="failure"] { color: var(--callout-failure); }
+.s-editor .cm-s-complete-callout[data-group="danger"] { color: var(--callout-danger); }
+.s-editor .cm-s-complete-callout[data-group="bug"] { color: var(--callout-bug); }
+.s-editor .cm-s-complete-callout[data-group="example"] { color: var(--callout-example); }
+.s-editor .cm-s-complete-callout[data-group="quote"] { color: var(--callout-quote); }

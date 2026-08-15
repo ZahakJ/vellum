@@ -17,8 +17,11 @@ interface NoteRecord {
   tags: string[];
   /** frontmatter `publish` is exactly true / "true" */
   published: boolean;
-  /** Post date in epoch ms: frontmatter date/created when parseable, else
-   *  file birthtime (mtime where the fs has no birthtime). */
+  /** frontmatter `banner:` raw value (https URL or vault-relative attachment
+   *  path), trimmed; null when absent/non-string. */
+  banner: string | null;
+  /** Post date in epoch ms: frontmatter date/created/published (first that
+   *  parses wins), else file birthtime (mtime where the fs has no birthtime). */
   dateMs: number;
   /** Lazily computed prose-stripped body for snippets (null until first use).
    *  Records are replaced wholesale on reindex, so this never goes stale. */
@@ -29,6 +32,7 @@ interface NoteRecord {
 
 const notes = new Map<string, NoteRecord>();
 const byName = new Map<string, Set<string>>(); // lowercased basename -> paths
+const byPathLower = new Map<string, string>(); // lowercased vault-relative path -> path
 
 // Publish state: the set of published note paths, plus (derived lazily) the
 // set of attachment paths that published notes embed/link — the only files
@@ -153,15 +157,18 @@ export async function indexFile(relPath: string): Promise<void> {
     links: parseLinks(body),
     tags: parseTags(body, frontmatter),
     published: publishFlag(fm),
+    banner: typeof fm.banner === "string" && fm.banner.trim() ? fm.banner.trim() : null,
     dateMs:
       parseFmDate(fm.date) ??
       parseFmDate(fm.created) ??
+      parseFmDate(fm.published) ??
       (stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs),
     flat: null,
     post: null,
   };
   notes.set(relPath, record);
   addName(title, relPath);
+  byPathLower.set(relPath.toLowerCase(), relPath);
   if (record.published) publishedSet.add(relPath);
   allowedAttachmentsCache = null;
   // Tags are indexed too so "#tag" (and frontmatter-only tags) are findable.
@@ -173,6 +180,7 @@ function removeFile(relPath: string): void {
   if (!record) return;
   notes.delete(relPath);
   removeName(record.title, relPath);
+  if (byPathLower.get(relPath.toLowerCase()) === relPath) byPathLower.delete(relPath.toLowerCase());
   publishedSet.delete(relPath);
   allowedAttachmentsCache = null;
   if (mini.has(relPath)) mini.discard(relPath);
@@ -317,6 +325,11 @@ function filterCandidates(candidates: Set<string>, keep: Set<string>): Set<strin
 export function resolveLink(name: string, publishedOnly = false): string | null {
   let key = name.split(/[#|]/)[0].trim().toLowerCase();
   if (key.endsWith(".md")) key = key.slice(0, -3);
+  // Path-form targets ([[Folder/Note]]): exact vault-relative match first
+  // (with or without .md, case-insensitive), mirroring the client resolver.
+  const asPath = path.posix.normalize(key.replace(/\\/g, "/")).replace(/^\.?\/+/, "");
+  const pathHit = byPathLower.get(`${asPath}.md`) ?? byPathLower.get(asPath);
+  if (pathHit && (!publishedOnly || publishedSet.has(pathHit))) return pathHit;
   let candidates = byName.get(key);
   if (!candidates || candidates.size === 0) return null;
   if (publishedOnly) {
@@ -345,6 +358,31 @@ export function resolveEmbed(name: string, publishedOnly = false): string | null
   return pickShortest(candidates);
 }
 
+// ------------------------------------------------------------------- banners
+
+/** Resolve a note's `banner:` value: https URLs pass through (http:// is
+ *  refused — a mixed-content <img> is worse than the generated fallback);
+ *  anything else must name a known attachment — an exact vault-relative path
+ *  first, then wikilink-style basename resolution. null when unset/unresolvable. */
+function resolveBanner(record: NoteRecord): string | null {
+  const value = record.banner;
+  if (!value) return null;
+  if (/^https:\/\//i.test(value)) return value;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return null; // http:, data:, etc.
+  const rel = path.posix.normalize(value.replace(/\\/g, "/").replace(/^\.?\/+/, "")).replace(/\/+$/, "");
+  if (attachmentPaths.has(rel)) return rel;
+  const byName = resolveEmbed(path.posix.basename(rel));
+  return byName !== null && attachmentPaths.has(byName) ? byName : null;
+}
+
+/** A published note's banner as the client uses it (https URL or allowlisted
+ *  attachment path), or null. Exported for the blog head injection (og:image). */
+export function publishedBanner(relPath: string): string | null {
+  if (!publishedSet.has(relPath)) return null;
+  const record = notes.get(relPath);
+  return record ? resolveBanner(record) : null;
+}
+
 // ------------------------------------------------------------------- publish
 
 /** Attachment paths embedded/linked by published notes — recomputed on demand
@@ -359,6 +397,9 @@ function allowedAttachments(): Set<string> {
         const resolved = resolveEmbed(link.target);
         if (resolved && attachmentPaths.has(resolved)) allowed.add(resolved);
       }
+      // A published note's banner attachment is visitor-visible too.
+      const banner = resolveBanner(record);
+      if (banner && attachmentPaths.has(banner)) allowed.add(banner);
     }
     allowedAttachmentsCache = allowed;
   }
@@ -385,6 +426,21 @@ export function publishedNotes(): { path: string; title: string }[] {
 
 export function publishedCounts(): { notes: number; total: number } {
   return { notes: publishedSet.size, total: notes.size };
+}
+
+// --------------------------------------------------------------- attachments
+
+const IMAGE_EXT_RE = /\.(png|jpe?g|webp|gif|svg|avif|bmp|ico)$/i;
+
+/** All indexed image attachments, sorted — the admin banner picker's list. */
+export function listImageAttachments(): string[] {
+  return [...attachmentPaths].filter((p) => IMAGE_EXT_RE.test(p)).sort((a, b) => a.localeCompare(b));
+}
+
+/** Register a just-written attachment immediately (uploads must show up in
+ *  the picker / resolve as banners before the watcher debounce lands). */
+export function registerAttachment(relPath: string): void {
+  addAttachment(relPath);
 }
 
 // --------------------------------------------------------------------- posts
@@ -476,7 +532,7 @@ function postMeta(record: NoteRecord): PostMeta {
     };
   }
   const hidden = excludedTags();
-  return {
+  const meta: PostMeta = {
     path: record.path,
     title: record.title,
     date: new Date(record.dateMs).toISOString(),
@@ -485,6 +541,9 @@ function postMeta(record: NoteRecord): PostMeta {
     readingMinutes: Math.ceil(record.post.words / 200),
     tags: record.tags.filter((t) => !hidden.has(t.toLowerCase())),
   };
+  const banner = resolveBanner(record);
+  if (banner) meta.banner = banner;
+  return meta;
 }
 
 /** Published notes as blog posts, newest first (visitor-safe: published only,

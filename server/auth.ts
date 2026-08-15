@@ -11,7 +11,8 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { MeData } from "../shared/types.ts";
 import { isNotePublished, publishedCounts, resolveLink } from "./indexer.ts";
-import { blogLocale, customCssPath, defaultTheme, footerLine, publicLayout, siteName, tagline } from "./site.ts";
+import { getSettings } from "./settings.ts";
+import { bannerFallback, blogLocale, customCssPath, defaultTheme, footerLine, publicLayout, siteName, tagline } from "./site.ts";
 import { normalizeRel } from "./vault.ts";
 
 const COOKIE_NAME = "vellum_session";
@@ -277,8 +278,15 @@ authRoutes.post("/logout", (c) => {
   return c.json({ ok: true });
 });
 
-/** True when HOME_NOTE points at a note visible to visitors: resolvable as a
- *  wikilink-style name within the published set, or an exact published path. */
+/** The HOME_NOTE env value (settings.home.note overrides it when set —
+ *  settings.ts builds the merged view from both). */
+export function envHomeNote(): string | null {
+  return config.homeNote;
+}
+
+/** True when a home-note ref points at a note visible to visitors: resolvable
+ *  as a wikilink-style name within the published set, or an exact published
+ *  path. */
 function homeNotePublished(ref: string): boolean {
   if (resolveLink(ref, true) !== null) return true;
   try {
@@ -304,19 +312,29 @@ authRoutes.get("/me", (c) => {
   // Publish stats are admin UI copy only — telling an anonymous visitor how
   // many notes exist beyond the published ones would leak vault size.
   if (admin) me.published = publishedCounts();
-  // Visitors see HOME_NOTE only when it resolves within the published
-  // collection — otherwise the name of an unpublished (or missing) note
-  // would leak, and opening it could only 404 anyway. Both name-style
-  // ("Welcome") and path-style ("guides/Welcome.md") values are honored,
-  // mirroring the client's resolution rules.
-  if (config.homeNote && (admin || homeNotePublished(config.homeNote))) {
-    me.homeNote = config.homeNote;
+  const settings = getSettings();
+  // Home note, merged (settings.home.note wins over HOME_NOTE). Visitors see
+  // it only when it resolves within the published collection — otherwise the
+  // name of an unpublished (or missing) note would leak, and opening it could
+  // only 404 anyway. Both name-style ("Welcome") and path-style
+  // ("guides/Welcome.md") values are honored, mirroring the client.
+  const homeRef = settings.home?.note ?? config.homeNote;
+  if (homeRef && (admin || homeNotePublished(homeRef))) {
+    me.homeNote = homeRef;
   }
-  // Instance customization (SITE_NAME / DEFAULT_THEME / VELLUM_DATA/custom.css).
+  // Instance customization (settings.json over SITE_NAME / DEFAULT_THEME env,
+  // plus VELLUM_DATA/custom.css). The site.ts getters do the merging.
   me.siteName = siteName();
   const theme = defaultTheme();
   if (theme) me.defaultTheme = theme;
   if (customCssPath()) me.customCss = true;
+  // Branding assets from settings.json, for every session: the logo replaces
+  // the text wordmark in the sidebar/masthead, and a set favicon makes the
+  // client point its icon link at /favicon.ico. Both are visitor-safe by
+  // definition — they describe the public shell (and their vault paths are
+  // visitor-fetchable via the settings-asset allowlist on /api/file).
+  if (settings.logo) me.logo = settings.logo;
+  if (settings.favicon) me.favicon = true;
   // Blog mode (PUBLIC_LAYOUT=blog): layout + masthead/footer/locale copy.
   // Sent to admin sessions too — the client applies the blog shell only when
   // the session is not admin, but the admin UI may want to preview the copy.
@@ -326,6 +344,16 @@ authRoutes.get("/me", (c) => {
     if (tl) me.tagline = tl;
     me.footer = footerLine();
     me.blogLocale = blogLocale();
+    me.bannerFallback = bannerFallback();
+    // Runtime settings the blog shell renders from (settings.json): the
+    // home config (mode/banner, plus the note when it is visible to this
+    // session — same gating as me.homeNote above). Visitor-safe by
+    // definition — it describes the public homepage.
+    if (settings.home) {
+      const { note, ...rest } = settings.home;
+      const shaped = note && (admin || homeNotePublished(note)) ? { ...rest, note } : rest;
+      if (Object.keys(shaped).length > 0) me.home = shaped;
+    }
   }
   return c.json(me);
 });

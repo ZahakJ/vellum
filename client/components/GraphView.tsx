@@ -160,12 +160,21 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
   let needsDraw = true;
   let hovered: SimNode | null = null;
 
-  // Pointer interaction state.
+  // Pointer interaction state. A press becomes a drag only after 4px of
+  // pointer travel; a press-and-release inside the threshold is a click.
   let dragNode: SimNode | null = null;
   let panning = false;
   let panStart = { x: 0, y: 0, tx: 0, ty: 0 };
   let downAt = { x: 0, y: 0 };
   let moved = false;
+  let dragVel = { x: 0, y: 0 }; // smoothed drag velocity (world px/ms)
+  let lastDrag = { x: 0, y: 0, t: 0 };
+
+  function updateCursor() {
+    // Both nodes (drag) and the background (pan) are grabbable; the hand
+    // closes while either is held.
+    canvas.style.cursor = dragNode || panning ? "grabbing" : "grab";
+  }
 
   const abort = new AbortController();
   const { signal } = abort;
@@ -518,11 +527,15 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
       const hit = hitTest(p.x, p.y);
       if (hit) {
         dragNode = hit;
+        const w = toWorld(p.x, p.y);
+        dragVel = { x: 0, y: 0 };
+        lastDrag = { x: w.x, y: w.y, t: performance.now() };
         reheat();
       } else {
         panning = true;
         panStart = { x: p.x, y: p.y, tx, ty };
       }
+      updateCursor();
     },
     { signal },
   );
@@ -534,9 +547,20 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
       if (Math.hypot(p.x - downAt.x, p.y - downAt.y) > 4) moved = true;
 
       if (dragNode) {
+        // Inside the click threshold the node stays put; past it the node
+        // pins to the pointer and we keep a smoothed velocity for momentum.
+        if (!moved) return;
         const w = toWorld(p.x, p.y);
         dragNode.x = w.x;
         dragNode.y = w.y;
+        const now = performance.now();
+        const dt = now - lastDrag.t;
+        if (dt > 0) {
+          const s = Math.min(1, dt / 50);
+          dragVel.x += ((w.x - lastDrag.x) / dt - dragVel.x) * s;
+          dragVel.y += ((w.y - lastDrag.y) / dt - dragVel.y) * s;
+        }
+        lastDrag = { x: w.x, y: w.y, t: now };
         reheat();
         needsDraw = true;
         return;
@@ -550,7 +574,7 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
       const hit = hitTest(p.x, p.y);
       if (hit !== hovered) {
         hovered = hit;
-        canvas.style.cursor = hit ? "pointer" : "grab";
+        updateCursor();
         needsDraw = true;
       }
     },
@@ -562,11 +586,39 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
     (e) => {
       const clicked = !moved && dragNode;
       if (clicked) useStore.getState().openNote(clicked.id);
+      if (dragNode && moved) {
+        // Release with momentum: the smoothed drag velocity (world px/ms)
+        // becomes sim velocity (world px/frame), capped so a flick glides
+        // instead of launching the node across the vault.
+        let vx = dragVel.x * 16.7;
+        let vy = dragVel.y * 16.7;
+        const cap = MAX_SPEED * 0.6;
+        const speed = Math.hypot(vx, vy);
+        if (speed > cap) {
+          vx *= cap / speed;
+          vy *= cap / speed;
+        }
+        dragNode.vx = vx;
+        dragNode.vy = vy;
+        reheat();
+      }
       dragNode = null;
       panning = false;
       if (canvas.hasPointerCapture(e.pointerId)) {
         canvas.releasePointerCapture(e.pointerId);
       }
+      updateCursor();
+      needsDraw = true;
+    },
+    { signal },
+  );
+
+  canvas.addEventListener(
+    "pointercancel",
+    () => {
+      dragNode = null;
+      panning = false;
+      updateCursor();
       needsDraw = true;
     },
     { signal },

@@ -32,12 +32,26 @@
   --border: #2f2920;
   --danger: #c4574a;
 
+  /* How far generated banner gradients (client/banner.ts) pull their hash
+     hues toward --accent. Dark themes clamp hard — raw saturated hues fight
+     the candlelit identity; parchment overrides to 0% (pastel mixes already
+     read right on paper). Resolved at the consuming element, so it is safe
+     to override per theme. */
+  --banner-tint: 45%;
+
   --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 
   --radius: 6px;
-  --sidebar-w: 280px;
+  --sidebar-w: 292px;
+
+  /* Type scale. --font-base drives 1rem for the whole UI (chrome, sidebar,
+     tabs, palette, blog — everything sized in rem scales off it);
+     --font-prose is the editor/reading prose size (≈18px by default).
+     Both overridable from VELLUM_DATA/custom.css. */
+  --font-base: 15.5px;
+  --font-prose: 1.161rem;
 
   /* Callout base colors (Obsidian type → hue, muted for the manuscript room).
      Backgrounds derive via color-mix in preview.css. */
@@ -161,6 +175,8 @@
   --accent-soft: rgba(138, 109, 26, 0.13);
   --border: #d8cbae;
   --danger: #a23a2e;
+
+  --banner-tint: 0%;
 
   --callout-note: #3b6e99;
   --callout-info: #3b6e99;

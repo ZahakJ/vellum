@@ -10,6 +10,7 @@ import { THEMES, useStore } from "../state.ts";
 import type { Theme } from "../state.ts";
 import { search } from "../api.ts";
 import { dailyNotePath, openDailyNote } from "../daily.ts";
+import { confirmModal } from "./Confirm.tsx";
 import { toast } from "../toast.ts";
 import type { SearchHit } from "../../shared/types.ts";
 import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
@@ -157,6 +158,18 @@ const COMMANDS: Command[] = [
       admin && openPath !== null && openPublished,
   },
   {
+    id: "set-banner",
+    label: "Set banner…",
+    hint: "hero image",
+    available: ({ openPath, admin }) => admin && openPath !== null,
+  },
+  {
+    id: "remove-banner",
+    label: "Remove banner",
+    hint: "clear the hero image",
+    available: ({ openPath, admin }) => admin && openPath !== null,
+  },
+  {
     id: "rename-current",
     label: "Rename current note",
     hint: "move",
@@ -171,6 +184,18 @@ const COMMANDS: Command[] = [
     label: "Delete current note",
     hint: "irreversible",
     available: ({ openPath, admin }) => admin && openPath !== null,
+  },
+  {
+    id: "moderate-comments",
+    label: "Moderate comments",
+    hint: "marginalia",
+    available: ({ admin }) => admin,
+  },
+  {
+    id: "site-settings",
+    label: "Site settings",
+    hint: "identity · home · behavior",
+    available: ({ admin, preview }) => admin && !preview,
   },
   {
     id: "preview-visitor",
@@ -386,9 +411,19 @@ export default function CommandPalette() {
           break;
         case "delete-current":
           if (store.openPath) {
-            store.deleteNote(store.openPath).catch((err: unknown) => {
-              console.error("CommandPalette: delete failed", err);
-              toast("Could not delete note");
+            const path = store.openPath;
+            void confirmModal({
+              title: "Delete note?",
+              body: `"${path}" will be deleted. This cannot be undone.`,
+            }).then((ok) => {
+              if (!ok) return;
+              useStore
+                .getState()
+                .deleteNote(path)
+                .catch((err: unknown) => {
+                  console.error("CommandPalette: delete failed", err);
+                  toast("Could not delete note");
+                });
             });
           }
           break;
@@ -397,6 +432,18 @@ export default function CommandPalette() {
           break;
         case "unpublish-note":
           if (store.openPath) void store.togglePublish(store.openPath, false);
+          break;
+        case "set-banner":
+          if (store.openPath) store.setBannerModalOpen(true);
+          break;
+        case "remove-banner":
+          if (store.openPath) void store.setBanner(store.openPath, null);
+          break;
+        case "moderate-comments":
+          store.setModerationOpen(true);
+          break;
+        case "site-settings":
+          store.setSettingsOpen(true);
           break;
         case "preview-visitor":
           void store.setPreviewVisitor(true);

@@ -66,7 +66,7 @@ export function editorTheme(): Extension {
     "&.cm-focused": { outline: "none" },
     ".cm-scroller": {
       fontFamily: "var(--font-serif)",
-      fontSize: "16px",
+      fontSize: "var(--font-prose, 1.161rem)",
       lineHeight: "1.7",
       overflow: "auto",
       scrollbarWidth: "thin",
@@ -124,7 +124,7 @@ export function editorTheme(): Extension {
     },
     ".cm-tooltip.cm-tooltip-autocomplete > ul": {
       fontFamily: "var(--font-ui)",
-      fontSize: "13px",
+      fontSize: "0.929rem",
       maxHeight: "18em",
       padding: "4px",
     },

@@ -17,7 +17,7 @@
   margin: 0 auto;
   padding: 48px 56px 120px;
   font-family: var(--font-serif);
-  font-size: 16px;
+  font-size: var(--font-prose, 1.161rem);
   line-height: 1.7;
   color: var(--text);
   overflow-wrap: break-word;
@@ -27,7 +27,7 @@
 .s-reading__empty {
   margin: 4em 0 0;
   text-align: center;
-  font-size: 14px;
+  font-size: 1rem;
   font-style: italic;
   color: var(--text-faint);
 }
@@ -651,6 +651,21 @@ span.s-rv-math-live {
   text-decoration: none;
 }
 
+/* ── Note banner hero (frontmatter `banner:`) ──────────────────────────── */
+
+.s-rv-banner {
+  margin: 0 0 16px;
+}
+
+.s-rv-banner__img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  border-radius: calc(var(--radius) + 2px);
+  border: 1px solid var(--border);
+}
+
 /* ── Frontmatter properties card ───────────────────────────────────────── */
 
 /* Collapsed (the default): slim single row — chevron, "Properties · N",
@@ -662,7 +677,7 @@ span.s-rv-math-live {
   border-radius: var(--radius);
   background: var(--bg-raised);
   font-family: var(--font-ui);
-  font-size: 12.5px;
+  font-size: 0.893rem;
   line-height: 1.6;
 }
 
@@ -694,7 +709,7 @@ span.s-rv-math-live {
 }
 
 .s-rv-props__label {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -733,7 +748,7 @@ span.s-rv-math-live {
 .s-rv-props__key {
   flex: none;
   min-width: 64px;
-  font-size: 10.5px;
+  font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -779,7 +794,7 @@ span.s-rv-math-live {
   display: block;
   width: 100%;
   text-align: left;
-  font-size: 12.5px;
+  font-size: 0.893rem;
   line-height: 1.4;
   padding: 4px 8px;
   border-radius: 4px;
@@ -816,7 +831,7 @@ span.s-rv-math-live {
    heading margins. Scoped by .s-app--visitor (App adds it for non-admins). */
 
 .s-app--visitor .s-reading__content {
-  font-size: 17px;
+  font-size: 1.214rem;
   line-height: 1.78;
   padding: 64px 56px 160px;
   font-kerning: normal;

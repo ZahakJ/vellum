@@ -83,13 +83,69 @@ All `.env` keys (npm scripts load the file automatically via `node --env-file-if
 | `SITE_FOOTER` | Blog footer line; `{year}`/`{siteName}` substituted (default `© {year} {SITE_NAME}`) |
 | `BLOG_LOCALE` | BCP47 locale for post dates and the RSS channel language (default `en`) |
 | `SITE_URL` | Canonical origin for RSS/canonical links, e.g. `https://notes.example.com`; unset → derived from request headers |
+| `ATTACHMENTS_DIR` | Vault-relative directory the in-app image upload writes into (default `attachments`), created on demand |
+| `BANNER_FALLBACK` | Blog hero for posts without a `banner:` — `generated` (default; a deterministic abstract gradient from the note title) or `none` |
+
+### Site settings
+
+Most of the site-identity keys above can also be changed **at runtime, from the app** — no
+`.env` edit, no restart. As admin, open **Site settings** (the gear in the status bar, or the
+command palette): a panel with three groups —
+
+- **Identity** — site name, tagline, footer line, a **logo** image (replaces the text wordmark
+  in the sidebar and the blog masthead), and a **favicon** (served at `/favicon.ico` with its
+  real content type and injected into every page's `<link rel="icon">`).
+- **Home page** — what visitors see at `/`: classic `note` mode with a chosen home note, or the
+  `dashboard` magazine layout, plus an optional hero banner.
+- **Site behavior** — default theme, public layout (`app`/`blog`), date locale, excluded tags,
+  and the comments toggle.
+
+Image fields reuse the banner machinery: pick from the vault's attachments or upload right
+there (drag & drop; bytes are sniffed; lands in `ATTACHMENTS_DIR`).
+
+Everything is stored in `VELLUM_DATA/settings.json` (written atomically — a crash can't tear
+it). **Precedence:** a value saved there overrides its env counterpart; clearing a field in
+the panel falls back to the env default (shown greyed as the field's placeholder). Changes
+apply live — the wordmark, layout, theme default, excluded tags, comments routes, and favicon
+all update without a restart. If the file is ever corrupted, the server logs one warning and
+runs on env defaults.
+
+Security-sensitive keys are deliberately **env-only forever** and never readable or writable
+through the panel or `/api/settings`: `ADMIN_PASSWORD_HASH`, `SESSION_SECRET`,
+`TRUSTED_PROXIES`, `PORT`, `HOST`, `VELLUM_VAULT`, `VELLUM_DATA`, `PUBLIC`.
+
+The API mirror (admin-only; visitors get a 404): `GET /api/settings` answers the stored keys
+plus `effective` (the merged values in use); `PATCH /api/settings` takes a partial object —
+only named keys change, `null` clears one — validates strictly (unknown keys are a 400), and
+answers the same shape.
+
+### Note banners
+
+Give any note a hero image with a `banner:` frontmatter line — a vault-relative attachment
+path (`banner: attachments/cover.png`) or an https URL. It renders as a wide hero above the
+note in the editor and reading view, and in blog mode as the article hero and a right-aligned
+thumbnail in the post list. A published note's banner attachment is automatically
+visitor-fetchable; unpublished notes' attachments stay invisible as always.
+
+As admin you rarely touch the YAML: the command palette's **Set banner…** (also a quiet button
+on the properties card) opens a modal to paste a URL, pick from the vault's image attachments,
+or upload a file (drag & drop or picker; png/jpeg/webp/gif/svg, 10 MB max, bytes are sniffed —
+the upload lands in `ATTACHMENTS_DIR`). The write is a surgical one-line frontmatter edit —
+the rest of the file is untouched. Posts without a banner get a subtle generated gradient in
+the blog list and article hero (`BANNER_FALLBACK=none` turns that off).
 
 ### Comments
 
 Set `COMMENTS=on` and every **published** note grows a quiet "Marginalia" section under its
-reading view: visitors can leave a plain-text note (name optional — "Anonymous" otherwise),
-and admins see a delete `×` on each comment for moderation. Off (the default), the feature is
-completely dark — no UI, and the API routes answer 404.
+reading view: visitors can leave a plain-text note (name optional — "Anonymous" otherwise).
+Off (the default), the feature is completely dark — no UI, and the API routes answer 404.
+
+Moderation is built in for admins. On each comment: a quiet delete `×` (confirmed before it
+does anything irreversible) and an eye toggle that **hides** the comment instead — hidden
+comments vanish for visitors but stay in the database, rendered ghosted with a "hidden" chip
+for the admin, and can be unhidden at any time. The command palette's **"Moderate comments"**
+opens a panel of the newest comments across every note — each row shows author, snippet and
+the note it belongs to (click to jump there), with the same hide/delete controls.
 
 Comments are stored in an SQLite file at `VELLUM_DATA/comments.db` (default `./data/`, created
 on demand, gitignored) using Node's built-in `node:sqlite` — no extra dependencies. Abuse
@@ -115,13 +171,27 @@ default `en`).
 
 The home page opens with `HOME_NOTE` rendered as an intro section (when that note is
 published) above the reverse-chronological post list. Topic pages live at `/topic/<tag>`;
-article deep links keep their normal note URLs. Each article ends with share links, prev/next
+article deep links keep their normal note URLs.
+
+**Dashboard home.** Prefer a magazine front page over the note-style home? Set
+`home.mode: "dashboard"` in `VELLUM_DATA/settings.json` (`{ "home": { "mode": "dashboard" } }`,
+picked up live — or via the admin `PATCH /api/settings` endpoint) and `/` becomes: a full-width hero carrying the site name (or
+logo) and tagline over a banner image (`home.banner` — an https URL or a vault attachment;
+without one, a generated gradient seeded from the site name), a responsive card grid of the
+latest posts (1/2/3 columns by viewport; banner thumbnails with the same generated fallback,
+excerpts, tag chips), and — when readers have been talking — a slim "Most discussed" row
+ranked by comment count. As admin, enter **Preview as visitor** and hover the hero for a
+"Change banner…" button that opens the usual picker (paste a URL, choose a vault attachment,
+or upload). `home.mode: "note"` (or leaving it unset) keeps the classic home. With
+`COMMENTS=on`, `GET /api/posts` carries a `commentCount` per post — visitors count visible
+comments only. Each article ends with share links, prev/next
 posts, a "Related" list (published notes wikilinked from/to it), and comments. The footer
 carries a quiet RSS link, a sign-in link, and a tiny "powered by Vellum" credit — hide it with
 `.s-blog-powered { display: none }` in your [`custom.css`](#theming) if you prefer.
 
 What counts as a post: every note with `publish: true`, newest first. A post's date comes from
-a frontmatter `date:` (or `created:`) field when it parses; otherwise the file's creation/
+frontmatter — `date:`, `created:`, or `published:`, the first that parses wins (bare YAML dates
+like `2024-05-01` and quoted/ISO strings both work); otherwise the file's creation/
 modification time — so if you migrated a vault by copying files (which resets file times), add
 `date:` frontmatter to your posts or they will all sort as "created the day of the copy". The
 excerpt is the first real paragraph of prose (markdown stripped, template furniture like bare
@@ -188,8 +258,10 @@ for one):
 | `--border` | The 1px hairlines everywhere |
 | `--danger` | Destructive actions, broken-link tint |
 | `--font-ui` / `--font-serif` / `--font-mono` | UI chrome / prose & headings / code |
+| `--font-base` | Root type size — the entire UI is sized in `rem`, so this one token scales all chrome (default 15.5px) |
+| `--font-prose` | Editor / reading prose size (default ≈18px; the blog article body sits a step above it) |
 | `--radius` | Corner rounding (default 6px) |
-| `--sidebar-w` | Sidebar width (default 280px) |
+| `--sidebar-w` | Sidebar width (default 292px) |
 | `--callout-note`, `--callout-tip`, … | Per-type callout hues (see `client/styles/tokens.css`) |
 | `--syn-keyword`, `--syn-string`, … | Code-highlighting palette |
 
@@ -244,6 +316,12 @@ theme tokens.
 - **Wikilinks with autocomplete** — type `[[` and pick any note; `[[Name|alias]]` and `[[Name#heading]]` supported (type `#` inside the brackets to complete headings); heading links render as `Note › Heading` and jump straight to the heading; renames rewrite every link that pointed at the old name
 - **Click to follow, click to create** — plain click follows a rendered link; clicking an unresolved (dashed) link creates the note, Obsidian-style
 - **Frontmatter properties card** — YAML frontmatter collapses to a neat key/value card with clickable tag pills while your cursor is outside it
+- **Paste or drop images** — an image on your clipboard (or dragged from a file manager) uploads into `ATTACHMENTS_DIR` and lands as `![[name.png]]` at the cursor, with an "Uploading…" placeholder holding the spot while it's in flight
+- **Slash commands** — type `/` at the start of a line for a fuzzy menu of inserts: callout, code fence (with language search), table skeleton, task list, math block, divider, today's date, daily-note link
+- **Callout & fence autocomplete** — `> [!` suggests every callout type with its icon and color; ` ``` ` suggests languages as you type
+- **Hover previews** — rest on a `[[wikilink]]` and a floating card shows the target note's rendered opening (`[[Note#Heading]]` previews from that heading); footnote refs preview their definition
+- **Heading folding** — a chevron appears beside each heading on hover; fold a section down to a "N folded lines" chip (click to reopen)
+- **List/quote continuation** — `Enter` continues `-` lists, `- [ ]` tasks, numbered lists, and `>` quotes; `Enter` on an empty item exits. `Ctrl/Cmd ↑/↓` moves the current line. Pasting a URL over selected text makes a markdown link
 - **Vim mode**, autosave (600 ms debounce + `Ctrl/Cmd S`), and a keyboard-first surface
 
 ### Rendering
@@ -274,11 +352,14 @@ theme tokens.
 | Keys | Action |
 | ---- | ------ |
 | `Ctrl/Cmd P` | Command palette (open note, run command) |
+| `Ctrl/Cmd K` | Search — focuses the sidebar search in the app; opens a centered search overlay on the public blog |
 | `Ctrl/Cmd E` | Toggle reading view ⇄ editor |
 | `Ctrl/Cmd D` | Open today's daily note |
 | `Ctrl/Cmd N` | New note |
 | `Ctrl/Cmd G` | Toggle graph view |
 | `Ctrl/Cmd S` | Save now (autosave runs regardless) |
+| `Ctrl/Cmd ↑` / `↓` | Move the current line up / down |
+| `/` at line start | Slash menu (callout, code fence, table, …) |
 | Click | Follow a rendered wikilink (create it if unresolved) |
 | `Ctrl/Cmd`-click | Follow a wikilink on the line you're editing |
 | `↑` `↓` `Enter` `Esc` | Navigate / confirm / dismiss the palette |

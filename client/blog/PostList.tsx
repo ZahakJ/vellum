@@ -3,7 +3,9 @@
 // excerpt. Arabic/Hebrew posts right-align themselves via dir="auto".
 
 import type { PostMeta } from "../../shared/types.ts";
+import { bannerSrc, generatedBannerCss } from "../banner.ts";
 import { notePathToUrl } from "../router.ts";
+import { useStore } from "../state.ts";
 import { topicUrl } from "./nav.ts";
 import { formatDate, NavLink } from "./util.tsx";
 
@@ -43,6 +45,43 @@ export function PostMetaLine({ post, locale }: { post: PostMeta; locale: string 
   );
 }
 
+/** Right-aligned entry thumbnail: the post's banner, or (BANNER_FALLBACK=
+ *  generated) a deterministic gradient from the title. Unloadable banner
+ *  images hide themselves — the layout is elegant without a thumb too. */
+function EntryThumb({ post }: { post: PostMeta }) {
+  const fallback = useStore((s) => s.bannerFallback);
+  if (post.banner) {
+    return (
+      <NavLink
+        url={notePathToUrl(post.path)}
+        className="s-blog-entry__thumb"
+        aria-hidden="true"
+        tabIndex={-1}
+      >
+        <img
+          src={bannerSrc(post.banner)}
+          alt=""
+          loading="lazy"
+          onError={(e) => {
+            const wrap = e.currentTarget.closest<HTMLElement>(".s-blog-entry__thumb");
+            if (wrap) wrap.style.display = "none";
+          }}
+        />
+      </NavLink>
+    );
+  }
+  if (fallback !== "generated") return null;
+  return (
+    <NavLink
+      url={notePathToUrl(post.path)}
+      className="s-blog-entry__thumb s-blog-entry__thumb--gen"
+      style={{ background: generatedBannerCss(post.title, "thumb") }}
+      aria-hidden="true"
+      tabIndex={-1}
+    />
+  );
+}
+
 export default function PostList({
   posts,
   locale,
@@ -57,15 +96,18 @@ export default function PostList({
     <div className="s-blog-list">
       {posts.map((post) => (
         <article key={post.path} className="s-blog-entry">
-          <h3 className="s-blog-entry__title" dir="auto">
-            <NavLink url={notePathToUrl(post.path)}>{post.title}</NavLink>
-          </h3>
-          <PostMetaLine post={post} locale={locale} />
-          {post.excerpt !== "" && (
-            <p className="s-blog-entry__excerpt" dir="auto">
-              {post.excerpt}
-            </p>
-          )}
+          <div className="s-blog-entry__text">
+            <h3 className="s-blog-entry__title" dir="auto">
+              <NavLink url={notePathToUrl(post.path)}>{post.title}</NavLink>
+            </h3>
+            <PostMetaLine post={post} locale={locale} />
+            {post.excerpt !== "" && (
+              <p className="s-blog-entry__excerpt" dir="auto">
+                {post.excerpt}
+              </p>
+            )}
+          </div>
+          <EntryThumb post={post} />
         </article>
       ))}
     </div>

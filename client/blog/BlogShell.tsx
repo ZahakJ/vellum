@@ -7,12 +7,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PostMeta } from "../../shared/types.ts";
 import { getPosts } from "../api.ts";
+import { bannerSrc } from "../banner.ts";
 import LoginModal from "../components/LoginModal.tsx";
 import { notePathToUrl, urlToNotePath } from "../router.ts";
 import { nextTheme, useStore } from "../state.ts";
 import BlogArticle from "./BlogArticle.tsx";
+import BlogDashboard from "./BlogDashboard.tsx";
 import BlogHome from "./BlogHome.tsx";
 import BlogSearch from "./BlogSearch.tsx";
+import BlogSearchOverlay from "./BlogSearchOverlay.tsx";
 import BlogTopic from "./BlogTopic.tsx";
 import { go, setNavHandler, topicUrl } from "./nav.ts";
 import { NavLink } from "./util.tsx";
@@ -99,6 +102,8 @@ export default function BlogShell() {
   const loginOpen = useStore((s) => s.loginOpen);
   const locked = useStore((s) => !s.admin && !s.publicReads);
   const tree = useStore((s) => s.tree);
+  const homeMode = useStore((s) => s.home?.mode ?? "note");
+  const logo = useStore((s) => s.logo);
 
   const [route, setRoute] = useState<Route>(() => parseRoute(location.pathname));
   const [posts, setPosts] = useState<PostMeta[] | null>(null);
@@ -235,21 +240,34 @@ export default function BlogShell() {
     </NavLink>
   );
 
+  // Dashboard home carries the site identity inside its own hero — rendering
+  // the masthead above it would say the site name twice. Every other page
+  // (article, topic, note-mode home) keeps the classic masthead.
+  const dashboardHome = homeMode === "dashboard" && route.kind === "home" && !locked;
+
   return (
     <div className="s-blog" ref={scrollRef}>
-      <header className="s-blog-mast">
-        <div className="s-blog-mast__star" aria-hidden="true">
-          ✦
-        </div>
-        <NavLink url="/" className="s-blog-mast__name" dir="auto">
-          {siteName}
-        </NavLink>
-        {tagline && (
-          <p className="s-blog-mast__tagline" dir="auto">
-            {tagline}
-          </p>
-        )}
-      </header>
+      {!dashboardHome && (
+        <header className="s-blog-mast">
+          {!logo && (
+            <div className="s-blog-mast__star" aria-hidden="true">
+              ✦
+            </div>
+          )}
+          <NavLink url="/" className="s-blog-mast__name" dir="auto">
+            {logo ? (
+              <img className="s-blog-mast__logo" src={bannerSrc(logo)} alt={siteName} />
+            ) : (
+              siteName
+            )}
+          </NavLink>
+          {tagline && (
+            <p className="s-blog-mast__tagline" dir="auto">
+              {tagline}
+            </p>
+          )}
+        </header>
+      )}
 
       <nav className={`s-blog-nav${menuOpen ? " s-blog-nav--open" : ""}`}>
         <div className="s-blog-nav__inner">
@@ -322,7 +340,11 @@ export default function BlogShell() {
             </button>
           </div>
         ) : route.kind === "home" ? (
-          <BlogHome posts={posts} locale={locale} />
+          homeMode === "dashboard" ? (
+            <BlogDashboard posts={posts} locale={locale} />
+          ) : (
+            <BlogHome posts={posts} locale={locale} />
+          )
         ) : route.kind === "topic" ? (
           <BlogTopic tag={route.tag} posts={posts} locale={locale} />
         ) : route.kind === "article" ? (
@@ -347,6 +369,9 @@ export default function BlogShell() {
           </p>
         )}
         <p className="s-blog-footer__meta">
+          <span className="s-blog-footer__hint">
+            <kbd>Ctrl K</kbd> search
+          </span>
           <a className="s-blog-footer__link" href="/feed.xml">
             RSS
           </a>
@@ -368,6 +393,7 @@ export default function BlogShell() {
         </p>
       </footer>
 
+      <BlogSearchOverlay />
       {loginOpen && <LoginModal />}
     </div>
   );
