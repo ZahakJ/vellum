@@ -8,6 +8,7 @@ import { getNote } from "../api.ts";
 import { countPhrase, t, tf } from "../i18n.ts";
 import { isPublishedContent } from "../publish.ts";
 import { nextTheme, useStore } from "../state.ts";
+import SyncBadge from "./SyncBadge.tsx";
 
 function countWords(text: string): number {
   const words = text.trim().split(/\s+/);
@@ -144,6 +145,9 @@ export default function StatusBar() {
           </span>
         </>
       )}
+      {/* Backup & sync: renders nothing unless this is an admin session on an
+          instance where sync is switched on with a remote. */}
+      <SyncBadge />
       {admin && (
         <>
           <button

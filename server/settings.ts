@@ -11,11 +11,29 @@
 // tooling (or future settings) can share the file safely; unknown keys in a
 // PATCH are a 400 (strict allowlist).
 
-import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { EffectiveSettings, HomeSettings, SettingsData, SettingsResponse } from "../shared/types.ts";
+import type {
+  EffectiveSettings,
+  FontSlotsEffective,
+  HomeSettings,
+  SettingsData,
+  SettingsResponse,
+} from "../shared/types.ts";
 import { envHomeNote } from "./auth.ts";
 import { commentsEnabled } from "./comments.ts";
+// Backup & sync: the gitSync validators and the write-only credential store
+// live in gitSync.ts (this import pair is circular and inert — both modules
+// export functions only and neither calls the other at module top level).
+import {
+  applyStagedGitCredentials,
+  cleanGitSyncPatch,
+  discardStagedGitCredentials,
+  gitSyncEffective,
+  readGitSyncSettings,
+  setGitToken,
+  setGitUser,
+} from "./gitSync.ts";
 import {
   blogLocale,
   dataDir,
@@ -28,6 +46,7 @@ import {
   siteName,
   tagline,
 } from "./site.ts";
+import { catalogList, cleanFontSlots, readFontSlots, slotsAreSystem } from "./fonts.ts";
 import { normalizeRel, safeAbs, VaultError } from "./vault.ts";
 
 const SETTINGS_FILE = "settings.json";
@@ -200,7 +219,24 @@ export function getSettings(): SettingsData {
     if (typeof h.banner === "string" && h.banner.trim() !== "") hs.banner = h.banner.trim();
     if (Object.keys(hs).length > 0) out.home = hs;
   }
+  // Backup & sync (gitSync.ts validates; malformed values drop on read).
+  const gitSync = readGitSyncSettings(raw.gitSync);
+  if (gitSync) out.gitSync = gitSync;
+  // Typography (fonts.ts validates; an unknown/wrongly-slotted id reads back
+  // as "system" rather than throwing — reads never fail).
+  if (raw.fonts !== undefined) {
+    const fonts = readFontSlots(raw.fonts);
+    if (!slotsAreSystem(fonts)) out.fonts = fonts;
+  }
   return out;
+}
+
+/** The typography slots in effect (every slot present, "system" when unset).
+ *  No env counterpart: a webfont choice is a runtime editorial decision, and
+ *  its default — the built-in system stacks — is the "nothing is fetched,
+ *  nothing is served" one. */
+export function fontSlots(): FontSlotsEffective {
+  return readFontSlots(readRaw().fonts);
 }
 
 /** The merged values the site is using right now: stored value when set, env
@@ -231,12 +267,17 @@ export function effectiveSettings(): EffectiveSettings {
       ...(s.home?.note ?? envHomeNote() ? { note: s.home?.note ?? envHomeNote() ?? undefined } : {}),
       ...(s.home?.banner ? { banner: s.home.banner } : {}),
     },
+    // The stored token is never part of this: gitSyncEffective() answers
+    // `tokenSet` (and the non-secret username) and nothing more.
+    gitSync: gitSyncEffective(),
+    fonts: fontSlots(),
   };
 }
 
-/** GET/PATCH /api/settings payload: stored keys + the effective merge. */
+/** GET/PATCH /api/settings payload: stored keys + the effective merge (plus
+ *  the typography catalog the panel's selects are built from). */
 export function settingsResponse(): SettingsResponse {
-  return { ...getSettings(), effective: effectiveSettings() };
+  return { ...getSettings(), effective: effectiveSettings(), fontCatalog: catalogList() };
 }
 
 /** Vault-relative attachment paths named by settings (home banner, logo,
@@ -427,6 +468,32 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     if (Object.keys(current).length === 0) delete raw.home;
     else raw.home = current;
   },
+  // ── Backup & sync ────────────────────────────────────────────────────────
+  gitSync: (raw, value) => {
+    const next = cleanGitSyncPatch(value, raw.gitSync);
+    if (next === null) delete raw.gitSync;
+    else raw.gitSync = next;
+  },
+  // WRITE-ONLY. Neither of these lands in settings.json: they go to
+  // VELLUM_DATA/git-credentials.json (0600), and no read ever answers with the
+  // token — only `effective.gitSync.tokenSet`.
+  gitToken: (_raw, value) => setGitToken(value),
+  gitUser: (_raw, value) => setGitUser(value),
+  // Typography. The ids are re-validated here (strict allowlist — an unknown
+  // id or one the slot does not accept is a 400) even though the route
+  // already validated them to download the faces: this handler is the only
+  // thing that writes settings.json, so it owns the guarantee. The download
+  // itself happens BEFORE this runs (api.ts), so a fetch failure 502s with
+  // the file untouched.
+  fonts: (raw, value) => {
+    if (value === null) {
+      delete raw.fonts;
+      return;
+    }
+    const slots = cleanFontSlots(value, readFontSlots(raw.fonts));
+    if (slotsAreSystem(slots)) delete raw.fonts; // all system = the default
+    else raw.fonts = { ...slots };
+  },
 };
 
 /** Apply a partial update (null clears a key back to its env default) and
@@ -437,6 +504,11 @@ export function patchSettings(patch: Record<string, unknown>): SettingsResponse 
   // patch below then rewrites the file from scratch, discarding whatever the
   // corrupt file held (it was unrecoverable anyway; availability wins).
   const raw = { ...readRaw() };
+  // gitToken/gitUser write to a different file (VELLUM_DATA/git-credentials.json),
+  // so they only VALIDATE below and are written after the whole patch is
+  // accepted — a patch that 400s later must not have changed the credential.
+  // Anything a previous failed patch staged is dropped here.
+  discardStagedGitCredentials();
   const own = (key: string): boolean => Object.prototype.hasOwnProperty.call(PATCH_HANDLERS, key);
   for (const key of Object.keys(patch)) {
     // Own-property check, NOT `in`: inherited Object.prototype names
@@ -449,6 +521,7 @@ export function patchSettings(patch: Record<string, unknown>): SettingsResponse 
     PATCH_HANDLERS[key](raw, value);
   }
   persist(raw);
+  applyStagedGitCredentials();
   return settingsResponse();
 }
 
@@ -457,7 +530,15 @@ function persist(raw: Record<string, unknown>): void {
   mkdirSync(path.dirname(file), { recursive: true });
   // Write-then-rename so a crash mid-write never leaves a torn settings.json.
   const tmp = `${file}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+  // Same treatment as the git credential file next door in VELLUM_DATA: this
+  // file holds no secret by design, but it does hold operator-private
+  // configuration (the backup remote, the branch), it is the file a pasted
+  // token would land in if any validator ever let one through, and there is no
+  // reader but this process. The mode argument is masked by umask and a
+  // pre-existing file keeps its own mode, so chmod after the rename asserts it
+  // rather than trusting either.
+  writeFileSync(tmp, `${JSON.stringify(raw, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   renameSync(tmp, file);
+  chmodSync(file, 0o600);
   cache = null; // next read restats — the rename just changed mtime
 }

@@ -61,6 +61,12 @@ export interface MeData {
   home?: HomeSettings; // settings.home — what "/" renders for blog visitors (absent = note mode)
   logo?: string;       // settings.logo — site logo image (banner-style value)
   favicon?: boolean;   // settings.favicon set — /favicon.ico serves it (client repoints its icon link)
+  /** settings.fonts names at least one catalog face → the client links the
+   *  generated /api/site-fonts.css. The value is a signature of the four
+   *  slots ("lora.inter.system.amiri"), used as the ?v= cache-buster so a
+   *  changed pick refetches instead of showing yesterday's faces. Sent to
+   *  every session: the faces are the public site's own typography. */
+  fonts?: string;
 }
 
 // GET /api/posts (visitor-safe): published notes as blog posts, newest first.
@@ -143,6 +149,12 @@ export interface SettingsData {
   /** Site logo image (https URL or vault path) shown in place of the
    *  site-name text where a logo fits (masthead, sidebar, dashboard hero). */
   logo?: string;
+  /** Git backup & sync (off by default). The token, when one is used, is NOT
+   *  here — it lives in VELLUM_DATA/git-credentials.json (0600). */
+  gitSync?: GitSyncSettings;
+  /** Typography: catalog ids (or "system") per slot. Chosen faces are cached
+   *  under VELLUM_DATA/fonts/catalog/ and served from this instance only. */
+  fonts?: FontSlotSettings;
 }
 
 /** What /api/settings answers: the stored keys (settings.json verbatim,
@@ -150,6 +162,10 @@ export interface SettingsData {
  *  using right now (stored value when set, else env default). */
 export interface SettingsResponse extends SettingsData {
   effective: EffectiveSettings;
+  /** The typography catalog the panel's four selects are built from. Static
+   *  per build; travels with the settings payload so the panel needs no
+   *  second request. */
+  fontCatalog?: FontCatalogEntry[];
 }
 
 export interface EffectiveSettings {
@@ -168,6 +184,9 @@ export interface EffectiveSettings {
   favicon: string | null;
   logo: string | null;
   home: Required<Pick<HomeSettings, "mode">> & Omit<HomeSettings, "mode">;
+  gitSync: GitSyncEffective;
+  /** Typography slots in effect (every slot present, "system" when unset). */
+  fonts: FontSlotsEffective;
 }
 
 /** PATCH /api/settings body: only the named keys change; null (or "") clears
@@ -192,7 +211,58 @@ export interface SettingsPatch {
     banner?: string | null;
   } | null;
   logo?: string | null;
+  /** Git sync configuration; null clears the whole key. */
+  gitSync?: {
+    enabled?: boolean | null;
+    remote?: string | null;
+    branch?: string | null;
+    intervalMinutes?: number | null;
+    pullFirst?: boolean | null;
+    authMode?: "ssh" | "token" | null;
+  } | null;
+  /** WRITE-ONLY. Stored outside settings.json (VELLUM_DATA/git-credentials.json,
+   *  0600) and never returned by any read — GET answers `tokenSet` instead.
+   *  null / "" clears the stored token. */
+  gitToken?: string | null;
+  /** Username the token pairs with (not a secret; stored beside it). */
+  gitUser?: string | null;
+  /** Typography slots; an unknown id (or one the slot does not accept) is a
+   *  400, and the server caches the chosen families before it stores them —
+   *  a failed download is a 502 and settings.json is left untouched. */
+  fonts?: FontSlotSettings | null;
 }
+
+// ── Typography (settings.fonts) ────────────────────────────────────────────
+// A curated webfont catalog, self-hosted: the server fetches the chosen
+// families ONCE (Google Fonts, at save time) into VELLUM_DATA/fonts/catalog/
+// and serves them from there. Visitors never contact an external host.
+
+export type FontCategory = "serif" | "sans" | "mono";
+export type FontScript = "latin" | "arabic";
+
+/** One catalog entry as the settings panel receives it (SettingsResponse). */
+export interface FontCatalogEntry {
+  /** Stable slug — the value stored in settings.fonts and the cache dir name. */
+  id: string;
+  /** Family name as the browser knows it (also the option label). */
+  family: string;
+  category: FontCategory;
+  scripts: FontScript[];
+}
+
+/** Each slot holds a catalog id or "system" (the built-in stacks). `arabic` is
+ *  the point of the feature: its faces are emitted FIRST in every composite
+ *  family, narrowed to the Arabic unicode ranges, so a mixed paragraph picks
+ *  the naskh face per CHARACTER — in English mode too. */
+export interface FontSlotSettings {
+  prose?: string;
+  ui?: string;
+  mono?: string;
+  arabic?: string;
+}
+
+/** The resolved slots (every slot present; "system" when unset). */
+export type FontSlotsEffective = Required<FontSlotSettings>;
 
 export interface PublishedCounts {
   notes: number;  // notes with frontmatter publish: true
@@ -233,4 +303,79 @@ export interface CommentData {
   body: string;       // plain text, ≤2000 chars
   createdMs: number;
   hidden?: boolean;   // admin responses only; hidden comments never reach visitors
+}
+
+// ── Backup & sync (git) ─────────────────────────────────────────────────────
+// settings.gitSync mirrors the vault to a git remote the operator configures.
+// Off by default. The credential for authMode "token" NEVER travels on this
+// wire in either direction: PATCH accepts a write-only `gitToken`, and reads
+// answer `tokenSet` only.
+
+export interface GitSyncSettings {
+  /** Master switch. Default false — a fresh instance touches no remote. */
+  enabled?: boolean;
+  /** Remote URL: https://… , ssh://… or git@host:path. No embedded
+   *  credentials (the token field exists for that). */
+  remote?: string;
+  /** Branch to commit and push (default "main"). */
+  branch?: string;
+  /** Automatic sync period; 0 (default) = manual only. Max 1440. */
+  intervalMinutes?: number;
+  /** Fast-forward-only pull before each sync (default true). */
+  pullFirst?: boolean;
+  /** "ssh" — the machine's own keys/agent, no secret stored.
+   *  "token" — a write-only token in VELLUM_DATA/git-credentials.json. */
+  authMode?: "ssh" | "token";
+}
+
+/** The gitSync configuration in effect (defaults filled in). `tokenSet` is
+ *  the ONLY thing said about the stored credential. */
+export interface GitSyncEffective {
+  enabled: boolean;
+  remote: string | null;
+  branch: string;
+  intervalMinutes: number;
+  pullFirst: boolean;
+  authMode: "ssh" | "token";
+  tokenSet: boolean;
+  gitUser: string | null; // the username the token pairs with (not a secret)
+}
+
+/** Outcome of the most recent sync pass (server-side, in memory). */
+export interface GitSyncResult {
+  at: string;        // ISO timestamp of the attempt
+  ok: boolean;
+  message: string;   // human-readable, token-scrubbed
+  committed: boolean;
+  pushed: boolean;
+  /** The push moved the remote branch — true whenever something was
+   *  committed, and also when this pass only uploaded commits that were
+   *  already local (the first sync after "Make it a repo" is exactly that).
+   *  Absent on a failed pass, and on results recorded before this field
+   *  existed, which is why the client treats it as `=== true`. */
+  remoteAdvanced?: boolean;
+}
+
+/** GET /api/sync/status, and the answer of POST /api/sync/{init,now}. */
+export interface GitSyncStatus {
+  enabled: boolean;
+  configured: boolean;      // a remote is set in settings
+  repo: boolean;            // the vault IS a git work tree root
+  branch: string | null;    // null on a detached HEAD
+  dirty: number;            // uncommitted entries (git status --porcelain)
+  /** Commits this branch has that the remote does not, and vice versa — or
+   *  NULL when there is no remote-tracking ref yet, i.e. nothing has ever been
+   *  fetched or pushed. That is a third state, not a zero: "0 ahead · 0 behind"
+   *  is exactly what a fully backed-up vault reads, and reporting it for a
+   *  vault whose commits exist on this machine only is the one wrong answer a
+   *  backup panel must never give. Renders as "not on the remote yet". */
+  ahead: number | null;
+  behind: number | null;
+  remoteHost: string | null; // host only, for display — never path or userinfo
+  originSet: boolean;        // the repo has an `origin` remote
+  busy: boolean;             // a sync is running right now
+  intervalMinutes: number;
+  authMode: "ssh" | "token";
+  tokenSet: boolean;
+  last: GitSyncResult | null;
 }

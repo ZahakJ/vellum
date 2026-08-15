@@ -2708,19 +2708,121 @@ button.s-title:hover {
 
 /* ── Site settings panel (SettingsModal) ─────────────────────────────────── */
 
+/* Five sections and ~2,700px of content: a 680px box that stopped 160px short
+   of the viewport and then asked for four screens of one flat scroll was the
+   wrong shape for it. The panel is wider (the type specimen is the widest
+   thing in the product's chrome), taller (it uses the height it was leaving
+   empty), and it has a section rail. */
+/* Centered, not dropped at 18vh like the command palette: this panel takes
+   the height it is given rather than hanging from the top of it. */
+.s-smodal-overlay {
+  align-items: center;
+  padding-top: 0;
+}
+
 .s-smodal {
-  width: min(680px, calc(100vw - 32px));
-  max-height: 82vh;
+  width: min(920px, calc(100vw - 32px));
+  height: min(860px, calc(100vh - 40px));
+  max-height: none;
   position: relative;
+  overflow: hidden;
+}
+
+/* rail | scrolling content */
+.s-smodal__cols {
+  display: flex;
+  gap: 18px;
+  min-height: 0;
+  flex: 1;
+}
+
+.s-smodal__rail {
+  flex: none;
+  width: 164px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-inline-end: 1px solid var(--border);
+  padding-inline-end: 12px;
+  overflow-y: auto;
+}
+
+.s-smodal__railbtn {
+  text-align: start;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  font-size: 0.821rem;
+  color: var(--text-muted);
+  border-inline-start: 2px solid transparent;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.s-smodal__railbtn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* The rail is a position indicator as much as a menu: the section you are
+   reading is the one wearing the gold bar. */
+.s-smodal__railbtn--on {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-inline-start-color: var(--accent);
+}
+
+/* Positioning context for the two scroll-edge fades. */
+.s-smodal__scroll {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
 }
 
 .s-smodal__body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
   overflow-y: auto;
   min-height: 0;
-  padding-inline-end: 2px;
+  flex: 1;
+  /* Closing air: the last card used to butt straight into the footer hairline. */
+  padding: 2px 4px 20px 0;
+  scroll-behavior: smooth;
+}
+
+.s-smodal__body > section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scroll-margin-top: 4px;
+}
+
+/* Content sliced flush at the top or bottom of the box reads as a rendering
+   bug; a fade says "there is more" without adding chrome. Both are inert to
+   the pointer, and neither is painted when that edge is the end of the
+   content. */
+.s-smodal__edge {
+  position: absolute;
+  inset-inline: 0;
+  height: 22px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.s-smodal__edge--on {
+  opacity: 1;
+}
+
+.s-smodal__edge--top {
+  top: 0;
+  background: linear-gradient(to bottom, var(--bg-raised), transparent);
+}
+
+.s-smodal__edge--bottom {
+  bottom: 0;
+  background: linear-gradient(to top, var(--bg-raised), transparent);
 }
 
 .s-smodal__note {
@@ -2739,11 +2841,30 @@ button.s-title:hover {
   padding-bottom: 5px;
 }
 
+/* A steady vertical beat: hints wrap to two and three lines, so rows ranged
+   from 46 to 70px and the panel had no rhythm down its length. min-height
+   gives every ordinary row the same measure; a row that genuinely needs more
+   (an error, the specimen) still takes it. */
 .s-smodal__row {
   display: grid;
-  grid-template-columns: 168px 1fr;
+  grid-template-columns: 196px 1fr;
   align-items: start;
   gap: 12px;
+  min-height: 48px;
+}
+
+/* The widest, most typographic control in the panel spans the panel: label
+   above, control full-bleed under it. */
+.s-smodal__row--wide {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+/* Inert because a master switch above it is off. Legible, not invisible: a
+   reader must still be able to READ what is configured. */
+.s-smodal__row--off .s-smodal__label,
+.s-smodal__row--off .s-smodal__control {
+  opacity: 0.5;
 }
 
 .s-smodal__label {
@@ -2755,9 +2876,49 @@ button.s-title:hover {
   color: var(--text);
 }
 
+.s-smodal__row--wide .s-smodal__label {
+  padding-top: 0;
+}
+
+.s-smodal__labeltext {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* "This field is EMPTY and inheriting", said by the row rather than by a note
+   at the top of the panel explaining a convention. */
+.s-smodal__badge {
+  font-size: 0.714rem;
+  font-style: italic;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
 .s-smodal__hint {
   font-size: 0.75rem;
   color: var(--text-faint);
+}
+
+/* A sub-heading INSIDE a group: quieter than the gold group rule, louder than
+   a row label — for a control that is a different kind from the rows above it
+   (the Arabic slot, which acts across all three of them). */
+.s-smodal__sub {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+/* The master switch is off — said once, plainly, above the inert controls. */
+.s-smodal__offnote {
+  margin: 0;
+  font-size: 0.786rem;
+  color: var(--text-muted);
+  border-inline-start: 2px solid var(--border);
+  padding-inline-start: 10px;
 }
 
 .s-smodal__control {
@@ -2842,10 +3003,117 @@ button.s-title:hover {
   z-index: 60;
 }
 
+/* ── Typography specimens (settings → Typography) ────────────────────────────
+   Each row renders in the PREVIEW composite of its slot — the families
+   /api/font-preview.css defines from the picks currently in the form, before
+   anything is saved — and falls back to the matching system stack, so an
+   unpicked slot shows exactly what the site shows today. The two lines are a
+   Latin sentence and a mixed Arabic one: same family, and the Arabic slot
+   still answers for the Arabic letters, which is the whole feature. */
+.s-smodal__specimens {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  /* The panel is --bg-raised and the box was --bg with a --border hairline;
+     in parchment those three sit so close together that the container
+     disappeared and the three rows lost their box. An inset ring in the text
+     color holds the edge in every theme without shouting in any of them. */
+  border: 1px solid transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-faint) 45%, transparent);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.s-smodal__specimen {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.s-smodal__specimen + .s-smodal__specimen {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.s-smodal__speclabel {
+  font-family: var(--font-ui);
+  font-size: 0.643rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+}
+
+/* A BLOCK in the panel's own direction, holding one inline isolate. Both
+   samples therefore begin at the same edge — an rtl line and an ltr line each
+   aligned to its own edge put the two faces being compared at opposite ends of
+   the box, which is the worst possible geometry for judging them together. */
+.s-smodal__specline {
+  display: block;
+  color: var(--text);
+  /* Roomy on purpose: a compensated naskh face has tall ascenders and deep
+     descenders, and at a tighter measure its tashkeel collided with the Latin
+     line above it. */
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.s-smodal__specimen--prose {
+  font-family: "VellumPreviewProse", var(--font-serif-system);
+  font-size: calc(var(--font-prose) * var(--prose-scale) * 0.92);
+}
+
+.s-smodal__specimen--ui {
+  font-family: "VellumPreviewUI", var(--font-ui-system);
+  font-size: 0.928rem;
+}
+
+.s-smodal__specimen--mono {
+  font-family: "VellumPreviewMono", var(--font-mono-system);
+  font-size: 0.821rem;
+}
+
+.s-smodal__fontfoot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 720px) {
+  .s-smodal {
+    height: min(860px, calc(100vh - 24px));
+  }
+  /* The rail becomes a scrolling strip across the top: still the whole table
+     of contents, without eating a third of a 390px column. */
+  .s-smodal__cols {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .s-smodal__rail {
+    width: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    border-inline-end: none;
+    border-bottom: 1px solid var(--border);
+    padding-inline-end: 0;
+    padding-bottom: 8px;
+  }
+  .s-smodal__railbtn {
+    white-space: nowrap;
+    border-inline-start: none;
+    border-bottom: 2px solid transparent;
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+  .s-smodal__railbtn--on {
+    border-bottom-color: var(--accent);
+  }
+}
+
 @media (max-width: 560px) {
   .s-smodal__row {
     grid-template-columns: 1fr;
     gap: 4px;
+    min-height: 0;
   }
   .s-smodal__label {
     padding-top: 0;
@@ -2859,6 +3127,281 @@ button.s-title:hover {
   max-height: 24px;
   max-width: 168px;
   object-fit: contain;
+}
+
+/* ── Backup & sync (status-bar badge + settings section) ─────────────────── */
+
+/* The status-bar indicator: a branch glyph that stays quiet. It says nothing
+   at all when the vault is clean — the count appears only when something is
+   uncommitted, and the color only when a sync is running or has failed. */
+.s-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.s-sync__glyph {
+  flex: none;
+}
+
+.s-sync__label {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scoped to the bar deliberately: `.s-statusbar button` (0,1,1) sets the
+   muted default, so a lone `.s-sync--error` (0,1,0) would lose to it and the
+   failure state would render in the same grey as everything else. */
+.s-statusbar .s-sync--dirty {
+  color: var(--text);
+}
+
+.s-statusbar .s-sync--busy,
+.s-statusbar .s-sync--busy:hover {
+  color: var(--accent);
+}
+
+/* A failing backup is the one state worth the danger color: the vault is not
+   where the reader thinks it is. */
+.s-statusbar .s-sync--error,
+.s-statusbar .s-sync--error:hover {
+  color: var(--danger);
+}
+
+.s-sync--busy .s-sync__glyph {
+  animation: s-sync-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes s-sync-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-sync--busy .s-sync__glyph {
+    animation: none;
+  }
+}
+
+/* The settings panel's live mirror of the same status. */
+.s-smodal__sync {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-hover);
+}
+
+.s-smodal__syncline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.821rem;
+  color: var(--text);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.s-smodal__syncline--muted {
+  color: var(--text-muted);
+  font-size: 0.786rem;
+}
+
+/* Items in these lines are separated by a HAIRLINE, never by a "·". The
+   Eastern Arabic zero (٠) is itself a raised dot, so a middle-dot separator
+   sitting next to a count of zero produced an unreadable "٠٠" run — a rule
+   cannot be mistaken for a numeral in any script. */
+.s-smodal__counts {
+  gap: 0;
+  row-gap: 4px;
+}
+
+.s-smodal__counts > * + * {
+  border-inline-start: 1px solid var(--border);
+  margin-inline-start: 9px;
+  padding-inline-start: 9px;
+}
+
+.s-smodal__syncline--bad {
+  color: var(--danger);
+}
+
+/* The cause we can state in human words — louder than the muted lines, and
+   the thing a failure line leads with. git's own sentence is the evidence
+   underneath it, not the headline. */
+.s-smodal__syncwarn {
+  color: var(--text);
+  font-size: 0.786rem;
+}
+
+.s-smodal__syncfail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* git's verbatim line: quotable evidence, in its own LTR block so bidi from
+   the localized line above cannot reach into it. */
+.s-smodal__syncgit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-inline-start: 2px solid var(--border);
+  padding-inline-start: 10px;
+}
+
+.s-smodal__syncgitlabel {
+  font-size: 0.714rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+}
+
+.s-smodal__syncgittext {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+/* Section-level actions, on their own full-width row — no label cell, because
+   they are verbs rather than the value of a field. */
+.s-smodal__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.s-smodal__actions--off {
+  opacity: 0.5;
+}
+
+.s-smodal__actions .s-btn {
+  border: 1px solid var(--border);
+}
+
+.s-smodal__actions .s-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  background: transparent;
+}
+
+.s-syncdot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.s-syncdot--ok { background: var(--accent); }
+.s-syncdot--busy { background: var(--accent); animation: s-sync-pulse 1.2s ease-in-out infinite; }
+.s-syncdot--error { background: var(--danger); }
+
+/* The badge's detail panel. It replaces a native `title` tooltip: that text is
+   the diagnosis, and a tooltip cannot be selected, copied, or reached at all
+   on touch. Anchored above the badge — the status bar is the last 28px of the
+   viewport. */
+.s-syncwrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* FIXED, not absolute: the status bar clips its own overflow, so a panel
+   anchored inside it was invisible. SyncBadge pins it to the button. */
+.s-syncpop {
+  position: fixed;
+  z-index: 120;
+  width: min(360px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
+  text-align: start;
+  cursor: default;
+  animation: s-palette-in 0.12s ease;
+}
+
+.s-syncpop__line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.821rem;
+  color: var(--text);
+}
+
+.s-syncpop__line--muted {
+  color: var(--text-muted);
+  font-size: 0.786rem;
+}
+
+.s-syncpop__warn {
+  color: var(--text);
+}
+
+.s-syncpop__err {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-inline-start: 2px solid var(--danger);
+  padding-inline-start: 10px;
+}
+
+.s-syncpop__errlabel {
+  font-size: 0.714rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+}
+
+.s-syncpop__errtext {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text);
+  user-select: text;
+  overflow-wrap: anywhere;
+  max-height: 8.5em;
+  overflow-y: auto;
+}
+
+.s-syncpop__copy {
+  align-self: flex-start;
+  font-size: 0.75rem;
+}
+
+.s-syncpop__btns {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.s-syncpop__btns .s-btn {
+  border: 1px solid var(--border);
+}
+
+.s-syncpop__btns .s-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.s-smodal__tokenfield {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.s-smodal__tokenfield .s-bmodal__input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

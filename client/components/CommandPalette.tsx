@@ -12,6 +12,7 @@ import { search } from "../api.ts";
 import { dailyNotePath, openDailyNote } from "../daily.ts";
 import { t, tf, type I18nKey } from "../i18n.ts";
 import { confirmModal } from "./Confirm.tsx";
+import { runSyncNow, syncSnapshot } from "../sync.ts";
 import { toast } from "../toast.ts";
 import type { SearchHit } from "../../shared/types.ts";
 import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
@@ -228,6 +229,17 @@ const COMMANDS: Command[] = [
     label: () => t("siteSettings"),
     hint: () => t("cmdSiteSettingsHint"),
     available: ({ admin, preview }) => admin && !preview,
+  },
+  {
+    // Offered only once backup & sync is switched on with a remote — the
+    // status the badge reads is the same one this consults.
+    id: "sync-now",
+    label: () => t("syncNow"),
+    hint: () => t("cmdSyncHint"),
+    available: ({ admin, preview }) => {
+      const s = syncSnapshot();
+      return admin && !preview && s !== null && s.enabled && s.configured;
+    },
   },
   {
     id: "preview-visitor",
@@ -496,6 +508,9 @@ export default function CommandPalette() {
           break;
         case "site-settings":
           store.setSettingsOpen(true);
+          break;
+        case "sync-now":
+          void runSyncNow();
           break;
         case "preview-visitor":
           void store.setPreviewVisitor(true);

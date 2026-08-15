@@ -11,7 +11,8 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { MeData } from "../shared/types.ts";
 import { isNoteVisibleToVisitor, publishedCounts, resolveLink } from "./indexer.ts";
-import { getSettings } from "./settings.ts";
+import { fontsSignature, slotsAreSystem } from "./fonts.ts";
+import { fontSlots, getSettings } from "./settings.ts";
 import { bannerFallback, blogLocale, customCssPath, defaultTheme, footerLine, publicLayout, siteLanguage, siteName, tagline } from "./site.ts";
 import { normalizeRel } from "./vault.ts";
 
@@ -347,6 +348,12 @@ authRoutes.get("/me", (c) => {
   const theme = defaultTheme();
   if (theme) me.defaultTheme = theme;
   if (customCssPath()) me.customCss = true;
+  // Typography: the four-slot signature, for every session. Its presence is
+  // what makes the client link /api/site-fonts.css at all, and its value is
+  // the ?v= on that link — so changing a pick changes the URL and the browser
+  // fetches the new faces instead of reusing the cached stylesheet.
+  const slots = fontSlots();
+  if (!slotsAreSystem(slots)) me.fonts = fontsSignature(slots);
   // Branding assets from settings.json, for every session: the logo replaces
   // the text wordmark in the sidebar/masthead, and a set favicon makes the
   // client point its icon link at /favicon.ico. Both are visitor-safe by
@@ -380,7 +387,17 @@ authRoutes.get("/me", (c) => {
 // --------------------------------------------------------------------- guard
 
 /** Always reachable, even with PUBLIC=false (the SPA shell is served outside /api). */
-const OPEN_PATHS = new Set(["/api/login", "/api/logout", "/api/me", "/api/custom.css"]);
+const OPEN_PATHS = new Set([
+  "/api/login",
+  "/api/logout",
+  "/api/me",
+  "/api/custom.css",
+  // The generated typography stylesheet is styling like custom.css, and it is
+  // what makes the login page of a PUBLIC=false vault render in the
+  // instance's own type. It names only catalog faces this server already
+  // cached — no vault content, no external URL.
+  "/api/site-fonts.css",
+]);
 
 /** /api/fonts/* is styling like custom.css: open to visitors and the login
  *  page of a PUBLIC=false vault (the route itself enforces basename-only +

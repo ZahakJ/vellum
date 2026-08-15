@@ -1,18 +1,36 @@
 // Site settings panel (admin): edits VELLUM_DATA/settings.json through
-// GET/PATCH /api/settings. Two-column label/control rows in three groups —
-// Identity / Home page / Site behavior. Text fields left empty inherit the
-// env default (shown as the placeholder); a filled field overrides it. Saving
-// PATCHes only the keys that changed, then refreshes /api/me so the wordmark,
-// layout, theme default, and favicon apply live — no reload.
+// GET/PATCH /api/settings. Two-column label/control rows in five groups, in
+// the order an operator meets them — Identity / Home page / Site behavior /
+// Typography / Backup & sync: what the site IS, what its front door shows,
+// how it behaves, how it is set, and last (because it is operational rather
+// than editorial, and the only group that touches a network) how it is backed
+// up. Text fields left empty inherit the env default (shown as the
+// placeholder); a filled field overrides it. The last two groups have no
+// "inherit" state at all — neither has an env counterpart — so their controls
+// always show the value in force and carry a short note under the heading
+// instead. Saving PATCHes only the keys that changed, then refreshes /api/me
+// so the wordmark, layout, theme default, fonts and favicon apply live — no
+// reload.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
+import type { FontCatalogEntry } from "../../shared/types.ts";
 import type { SettingsPatch, SettingsResponse } from "../../shared/types.ts";
 import { getSettings, listAttachments, patchSettings, uploadAttachment } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
 import { countPhrase, localeNum, t, tf, type I18nKey } from "../i18n.ts";
 import { UPLOAD_MAX_MB } from "../../shared/limits.ts";
 import { THEMES, useStore } from "../state.ts";
+import {
+  onSyncChange,
+  refreshSyncStatus,
+  runSyncInit,
+  runSyncNow,
+  syncBusy,
+  syncCause,
+  syncSnapshot,
+  syncWhen,
+} from "../sync.ts";
 import { toast } from "../toast.ts";
 
 // ---------------------------------------------------------------------------
@@ -37,7 +55,29 @@ interface Form {
   homeMode: string;     // "" | "note" | "dashboard"
   homeNote: string;
   homeBanner: string;
+  // ── Backup & sync (gitSync) ──────────────────────────────────────────────
+  // These prefill from `effective` rather than from the stored keys: sync has
+  // no env counterpart, so "inherit" is meaningless here — every control shows
+  // the value in force.
+  syncEnabled: string;   // "on" | "off"
+  syncRemote: string;
+  syncBranch: string;
+  syncAuth: string;      // "ssh" | "token"
+  syncPullFirst: string; // "on" | "off"
+  syncInterval: string;  // whole minutes; "0" = manual only
+  syncUser: string;      // username the token pairs with
+  syncToken: string;     // WRITE-ONLY: never prefilled, never read back
+  // ── Typography (fonts) ───────────────────────────────────────────────────
+  // Catalog id or SYSTEM_FONT. Like sync, these prefill from `effective`: a
+  // webfont choice has no env counterpart, so "inherit" would mean nothing.
+  fontProse: string;
+  fontUi: string;
+  fontMono: string;
+  fontArabic: string;
 }
+
+/** The "no webfont" choice — the built-in system stacks (server SYSTEM). */
+const SYSTEM_FONT = "system";
 
 function formFrom(s: SettingsResponse): Form {
   return {
@@ -58,8 +98,34 @@ function formFrom(s: SettingsResponse): Form {
     homeMode: s.home?.mode ?? "",
     homeNote: s.home?.note ?? "",
     homeBanner: s.home?.banner ?? "",
+    syncEnabled: s.effective.gitSync.enabled ? "on" : "off",
+    syncRemote: s.effective.gitSync.remote ?? "",
+    syncBranch: s.effective.gitSync.branch,
+    syncAuth: s.effective.gitSync.authMode,
+    syncPullFirst: s.effective.gitSync.pullFirst ? "on" : "off",
+    syncInterval: String(s.effective.gitSync.intervalMinutes),
+    syncUser: s.effective.gitSync.gitUser ?? "",
+    // The stored token never comes back from the server (only `tokenSet`
+    // does), so this field always starts empty — typing into it REPLACES the
+    // stored value, and leaving it empty leaves that value alone.
+    syncToken: "",
+    fontProse: s.effective.fonts?.prose ?? SYSTEM_FONT,
+    fontUi: s.effective.fonts?.ui ?? SYSTEM_FONT,
+    fontMono: s.effective.fonts?.mono ?? SYSTEM_FONT,
+    fontArabic: s.effective.fonts?.arabic ?? SYSTEM_FONT,
   };
 }
+
+const FONT_KEYS = ["fontProse", "fontUi", "fontMono", "fontArabic"] as const;
+
+// Type SPECIMENS, deliberately not in i18n.ts: a Latin sample must stay Latin
+// in an Arabic UI and an Arabic sample Arabic in an English one, or the block
+// stops previewing the thing it is there to preview. The second line is mixed
+// on purpose — it is the whole feature in one line: the Arabic slot answers
+// for the Arabic letters and the Latin slot for "Vellum" and the digits,
+// chosen per CHARACTER, with no markup and no language attribute.
+const SPECIMEN_LATIN = "The vault is open — a candlelit room. 0123456789";
+const SPECIMEN_ARABIC = "خَطُّ النَّسْخِ في عمودِ القراءةِ — Vellum ١٢٣٤٥٦٧٨٩";
 
 const TAG_RE = /^[\p{L}\p{N}][\p{L}\p{N}_/-]*$/u;
 
@@ -149,8 +215,39 @@ function validate(f: Form): Partial<Record<keyof Form, string>> {
   }
   const faviconError = imageRefError(f.favicon, false);
   if (faviconError) errors.favicon = faviconError;
+  // Backup & sync — the same three rules the server enforces, inline.
+  const remote = f.syncRemote.trim();
+  if (remote !== "") {
+    if (remote.length > 300) errors.syncRemote = maxChars(300);
+    else if (UNSAFE_REMOTE.test(remote) || remote.startsWith("-")) errors.syncRemote = t("errRemoteChars");
+    // Mirrors the server exactly: a password is refused on either scheme, a
+    // bare `user@` only on https:// (where it is how a pasted token looks).
+    // `ssh://git@host/you/vault.git` is a normal ssh remote and passes.
+    else if (/^https:\/\/[^/]*@/i.test(remote) || /^[a-z][a-z0-9+.-]*:\/\/[^/@]*:[^/@]*@/i.test(remote)) {
+      errors.syncRemote = t("errRemoteCreds");
+    }
+    else if (!REMOTE_RE.test(remote)) errors.syncRemote = t("errRemoteScheme");
+  }
+  const branch = f.syncBranch.trim();
+  const badBranch =
+    !BRANCH_RE.test(branch) ||
+    branch.includes("..") ||
+    branch.includes("//") ||
+    branch.endsWith("/") ||
+    branch.endsWith(".") ||
+    branch.endsWith(".lock");
+  if (branch !== "" && badBranch) errors.syncBranch = t("errBranchName");
+  const interval = f.syncInterval.trim();
+  if (interval !== "" && !/^\d{1,4}$/.test(interval)) errors.syncInterval = t("errInterval");
+  else if (Number(interval || "0") > 1440) errors.syncInterval = t("errInterval");
+  if (/\s/.test(f.syncToken)) errors.syncToken = t("errTokenSpaces");
   return errors;
 }
+
+/** Mirrors of the server's gitSync validators (server/gitSync.ts). */
+const UNSAFE_REMOTE = /[\s`$;&|<>(){}[\]'"\\^*?!#]/;
+const REMOTE_RE = /^(https:\/\/|ssh:\/\/)\S+$|^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^:]+$/;
+const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
 /** The PATCH: only keys whose form value differs from the loaded snapshot. */
 function buildPatch(initial: Form, f: Form): SettingsPatch {
@@ -196,6 +293,33 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
       note: f.homeNote.trim() === "" ? null : f.homeNote.trim(),
       banner: f.homeBanner.trim() === "" ? null : f.homeBanner.trim(),
     };
+  }
+  // ── Backup & sync ────────────────────────────────────────────────────────
+  const git: NonNullable<SettingsPatch["gitSync"]> = {};
+  if (f.syncEnabled !== initial.syncEnabled) git.enabled = f.syncEnabled === "on";
+  if (f.syncRemote.trim() !== initial.syncRemote.trim()) {
+    git.remote = f.syncRemote.trim() === "" ? null : f.syncRemote.trim();
+  }
+  if (f.syncBranch.trim() !== initial.syncBranch.trim()) {
+    git.branch = f.syncBranch.trim() === "" ? null : f.syncBranch.trim();
+  }
+  if (f.syncAuth !== initial.syncAuth) git.authMode = f.syncAuth === "token" ? "token" : "ssh";
+  if (f.syncPullFirst !== initial.syncPullFirst) git.pullFirst = f.syncPullFirst === "on";
+  if (f.syncInterval.trim() !== initial.syncInterval.trim()) {
+    git.intervalMinutes = Number(f.syncInterval.trim() || "0");
+  }
+  if (Object.keys(git).length > 0) patch.gitSync = git;
+  // Write-only: an empty field means "leave the stored token alone", never
+  // "clear it" — clearing is its own explicit button.
+  if (f.syncToken !== "") patch.gitToken = f.syncToken;
+  if (f.syncUser.trim() !== initial.syncUser.trim()) {
+    patch.gitUser = f.syncUser.trim() === "" ? null : f.syncUser.trim();
+  }
+  // ── Typography ───────────────────────────────────────────────────────────
+  // All four slots travel together: the server needs the whole set to know
+  // which families to have on disk before it writes the file.
+  if (FONT_KEYS.some((key) => f[key] !== initial[key])) {
+    patch.fonts = { prose: f.fontProse, ui: f.fontUi, mono: f.fontMono, arabic: f.fontArabic };
   }
   return patch;
 }
@@ -347,17 +471,41 @@ function Row({
   label,
   hint,
   error,
+  wide,
+  off,
+  inherited,
   children,
 }: {
   label: string;
   hint?: string;
   error?: string;
+  /** The control is the widest, most typographic thing in the panel (the type
+   *  specimen) — it spans both columns with the label above it, instead of
+   *  being squeezed into the control column beside the word "Preview". */
+  wide?: boolean;
+  /** The row is inert because a master switch above it is off. */
+  off?: boolean;
+  /** The field is EMPTY and therefore inheriting the env default. Greyed
+   *  placeholder text alone made that indistinguishable from a field holding
+   *  a muted value, which is why the convention needed a note to explain it. */
+  inherited?: boolean;
   children: ReactNode;
 }) {
+  const cls = [
+    "s-smodal__row",
+    wide ? "s-smodal__row--wide" : "",
+    off ? "s-smodal__row--off" : "",
+    error ? "s-smodal__row--invalid" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <div className={`s-smodal__row${error ? " s-smodal__row--invalid" : ""}`}>
+    <div className={cls}>
       <div className="s-smodal__label">
-        {label}
+        <span className="s-smodal__labeltext">
+          {label}
+          {inherited && <span className="s-smodal__badge">{t("inheritedBadge")}</span>}
+        </span>
         {hint && <span className="s-smodal__hint">{hint}</span>}
       </div>
       <div className="s-smodal__control">
@@ -426,8 +574,345 @@ function ImageField({
 }
 
 // ---------------------------------------------------------------------------
+// Backup & sync — the live half of the section: repo state, last result, and
+// the two actions (initialize / sync now). The settings ROWS above it are
+// ordinary form rows; this block is the mirror the reader checks afterwards.
+// ---------------------------------------------------------------------------
+
+/** The remote as a reader can TELL APART: host plus path, credentials-free.
+ *  "github.com" alone names the host two different vaults share; the full URL
+ *  is five rows above in this same panel, so nothing is revealed by echoing
+ *  its identifying half here. Falls back to whatever the server reports. */
+function remoteLabel(remote: string): string | null {
+  const value = remote.trim();
+  if (value === "") return null;
+  const scp = /^[^@\s]+@([^:\s]+):(.+)$/.exec(value);
+  if (scp) return `${scp[1]}/${scp[2].replace(/^\/+/, "")}`;
+  try {
+    const url = new URL(value);
+    // hostname + pathname only: URL parsing leaves userinfo behind by
+    // construction, so a pasted credential can never ride along.
+    return `${url.hostname}${url.pathname}`.replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+/** Live repo state: what the vault's repository IS right now. The two actions
+ *  used to live inside this box under a label reading "Status", which made
+ *  section-level verbs read as the value of a field; they are their own row
+ *  now (SyncActions). */
+function SyncStatusBlock({
+  authMode,
+  remote,
+  stale,
+}: {
+  authMode: string;
+  remote: string;
+  stale: boolean;
+}) {
+  const locale = useStore((s) => s.blogLocale);
+  const [, bump] = useState(0);
+
+  useEffect(() => onSyncChange(() => bump((n) => n + 1)), []);
+  useEffect(() => {
+    void refreshSyncStatus();
+    const id = window.setInterval(() => void refreshSyncStatus(), 5000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const status = syncSnapshot();
+  const busy = syncBusy();
+  const failed = status?.last != null && !status.last.ok;
+  const state = busy ? "busy" : failed ? "error" : status?.repo ? "ok" : "idle";
+  const cause = syncCause(authMode, status);
+  const target = remoteLabel(remote) ?? status?.remoteHost ?? t("syncNoRemote");
+  const lastAt = status?.last != null ? syncWhen(status.last.at, locale) : null;
+
+  return (
+    <div className="s-smodal__sync">
+      <div className="s-smodal__syncline">
+        <span className={`s-syncdot s-syncdot--${state}`} aria-hidden="true" />
+        <span>
+          {status === null
+            ? t("loading")
+            : !status.repo
+              ? t("syncNotRepo")
+              : tf("syncOnBranch", { branch: status.branch ?? "—", host: target })}
+        </span>
+      </div>
+      {status?.repo && (
+        // Three counts, separated by a hairline rather than a "·": the Eastern
+        // Arabic zero IS a dot, so a middle-dot separator beside it produced
+        // the unreadable "٠٠" run. Each count is also its own isolate — one
+        // interpolated "{ahead} ahead · {behind} behind" reordered under RTL
+        // into two colliding numerals. ahead/behind are number | null, and
+        // null is NOT zero: it means nothing here has reached the remote.
+        <div className="s-smodal__syncline s-smodal__syncline--muted s-smodal__counts">
+          <span>
+            {status.dirty > 0 ? tf("syncTipDirty", { count: localeNum(status.dirty) }) : t("syncTipClean")}
+          </span>
+          {status.ahead !== null && status.behind !== null && (
+            <>
+              <bdi>{tf("syncAhead", { count: localeNum(status.ahead) })}</bdi>
+              <bdi>{tf("syncBehind", { count: localeNum(status.behind) })}</bdi>
+            </>
+          )}
+        </div>
+      )}
+      {status?.repo && (status.ahead === null || status.behind === null) && (
+        <div className="s-smodal__syncline">
+          <span className="s-smodal__syncwarn">{t("syncNoTracking")}</span>
+        </div>
+      )}
+      {status?.last != null && lastAt !== null && status.last.ok && (
+        <div className="s-smodal__syncline s-smodal__syncline--muted s-smodal__counts">
+          {/* Two ISOLATES, not one dir="auto" span: "auto" takes its direction
+              from the first strong character — the Arabic date — and then
+              reorders everything after it around that. */}
+          <bdi>{lastAt}</bdi>
+          <bdi>
+            {t(
+              status.last.committed
+                ? "syncPushed"
+                : status.last.remoteAdvanced === true
+                  ? "syncPushedOnly"
+                  : "syncUpToDate",
+            )}
+          </bdi>
+        </div>
+      )}
+      {status?.last != null && lastAt !== null && !status.last.ok && (
+        <div className="s-smodal__syncfail">
+          <div className="s-smodal__syncline s-smodal__syncline--bad s-smodal__counts">
+            <bdi>{lastAt}</bdi>
+            <bdi>{cause ?? t("syncFailed")}</bdi>
+          </div>
+          {/* git's own words, verbatim and token-scrubbed — the diagnosis, and
+              the thing a reader pastes into a search box. Its OWN dir="ltr"
+              block: bidi cannot reach into it from the localized line above,
+              and it is selectable text rather than a tooltip. */}
+          <div className="s-smodal__syncgit">
+            <span className="s-smodal__syncgitlabel">{t("syncGitSaid")}</span>
+            <code className="s-smodal__syncgittext" dir="ltr">
+              {status.last.message}
+            </code>
+          </div>
+        </div>
+      )}
+      {cause !== null && !failed && (
+        <div className="s-smodal__syncline s-smodal__syncwarn">
+          <span>{cause}</span>
+        </div>
+      )}
+      {stale && (
+        <div className="s-smodal__syncline s-smodal__syncline--muted">
+          <span>{t("syncSaveFirst")}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Initialize / Sync now. SECTION-level verbs, so they sit in their own
+ *  full-width row rather than inside a field called "Status". Both act on what
+ *  the SERVER has stored, never on what the form shows — acting while the two
+ *  disagree would push to the old remote and then report success — so they
+ *  wait for the save, and the status block above says so.
+ *
+ *  "Initialize repository" LEAVES once the vault is one. A permanently greyed
+ *  button holding the primary position, forever, is not a control. */
+function SyncActions({ stale, disabled }: { stale: boolean; disabled: boolean }) {
+  const [, bump] = useState(0);
+  useEffect(() => onSyncChange(() => bump((n) => n + 1)), []);
+  const status = syncSnapshot();
+  const busy = syncBusy();
+  const blocked = disabled || stale || busy || status === null;
+  return (
+    <div className={`s-smodal__actions${disabled ? " s-smodal__actions--off" : ""}`}>
+      {status !== null && !status.repo && (
+        <button type="button" className="s-btn" disabled={blocked} onClick={() => void runSyncInit()}>
+          {t("syncInitialize")}
+        </button>
+      )}
+      <button
+        type="button"
+        className="s-btn s-btn--accent"
+        disabled={blocked || !status?.repo || !status.configured}
+        onClick={() => void runSyncNow()}
+      >
+        {busy ? t("syncing") : t("syncNow")}
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Typography — four slots over the self-hosted catalog, plus a live specimen.
+// ---------------------------------------------------------------------------
+
+/** The option groups a slot offers. Text and Interface list the Latin-only
+ *  families (the Arabic ones have their own slot, which answers for Arabic
+ *  letters in ALL THREE composites — offering them here too would only invite
+ *  picking a naskh face as the Latin one); Code lists the monospace family;
+ *  Arabic splits naskh/classical from modern/kufi, which is the distinction a
+ *  reader is actually choosing between. */
+function fontGroups(
+  catalog: FontCatalogEntry[],
+  slot: "text" | "mono" | "arabic",
+): { key: I18nKey; items: FontCatalogEntry[] }[] {
+  const latin = catalog.filter((f) => !f.scripts.includes("arabic"));
+  const arabic = catalog.filter((f) => f.scripts.includes("arabic"));
+  if (slot === "mono") return [{ key: "fontGroupMono", items: latin.filter((f) => f.category === "mono") }];
+  if (slot === "arabic") {
+    return [
+      { key: "fontGroupArabicNaskh", items: arabic.filter((f) => f.category === "serif") },
+      { key: "fontGroupArabicModern", items: arabic.filter((f) => f.category === "sans") },
+    ];
+  }
+  return [
+    { key: "fontGroupSerif", items: latin.filter((f) => f.category === "serif") },
+    { key: "fontGroupSans", items: latin.filter((f) => f.category === "sans") },
+  ];
+}
+
+function FontSelect({
+  value,
+  groups,
+  onChange,
+}: {
+  value: string;
+  groups: { key: I18nKey; items: FontCatalogEntry[] }[];
+  onChange: (id: string) => void;
+}) {
+  return (
+    <select
+      className="s-bmodal__input s-smodal__select"
+      // The VALUES are Latin family names (Lora, JetBrains Mono, Amiri). In an
+      // RTL panel a select right-aligns its value, which flung every name to
+      // the far edge away from its chevron and left the column ragged; the
+      // names get to keep their own direction and start-alignment.
+      dir="ltr"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value={SYSTEM_FONT}>{t("fontSystem")}</option>
+      {groups.map((group) =>
+        group.items.length === 0 ? null : (
+          <optgroup key={group.key} label={t(group.key)}>
+            {group.items.map((font) => (
+              // Family names are proper nouns — untranslated, like the theme
+              // names one section up.
+              <option key={font.id} value={font.id}>
+                {font.family}
+              </option>
+            ))}
+          </optgroup>
+        ),
+      )}
+    </select>
+  );
+}
+
+/** The specimen block. Each row renders in its slot's PREVIEW composite
+ *  ("VellumPreviewProse" …), which /api/font-preview.css defines from the
+ *  picks currently in the form — so the reader sees the faces before saving
+ *  anything. The second line of each row is mixed on purpose: the Arabic slot
+ *  answers for the Arabic letters and the slot's own face for the Latin ones,
+ *  chosen per character. Every family name falls back to the matching
+ *  --font-*-system stack, so an unpicked (or not-yet-fetched) slot simply
+ *  shows what the site shows today. */
+function FontSpecimens() {
+  const rows: { key: I18nKey; cls: string }[] = [
+    { key: "rowFontProse", cls: "s-smodal__specimen--prose" },
+    { key: "rowFontUi", cls: "s-smodal__specimen--ui" },
+    { key: "rowFontMono", cls: "s-smodal__specimen--mono" },
+  ];
+  return (
+    <div className="s-smodal__specimens">
+      {rows.map((row) => (
+        <div key={row.key} className={`s-smodal__specimen ${row.cls}`}>
+          <span className="s-smodal__speclabel">{t(row.key)}</span>
+          {/* Both lines start at the SAME edge. The block keeps the panel's
+              direction and each sample is an inline isolate inside it (dir on
+              an inline element implies unicode-bidi: isolate), so the Arabic
+              still shapes and orders right-to-left but is not flung to the
+              opposite edge of the box — two faces judged against each other
+              have to begin at the same place. */}
+          <span className="s-smodal__specline">
+            <bdi dir="ltr">{SPECIMEN_LATIN}</bdi>
+          </span>
+          <span className="s-smodal__specline">
+            <bdi dir="rtl">{SPECIMEN_ARABIC}</bdi>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Keep a <link> to /api/font-preview.css in sync with the four picks. The
+ *  server caches a family the first time it is previewed, so the request is
+ *  debounced (a select is a burst of changes) and its failures are silent —
+ *  the specimen falls back to the system stack, which is a fine preview; a
+ *  toast per keystroke is not. */
+function useFontPreview(prose: string, ui: string, mono: string, arabic: string): void {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const q = new URLSearchParams();
+      for (const [slot, id] of [["prose", prose], ["ui", ui], ["mono", mono], ["arabic", arabic]]) {
+        if (id && id !== SYSTEM_FONT) q.set(slot, id);
+      }
+      let link = document.head.querySelector<HTMLLinkElement>("link[data-vellum-fontpreview]");
+      if ([...q.keys()].length === 0) {
+        link?.remove();
+        return;
+      }
+      if (!link) {
+        link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.setAttribute("data-vellum-fontpreview", "");
+        document.head.appendChild(link);
+      }
+      const href = `/api/font-preview.css?${q.toString()}`;
+      if (link.getAttribute("href") !== href) link.setAttribute("href", href);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [prose, ui, mono, arabic]);
+  // The preview families must not outlive the panel: the saved stylesheet is
+  // what the app renders in.
+  useEffect(() => () => document.head.querySelector("link[data-vellum-fontpreview]")?.remove(), []);
+}
+
+// ---------------------------------------------------------------------------
 // The panel
 // ---------------------------------------------------------------------------
+
+/** The section rail. Five groups over ~2,700px of content is four screens of
+ *  one flat scroll: from Identity there was no way to learn that Typography or
+ *  Backup & sync existed at all. The rail is the table of contents AND the
+ *  position indicator — the same reason Obsidian's settings is two columns. */
+const SECTIONS: { id: string; key: I18nKey }[] = [
+  { id: "identity", key: "groupIdentity" },
+  { id: "home", key: "groupHome" },
+  { id: "behavior", key: "groupBehavior" },
+  { id: "typography", key: "groupTypography" },
+  { id: "sync", key: "groupSync" },
+];
+
+/** Automatic-sync periods. A closed set of sentences beats a free number with
+ *  a decoder hint under it ("minutes; 0 = manual only"); a stored value from
+ *  outside the set (hand-edited settings.json) is added rather than lost. */
+const SYNC_INTERVALS = [0, 15, 30, 60, 180, 360, 720, 1440];
+
+function intervalLabel(minutes: number): string {
+  if (minutes === 0) return t("syncIntervalManual");
+  if (minutes < 60) return tf("syncIntervalMinutes", { count: localeNum(minutes) });
+  if (minutes === 60) return t("syncIntervalHourly");
+  if (minutes === 1440) return t("syncIntervalDaily");
+  if (minutes % 60 === 0) return tf("syncIntervalHours", { count: localeNum(minutes / 60) });
+  return tf("syncIntervalMinutes", { count: localeNum(minutes) });
+}
 
 export default function SettingsModal() {
   const setOpen = useStore((s) => s.setSettingsOpen);
@@ -440,6 +925,51 @@ export default function SettingsModal() {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [picker, setPicker] = useState<"favicon" | "logo" | "homeBanner" | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [section, setSection] = useState(SECTIONS[0].id);
+  /** Which scroll edges have content beyond them. Without this the content is
+   *  sliced flush at the top and bottom of the box and reads as a rendering
+   *  bug rather than as something that scrolls. */
+  const [edges, setEdges] = useState({ top: false, bottom: false });
+
+  /** Active section + edge fades, from one scroll handler (also run on mount
+   *  and on resize, so the state is right before anything is scrolled). */
+  const syncScrollState = useCallback(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const top = body.scrollTop > 2;
+    const bottom = body.scrollTop + body.clientHeight < body.scrollHeight - 2;
+    setEdges((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }));
+    const bodyTop = body.getBoundingClientRect().top;
+    let active = SECTIONS[0].id;
+    for (const el of body.querySelectorAll<HTMLElement>("[data-section]")) {
+      // A section counts as "the one you are reading" once its heading has
+      // crossed a third of the way up the viewport.
+      if (el.getBoundingClientRect().top - bodyTop <= body.clientHeight / 3) {
+        active = el.dataset.section ?? active;
+      }
+    }
+    // The last section can never reach the threshold when it is shorter than
+    // the viewport, so the bottom of the scroll always names the last one.
+    if (!bottom) active = SECTIONS[SECTIONS.length - 1].id;
+    setSection(active);
+  }, []);
+
+  useEffect(() => {
+    syncScrollState();
+    window.addEventListener("resize", syncScrollState);
+    return () => window.removeEventListener("resize", syncScrollState);
+  }, [syncScrollState, form]);
+
+  const goToSection = useCallback((id: string) => {
+    const body = bodyRef.current;
+    const target = body?.querySelector<HTMLElement>(`[data-section="${id}"]`);
+    if (!body || !target) return;
+    body.scrollTo({
+      top: body.scrollTop + target.getBoundingClientRect().top - body.getBoundingClientRect().top - 4,
+      behavior: "smooth",
+    });
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -476,6 +1006,13 @@ export default function SettingsModal() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [close]);
 
+  useFontPreview(
+    form?.fontProse ?? SYSTEM_FONT,
+    form?.fontUi ?? SYSTEM_FONT,
+    form?.fontMono ?? SYSTEM_FONT,
+    form?.fontArabic ?? SYSTEM_FONT,
+  );
+
   const errors = useMemo(() => (form ? validate(form) : {}), [form]);
   const patch = useMemo(
     () => (form && initial ? buildPatch(initial, form) : {}),
@@ -508,15 +1045,59 @@ export default function SettingsModal() {
       })
       .catch((err: unknown) => {
         console.error("vellum: saving settings failed", err);
-        toast(err instanceof Error ? err.message : t("settingsSaveFailed"));
+        // A typography save is the one that can fail on the NETWORK (the
+        // faces are fetched before the file is written), so its fallback
+        // message says so — and settings.json is untouched either way.
+        toast(err instanceof Error ? err.message : t(body.fonts ? "fontsFetchFailed" : "settingsSaveFailed"));
       })
       .finally(() => setSaving(false));
   }, [form, initial, saving]);
 
+  /** Clearing a credential is not a form edit: it takes effect at once, on its
+   *  own, so a reader who wants the token off the disk never has to find the
+   *  Save button afterwards. */
+  const clearToken = useCallback(() => {
+    if (saving) return;
+    setSaving(true);
+    patchSettings({ gitToken: null })
+      .then((s) => {
+        const f = formFrom(s);
+        setLoaded(s);
+        setInitial(f);
+        // Unsaved edits elsewhere in the panel survive; only the token field
+        // resets (there is nothing left to replace).
+        setForm((prev) => (prev ? { ...prev, syncToken: "" } : f));
+        toast(t("tokenCleared"));
+      })
+      .catch((err: unknown) => {
+        console.error("vellum: clearing the git token failed", err);
+        toast(err instanceof Error ? err.message : t("settingsSaveFailed"));
+      })
+      .finally(() => setSaving(false));
+  }, [saving]);
+
   const eff = loaded?.effective;
+  /** The master switch is off: every control below it in Backup & sync is
+   *  inert, and says so. */
+  const syncOff = form?.syncEnabled !== "on";
+  /** The sync fields hold unsaved edits, so the two actions must wait for the
+   *  save rather than act on a remote the form no longer shows. */
+  const syncStale =
+    patch.gitSync !== undefined || patch.gitToken !== undefined || patch.gitUser !== undefined;
+  /** A value hand-written into settings.json outside the offered set still
+   *  gets an option, so opening the panel can never silently change it. */
+  const intervalChoices = useMemo(() => {
+    const stored = Number(form?.syncInterval ?? "0");
+    const all = Number.isInteger(stored) && stored >= 0 && !SYNC_INTERVALS.includes(stored)
+      ? [...SYNC_INTERVALS, stored]
+      : SYNC_INTERVALS;
+    return [...all].sort((a, b) => a - b);
+  }, [form?.syncInterval]);
 
   return (
-    <div className="s-palette-overlay" onMouseDown={close}>
+    // The palette's overlay drops its panel at 18vh, which is right for a
+    // 400px-tall list and wrong for a panel that wants the whole height.
+    <div className="s-palette-overlay s-smodal-overlay" onMouseDown={close}>
       <div
         className="s-bmodal s-smodal"
         role="dialog"
@@ -536,179 +1117,470 @@ export default function SettingsModal() {
         {!loadError && (!form || !eff) && <div className="s-bmodal__empty">{t("loading")}</div>}
 
         {form && eff && (
-          <div className="s-smodal__body">
-            <p className="s-smodal__note">{t("settingsNote")}</p>
+          <div className="s-smodal__cols">
+            {/* The panel's table of contents AND its position indicator. */}
+            <nav className="s-smodal__rail" aria-label={t("settingsSections")}>
+              {SECTIONS.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={`s-smodal__railbtn${section === s.id ? " s-smodal__railbtn--on" : ""}`}
+                  aria-current={section === s.id ? "true" : undefined}
+                  onClick={() => goToSection(s.id)}
+                >
+                  {t(s.key)}
+                </button>
+              ))}
+            </nav>
 
-            <div className="s-smodal__group">{t("groupIdentity")}</div>
-            <Row label={t("rowSiteName")} error={errors.siteName}>
-              <input
-                className="s-bmodal__input"
-                type="text"
-                placeholder={eff.siteName}
-                maxLength={81}
-                {...field("siteName")}
-              />
-            </Row>
-            <Row label={t("rowTagline")} hint={t("hintTagline")} error={errors.tagline}>
-              <input
-                className="s-bmodal__input"
-                type="text"
-                placeholder={eff.tagline ?? "Notes from the canopy…"}
-                maxLength={161}
-                {...field("tagline")}
-              />
-            </Row>
-            <Row label={t("rowFooter")} hint={t("hintFooter")} error={errors.footer}>
-              <input
-                className="s-bmodal__input"
-                type="text"
-                placeholder={eff.footer ?? "© {year} {siteName}"}
-                maxLength={201}
-                {...field("footer")}
-              />
-            </Row>
-            <Row label={t("rowLogo")} hint={t("hintLogo")} error={errors.logo}>
-              <ImageField
-                value={form.logo}
-                placeholder={t("phVaultImageOrUrl")}
-                invalid={errors.logo !== undefined}
-                onChange={(v) => setForm((f) => (f ? { ...f, logo: v } : f))}
-                onOpenPicker={() => setPicker("logo")}
-              />
-            </Row>
-            <Row label={t("rowFavicon")} hint={t("hintFavicon")} error={errors.favicon}>
-              <ImageField
-                value={form.favicon}
-                placeholder={t("phVaultIcon")}
-                invalid={errors.favicon !== undefined}
-                onChange={(v) => setForm((f) => (f ? { ...f, favicon: v } : f))}
-                onOpenPicker={() => setPicker("favicon")}
-              />
-            </Row>
+            <div className="s-smodal__scroll">
+              <div className="s-smodal__body" ref={bodyRef} onScroll={syncScrollState}>
+                <section data-section="identity">
+                  <div className="s-smodal__group">{t("groupIdentity")}</div>
+                  <p className="s-smodal__note">{t("settingsNote")}</p>
+                  <Row
+                    label={t("rowSiteName")}
+                    error={errors.siteName}
+                    inherited={form.siteName.trim() === ""}
+                  >
+                    <input
+                      className="s-bmodal__input"
+                      type="text"
+                      placeholder={eff.siteName}
+                      maxLength={81}
+                      {...field("siteName")}
+                    />
+                  </Row>
+                  <Row
+                    label={t("rowTagline")}
+                    hint={t("hintTagline")}
+                    error={errors.tagline}
+                    inherited={form.tagline.trim() === ""}
+                  >
+                    <input
+                      className="s-bmodal__input"
+                      type="text"
+                      placeholder={eff.tagline ?? "Notes from the canopy…"}
+                      maxLength={161}
+                      {...field("tagline")}
+                    />
+                  </Row>
+                  <Row
+                    label={t("rowFooter")}
+                    hint={t("hintFooter")}
+                    error={errors.footer}
+                    inherited={form.footer.trim() === ""}
+                  >
+                    <input
+                      className="s-bmodal__input"
+                      type="text"
+                      placeholder={eff.footer ?? "© {year} {siteName}"}
+                      maxLength={201}
+                      {...field("footer")}
+                    />
+                  </Row>
+                  <Row
+                    label={t("rowLogo")}
+                    hint={t("hintLogo")}
+                    error={errors.logo}
+                    inherited={form.logo.trim() === ""}
+                  >
+                    <ImageField
+                      value={form.logo}
+                      placeholder={t("phVaultImageOrUrl")}
+                      invalid={errors.logo !== undefined}
+                      onChange={(v) => setForm((f) => (f ? { ...f, logo: v } : f))}
+                      onOpenPicker={() => setPicker("logo")}
+                    />
+                  </Row>
+                  <Row
+                    label={t("rowFavicon")}
+                    hint={t("hintFavicon")}
+                    error={errors.favicon}
+                    inherited={form.favicon.trim() === ""}
+                  >
+                    <ImageField
+                      value={form.favicon}
+                      placeholder={t("phVaultIcon")}
+                      invalid={errors.favicon !== undefined}
+                      onChange={(v) => setForm((f) => (f ? { ...f, favicon: v } : f))}
+                      onOpenPicker={() => setPicker("favicon")}
+                    />
+                  </Row>
+                </section>
 
-            <div className="s-smodal__group">{t("groupHome")}</div>
-            <Row label={t("rowMode")} hint={t("hintMode")}>
-              <select className="s-bmodal__input s-smodal__select" {...field("homeMode")}>
-                <option value="">{tf("inheritOption", { value: enumLabel(eff.home.mode) })}</option>
-                <option value="note">{t("modeNote")}</option>
-                <option value="dashboard">{t("modeDashboard")}</option>
-              </select>
-            </Row>
-            <Row label={t("rowHomeNote")} hint={t("hintHomeNote")} error={errors.homeNote}>
-              <input
-                className="s-bmodal__input"
-                type="text"
-                placeholder={eff.home.note ?? "Welcome.md"}
-                spellCheck={false}
-                dir="ltr"
-                {...field("homeNote")}
-              />
-            </Row>
-            <Row label={t("rowHomeBanner")} hint={t("hintHomeBanner")} error={errors.homeBanner}>
-              <ImageField
-                value={form.homeBanner}
-                placeholder={t("phVaultImageOrUrl")}
-                invalid={errors.homeBanner !== undefined}
-                onChange={(v) => setForm((f) => (f ? { ...f, homeBanner: v } : f))}
-                onOpenPicker={() => setPicker("homeBanner")}
-              />
-            </Row>
+                <section data-section="home">
+                  <div className="s-smodal__group">{t("groupHome")}</div>
+                  <Row label={t("rowMode")} hint={t("hintMode")}>
+                    <select className="s-bmodal__input s-smodal__select" {...field("homeMode")}>
+                      <option value="">{tf("inheritOption", { value: enumLabel(eff.home.mode) })}</option>
+                      <option value="note">{t("modeNote")}</option>
+                      <option value="dashboard">{t("modeDashboard")}</option>
+                    </select>
+                  </Row>
+                  <Row
+                    label={t("rowHomeNote")}
+                    hint={t("hintHomeNote")}
+                    error={errors.homeNote}
+                    inherited={form.homeNote.trim() === ""}
+                  >
+                    <input
+                      className="s-bmodal__input"
+                      type="text"
+                      placeholder={eff.home.note ?? "Welcome.md"}
+                      spellCheck={false}
+                      dir="ltr"
+                      {...field("homeNote")}
+                    />
+                  </Row>
+                  <Row
+                    label={t("rowHomeBanner")}
+                    hint={t("hintHomeBanner")}
+                    error={errors.homeBanner}
+                    inherited={form.homeBanner.trim() === ""}
+                  >
+                    <ImageField
+                      value={form.homeBanner}
+                      placeholder={t("phVaultImageOrUrl")}
+                      invalid={errors.homeBanner !== undefined}
+                      onChange={(v) => setForm((f) => (f ? { ...f, homeBanner: v } : f))}
+                      onOpenPicker={() => setPicker("homeBanner")}
+                    />
+                  </Row>
+                </section>
 
-            <div className="s-smodal__group">{t("groupBehavior")}</div>
-            <Row label={t("rowDefaultTheme")} hint={t("hintDefaultTheme")}>
-              <select className="s-bmodal__input s-smodal__select" {...field("defaultTheme")}>
-                <option value="">
-                  {tf("inheritOption", { value: eff.defaultTheme ?? "iron-gall" })}
-                </option>
-                {THEMES.map((theme) => (
-                  <option key={theme} value={theme}>
-                    {theme}
-                  </option>
-                ))}
-              </select>
-            </Row>
-            <Row label={t("rowPublicLayout")} hint={t("hintPublicLayout")}>
-              <select className="s-bmodal__input s-smodal__select" {...field("publicLayout")}>
-                <option value="">{tf("inheritOption", { value: enumLabel(eff.publicLayout) })}</option>
-                <option value="app">{t("layoutApp")}</option>
-                <option value="blog">{t("layoutBlog")}</option>
-              </select>
-            </Row>
-            <Row label={t("rowLanguage")} hint={t("hintLanguage")}>
-              <select className="s-bmodal__input s-smodal__select" {...field("language")}>
-                <option value="">{tf("inheritOption", { value: eff.language })}</option>
-                {/* Language names stay in their own script — that is how a
-                    language picker reads to the person who needs it. */}
-                <option value="en">English</option>
-                <option value="ar">العربية</option>
-              </select>
-            </Row>
-            <Row label={t("rowLanguageFilter")} hint={t("hintLanguageFilter")}>
-              <select className="s-bmodal__input s-smodal__select" {...field("languageFilter")}>
-                <option value="">
-                  {tf("inheritOption", { value: eff.languageFilter ? t("on") : t("off") })}
-                </option>
-                <option value="on">{t("on")}</option>
-                <option value="off">{t("off")}</option>
-              </select>
-            </Row>
-            <Row label={t("rowLanguageToggle")} hint={t("hintLanguageToggle")}>
-              <select className="s-bmodal__input s-smodal__select" {...field("languageToggle")}>
-                <option value="">
-                  {tf("inheritOption", { value: eff.languageToggle ? t("on") : t("off") })}
-                </option>
-                <option value="on">{t("on")}</option>
-                <option value="off">{t("off")}</option>
-              </select>
-            </Row>
-            <Row label={t("rowDateLocale")} hint={t("hintDateLocale")} error={errors.blogLocale}>
-              <input
-                className="s-bmodal__input"
-                type="text"
-                placeholder={eff.blogLocale}
-                spellCheck={false}
-                dir="ltr"
-                {...field("blogLocale")}
+                <section data-section="behavior">
+                  <div className="s-smodal__group">{t("groupBehavior")}</div>
+                  <Row label={t("rowDefaultTheme")} hint={t("hintDefaultTheme")}>
+                    <select className="s-bmodal__input s-smodal__select" {...field("defaultTheme")}>
+                      <option value="">
+                        {tf("inheritOption", { value: eff.defaultTheme ?? "iron-gall" })}
+                      </option>
+                      {THEMES.map((theme) => (
+                        <option key={theme} value={theme}>
+                          {theme}
+                        </option>
+                      ))}
+                    </select>
+                  </Row>
+                  <Row label={t("rowPublicLayout")} hint={t("hintPublicLayout")}>
+                    <select className="s-bmodal__input s-smodal__select" {...field("publicLayout")}>
+                      <option value="">{tf("inheritOption", { value: enumLabel(eff.publicLayout) })}</option>
+                      <option value="app">{t("layoutApp")}</option>
+                      <option value="blog">{t("layoutBlog")}</option>
+                    </select>
+                  </Row>
+                  <Row label={t("rowLanguage")} hint={t("hintLanguage")}>
+                    <select className="s-bmodal__input s-smodal__select" {...field("language")}>
+                      <option value="">{tf("inheritOption", { value: eff.language })}</option>
+                      {/* Language names stay in their own script — that is how a
+                          language picker reads to the person who needs it. */}
+                      <option value="en">English</option>
+                      <option value="ar">العربية</option>
+                    </select>
+                  </Row>
+                  <Row label={t("rowLanguageFilter")} hint={t("hintLanguageFilter")}>
+                    <select className="s-bmodal__input s-smodal__select" {...field("languageFilter")}>
+                      <option value="">
+                        {tf("inheritOption", { value: eff.languageFilter ? t("on") : t("off") })}
+                      </option>
+                      <option value="on">{t("on")}</option>
+                      <option value="off">{t("off")}</option>
+                    </select>
+                  </Row>
+                  <Row label={t("rowLanguageToggle")} hint={t("hintLanguageToggle")}>
+                    <select className="s-bmodal__input s-smodal__select" {...field("languageToggle")}>
+                      <option value="">
+                        {tf("inheritOption", { value: eff.languageToggle ? t("on") : t("off") })}
+                      </option>
+                      <option value="on">{t("on")}</option>
+                      <option value="off">{t("off")}</option>
+                    </select>
+                  </Row>
+                  <Row
+                    label={t("rowDateLocale")}
+                    hint={t("hintDateLocale")}
+                    error={errors.blogLocale}
+                    inherited={form.blogLocale.trim() === ""}
+                  >
+                    <input
+                      className="s-bmodal__input"
+                      type="text"
+                      placeholder={eff.blogLocale}
+                      spellCheck={false}
+                      dir="ltr"
+                      {...field("blogLocale")}
+                    />
+                  </Row>
+                  <Row
+                    label={t("rowExcludeTags")}
+                    hint={t("hintExcludeTags")}
+                    error={errors.excludeTags}
+                    inherited={form.excludeTags.trim() === ""}
+                  >
+                    <input
+                      className="s-bmodal__input"
+                      type="text"
+                      placeholder={eff.excludeTags.length > 0 ? eff.excludeTags.join(", ") : t("phExcludeTags")}
+                      spellCheck={false}
+                      {...field("excludeTags")}
+                    />
+                  </Row>
+                  <Row label={t("rowComments")} hint={t("hintComments")}>
+                    <select className="s-bmodal__input s-smodal__select" {...field("comments")}>
+                      <option value="">
+                        {tf("inheritOption", { value: eff.commentsEnabled ? t("on") : t("off") })}
+                      </option>
+                      <option value="on">{t("on")}</option>
+                      <option value="off">{t("off")}</option>
+                    </select>
+                  </Row>
+                  <Row label={t("rowShareButtons")} hint={t("hintShareButtons")}>
+                    <select className="s-bmodal__input s-smodal__select" {...field("share")}>
+                      <option value="">
+                        {tf("inheritOption", { value: eff.shareButtons ? t("on") : t("off") })}
+                      </option>
+                      <option value="on">{t("on")}</option>
+                      <option value="off">{t("off")}</option>
+                    </select>
+                  </Row>
+                </section>
+
+                <section data-section="typography">
+                  <div className="s-smodal__group">{t("groupTypography")}</div>
+                  <p className="s-smodal__note">{t("typographyNote")}</p>
+                  <Row label={t("rowFontProse")} hint={t("hintFontProse")}>
+                    <FontSelect
+                      value={form.fontProse}
+                      groups={fontGroups(loaded?.fontCatalog ?? [], "text")}
+                      onChange={(id) => setForm((f) => (f ? { ...f, fontProse: id } : f))}
+                    />
+                  </Row>
+                  <Row label={t("rowFontUi")} hint={t("hintFontUi")}>
+                    <FontSelect
+                      value={form.fontUi}
+                      groups={fontGroups(loaded?.fontCatalog ?? [], "text")}
+                      onChange={(id) => setForm((f) => (f ? { ...f, fontUi: id } : f))}
+                    />
+                  </Row>
+                  <Row label={t("rowFontMono")} hint={t("hintFontMono")}>
+                    <FontSelect
+                      value={form.fontMono}
+                      groups={fontGroups(loaded?.fontCatalog ?? [], "mono")}
+                      onChange={(id) => setForm((f) => (f ? { ...f, fontMono: id } : f))}
+                    />
+                  </Row>
+                  {/* The Arabic slot is not a fourth Latin slot: it is one face
+                      that answers for Arabic letters INSIDE the three above,
+                      per character. Its own sub-heading says so before the
+                      hint has to. */}
+                  <div className="s-smodal__sub">{t("fontArabicHead")}</div>
+                  <p className="s-smodal__note">{t("fontArabicHeadNote")}</p>
+                  <Row label={t("rowFontArabic")} hint={t("hintFontArabic")}>
+                    <FontSelect
+                      value={form.fontArabic}
+                      groups={fontGroups(loaded?.fontCatalog ?? [], "arabic")}
+                      onChange={(id) => setForm((f) => (f ? { ...f, fontArabic: id } : f))}
+                    />
+                  </Row>
+                  {/* Full width, directly under the four selects: choosing a
+                      face is a compare-and-adjust loop, and it only works when
+                      the control and its effect are in the same frame. */}
+                  <Row label={t("fontPreview")} hint={t("fontPreviewNote")} wide>
+                    <FontSpecimens />
+                    <div className="s-smodal__fontfoot">
+                      <button
+                        type="button"
+                        className="s-btn"
+                        onClick={() =>
+                          setForm((f) =>
+                            f
+                              ? {
+                                  ...f,
+                                  fontProse: SYSTEM_FONT,
+                                  fontUi: SYSTEM_FONT,
+                                  fontMono: SYSTEM_FONT,
+                                  fontArabic: SYSTEM_FONT,
+                                }
+                              : f,
+                          )
+                        }
+                      >
+                        {t("fontReset")}
+                      </button>
+                    </div>
+                  </Row>
+                </section>
+
+                {/* ── Backup & sync ───────────────────────────────────────
+                    No "inherit" option anywhere in this group: sync has no env
+                    counterpart, so every control shows the value in force.
+                    Everything below the master switch is DISABLED while that
+                    switch is off — six fields and two actions at full contrast
+                    and full interactivity, all inert, read as a configured and
+                    running backup at a glance. */}
+                <section data-section="sync">
+                  <div className="s-smodal__group">{t("groupSync")}</div>
+                  <p className="s-smodal__note">{t("syncNote")}</p>
+                  <Row label={t("rowSyncEnabled")} hint={t("hintSyncEnabled")}>
+                    <select className="s-bmodal__input s-smodal__select" {...field("syncEnabled")}>
+                      <option value="off">{t("off")}</option>
+                      <option value="on">{t("on")}</option>
+                    </select>
+                  </Row>
+                  {syncOff && <p className="s-smodal__offnote">{t("syncOffNotice")}</p>}
+                  <Row
+                    label={t("rowSyncRemote")}
+                    hint={t("hintSyncRemote")}
+                    error={errors.syncRemote}
+                    off={syncOff}
+                  >
+                    <input
+                      className="s-bmodal__input"
+                      type="text"
+                      placeholder={t("phSyncRemote")}
+                      spellCheck={false}
+                      dir="ltr"
+                      autoComplete="off"
+                      disabled={syncOff}
+                      {...field("syncRemote")}
+                    />
+                  </Row>
+                  <Row
+                    label={t("rowSyncBranch")}
+                    hint={t("hintSyncBranch")}
+                    error={errors.syncBranch}
+                    off={syncOff}
+                  >
+                    <input
+                      className="s-bmodal__input"
+                      type="text"
+                      placeholder="main"
+                      spellCheck={false}
+                      dir="ltr"
+                      autoComplete="off"
+                      disabled={syncOff}
+                      {...field("syncBranch")}
+                    />
+                  </Row>
+                  <Row label={t("rowSyncAuth")} hint={t("hintSyncAuth")} off={syncOff}>
+                    <select
+                      className="s-bmodal__input s-smodal__select"
+                      disabled={syncOff}
+                      {...field("syncAuth")}
+                    >
+                      <option value="ssh">{t("authSsh")}</option>
+                      <option value="token">{t("authToken")}</option>
+                    </select>
+                  </Row>
+                  {form.syncAuth === "token" && (
+                    <>
+                      <Row label={t("rowSyncUser")} hint={t("hintSyncUser")} off={syncOff}>
+                        <input
+                          className="s-bmodal__input"
+                          type="text"
+                          placeholder={t("phSyncUser")}
+                          spellCheck={false}
+                          dir="ltr"
+                          autoComplete="off"
+                          disabled={syncOff}
+                          {...field("syncUser")}
+                        />
+                      </Row>
+                      <Row
+                        label={t("rowSyncToken")}
+                        hint={t("hintSyncToken")}
+                        error={errors.syncToken}
+                        off={syncOff}
+                      >
+                        <div className="s-smodal__tokenfield">
+                          <input
+                            className="s-bmodal__input"
+                            type="password"
+                            placeholder={t(eff.gitSync.tokenSet ? "phTokenStored" : "phTokenNew")}
+                            spellCheck={false}
+                            dir="ltr"
+                            autoComplete="new-password"
+                            disabled={syncOff}
+                            {...field("syncToken")}
+                          />
+                          <button
+                            type="button"
+                            className="s-btn"
+                            disabled={syncOff || !eff.gitSync.tokenSet || saving}
+                            onClick={clearToken}
+                          >
+                            {t("clearToken")}
+                          </button>
+                        </div>
+                        <span className="s-smodal__hint">
+                          {t(eff.gitSync.tokenSet ? "tokenSetYes" : "tokenSetNo")}
+                        </span>
+                      </Row>
+                    </>
+                  )}
+                  <Row label={t("rowSyncPull")} hint={t("hintSyncPull")} off={syncOff}>
+                    <select
+                      className="s-bmodal__input s-smodal__select"
+                      disabled={syncOff}
+                      {...field("syncPullFirst")}
+                    >
+                      <option value="on">{t("on")}</option>
+                      <option value="off">{t("off")}</option>
+                    </select>
+                  </Row>
+                  <Row
+                    label={t("rowSyncInterval")}
+                    hint={t("hintSyncInterval")}
+                    error={errors.syncInterval}
+                    off={syncOff}
+                  >
+                    <select
+                      className="s-bmodal__input s-smodal__select"
+                      disabled={syncOff}
+                      {...field("syncInterval")}
+                    >
+                      {intervalChoices.map((minutes) => (
+                        <option key={minutes} value={String(minutes)}>
+                          {intervalLabel(minutes)}
+                        </option>
+                      ))}
+                    </select>
+                  </Row>
+                  <Row label={t("rowSyncStatus")} hint={t("hintSyncStatus")} off={syncOff}>
+                    <SyncStatusBlock
+                      authMode={form.syncAuth}
+                      remote={form.syncRemote}
+                      stale={syncStale}
+                    />
+                  </Row>
+                  {/* Section-level verbs, on their own line and with no label
+                      at all: they are not the value of a field called
+                      "Status", and an empty label cell would only reintroduce
+                      the grid they do not belong in. */}
+                  <SyncActions stale={syncStale} disabled={syncOff} />
+                </section>
+              </div>
+              {/* Content beyond an edge gets a fade, so a sliced heading reads
+                  as "there is more" instead of as a rendering bug. */}
+              <span
+                className={`s-smodal__edge s-smodal__edge--top${edges.top ? " s-smodal__edge--on" : ""}`}
+                aria-hidden="true"
               />
-            </Row>
-            <Row
-              label={t("rowExcludeTags")}
-              hint={t("hintExcludeTags")}
-              error={errors.excludeTags}
-            >
-              <input
-                className="s-bmodal__input"
-                type="text"
-                placeholder={eff.excludeTags.length > 0 ? eff.excludeTags.join(", ") : t("phExcludeTags")}
-                spellCheck={false}
-                {...field("excludeTags")}
+              <span
+                className={`s-smodal__edge s-smodal__edge--bottom${
+                  edges.bottom ? " s-smodal__edge--on" : ""
+                }`}
+                aria-hidden="true"
               />
-            </Row>
-            <Row label={t("rowComments")} hint={t("hintComments")}>
-              <select className="s-bmodal__input s-smodal__select" {...field("comments")}>
-                <option value="">
-                  {tf("inheritOption", { value: eff.commentsEnabled ? t("on") : t("off") })}
-                </option>
-                <option value="on">{t("on")}</option>
-                <option value="off">{t("off")}</option>
-              </select>
-            </Row>
-            <Row label={t("rowShareButtons")} hint={t("hintShareButtons")}>
-              <select className="s-bmodal__input s-smodal__select" {...field("share")}>
-                <option value="">
-                  {tf("inheritOption", { value: eff.shareButtons ? t("on") : t("off") })}
-                </option>
-                <option value="on">{t("on")}</option>
-                <option value="off">{t("off")}</option>
-              </select>
-            </Row>
+            </div>
           </div>
         )}
 
         <div className="s-smodal__foot">
           <span className="s-smodal__dirty">
             {saving
-              ? t("saving")
+              ? t(patch.fonts ? "fontFetching" : "saving")
               : dirty
                 ? t(valid ? "unsavedChanges" : "fixMarkedFields")
                 : ""}
