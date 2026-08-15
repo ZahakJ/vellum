@@ -225,6 +225,33 @@ function ensureCustomCss(enabled: boolean): void {
   }
 }
 
+/** Add (or drop) the generated typography stylesheet, /api/site-fonts.css.
+ *  `sig` is the four-slot signature from /api/me: present = the instance
+ *  chose catalog faces, and its value rides along as ?v= so a changed pick
+ *  gives the browser a new URL to fetch rather than a cached stylesheet
+ *  naming the old families. Inserted BEFORE any custom.css link so a
+ *  hand-written --font-serif override still wins — the escape hatch outranks
+ *  the catalog, never the other way round. */
+function ensureSiteFonts(sig: string | null): void {
+  const existing = document.head.querySelector<HTMLLinkElement>("link[data-vellum-fonts]");
+  if (sig === null) {
+    existing?.remove();
+    return;
+  }
+  const href = `/api/site-fonts.css?v=${encodeURIComponent(sig)}`;
+  if (existing) {
+    if (existing.getAttribute("href") !== href) existing.setAttribute("href", href);
+    return;
+  }
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = href;
+  link.setAttribute("data-vellum-fonts", "");
+  const custom = document.head.querySelector("link[data-vellum-custom]");
+  if (custom) document.head.insertBefore(link, custom);
+  else document.head.appendChild(link);
+}
+
 /** Point the shell's icon link at /favicon.ico when the instance configured a
  *  favicon (settings.json), restoring the built-in inline glyph otherwise.
  *  The ?v= buster makes a just-saved favicon show up in the tab immediately —
@@ -574,6 +601,9 @@ export const useStore = create<State>()((set, get) => {
           applyTheme(me.defaultTheme);
           set({ theme: me.defaultTheme });
         }
+        // Fonts before custom.css: ensureSiteFonts inserts itself ahead of the
+        // custom.css link, and on first load that link does not exist yet.
+        ensureSiteFonts(typeof me.fonts === "string" && me.fonts !== "" ? me.fonts : null);
         ensureCustomCss(me.customCss === true);
         ensureFavicon(me.favicon === true);
       } catch (err) {

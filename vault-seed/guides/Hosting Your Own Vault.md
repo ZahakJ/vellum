@@ -44,7 +44,9 @@ assumption that your notes live on your network.
 
 ## Back up like it's just files — because it is
 
-- [ ] `git init` inside the vault and commit occasionally
+- [ ] turn on **Site settings → Backup & sync**: it commits the vault and pushes
+      it to a private git remote you own, by hand or on a timer (it only ever
+      fast-forwards, so it can never merge conflict markers into a note)
 - [ ] or point your existing sync (Syncthing, rsync, a backup tool) at the folder
 - [ ] test a restore once — future-you sends thanks
 

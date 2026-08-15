@@ -4,6 +4,7 @@
 import type {
   Backlink,
   FrontmatterResult,
+  GitSyncStatus,
   GraphData,
   MeData,
   NoteData,
@@ -185,6 +186,27 @@ export function getSettings(): Promise<SettingsResponse> {
  *  as the real admin session — the affordance lives inside visitor preview. */
 export function patchSettings(patch: SettingsPatch): Promise<SettingsResponse> {
   return request<SettingsResponse>("/api/settings", json("PATCH", patch), true);
+}
+
+// ── Backup & sync (admin only) ──────────────────────────────────────────────
+// Always sent as the real admin session (asAdmin): the affordances live in the
+// status bar and the settings panel, both of which stay reachable while the
+// admin is previewing the public site. No token ever travels on these calls —
+// it is set write-only through patchSettings({ gitToken }).
+
+export function getSyncStatus(): Promise<GitSyncStatus> {
+  return request<GitSyncStatus>("/api/sync/status", undefined, true);
+}
+
+/** Make the vault a git repo and point origin at the configured remote. */
+export function syncInit(): Promise<GitSyncStatus> {
+  return request<GitSyncStatus>("/api/sync/init", { method: "POST" }, true);
+}
+
+/** One sync pass: (optional) ff-only pull, stage, commit, push. 409 while a
+ *  sync is already running. */
+export function syncNow(): Promise<GitSyncStatus> {
+  return request<GitSyncStatus>("/api/sync/now", { method: "POST" }, true);
 }
 
 /**

@@ -10,6 +10,7 @@ import type { Context } from "hono";
 import { api, contentTypeFor } from "./api.ts";
 import { canRead, initAuth } from "./auth.ts";
 import { injectHead, renderFeed, requestOrigin } from "./blog.ts";
+import { startGitSyncTimer } from "./gitSync.ts";
 import { faviconPath } from "./settings.ts";
 import { initSite } from "./site.ts";
 import { initComments } from "./comments.ts";
@@ -60,6 +61,9 @@ initComments();
 initVault(vaultDir);
 startWatcher();
 await initIndexer();
+// Backup & sync scheduler. Inert unless settings.gitSync is enabled with a
+// remote and a non-zero interval — a fresh instance never touches a network.
+startGitSyncTimer();
 
 const app = new Hono();
 app.route("/api", api);

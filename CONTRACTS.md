@@ -12,7 +12,9 @@ Vellum: a candlelit manuscript room. Dark theme "iron-gall" (near-black warm ink
 warm off-white text), light theme "parchment" (warm paper background). Accent: gold-leaf
 `#c9a227` (dark) / `#8a6d1a` (light). Serif display font for headings in rendered markdown
 (Georgia/serif stack), system sans for UI, monospace (ui-monospace stack) for raw markdown/code. No
-external font/CDN fetches — system stacks only; the Arabic naskh faces sit at the END of the UI
+external font/CDN fetch ever reaches a VISITOR's browser: the defaults are system stacks, and the
+opt-in webfont catalog is SELF-hosted — the server fetches once at save time, the instance serves
+forever after (see "Typography" at the end of this file); the Arabic naskh faces sit at the END of the UI
 and serif stacks, where they catch only the codepoints no Latin face covers. Density: calm, generous line-height (1.6 editor),
 subtle 1px borders using `var(--border)`, minimal chrome. Everything themeable via the CSS custom
 properties listed in the styles contract; components must use tokens, never hard-coded colors.
@@ -472,3 +474,159 @@ faces appended.** Font fallback is per character, and Segoe UI (Windows) and Ari
 carry full Arabic coverage — at the end of the stack the named naskh faces were dead entries on
 both platforms. Same key as the Arabic type-metric compensation at the bottom of `tokens.css`:
 this is a language decision, not a direction one.
+
+## Typography (self-hosted webfont catalog)
+
+`server/fonts.ts` is the whole machinery — catalog, cache, CSS generator — and it never reads
+`settings.json`; `settings.ts` and the routes call *in*.
+
+- **`settings.fonts = { prose, ui, mono, arabic }`**, each a catalog id or `"system"` (the
+  default; all-system stores nothing at all). Validation is a **strict allowlist and it is
+  slot-aware**: an unknown id is a 400, a proportional face in `mono` is a 400, a face with no
+  Arabic coverage in `arabic` is a 400. Lookups go through `catalogEntry()` (own-property only) —
+  a bare `FONT_CATALOG[id]` would resolve `constructor`/`toString` up the prototype chain and let
+  them name a cache directory, the same trap `patchSettings` avoids on its handler table. Absent
+  slots in a PATCH keep their stored value (it merges, like `home`).
+- **The faces are on disk BEFORE settings names them.** `PATCH /api/settings` validates the ids,
+  then `ensureFontsCached()` fetches whatever is missing, and only then writes the file. So a
+  network failure is a clean **502 with a message** and `settings.json` is untouched — never a
+  site linking a stylesheet with no faces behind it. Two hosts are reachable, ever
+  (`fonts.googleapis.com`, `fonts.gstatic.com`), enforced on the PARSED url (https, exact
+  hostname, no credentials) with `redirect: "error"`, per-request timeouts and per-file /
+  per-family byte caps. `meta.json` is written last, atomically: an interrupted download leaves
+  junk the next attempt overwrites, never a half-registered family. `cacheFamily()` is
+  deduplicated by id (one in-flight download per family, process-wide), and the per-family byte
+  budget is CLAIMED before each fetch rather than totted up after it — a limit checked after the
+  count went up let five more of the six concurrent faces land past it, so the real ceiling was
+  16 MB + 5 × FONT_MAX_BYTES. A worker that finds nothing left waits for the others to refund
+  instead of failing: most woff2 subsets are tens of KB, and six worst-case reservations at once
+  would otherwise starve every family.
+- **`GET /api/site-fonts.css` is generated, open (OPEN_PATHS) and contains no external URL by
+  construction** — every `src:` is `/api/fonts/catalog/<id>/<file>` on this server, served by a
+  route that allowlists the id against the catalog and the filename against the shape this module
+  generates. It is open for custom.css's reason: the login page of a `PUBLIC=false` vault should
+  render in the instance's type.
+- **The Arabic faces carry a measured `size-adjust`, and only in the Arabic role.** Picking the
+  right face is half of "a mixed paragraph sets correctly"; the other half is at what SIZE. Two
+  faces at one `font-size` are not two faces at one apparent size — Amiri's base letters stand at
+  ~0.35 em against Lora's 0.51 em x-height — so each Arabic catalog entry has an optional
+  `sizeAdjust` percent (Amiri 138, Scheherazade New 136, Lateef 150, Noto Kufi Arabic 90; Cairo,
+  Almarai, Reem Kufi and Noto Sans Arabic none), measured as the height of ه at a 100px em
+  against that same 51, damped 15% toward 100. `faceBlock()` emits it and `composite()` passes it
+  ONLY on the Arabic half: the number describes this family against a Latin text face, so it is
+  meaningless on the Latin one. Because it rides on the FACE it applies per character, in every
+  slot, on an English instance too — which the `--font-scale`/`--prose-scale` multipliers under
+  `:root[lang="ar"]` can never do: they scale both scripts equally, so the ratio between them
+  never moves, and on an English instance they never run at all. Those multipliers are untouched;
+  this is the other axis.
+- **Three COMPOSITE families, and the Arabic slot goes first.** `VellumProse`/`VellumUI`/
+  `VellumMono` each list the Arabic face's `@font-face` blocks narrowed to the Arabic unicode
+  blocks, then the Latin face's with those same ranges carved out. The two sets are **disjoint**,
+  which is the point: per-character font matching then needs no tie-break and no source-order
+  luck, and a mixed Arabic/Latin paragraph sets correctly **on an English instance too**. Google's
+  `arabic` subset also carries shared punctuation (`U+200C-200E`, `U+2010-2011`, `U+204F`,
+  `U+2E41`) that its `latin` subset covers — those chunks are dropped, and Presentation Forms-B
+  stops at `U+FEFE` so the BOM does not drag a whole extra face in.
+- **`--font-*-system` in `tokens.css` is what the composites fall back to**, which is why
+  `tokens.css` holds the stacks in those tokens and defines `--font-ui`/`--font-serif`/
+  `--font-mono` as `var(--font-*-system)`. The generated sheet re-defines the three consumers at
+  plain `:root` specificity: later in the cascade than `tokens.css`, and still *below* a
+  `custom.css` `:root` rule (its link is appended after) — the escape hatch outranks the catalog.
+  `:root[lang="ar"]` must therefore keep redefining the `*-system` holders and **never**
+  `--font-serif` itself, or its higher specificity would beat both. The Arabic type-metric
+  multipliers there are untouched.
+- **`/api/me.fonts` is a signature, not a boolean** (`"lora.inter.system.amiri"`): its presence
+  makes the client link the stylesheet, and its value is the `?v=` on that link, so a changed pick
+  gives the browser a new URL instead of a cached sheet naming the old families.
+- **`GET /api/font-preview.css`** is the settings panel's live specimen: the same generator under
+  a `VellumPreview…` prefix and with no `:root` block, so a reader sees faces they have picked but
+  not saved. Admin-eyes-only (it can trigger a download) — 404 to visitors like `/api/settings` —
+  debounced client-side, and its failures are silent: a specimen falling back to the system stack
+  is a fine specimen; a toast per keystroke is not.
+
+## Backup & sync (server/gitSync.ts)
+
+`settings.gitSync { enabled (default FALSE), remote, branch (default "main"), intervalMinutes
+(0–1440, 0 = manual), pullFirst (default true), authMode "ssh"|"token" }`, plus two WRITE-ONLY
+PATCH keys — `gitToken`, `gitUser` — that never reach `settings.json`. Routes, all admin-only
+(`GET /api/sync/status` gates on `isPublishLimited` like `/api/settings`, so an admin previewing
+as a visitor is refused too; the POSTs are mutations the auth guard already 401s):
+`POST /api/sync/init`, `POST /api/sync/now` (409 while one is running), `GET /api/sync/status`.
+
+- **Never a shell.** Every git call is `execFile("git", [fixed, argument, array], { cwd: vaultRoot })`.
+  The remote is validated to `^https://` / `^ssh://` / `git@host:path` with no whitespace, no shell
+  metacharacters, no leading `-`, and **no credentials in the URL** — a password is a 400 on either
+  scheme, and a bare `user@` is a 400 on `https://`, which is exactly the shape a pasted token
+  takes. `ssh://git@host/you/vault.git` is *accepted*: it is git's own spelling of the scp-style
+  `git@host:you/vault.git` the same validator allows, that `user@` is not a secret, and refusing it
+  while accepting its twin — with a message naming a token field SSH never consults — was a dead
+  end for the commonest paste. But a `user@` that IS a secret is refused on every scheme: the same
+  known token prefixes `scrub()` redacts on the way out (`gh[pousr]_`, `github_pat_`, `glpat-`)
+  are tested against `url.username` and against the scp-style user part on the way in, raw and
+  percent-decoded. The rationale for allowing `user@` was that it carries no secret; where that
+  stops being true, so does the permission. The branch is a conservative `check-ref-format`
+  subset. Neither can be an option, a command, or a second argument.
+- **The git child's environment is scrubbed, not just its cwd.** `gitEnv()` deletes `GIT_DIR`,
+  `GIT_WORK_TREE`, `GIT_INDEX_FILE` and the object-directory variables so the server's own
+  environment cannot point git at another repository — and, for the same reason one level up,
+  `GIT_CONFIG*` (including the indexed `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n`
+  family), `GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_PROXY_COMMAND` and `GIT_EXTERNAL_DIFF`: redirecting
+  config redirects `core.hooksPath` and `url.*.insteadOf`, and redirecting the transport replaces
+  the program git executes. The one legitimate use of the last group gets an explicit door instead
+  of ambient inheritance: `VELLUM_GIT_SSH_COMMAND` is copied to `GIT_SSH_COMMAND` for the child,
+  and nothing else is.
+- **The token is a file, not a setting.** `VELLUM_DATA/git-credentials.json`, `0600`, asserted with
+  `chmodSync` after the atomic rename (the create mode is masked by umask). `settings.ts::persist()`
+  gets the same treatment for `settings.json` next door — mode on open plus an explicit `chmodSync`
+  after the rename — because it holds operator-private configuration (the backup remote, the
+  branch) and no reader but this process. It reaches git through
+  `GIT_ASKPASS` + an env var on that one child — never argv (`ps` is world-readable), never the
+  remote URL, never `.git/config` — and every network call carries `-c credential.helper=` so the
+  machine's own credential store cannot cache it. Reads answer `effective.gitSync.tokenSet` only.
+  `scrub()` redacts the stored token, any URL userinfo and known token shapes from every string
+  that leaves the module: client errors, toasts and log lines alike.
+- **A settings PATCH stays all-or-nothing across two files.** `gitToken`/`gitUser` validate during
+  the patch and are *staged*; `patchSettings()` discards leftovers at the start and writes them
+  only after `persist()` succeeds. A patch that 400s on a later key must not have changed the
+  credential.
+- **VELLUM_DATA never reaches the repo, and that is enforced against git's answer.** The token
+  file lives in the instance data directory, which is outside the vault by default — but when it
+  is INSIDE one, `seedGitignore()` runs unconditionally in `initRepo()` (not only when the vault
+  was not already a repository) and APPENDS the data-directory rule to an existing `.gitignore`
+  rather than returning early. The two commonest real vaults, "already a git repository" and
+  "already has a .gitignore", used to get no rule at all and `git add -A` then committed and
+  pushed `git-credentials.json` in plaintext. Belt and braces: `protectDataDir()` runs before
+  every `git add -A` in both `initRepo()` and `syncNow()` — it re-seeds, evicts anything already
+  tracked (`git rm -r --cached --ignore-unmatch`) and then asks `git check-ignore -q --no-index`,
+  refusing the whole pass with a 400 if the answer is still "not ignored". `--no-index` is
+  load-bearing: without it check-ignore answers "not ignored" for anything in the index, which is
+  exactly the case being repaired.
+- **Divergence fails; it never merges.** The pull half is `fetch` + `merge --ff-only`, not
+  `git pull` — so no `pull.rebase` in the operator's gitconfig can turn it into a rebase, and a
+  history that cannot fast-forward stops **before the working tree is touched**. Conflict markers
+  written into a thousand notes by an unattended job are a worse outcome than a missed backup.
+  Nothing here ever force-pushes.
+- **`busy` is claimed in the same synchronous step as the check.** Every `await` is a yield point:
+  a guard that sat before the first one let four concurrent clicks past it and into a fight over
+  `.git/index.lock`. The final `gitStatus()` is sampled *after* the flag clears, so a successful
+  answer never reports itself busy.
+- **The timer is inert by default.** One 60s tick (unref'd), doing nothing unless enabled with a
+  remote and a non-zero interval, skipping while busy, and logging a repeated failure **once**
+  (`loggedFailure`) rather than once per tick, forever.
+- **`ahead`/`behind` are `number | null`, and null is not zero.** `gitStatus()` can only count
+  against `refs/remotes/origin/<branch>`, which does not exist until a fetch or a push has
+  succeeded once — precisely the never-backed-up case. Leaving the `0` initializers there made
+  that case read "0 ahead · 0 behind", character-for-character what a fully synced vault reads,
+  in the one panel whose whole job is answering "is my writing somewhere else yet". The clients
+  render null as "nothing has reached the remote yet".
+- Client: `client/sync.ts` holds one shared status + subscribers (the status-bar badge, the
+  settings block and the palette command all read it) plus `syncWhen()` and `syncCause()`, so the
+  badge and the panel never drift on either the timestamp format or the diagnosis; the badge
+  renders only for an admin session on an instance where sync is on and a remote is set. Our own
+  success sentence is localized from `last.committed`; a FAILURE line is git's own words, shown
+  verbatim — that text is the diagnosis, so it is rendered in its OWN `dir="ltr"` block with the
+  localized timestamp and cause in their own `<bdi>` isolates beside it (one `dir="auto"` span
+  over "date — message" takes its direction from the date and reorders git's English around it),
+  and it is selectable text with a copy button, never a `title` tooltip. Counts and dates in these
+  lines are separated by a hairline rule, never by a "·": the Eastern Arabic zero is itself a
+  raised dot.

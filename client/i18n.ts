@@ -131,8 +131,8 @@ const DICT = {
   },
   siteSettings: { en: "Site settings", ar: "إعدادات الموقع" },
   siteSettingsTitle: {
-    en: "Site settings — identity, home page, behavior",
-    ar: "إعدادات الموقع — الهوية والصفحة الرئيسية والسلوك",
+    en: "Site settings — identity, home page, behavior, typography, backup",
+    ar: "إعدادات الموقع — الهوية والرئيسية والسلوك والطباعة والنسخ الاحتياطي",
   },
   previewAsVisitor: { en: "Preview as visitor", ar: "معاينة كزائر" },
   previewAsVisitorTitle: {
@@ -215,7 +215,10 @@ const DICT = {
   cmdIrreversibleHint: { en: "irreversible", ar: "لا رجعة فيه" },
   cmdModerateComments: { en: "Moderate comments", ar: "الإشراف على التعليقات" },
   cmdMarginaliaHint: { en: "marginalia", ar: "الحواشي" },
-  cmdSiteSettingsHint: { en: "identity · home · behavior", ar: "الهوية · الرئيسية · السلوك" },
+  cmdSiteSettingsHint: {
+    en: "identity · home · behavior · type · backup",
+    ar: "الهوية · الرئيسية · السلوك · الطباعة · النسخ",
+  },
   cmdPreviewHint: { en: "see the public site", ar: "شاهد الموقع العام" },
   cmdExitPreview: { en: "Exit visitor preview", ar: "إنهاء معاينة الزائر" },
   cmdExitPreviewHint: { en: "back to the vault", ar: "العودة إلى الخزانة" },
@@ -555,6 +558,191 @@ const DICT = {
   homeBannerSet: { en: "Home banner set", ar: "تم تعيين غلاف الرئيسية" },
   homeBannerRemoved: { en: "Home banner removed", ar: "تمت إزالة غلاف الرئيسية" },
   homeBannerFailed: { en: "Saving the banner failed", ar: "فشل حفظ الغلاف" },
+
+  // ── Typography (settings panel) ─────────────────────────────────────────
+  // The type SPECIMENS are not here: a Latin sample must stay Latin in an
+  // Arabic UI (and the Arabic one Arabic in an English UI) or the preview
+  // stops previewing what it claims to. They live in SettingsModal.tsx.
+  groupTypography: { en: "Typography", ar: "الطباعة" },
+  typographyNote: {
+    en: "Chosen faces are fetched once when you save, then served from your own machine — visitors never contact an external font host. Anything not listed here can still be dropped into VELLUM_DATA/fonts and named from custom.css.",
+    ar: "تُجلب الخطوط المختارة مرة واحدة عند الحفظ، ثم تُقدَّم من جهازك — لا يتصل الزوار بأي مضيف خطوط خارجي. وما ليس في هذه القائمة يمكن وضعه في ⁨VELLUM_DATA/fonts⁩ واستدعاؤه من ⁨custom.css⁩.",
+  },
+  rowFontProse: { en: "Reading text", ar: "نص القراءة" },
+  hintFontProse: { en: "reading column, editor prose", ar: "عمود القراءة ونص المحرر" },
+  rowFontUi: { en: "Interface", ar: "الواجهة" },
+  hintFontUi: { en: "sidebar, tabs, panels", ar: "الشريط الجانبي والألسنة واللوحات" },
+  rowFontMono: { en: "Code", ar: "الشيفرة" },
+  hintFontMono: { en: "code blocks, raw markdown", ar: "كتل الشيفرة وماركداون الخام" },
+  // The Arabic slot is a different KIND of control from the three above it —
+  // one face that answers for Arabic letters inside all of them — so it gets
+  // its own sub-heading rather than a fourth row at the same visual rank.
+  fontArabicHead: { en: "Arabic script", ar: "الخط العربي" },
+  fontArabicHeadNote: {
+    en: "Arabic letters in all three slots above, per character, size-matched to the Latin face.",
+    ar: "الحروف العربية في الخانات الثلاث أعلاه، حرفًا حرفًا، بحجم مطابق للخط اللاتيني.",
+  },
+  rowFontArabic: { en: "Arabic face", ar: "الخط" },
+  hintFontArabic: {
+    en: "naskh for reading, kufi for chrome",
+    ar: "النسخ للقراءة، والكوفي للواجهة",
+  },
+  fontSystem: { en: "system (no webfont)", ar: "خط النظام (بلا تنزيل)" },
+  fontGroupSerif: { en: "Serif", ar: "بحرف مذيّل" },
+  fontGroupSans: { en: "Sans-serif", ar: "بلا ذيول" },
+  fontGroupMono: { en: "Monospace", ar: "ثابت العرض" },
+  fontGroupArabicNaskh: { en: "Naskh & classical", ar: "نسخ وخطوط كلاسيكية" },
+  fontGroupArabicModern: { en: "Modern & kufi", ar: "حديثة وكوفية" },
+  fontPreview: { en: "Preview", ar: "معاينة" },
+  fontPreviewNote: {
+    en: "Live — updates before you save.",
+    ar: "مباشرة — تتحدث قبل الحفظ.",
+  },
+  // "…fonts", not "…to defaults": the button sits at the end of a section in a
+  // five-section panel, one row above the next heading, and an unqualified
+  // "Reset to defaults" there reads as if it resets the whole panel.
+  fontReset: { en: "Reset fonts", ar: "إعادة تعيين الخطوط" },
+  fontsFetchFailed: {
+    en: "Could not fetch the fonts — settings were not changed",
+    ar: "تعذر جلب الخطوط — لم تتغير الإعدادات",
+  },
+  fontFetching: { en: "Fetching fonts…", ar: "جارٍ جلب الخطوط…" },
+
+  // ── Backup & sync (git) ─────────────────────────────────────────────────
+  groupSync: { en: "Backup & sync", ar: "النسخ الاحتياطي والمزامنة" },
+  syncNote: {
+    en: "Commit the vault and push it to a private git remote you own. Off until you turn it on.",
+    ar: "يودع الخزانة ويرفعها إلى مستودع git خاص بك. معطّل حتى تُفعّله.",
+  },
+  rowSyncEnabled: { en: "Backup", ar: "النسخ الاحتياطي" },
+  hintSyncEnabled: { en: "master switch", ar: "المفتاح الرئيسي" },
+  // Shown in place of the live section while the master switch is off: six
+  // fields and two buttons at full contrast, all of them inert, read as a
+  // configured-and-running backup at a glance.
+  syncOffNotice: {
+    en: "Backup is off. Turn it on to configure and run it.",
+    ar: "النسخ الاحتياطي معطّل. فعّله لضبطه وتشغيله.",
+  },
+  rowSyncRemote: { en: "Remote URL", ar: "عنوان المستودع البعيد" },
+  hintSyncRemote: { en: "https:// or git@host:path", ar: "‎https://‎ أو ‎git@host:path‎" },
+  phSyncRemote: { en: "https://host/you/vault.git", ar: "https://المضيف/vault.git" },
+  rowSyncBranch: { en: "Branch", ar: "الفرع" },
+  hintSyncBranch: { en: "committed and pushed", ar: "الفرع الذي يُودع ويُرفع" },
+  rowSyncAuth: { en: "Authentication", ar: "المصادقة" },
+  hintSyncAuth: { en: "how this server signs in", ar: "كيف يسجّل الخادم دخوله" },
+  authSsh: { en: "SSH keys (this machine)", ar: "مفاتيح SSH (هذا الجهاز)" },
+  authToken: { en: "Access token", ar: "رمز وصول" },
+  rowSyncUser: { en: "Username", ar: "اسم المستخدم" },
+  hintSyncUser: { en: "paired with the token", ar: "مقترن بالرمز" },
+  phSyncUser: { en: "your git username", ar: "اسم مستخدم git الخاص بك" },
+  rowSyncToken: { en: "Access token", ar: "رمز الوصول" },
+  hintSyncToken: {
+    en: "write-only; stored outside the vault",
+    ar: "للكتابة فقط؛ يُحفظ خارج الخزانة",
+  },
+  phTokenStored: { en: "replace the stored token", ar: "استبدال الرمز المحفوظ" },
+  phTokenNew: { en: "paste a token", ar: "الصق رمزًا" },
+  tokenSetYes: { en: "A token is stored.", ar: "يوجد رمز محفوظ." },
+  tokenSetNo: { en: "No token stored.", ar: "لا يوجد رمز محفوظ." },
+  clearToken: { en: "Clear token", ar: "مسح الرمز" },
+  tokenCleared: { en: "Token cleared", ar: "تم مسح الرمز" },
+  rowSyncPull: { en: "Pull first", ar: "السحب أولًا" },
+  hintSyncPull: {
+    en: "fast-forward only; never merges",
+    ar: "تقديم سريع فقط؛ لا يدمج أبدًا",
+  },
+  // "Every" + a bare "0" + "minutes; 0 = manual only" made the reader decode a
+  // magic number to learn the setting was off. The choice is a small closed
+  // set, so it is a select whose options are sentences.
+  rowSyncInterval: { en: "Automatic sync", ar: "المزامنة التلقائية" },
+  hintSyncInterval: { en: "unattended, in the background", ar: "تلقائيًا في الخلفية" },
+  syncIntervalManual: { en: "Manual only", ar: "يدويًا فقط" },
+  syncIntervalMinutes: { en: "Every {count} minutes", ar: "كل {count} دقيقة" },
+  syncIntervalHourly: { en: "Every hour", ar: "كل ساعة" },
+  syncIntervalHours: { en: "Every {count} hours", ar: "كل {count} ساعات" },
+  syncIntervalDaily: { en: "Once a day", ar: "مرة كل يوم" },
+  rowSyncStatus: { en: "Status", ar: "الحالة" },
+  hintSyncStatus: { en: "this vault's repository", ar: "مستودع هذه الخزانة" },
+  syncNow: { en: "Sync now", ar: "زامن الآن" },
+  // Precise, like every other label in this column — and it LEAVES once the
+  // vault is a repository rather than sitting there greyed forever.
+  syncInitialize: { en: "Initialize repository", ar: "تهيئة المستودع" },
+  syncing: { en: "Syncing…", ar: "جارٍ المزامنة…" },
+  syncSaveFirst: {
+    en: "Save these settings before syncing.",
+    ar: "احفظ هذه الإعدادات قبل المزامنة.",
+  },
+  syncErrorShort: { en: "failed", ar: "فشلت" },
+  syncFailed: { en: "Sync failed", ar: "فشلت المزامنة" },
+  syncPushed: { en: "Vault committed and pushed", ar: "تم إيداع الخزانة ورفعها" },
+  syncUpToDate: {
+    en: "Nothing to commit — already up to date",
+    ar: "لا شيء لإيداعه — كل شيء محدّث",
+  },
+  // Distinct from both: nothing new to COMMIT, but commits that were only
+  // local are now on the remote. The first sync after "Make it a repo" is
+  // always this one, and calling it "already up to date" hid a whole upload.
+  syncPushedOnly: {
+    en: "Pushed — nothing new to commit",
+    ar: "تم الرفع — لا جديد لإيداعه",
+  },
+  syncInitDone: { en: "The vault is a git repository now", ar: "أصبحت الخزانة مستودع git" },
+  syncNotRepo: { en: "The vault is not a git repository yet.", ar: "الخزانة ليست مستودع git بعد." },
+  syncNoRemote: { en: "no remote", ar: "بلا مستودع بعيد" },
+  syncOnBranch: { en: "On {branch} → {host}", ar: "على {branch} ← {host}" },
+  syncTokenMissing: {
+    en: "Token mode is selected but no token is stored.",
+    ar: "وضع الرمز مُختار لكن لا يوجد رمز محفوظ.",
+  },
+  syncTipBranch: { en: "Branch {branch} → {host}", ar: "الفرع {branch} ← {host}" },
+  syncTipNoRepo: { en: "Not a git repository yet", ar: "ليست مستودع git بعد" },
+  syncTipClean: { en: "Nothing uncommitted", ar: "لا شيء غير مودع" },
+  syncTipDirty: { en: "{count} uncommitted", ar: "{count} غير مودع" },
+  // Two separate strings, not one "{ahead} ahead · {behind} behind": in Arabic
+  // that single line reordered into "٠ متقدم ٠٠ متأخر", the two counts colliding
+  // into an unreadable run. Each count now renders in its own isolated chip.
+  syncAhead: { en: "{count} ahead", ar: "{count} متقدم" },
+  syncBehind: { en: "{count} behind", ar: "{count} متأخر" },
+  // The third state ahead/behind needs. There is no remote-tracking ref until
+  // a fetch or a push has succeeded once, and calling that "0 ahead · 0 behind"
+  // is character-for-character what a fully backed-up vault reads.
+  syncNoTracking: {
+    en: "Nothing has reached the remote yet",
+    ar: "لم يصل شيء إلى المستودع البعيد بعد",
+  },
+  // A failure line leads with the cause WE can state; git's own words stay
+  // underneath it, verbatim and quotable, because that text is the diagnosis.
+  syncGitSaid: { en: "git said:", ar: "قال git:" },
+  syncNoRemoteSet: { en: "No remote URL is set.", ar: "لم يُضبط عنوان المستودع البعيد." },
+  syncCopyError: { en: "Copy the error", ar: "نسخ الخطأ" },
+  syncCopied: { en: "Copied", ar: "تم النسخ" },
+  syncDetails: { en: "Backup details", ar: "تفاصيل النسخ الاحتياطي" },
+  syncOpenSettings: { en: "Backup settings", ar: "إعدادات النسخ الاحتياطي" },
+  cmdSyncHint: { en: "backup", ar: "النسخ الاحتياطي" },
+  errRemoteScheme: {
+    en: "Must start with https:// , ssh:// or git@host:path",
+    ar: "يجب أن يبدأ بـ ‎https://‎ أو ‎ssh://‎ أو ‎git@host:path‎",
+  },
+  errRemoteChars: {
+    en: "A git remote cannot hold spaces or shell characters",
+    ar: "لا يمكن أن يحتوي العنوان على مسافات أو رموز صدفة",
+  },
+  errRemoteCreds: {
+    en: "Do not put credentials in an https:// URL — use the token field",
+    ar: "لا تضع بيانات اعتماد في عنوان ‎https://‎ — استخدم حقل الرمز",
+  },
+  errBranchName: { en: "Not a valid branch name", ar: "اسم فرع غير صالح" },
+  errInterval: { en: "Whole minutes, 0 to 1440", ar: "دقائق صحيحة، من ٠ إلى ١٤٤٠" },
+  errTokenSpaces: { en: "A token cannot contain spaces", ar: "لا يمكن أن يحتوي الرمز على مسافات" },
+
+  // ── Settings panel navigation ───────────────────────────────────────────
+  // The panel outgrew one flat scroll (five sections, four screens of it), so
+  // it has a section rail — the same reason Obsidian's settings has one.
+  settingsSections: { en: "Settings sections", ar: "أقسام الإعدادات" },
+  // An empty field that inherits an env default and a field holding a muted
+  // value looked identical. The badge says which one this is, so the
+  // convention no longer has to be explained in a note at the top.
+  inheritedBadge: { en: "inherited", ar: "موروث" },
 } satisfies Record<string, Entry>;
 
 export type I18nKey = keyof typeof DICT;

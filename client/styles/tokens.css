@@ -51,12 +51,27 @@
      the Arabic type-metric compensation — the ONLY place it can actually
      change what the browser picks. All named faces are system faces shipped
      with the OS or a distro package: CONTRACTS forbids fetching a font, not
-     asking for one that is already installed. */
-  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+     asking for one that is already installed.
+
+     The stacks are held in --font-*-system and the three tokens the product
+     actually consumes just point at them. That indirection is what the
+     optional self-hosted webfonts hang off: GET /api/site-fonts.css (linked
+     after this file, only when settings.fonts names a catalog face) redefines
+     --font-ui/--font-serif/--font-mono as "composite family, then
+     var(--font-*-system)" — so an uncovered codepoint still lands on the
+     system stack the instance would have used, INCLUDING the Arabic-first
+     reorder below, with no rule duplicated on the server side. Keep the
+     Arabic block redefining the *-system holders and never --font-serif
+     itself, or its higher specificity would out-rank both that stylesheet and
+     a custom.css override. */
+  --font-ui-system: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
     "Noto Sans Arabic", "Geeza Pro", "Droid Arabic Kufi", Tahoma, sans-serif;
-  --font-serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman",
+  --font-serif-system: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman",
     "Noto Naskh Arabic", Amiri, "Scheherazade New", "Traditional Arabic", serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --font-mono-system: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --font-ui: var(--font-ui-system);
+  --font-serif: var(--font-serif-system);
+  --font-mono: var(--font-mono-system);
 
   --radius: 6px;
   --sidebar-w: 292px;
@@ -243,9 +258,14 @@
      stack, after them, so Latin runs inside Arabic copy (a file extension, a
      "Ctrl+K", a URL) still render in the product's own type rather than in a
      naskh face's Latin glyphs. Same key as the metric compensation above:
-     this is a language decision, not a direction one. */
-  --font-ui: "Noto Sans Arabic", "Geeza Pro", "Droid Arabic Kufi", Tahoma, system-ui,
+     this is a language decision, not a direction one.
+
+     These redefine the *-system holders, not --font-ui/--font-serif: the two
+     consumers read them through var() on this same element, so the reorder
+     still lands — and a stylesheet with plain :root specificity (the
+     generated /api/site-fonts.css, a custom.css override) can still win. */
+  --font-ui-system: "Noto Sans Arabic", "Geeza Pro", "Droid Arabic Kufi", Tahoma, system-ui,
     -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-serif: "Noto Naskh Arabic", Amiri, "Scheherazade New", "Traditional Arabic", Georgia,
+  --font-serif-system: "Noto Naskh Arabic", Amiri, "Scheherazade New", "Traditional Arabic", Georgia,
     "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
 }

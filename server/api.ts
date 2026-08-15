@@ -52,8 +52,19 @@ import {
   whenIndexed,
   wikilinkRegex,
 } from "./indexer.ts";
+import { gitStatus, initRepo, syncNow } from "./gitSync.ts";
 import { setFrontmatterLine, setPublishFlag, yamlQuote } from "./publish.ts";
-import { patchSettings, settingsAssetPaths, settingsResponse } from "./settings.ts";
+import {
+  buildFontCss,
+  catalogEntry,
+  cleanFontSlots,
+  ensureFontsCached,
+  fontDir,
+  isCacheFileName,
+  slotIds,
+  slotsAreSystem,
+} from "./fonts.ts";
+import { fontSlots, patchSettings, settingsAssetPaths, settingsResponse } from "./settings.ts";
 import { attachmentsDir, customCssPath, fontsDir } from "./site.ts";
 import {
   VaultError,
@@ -143,6 +154,61 @@ const FONT_MIME: Record<string, string> = {
   ttf: "font/ttf",
   otf: "font/otf",
 };
+
+// Typography: the catalog cache under VELLUM_DATA/fonts/catalog/<id>/<file>,
+// referenced by every src in the generated /api/site-fonts.css. Same openness
+// as /api/fonts/<file> above (it is prefix-exempted in the auth guard) and the
+// same path discipline, tightened: the directory must be a KNOWN catalog id —
+// an allowlist, not a sanitizer — and the filename must match the shape this
+// server generates (lowercase slug + .woff2). Nothing else is reachable.
+api.get("/fonts/catalog/:id/:file", async (c) => {
+  const id = c.req.param("id");
+  const file = c.req.param("file");
+  if (!catalogEntry(id) || !isCacheFileName(file)) {
+    return c.json({ error: "Font not found" }, 404);
+  }
+  const abs = path.join(fontDir(id), file);
+  let bytes: Uint8Array<ArrayBuffer>;
+  try {
+    const read = await fsp.readFile(abs);
+    bytes = new Uint8Array(read.buffer.slice(read.byteOffset, read.byteOffset + read.byteLength));
+  } catch {
+    return c.json({ error: "Font not found" }, 404);
+  }
+  const etag = `"${bytes.byteLength.toString(16)}-${id}-${file}"`;
+  const ifNoneMatch = c.req.header("if-none-match");
+  if (ifNoneMatch && ifNoneMatch.split(",").some((tag) => tag.trim() === etag || tag.trim() === `W/${etag}`)) {
+    return c.body(null, 304, { "ETag": etag });
+  }
+  return c.body(bytes, 200, {
+    "Content-Type": "font/woff2",
+    "ETag": etag,
+    // Content-stable: the cache path changes when the family changes.
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  });
+});
+
+// The generated typography stylesheet: self-hosted @font-face blocks for the
+// chosen catalog faces, three composite families (the Arabic slot's faces
+// first, narrowed to the Arabic unicode ranges, so a mixed paragraph picks the
+// right face per CHARACTER), then the :root remap of --font-serif/--font-ui/
+// --font-mono. Open like custom.css — it IS the public site's typography —
+// and it contains no external URL by construction: every src points back at
+// /api/fonts/catalog/… on this server.
+api.get("/site-fonts.css", async (c) => {
+  const slots = fontSlots();
+  const css = slotsAreSystem(slots) ? "/* No webfonts configured. */\n" : await buildFontCss(slots, {
+    prefix: "Vellum",
+    root: true,
+  });
+  return c.body(css, 200, {
+    "Content-Type": "text/css; charset=utf-8",
+    // The link carries a ?v= signature of the picks, so a save shows up at
+    // once; the bytes themselves may be revalidated cheaply.
+    "Cache-Control": "no-cache",
+  });
+});
 
 api.get("/fonts/:file", async (c) => {
   const file = c.req.param("file");
@@ -776,8 +842,62 @@ api.get("/settings", (c) => {
 
 api.patch("/settings", async (c) => {
   const body = await jsonBody(c);
+  // Typography is the one setting with a prerequisite on disk: the chosen
+  // families must be cached under VELLUM_DATA/fonts/catalog before
+  // settings.json names them, or the site would link a stylesheet with no
+  // faces behind it. Validate the ids (400), fetch what is missing (502),
+  // and only then write — a download failure leaves settings untouched.
+  if (Object.prototype.hasOwnProperty.call(body, "fonts") && body.fonts !== null) {
+    await ensureFontsCached(slotIds(cleanFontSlots(body.fonts, fontSlots())));
+  }
   return c.json(patchSettings(body));
 });
+
+// The settings panel's live preview: the same generated CSS as
+// /api/site-fonts.css but under a "VellumPreview…" family prefix and with no
+// :root remap, so the panel can show faces the reader has PICKED but not yet
+// saved. Admin-eyes-only (it can trigger a download, and it describes an
+// unsaved state) — 404 to visitors exactly like GET /api/settings. Failures
+// degrade to whatever is already cached instead of erroring: a preview that
+// falls back to the system stack is a fine preview, a toast per keystroke is
+// not.
+api.get("/font-preview.css", async (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  const q = c.req.query();
+  const slots = cleanFontSlots({
+    ...(q.prose ? { prose: q.prose } : {}),
+    ...(q.ui ? { ui: q.ui } : {}),
+    ...(q.mono ? { mono: q.mono } : {}),
+    ...(q.arabic ? { arabic: q.arabic } : {}),
+  });
+  for (const id of slotIds(slots)) {
+    try {
+      await ensureFontsCached([id]);
+    } catch (err) {
+      console.warn(`vellum: font preview could not cache ${id}:`, err);
+    }
+  }
+  const css = slotsAreSystem(slots) ? "" : await buildFontCss(slots, { prefix: "VellumPreview", root: false });
+  return c.body(css, 200, { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "no-cache" });
+});
+
+// -------------------------------------------------------------- backup & sync
+// Git backup (server/gitSync.ts). Admin-eyes-only, all three: the POSTs are
+// mutations, so the auth guard 401s visitors and preview sessions already; the
+// GET is gated here the same way /api/settings is — a visitor learning the
+// branch, the dirty count and the remote host of the operator's backup is a
+// leak, and an admin PREVIEWING as a visitor must see exactly what a stranger
+// would. Sync errors reaching the client are the real git line, token-scrubbed
+// by gitSync.scrub() before it ever leaves the module.
+
+api.get("/sync/status", async (c) => {
+  if (isPublishLimited(c)) throw new VaultError(401, "Admin session required");
+  return c.json(await gitStatus());
+});
+
+api.post("/sync/init", async (c) => c.json(await initRepo()));
+
+api.post("/sync/now", async (c) => c.json(await syncNow("manual")));
 
 // ---------------------------------------------------------------- SSE events
 

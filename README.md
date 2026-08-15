@@ -89,7 +89,7 @@ All `.env` keys (npm scripts load the file automatically via `node --env-file-if
 | `TRUSTED_PROXIES` | Comma-separated IPs/CIDRs allowed to set `X-Forwarded-For` (e.g. `127.0.0.1,::1`); unset → header ignored, rate limit uses the socket address |
 | `HOME_NOTE` | Vault-relative note fresh visitors land on, e.g. `index.md` |
 | `COMMENTS` | `on` enables reader comments under published notes (default off) |
-| `VELLUM_DATA` | Server data directory — the comments SQLite db, your `custom.css`, and `fonts/` (default `./data`) |
+| `VELLUM_DATA` | Server data directory — the comments SQLite db, your `custom.css`, and `fonts/` (your own files, plus the self-hosted catalog cache in `fonts/catalog/`; default `./data`) |
 | `SITE_NAME` | Site name shown in the sidebar wordmark, page titles, and the login modal (default `Vellum`) |
 | `DEFAULT_THEME` | Theme for visitors who haven't picked one: `iron-gall`, `void`, `lapis`, or `parchment` |
 | `EXCLUDE_TAGS` | Comma-separated tags hidden from the visitor site's topic sections and tag pills (workflow/status tags like `baby,child,adult`); admin views unaffected |
@@ -107,7 +107,7 @@ All `.env` keys (npm scripts load the file automatically via `node --env-file-if
 
 Most of the site-identity keys above can also be changed **at runtime, from the app** — no
 `.env` edit, no restart. As admin, open **Site settings** (the gear in the status bar, or the
-command palette): a panel with three groups —
+command palette): a panel with five groups —
 
 - **Identity** — site name, tagline, footer line, a **logo** image (replaces the text wordmark
   in the sidebar and the blog masthead), and a **favicon** (served at `/favicon.ico` with its
@@ -117,6 +117,10 @@ command palette): a panel with three groups —
 - **Site behavior** — default theme, public layout (`app`/`blog`), **language** (English /
   العربية) with its language filter and the optional **visitor switch**, date locale, excluded
   tags, and the comments toggle.
+- **Typography** — four font slots (text / interface / code / Arabic script) over a curated,
+  self-hosted catalog, with a live specimen. See [Typography](#typography).
+- **Backup & sync** — commit the vault and push it to a private git remote you own, manually or
+  on a timer. Off until you turn it on. See [Backup & sync](#backup--sync).
 
 Image fields reuse the banner machinery: pick from the vault's attachments or upload right
 there (drag & drop; bytes are sniffed; lands in `ATTACHMENTS_DIR`).
@@ -446,6 +450,187 @@ Anything beyond tokens is fair game too — every element carries a stable `s-` 
 (`.s-sidebar`, `.s-rv-p`, `.s-statusbar`, …), so `custom.css` can restyle specific components.
 If you keep body text ≥ 4.5:1 contrast against `--bg`, the whole app stays readable.
 
+### Typography
+
+The catalog is the no-CSS version of the escape hatch above — and its point is **Arabic**.
+Open **Site settings → Typography** and you get four selects:
+
+| Slot | Drives | Offers |
+| --- | --- | --- |
+| **Reading text** | `--font-serif` — reading column, editor prose, headings | Lora, EB Garamond, Crimson Pro, Literata, Source Serif 4, Merriweather, Inter, Source Sans 3, IBM Plex Sans, Work Sans |
+| **Interface** | `--font-ui` — sidebar, tabs, panels, status bar | the same Latin list |
+| **Code** | `--font-mono` — code blocks, raw markdown, inline code | JetBrains Mono, IBM Plex Mono, Fira Code, Source Code Pro |
+| **Arabic face** | the Arabic letters in **all three** of the above | Amiri, Scheherazade New, Noto Naskh Arabic, Markazi Text, Lateef, Aref Ruqaa · Noto Kufi Arabic, Noto Sans Arabic, IBM Plex Sans Arabic, Cairo, Tajawal, Reem Kufi, Almarai |
+
+Every slot also takes **system**, the default: the built-in stacks, nothing downloaded, nothing
+served. A full-width live specimen sits directly under the selects — a Latin sentence and a mixed
+Arabic one per slot, both starting at the same edge so the two faces can actually be compared,
+updating **before** you save — and **Reset fonts** puts all four back to `system`.
+
+**Self-hosting is the whole design.** When you save, the *server* fetches the chosen families
+once from Google Fonts (a `woff2` request, so you get `woff2` back), parses the `@font-face`
+blocks, downloads each face into `VELLUM_DATA/fonts/catalog/<id>/`, and records the parsed
+`unicode-range`s in a `meta.json` beside them. From then on the browser only ever sees your
+server: `GET /api/site-fonts.css` is generated from the cache and every `src:` in it points at
+`/api/fonts/catalog/…` on this instance. **No visitor's browser contacts an external host, ever**
+— not for the fonts, not for the stylesheet. Only two hosts are ever reachable from the fetch
+side (`fonts.googleapis.com`, `fonts.gstatic.com`), enforced as a hard allowlist on the parsed
+URL with redirects refused, timeouts and per-file/per-family size caps. A download that fails is
+a clean **502 with a message** and `settings.json` is left exactly as it was — so an offline box
+keeps serving whatever it has already cached, and a save that only re-picks cached families
+still works with no network at all.
+
+**The Arabic slot is per character, not per language.** The generated stylesheet does not define
+three families and hope; it defines three *composites* — `VellumProse`, `VellumUI`, `VellumMono` —
+and lists the Arabic face's `@font-face` blocks **first**, narrowed to the Arabic unicode blocks,
+with the Latin face's blocks after and those same ranges carved out of them. The two sets are
+disjoint, so the browser's per-character font matching does the rest: in
+
+> A mixed line is where the trick shows: the word خط sits inside an English sentence.
+
+the Latin runs render in Lora and the Arabic word in Amiri — in one paragraph, with no markup,
+no `lang` attribute and no direction involved. That works on an **English** instance too, which
+is the point: a vault with Arabic quotations in English notes has never had a good answer before.
+
+**And at the right size.** Picking the right face is only half of "sets correctly"; the other
+half is *how big it comes out*. Two faces at one `font-size` are not two faces at one apparent
+size: Amiri's base letters stand at about 0.35 em where Lora's x-height is 0.51 em, so an
+unadjusted Arabic run beside Lora reads roughly a third smaller — a footnote dropped into a
+paragraph. Each Arabic catalog entry therefore carries a measured **`size-adjust`** (Amiri 138%,
+Scheherazade New 136%, Lateef 150%, Noto Kufi Arabic 90%, Cairo and Almarai none), emitted on
+that family's `@font-face` blocks in the composite. Because it rides on the *face*, it applies
+per character, in every slot, on an English instance as much as an Arabic one — which the
+whole-UI `--font-scale` multiplier under `:root[lang="ar"]` can never do, since it scales both
+scripts equally and so never moves the ratio between them.
+The composites finally fall back to `var(--font-*-system)`, so any codepoint neither face covers
+still lands on the stack the instance would have used — including the Arabic-first reorder and
+the Arabic type-metric compensation that `:root[lang="ar"]` applies.
+
+**Escape hatch, unchanged.** The catalog is a convenience, not a fence: anything not listed —
+a licensed face, a variable font, a script the catalog does not cover — still goes into
+`VELLUM_DATA/fonts/` and gets named from `custom.css` exactly as shown above. That link is
+injected *after* the generated stylesheet, so a `custom.css` rule on `:root` wins over both the
+catalog and the defaults.
+
+### Backup & sync
+
+Your vault is a folder of markdown files, so the oldest, most portable backup there is also the
+best one: **git**. Vellum can commit the vault and push it to a remote you own — by hand, or
+every few minutes — and it stays completely off until you switch it on.
+
+**1. Have a remote to push to.** Create an **empty, private** repository on whatever host you
+use (a self-hosted Forgejo/Gitea/GitLab, or one of the big ones). Empty matters: Vellum only
+ever fast-forwards, so a remote that already has commits of its own will refuse to sync until
+you reconcile the two histories yourself. Copy its clone URL — either form works:
+
+```
+https://git.example.com/you/vault.git      # HTTPS: needs a token (below)
+git@git.example.com:you/vault.git          # SSH: needs a key on this machine
+```
+
+**2. Choose how this server signs in.**
+
+- **SSH keys (recommended).** Vellum stores **no secret at all**; it runs `git` as the user your
+  server runs as, and that user's own SSH key or agent does the authentication. Generate a key
+  for the server (`ssh-keygen -t ed25519`), add the **public** half to your remote as a deploy
+  key with write access, and confirm it works from a shell first — `ssh -T git@git.example.com`
+  and one manual `git push` — because a key with a passphrase and no agent will simply fail
+  under the server too.
+- **Access token.** For HTTPS remotes. Create a **fine-grained** token scoped to that one
+  repository with contents read/write and the shortest expiry you can live with — never a
+  full-account classic token. Paste it into Site settings → Backup & sync → Access token, with
+  the username it pairs with (many hosts ignore the username; put anything non-empty).
+
+**Where the token lives.** In `VELLUM_DATA/git-credentials.json`, mode `0600`, owned by the
+server user. It is **never** written into `settings.json`, never into the vault, never into
+`.git/config`, and never into the remote URL — which is why the remote field refuses a URL with
+credentials baked in (`https://user:token@host/…`). At push time it reaches git through
+`GIT_ASKPASS` and an environment variable on that one child process, so it never appears in a
+command line (`ps` is readable by every user on the box) and never lands in your machine's own
+credential store (each network call runs with `-c credential.helper=` to empty the helper list).
+The API never gives it back: `GET /api/settings` answers `tokenSet: true` and nothing else, and
+any git error shown to you or written to the log is scrubbed of the stored token and of any URL
+userinfo first. **Clear token** deletes the file.
+
+**3. Turn it on.** Site settings → **Backup & sync**: switch Backup on (everything below that
+switch stays disabled until you do), paste the remote URL, pick the branch (default `main`), and
+pick an **Automatic sync** period — *Manual only* through *Once a day* (the timer skips a tick
+while a sync is still running). If the vault is not a git repository yet, press **Initialize
+repository**: that runs `git init`, makes the first commit, writes or extends `.gitignore` so
+your instance data directory can never be committed, and points `origin` at your remote. The
+button disappears once the vault is a repository.
+
+**4. Sync.** The status bar shows a quiet branch glyph while backup is on: plain when everything
+is committed, with a count when it is not, gold while a sync runs, red when the last one failed.
+Click it for a small panel carrying the branch, the ahead/behind counts, the last result and —
+on a failure — git's own error line as selectable text with a **Copy the error** button and a
+one-click jump to the settings section. **Sync now** is in that panel and in the command palette.
+One pass is:
+
+1. optionally `fetch` + `merge --ff-only` — see below;
+2. `git add -A`;
+3. commit `vellum sync: <ISO timestamp>`, **skipped entirely when nothing changed**;
+4. `git push`.
+
+**Why pulls are fast-forward-only.** Because the alternative can corrupt your notes. A real
+merge of two diverged histories writes `<<<<<<<` conflict markers *into the markdown files*, and
+an unattended background job that does that to a thousand notes is a worse outcome than any
+missed backup. So Vellum never merges and never rebases (a `pull.rebase = true` in your own
+gitconfig cannot change that — no `git pull` runs at all): if the remote has commits you do not
+have, the sync stops **before touching the working tree** and tells you the histories diverged.
+Nothing is committed, nothing is pushed, no note is modified. You then reconcile in a terminal,
+which is where a human belongs for that decision. Vellum never force-pushes.
+
+**.gitignore advice.** The vault is committed as it stands, so decide what does *not* belong in
+a backup before the first push:
+
+```gitignore
+.trash/                 # Vellum's soft-delete bin — deleted notes, kept on disk
+.obsidian/workspace*    # Obsidian's per-machine window state, if you also use Obsidian
+.DS_Store
+```
+
+Keep `.obsidian/` itself if you want your Obsidian settings backed up; drop the whole directory
+if you do not. **Never commit your instance data directory.** `VELLUM_DATA` (default `./data`)
+holds `settings.json`, comment data and the git token, so keep it *outside* the vault — that is
+the default, and this repository's own `.gitignore` already excludes `data/`.
+
+If you have pointed `VELLUM_DATA` inside the vault anyway, Vellum defends it three ways, and all
+three run on an existing repository with an existing `.gitignore` (which is the normal case, not
+a special one): **Initialize repository** creates `.gitignore` or *appends* the data-directory
+rule to the one you already have; every sync re-checks the rule with `git check-ignore` and
+**refuses to run** if the directory is still not ignored; and anything an older build already
+committed is dropped from the index (`git rm --cached`) before the next `git add -A`. A sync
+never stages your credentials. Note that files already pushed stay in the remote's *history* —
+if that happened, rotate the token and rewrite the history in a terminal.
+
+**Things worth knowing.**
+
+- Every git invocation is an `execFile` with a fixed argument array. No shell is involved
+  anywhere, and the remote URL and branch name are validated (scheme, no shell characters, no
+  embedded credentials, safe ref name) before they are ever handed over. A `user@` that is
+  *token-shaped* (`ghp_…`, `github_pat_…`, `glpat-…`) is refused on every scheme, including the
+  scp-style `git@host:path` and `ssh://` forms where a plain username is fine.
+- The git child process gets a **scrubbed environment**: `GIT_DIR`, `GIT_WORK_TREE`,
+  `GIT_INDEX_FILE`, the object-directory variables, `GIT_CONFIG*` (including
+  `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`), `GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_PROXY_COMMAND` and
+  `GIT_EXTERNAL_DIFF` are all removed, so nothing in the server's own environment can point git
+  at another repository, another config, or another transport. If you *need* a custom SSH
+  invocation — a specific deploy key, say — set **`VELLUM_GIT_SSH_COMMAND`** (e.g.
+  `VELLUM_GIT_SSH_COMMAND="ssh -i /home/vellum/.ssh/vault_ed25519 -o IdentitiesOnly=yes"`) and
+  Vellum passes exactly that to git as `GIT_SSH_COMMAND`.
+- "Ahead / behind" has a third state. Until a fetch or a push has succeeded once there is no
+  remote-tracking ref to compare against, and the panel says **"Nothing has reached the remote
+  yet"** rather than "0 ahead · 0 behind" — which is what a fully backed-up vault reads.
+- Sync is admin-only, including for an admin previewing the public site. Visitors cannot even
+  read the status — the branch, the dirty count and the remote host say too much about you.
+- Only one sync runs at a time: a second request while one is in flight answers `409`.
+- A failing scheduled sync is logged **once**, not once per tick.
+- If the machine has no git identity configured, commits are made as `Vellum
+  <vellum@localhost>`; set `user.name`/`user.email` in the vault (or globally) to use your own.
+- The API, for anyone scripting it (admin-only): `GET /api/sync/status`, `POST /api/sync/init`,
+  `POST /api/sync/now`.
+
 ### Dev mode
 
 ```sh
@@ -467,6 +652,12 @@ their `{placeholders}`.
 server (`node scripts/shoot.mjs http://localhost:6801 shots`) and it captures the editor, graph,
 and palette in both themes — it needs `npm i -D playwright` plus either
 `npx playwright install chromium` or a system browser via `CHROMIUM=/usr/bin/chromium`.
+Two narrower harnesses sit beside it for the admin chrome, which the first one never signs in to
+see: `node scripts/shoot-settings.mjs <url> <password> <outdir>` logs in, opens Site settings and
+captures every section through the rail (printing the panel's scroll geometry and the specimen
+font sizes), and `node scripts/shoot-sync.mjs <url> <password> <outdir>` captures the Backup &
+sync section plus the status badge's detail panel. Both take `THEME=parchment` and
+`LANGSET=ar` to check a theme or the right-to-left mirror.
 `node scripts/check-contrast.mjs` is the accessibility gate for `client/styles/tokens.css`:
 every theme must keep body text ≥ 4.5:1 and secondary text ≥ 3:1 — run it after touching
 theme tokens.
@@ -511,7 +702,8 @@ theme tokens.
 - **Sidebar on either side** — "Move sidebar to the right/left" in the palette; the default follows the language direction (left in English, right in Arabic) and your choice sticks
 - **Command palette** — fuzzy over notes and commands, including "Toggle reading view", "Open daily note", "Zen mode", themes, vim
 - **Live vault watching** — edit a file in any other editor and the app updates within ~100 ms (chokidar + SSE)
-- **Four hand-tuned themes** — *iron-gall*, *void*, and *lapis* dark, *parchment* light; gold-leaf accent, zero external fonts or CDN requests
+- **Four hand-tuned themes** — *iron-gall*, *void*, and *lapis* dark, *parchment* light; gold-leaf accent, zero CDN requests (webfonts are opt-in and self-hosted — see [Typography](#typography))
+- **A font catalog with real Arabic** — four slots over 27 curated faces, fetched once and served from your own machine; the Arabic face answers per *character*, so mixed Arabic/Latin paragraphs set correctly in either language
 - **Arabic & RTL** — `SITE_LANG=ar` localizes every chrome string and mirrors the entire interface right-to-left (app *and* blog), with Arabic-locale dates; an optional language filter keeps the public blog monolingual on a bilingual vault, and an optional visitor `EN`/`ع` switch lets readers pick for themselves
 - **Blog hover previews** — resting on any post link floats a scrollable preview of that note, rendered by the reading renderer: it opens into whichever room the viewport has, fades at whichever edge has more prose past it, and answers the keyboard too (a Tab-focused link gets the same card). The topic nav never wraps, and a ✦ carries long reads back to the top
 
