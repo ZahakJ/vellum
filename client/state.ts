@@ -84,6 +84,7 @@ export interface State {
   publicLayout: "app" | "blog";
   /** SITE_TAGLINE — masthead subtitle (blog mode). */
   tagline: string | null;
+  shareButtons: boolean;
   /** SITE_FOOTER resolved server-side (blog mode; always set when blog). */
   footerLine: string | null;
   /** BCP47 locale for post dates (BLOG_LOCALE, default "en"). */
@@ -366,6 +367,7 @@ export const useStore = create<State>()((set, get) => {
 
     publicLayout: "app",
     tagline: null,
+    shareButtons: false,
     footerLine: null,
     blogLocale: "en",
     bannerFallback: "generated",
@@ -414,6 +416,7 @@ export const useStore = create<State>()((set, get) => {
           siteName: me.siteName?.trim() || "Vellum",
           publicLayout: me.publicLayout === "blog" ? "blog" : "app",
           tagline: me.tagline?.trim() || null,
+          shareButtons: me.shareButtons === true,
           footerLine: me.footer?.trim() || null,
           blogLocale: me.blogLocale?.trim() || "en",
           bannerFallback: me.bannerFallback === "none" ? "none" : "generated",

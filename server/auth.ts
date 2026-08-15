@@ -345,6 +345,7 @@ authRoutes.get("/me", (c) => {
     me.footer = footerLine();
     me.blogLocale = blogLocale();
     me.bannerFallback = bannerFallback();
+    if (getSettings().shareButtons === true) me.shareButtons = true;
     // Runtime settings the blog shell renders from (settings.json): the
     // home config (mode/banner, plus the note when it is visible to this
     // session — same gating as me.homeNote above). Visitor-safe by

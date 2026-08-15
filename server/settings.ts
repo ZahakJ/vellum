@@ -182,6 +182,7 @@ export function getSettings(): SettingsData {
     out.excludeTags = tags;
   }
   if (typeof raw.commentsEnabled === "boolean") out.commentsEnabled = raw.commentsEnabled;
+  if (typeof raw.shareButtons === "boolean") out.shareButtons = raw.shareButtons;
   str("favicon", VALUE_MAX);
   str("logo", VALUE_MAX);
   const home = raw.home;
@@ -211,6 +212,7 @@ export function effectiveSettings(): EffectiveSettings {
     blogLocale: blogLocale(),
     excludeTags: [...excludedTags()],
     commentsEnabled: commentsEnabled(),
+    shareButtons: s.shareButtons ?? false,
     favicon: s.favicon ?? null,
     logo: s.logo ?? null,
     home: {
@@ -329,6 +331,11 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     if (value === null) delete raw.commentsEnabled;
     else if (typeof value === "boolean") raw.commentsEnabled = value;
     else throw new VaultError(400, 'Settings key "commentsEnabled" must be a boolean or null');
+  },
+  shareButtons: (raw, value) => {
+    if (value === null) delete raw.shareButtons;
+    else if (typeof value === "boolean") raw.shareButtons = value;
+    else throw new VaultError(400, 'Settings key "shareButtons" must be a boolean or null');
   },
   favicon: stringKey("favicon", (v) => cleanVaultImage(v, "favicon")),
   // A logo may be an https URL or a vault image path.

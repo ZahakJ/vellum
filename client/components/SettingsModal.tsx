@@ -26,6 +26,7 @@ interface Form {
   blogLocale: string;
   excludeTags: string;  // comma-separated
   comments: string;     // "" | "on" | "off"
+  share: string;        // "" | "on" | "off" (blog article share row; default off)
   favicon: string;      // vault path or ""
   logo: string;         // vault path / https URL or ""
   homeMode: string;     // "" | "note" | "dashboard"
@@ -43,6 +44,7 @@ function formFrom(s: SettingsResponse): Form {
     blogLocale: s.blogLocale ?? "",
     excludeTags: (s.excludeTags ?? []).join(", "),
     comments: s.commentsEnabled === undefined ? "" : s.commentsEnabled ? "on" : "off",
+    share: s.shareButtons === undefined ? "" : s.shareButtons ? "on" : "off",
     favicon: s.favicon ?? "",
     logo: s.logo ?? "",
     homeMode: s.home?.mode ?? "",
@@ -145,6 +147,7 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
   }
   if (f.comments !== initial.comments) {
     patch.commentsEnabled = f.comments === "" ? null : f.comments === "on";
+    patch.shareButtons = f.share === "" ? null : f.share === "on";
   }
   if (
     f.homeMode !== initial.homeMode ||
@@ -620,6 +623,13 @@ export default function SettingsModal() {
             <Row label="Comments" hint="Marginalia under published notes">
               <select className="s-bmodal__input s-smodal__select" {...field("comments")}>
                 <option value="">{`inherit (${eff.commentsEnabled ? "on" : "off"})`}</option>
+                <option value="on">on</option>
+                <option value="off">off</option>
+              </select>
+            </Row>
+            <Row label="Share buttons" hint="Social share row under blog articles">
+              <select className="s-bmodal__input s-smodal__select" {...field("share")}>
+                <option value="">{`inherit (${eff.shareButtons ? "on" : "off"})`}</option>
                 <option value="on">on</option>
                 <option value="off">off</option>
               </select>
