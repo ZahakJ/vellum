@@ -2,7 +2,7 @@
 // full-text search with <mark> snippets, and a tag list. Inline rename via
 // double-click; context menu for new note / new folder / rename / delete.
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
 import { createFolder, getGraph, getTags, search } from "../api.ts";
@@ -11,10 +11,13 @@ import { collectNotes, resolveLink, type NoteRef } from "../editor/links.ts";
 import { countPhrase, localeNum, t, tf, type Lang } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
-import { confirmModal } from "./Confirm.tsx";
+import { confirmModal, confirmModalEx } from "./Confirm.tsx";
 import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
 
 const SEARCH_DEBOUNCE_MS = 200;
+
+/** Margin the context menu keeps from every viewport edge. */
+const MENU_EDGE = 8;
 
 // Tags section collapse (tag-heavy vaults: the pill cloud can eat the tree's
 // room) — persisted like the tree's folder expansion.
@@ -175,6 +178,7 @@ export default function Sidebar() {
   const createNote = useStore((s) => s.createNote);
   const renameNote = useStore((s) => s.renameNote);
   const deleteNote = useStore((s) => s.deleteNote);
+  const deleteFolder = useStore((s) => s.deleteFolder);
   const loadTree = useStore((s) => s.loadTree);
   const admin = useStore((s) => s.admin);
   const homeNote = useStore((s) => s.homeNote);
@@ -193,12 +197,43 @@ export default function Sidebar() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  // Set when a reveal had to happen first; the effect below focuses once the
+  // pane is actually on screen (see revealSidebar).
+  const focusWhenShown = useRef(false);
+  const zen = useStore((s) => s.zen);
+  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
+
+  /** Bring the sidebar back before anything tries to use it. A collapsed pane
+   *  (and zen) is `visibility: hidden` until React commits the class removal,
+   *  and a hidden field CANNOT take focus — calling focus() in the same tick
+   *  silently does nothing and the reader's next keystrokes go to the page.
+   *  So when a reveal was needed, the focus waits for the commit. */
+  const revealSidebar = (): boolean => {
+    const store = useStore.getState();
+    const hidden = store.zen || store.sidebarCollapsed;
+    if (store.zen) store.setZen(false);
+    if (store.sidebarCollapsed) store.setSidebarCollapsed(false);
+    return hidden;
+  };
+
+  const focusSearch = (): void => {
+    searchRef.current?.focus();
+    searchRef.current?.select();
+  };
+
+  useEffect(() => {
+    if (!focusWhenShown.current || zen || sidebarCollapsed) return;
+    focusWhenShown.current = false;
+    focusSearch();
+  }, [zen, sidebarCollapsed]);
 
   // Ctrl/Cmd+K (App dispatches "vellum:quicksearch"): focus the search box.
+  // If the chrome is out of the way, bring it back first — focusing a search
+  // field the reader cannot see would swallow every keystroke that follows.
   useEffect(() => {
     const onQuickSearch = () => {
-      searchRef.current?.focus();
-      searchRef.current?.select();
+      if (revealSidebar()) focusWhenShown.current = true;
+      else focusSearch();
     };
     window.addEventListener("vellum:quicksearch", onQuickSearch);
     return () => window.removeEventListener("vellum:quicksearch", onQuickSearch);
@@ -224,7 +259,11 @@ export default function Sidebar() {
   useEffect(() => {
     const onSearch = (ev: Event) => {
       const detail = (ev as CustomEvent<string>).detail;
-      if (typeof detail === "string") setQuery(detail);
+      if (typeof detail !== "string") return;
+      // Clicking a #tag in the editor asks for RESULTS; show the pane holding
+      // them (same reasoning as the quick-search reveal above).
+      revealSidebar();
+      setQuery(detail);
     };
     window.addEventListener("vellum:search", onSearch);
     return () => window.removeEventListener("vellum:search", onSearch);
@@ -308,6 +347,63 @@ export default function Sidebar() {
       if (ok) void deleteNote(node.path);
     });
   };
+
+  // Folders delete in two speeds. The default is Obsidian's: move the whole
+  // subtree to the vault's .trash/, which the copy promises and the toast
+  // repeats. Erasing it outright is the quiet third route in the dialog, and
+  // it asks a second time — by then the reader has read the word "permanently"
+  // twice and clicked it twice.
+  const confirmDeleteFolder = (node: TreeNode) => {
+    const count = countPhrase(countNotes(node), "notes");
+    void confirmModalEx({
+      title: tf("deleteFolderTitle", { name: node.name }),
+      body: tf("deleteFolderBody", { count }),
+      confirmLabel: t("moveToTrash"),
+      extraLabel: t("deletePermanently"),
+    }).then((result) => {
+      if (result === "confirm") {
+        void deleteFolder(node.path);
+        return;
+      }
+      if (result !== "extra") return;
+      void confirmModal({
+        title: tf("deleteFolderPermTitle", { name: node.name }),
+        body: tf("deleteFolderPermBody", { count }),
+        confirmLabel: t("deletePermanently"),
+        // Nothing here is recoverable, so nothing here looks like the dialog
+        // that was: red at rest, and Enter is not armed (Confirm.tsx).
+        grave: true,
+      }).then((ok) => {
+        if (ok) void deleteFolder(node.path, { permanent: true });
+      });
+    });
+  };
+
+  // The context menu opens at the pointer, but the pointer can be anywhere —
+  // and with the sidebar on the trailing edge (RTL by default, or a reader who
+  // moved it there) a menu that grows toward the trailing edge runs straight
+  // off the screen, taking its last item with it. So it opens toward the
+  // reading direction, folds back when that edge has no room, and is clamped
+  // into the viewport on both axes. Measured after mount, because the menu's
+  // size is its content's.
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!menu || !el) return;
+    const rtl = getComputedStyle(document.documentElement).direction === "rtl";
+    const { width, height } = el.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    let left = rtl ? menu.x - width : menu.x;
+    if (left + width > vw - MENU_EDGE) left = menu.x - width; // fold back
+    if (left < MENU_EDGE) left = menu.x; // …and back again if that overflows
+    left = Math.max(MENU_EDGE, Math.min(left, vw - width - MENU_EDGE));
+    let top = menu.y;
+    if (top + height > vh - MENU_EDGE) top = menu.y - height;
+    top = Math.max(MENU_EDGE, Math.min(top, vh - height - MENU_EDGE));
+    el.style.left = `${Math.round(left)}px`;
+    el.style.top = `${Math.round(top)}px`;
+  }, [menu]);
 
   const openMenu = useCallback((e: ReactMouseEvent, node: TreeNode) => {
     if (!useStore.getState().admin) return; // menu holds only mutating actions
@@ -597,6 +693,7 @@ export default function Sidebar() {
 
       {menu && (
         <div
+          ref={menuRef}
           className="s-menu"
           style={{ left: menu.x, top: menu.y }}
           onMouseDown={(e) => e.stopPropagation()}
@@ -625,7 +722,10 @@ export default function Sidebar() {
               </button>
             </>
           )}
-          {menu.node.path !== "" && (
+          {/* Files only: /api/rename is a note route ("Not a markdown path"
+              on a folder), so offering it on a folder row was a menu item
+              whose only outcome was a toast. */}
+          {menu.node.type === "file" && (
             <button
               type="button"
               className="s-menu__item"
@@ -647,6 +747,20 @@ export default function Sidebar() {
               }}
             >
               {t("delete")}
+            </button>
+          )}
+          {/* Never on the root row: the vault itself is not deletable (the
+              server 400s an empty path), and offering it would be a trap. */}
+          {menu.node.type === "folder" && menu.node.path !== "" && (
+            <button
+              type="button"
+              className="s-menu__item s-menu__item--danger"
+              onClick={() => {
+                setMenu(null);
+                confirmDeleteFolder(menu.node);
+              }}
+            >
+              {t("deleteFolder")}
             </button>
           )}
         </div>

@@ -115,7 +115,8 @@ command palette): a panel with three groups —
 - **Home page** — what visitors see at `/`: classic `note` mode with a chosen home note, or the
   `dashboard` magazine layout, plus an optional hero banner.
 - **Site behavior** — default theme, public layout (`app`/`blog`), **language** (English /
-  العربية) and its language filter, date locale, excluded tags, and the comments toggle.
+  العربية) with its language filter and the optional **visitor switch**, date locale, excluded
+  tags, and the comments toggle.
 
 Image fields reuse the banner machinery: pick from the vault's attachments or upload right
 there (drag & drop; bytes are sniffed; lands in `ATTACHMENTS_DIR`).
@@ -221,6 +222,25 @@ The home page opens with `HOME_NOTE` rendered as an intro section (when that not
 published) above the reverse-chronological post list. Topic pages live at `/topic/<tag>`;
 article deep links keep their normal note URLs.
 
+**The nav is always one line.** However many topics your published tags add up to, the row
+measures itself and folds whatever will not fit into an inline "More ▾" menu beside the topics
+that do — re-measured on every resize, in either direction, so it never wraps into a second
+ragged line. Below ~840px it collapses into the usual burger panel, which shows every topic at
+once.
+
+**Hover previews.** Resting the pointer on any post link — a list entry, a dashboard card, a
+related or prev/next link, a search result — floats the opening of that note, rendered by the
+same reading renderer the article page uses. The card *scrolls*, so a reader can skim well past
+the excerpt without leaving the page they are on; it flips above the link near the bottom of the
+viewport and stays put while the pointer travels into it. Touch devices and readers who ask for
+reduced motion get no card at all, and the fetch is the ordinary visitor-scoped one — an
+unpublished note has nothing to preview.
+
+**Back to top.** After a viewport of scrolling, a small ✦ appears in the trailing corner (the
+leading one under RTL) and carries the reader back up with a gold shimmer; it lifts itself out
+of the way of the footer and the comment box rather than sitting on them, and jumps instantly
+with no shimmer when `prefers-reduced-motion` is set.
+
 **Dashboard home.** Prefer a magazine front page over the note-style home? Set
 `home.mode: "dashboard"` in `VELLUM_DATA/settings.json` (`{ "home": { "mode": "dashboard" } }`,
 picked up live — or via the admin `PATCH /api/settings` endpoint) and `/` becomes: a full-width hero carrying the site name (or
@@ -277,7 +297,9 @@ prev/next, Marginalia) — comes from a single dictionary in `client/i18n.ts`. C
 properly in Arabic (`حاشية واحدة`, `حاشيتان`, `3 حواشٍ`, `40 حاشية`), not by bolting an "s" on.
 
 **It mirrors the interface.** The document becomes `<html dir="rtl" lang="ar">` and the layout
-follows: the sidebar moves to the right and the backlinks/outline panel to the left, tree
+follows: the sidebar moves to the right and the backlinks/outline panel to the left (that is the
+*default* — "Move sidebar to the left/right" in the palette overrides it, and the choice, being a
+window preference rather than a language one, survives a language change), tree
 indentation and chevrons flip, the active-note accent bar moves to the other edge, the status
 bar and blog nav reverse, and "older/newer" arrows point the way you actually read. This is
 built on CSS logical properties (`margin-inline-*`, `inset-inline-*`, `text-align: start`), so
@@ -302,6 +324,25 @@ through to them; nothing is fetched from a CDN. Because a naskh face reads perce
 than Georgia at the same pixel size, `lang="ar"` also multiplies the two type-scale tokens
 (`--font-scale`, `--prose-scale`), which lifts the whole UI ~6% and the reading column ~10%. A
 `--font-base` you set in `custom.css` is multiplied, not overwritten.
+
+#### Visitor language switch
+
+`SITE_LANG` picks the language *you* publish in. **Site settings → Visitor switch** (settings key
+`languageToggle`, **off by default**) adds a small `EN` / `ع` control at the edge of the public
+nav so a reader can pick the other one for themselves. Their choice lives in their own browser's
+`localStorage` and survives return visits; nobody else's site changes.
+
+It moves exactly two things: the **chrome strings** and the **text direction**. Note content is
+untouched — it renders as authored, per block, the way it always does — and so are dates and
+numerals, which stay on the instance's `BLOG_LOCALE` so a page never shows two numbering systems
+at once. Leave the switch off (the default) and the public site has no language chrome at all.
+
+> **If you turn the switch on, set `BLOG_LOCALE` deliberately.** Dates are per *instance*, not
+> per visitor — that is what keeps one line from mixing `١٤` with `14`. So an English-locale
+> instance whose visitor picks Arabic reads `١١ دقيقة قراءة · August 15, 2026`: Arabic chrome,
+> English dates. Nothing is broken, but the first screen reads half-translated. If your audience
+> is mostly Arabic, `BLOG_LOCALE=ar` (or `ar-u-nu-latn` for Arabic months with Latin digits) is
+> usually the tag you want; if it is mostly English, expect the reverse for readers who switch.
 
 #### Language filter
 
@@ -444,6 +485,7 @@ theme tokens.
 - **Hover previews** — rest on a `[[wikilink]]` and a floating card shows the target note's rendered opening (`[[Note#Heading]]` previews from that heading); footnote refs preview their definition
 - **Heading folding** — a chevron appears beside each heading on hover; fold a section down to a "N folded lines" chip (click to reopen)
 - **List/quote continuation** — `Enter` continues `-` lists, `- [ ]` tasks, numbered lists, and `>` quotes; `Enter` on an empty item exits. `Ctrl/Cmd ↑/↓` moves the current line. Pasting a URL over selected text makes a markdown link
+- **Folder delete, Obsidian-safe** — right-click a folder in the sidebar: "Delete folder" *moves* the whole subtree to the vault's `.trash/`, so it is recoverable from disk (the dialog names the folder and counts the notes first); a quieter "Delete permanently" beside it erases instead, behind its own confirmation
 - **Vim mode**, autosave (600 ms debounce + `Ctrl/Cmd S`), and a keyboard-first surface
 
 ### Rendering
@@ -465,10 +507,13 @@ theme tokens.
 - **Full-text search** — prefix + fuzzy (MiniSearch), highlighted snippets with markdown syntax stripped, instant
 - **Tags** — `#inline` and frontmatter `tags:`, counted and clickable in the sidebar
 - **Daily notes** — `Ctrl/Cmd D` opens (or creates) `daily/YYYY-MM-DD.md`
-- **Command palette** — fuzzy over notes and commands, including "Toggle reading view", "Open daily note", themes, vim
+- **A shell that gets out of the way** — collapse either pane (`Ctrl/Cmd B`, `Ctrl/Cmd Shift B`) down to a slim reopen handle, or go **zen** (`Ctrl/Cmd Shift Z`): sidebar, panel, tabs and status bar step aside and the prose centers on a wide measure. `Esc` (or the faint ✕) comes back. Every state is remembered across reloads
+- **Sidebar on either side** — "Move sidebar to the right/left" in the palette; the default follows the language direction (left in English, right in Arabic) and your choice sticks
+- **Command palette** — fuzzy over notes and commands, including "Toggle reading view", "Open daily note", "Zen mode", themes, vim
 - **Live vault watching** — edit a file in any other editor and the app updates within ~100 ms (chokidar + SSE)
 - **Four hand-tuned themes** — *iron-gall*, *void*, and *lapis* dark, *parchment* light; gold-leaf accent, zero external fonts or CDN requests
-- **Arabic & RTL** — `SITE_LANG=ar` localizes every chrome string and mirrors the entire interface right-to-left (app *and* blog), with Arabic-locale dates; an optional language filter keeps the public blog monolingual on a bilingual vault
+- **Arabic & RTL** — `SITE_LANG=ar` localizes every chrome string and mirrors the entire interface right-to-left (app *and* blog), with Arabic-locale dates; an optional language filter keeps the public blog monolingual on a bilingual vault, and an optional visitor `EN`/`ع` switch lets readers pick for themselves
+- **Blog hover previews** — resting on any post link floats a scrollable preview of that note, rendered by the reading renderer: it opens into whichever room the viewport has, fades at whichever edge has more prose past it, and answers the keyboard too (a Tab-focused link gets the same card). The topic nav never wraps, and a ✦ carries long reads back to the top
 
 ## Keymap
 
@@ -480,6 +525,9 @@ theme tokens.
 | `Ctrl/Cmd D` | Open today's daily note |
 | `Ctrl/Cmd N` | New note |
 | `Ctrl/Cmd G` | Toggle graph view |
+| `Ctrl/Cmd B` | Collapse / reopen the sidebar |
+| `Ctrl/Cmd Shift B` | Collapse / reopen the backlinks panel |
+| `Ctrl/Cmd Shift Z` | Zen mode — all chrome steps aside (`Esc` returns) |
 | `Ctrl/Cmd S` | Save now (autosave runs regardless) |
 | `Ctrl/Cmd ↑` / `↓` | Move the current line up / down |
 | `/` at line start | Slash menu (callout, code fence, table, …) |
@@ -487,7 +535,9 @@ theme tokens.
 | `Ctrl/Cmd`-click | Follow a wikilink on the line you're editing |
 | `↑` `↓` `Enter` `Esc` | Navigate / confirm / dismiss the palette |
 
-In vim mode, `Ctrl D` inside the editor keeps its half-page scroll; use the palette's "Open daily note".
+In vim mode, `Ctrl D` and `Ctrl B` inside the editor keep their half-page scroll and page-up, and
+`Esc` stays vim's mode key — use `Cmd`, the palette, or zen's ✕ instead. On macOS, `Cmd Shift Z`
+inside the editor stays redo; `Ctrl Shift Z` enters zen there.
 
 ## Architecture
 

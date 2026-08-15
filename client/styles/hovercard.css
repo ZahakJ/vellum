@@ -1,0 +1,145 @@
+/* Vellum — shared hover-preview popover (client/hovercard.ts).
+   A small leaf of the note floating beside its link: hairline border, raised
+   ground, gold-leaf title rule. Every color is a token, so all four themes
+   carry it; every directional edge is logical, so it mirrors under dir="rtl".
+   Prefix: s-hovercard. */
+
+.s-hovercard {
+  position: fixed;
+  /* Above the search overlay (100) and the nav (30): the card only ever
+     exists under a resting pointer, and any click, scroll or Escape ends it. */
+  z-index: 500;
+  width: min(28rem, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+  /* The card opens under the pointer's rest, so it starts a hair low and
+     fades up. `place()` sets max-height; the body owns the scrolling. */
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  overflow: hidden;
+}
+
+.s-hovercard--flip {
+  transform: translateY(-4px);
+}
+
+.s-hovercard--in {
+  opacity: 1;
+  transform: none;
+}
+
+.s-hovercard__title {
+  flex: none;
+  padding: 9px 14px 8px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-serif);
+  font-size: 0.95rem;
+  line-height: 1.3;
+  color: var(--text);
+  text-align: start;
+  /* A long title must not stretch the card or hide the body. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The scrollable half — the point of the card: a reader can skim deeper here
+   without opening the post. */
+.s-hovercard__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 14px 12px;
+  font-size: 0.94rem;
+  /* How far the prose dissolves at an edge that has more past it. */
+  --fade: 30px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-faint) transparent;
+}
+
+/* The scroll affordance. Without it the card is a window with invisible
+   glass: the last line is severed mid-x-height at the bottom edge, which
+   reads as clipped BY the viewport rather than as a container with more
+   inside — and after a wheel, a half-height slice of a line sits flush under
+   the title rule. So each edge with prose past it dissolves into the card's
+   own ground; `hovercard.ts::syncFade` sets which. */
+.s-hovercard__body[data-fade="bottom"] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade)), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade)), transparent);
+}
+
+.s-hovercard__body[data-fade="top"] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--fade));
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--fade));
+}
+
+.s-hovercard__body[data-fade="both"] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--fade),
+    #000 calc(100% - var(--fade)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--fade),
+    #000 calc(100% - var(--fade)),
+    transparent
+  );
+}
+
+/* The reading renderer's own top margins would push the first block away from
+   the title rule. */
+.s-hovercard__body > .s-rv > :first-child {
+  margin-block-start: 0;
+}
+
+/* Nothing inside a preview is a navigation target: the card is a glance, and
+   a stray click inside it must not steal the link the reader meant to click. */
+.s-hovercard__body a {
+  pointer-events: none;
+}
+
+.s-hovercard__body::-webkit-scrollbar {
+  width: 8px;
+}
+
+/* --border on --bg-raised is invisible at 1:1 in every theme — the thumb has
+   to be readable as a POSITION, not merely present in the box model. */
+.s-hovercard__body::-webkit-scrollbar-thumb {
+  background: var(--text-faint);
+  border-radius: 4px;
+}
+
+.s-hovercard__body::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* A gold hairline where the title meets the body — the same leaf that marks
+   an active nav topic, at a whisper. */
+.s-hovercard__title {
+  box-shadow: inset 0 -1px 0 var(--accent-soft);
+}
+
+/* Reduced motion takes the 140ms fade, not the feature: the card is content,
+   and a reader who asked for less movement did not ask to stop seeing what a
+   link leads to. It appears at once instead. */
+@media (prefers-reduced-motion: reduce) {
+  .s-hovercard {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .s-hovercard--flip {
+    transform: none;
+  }
+}

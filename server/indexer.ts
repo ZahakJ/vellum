@@ -549,6 +549,21 @@ export function publishedNotes(): { path: string; title: string }[] {
   return out;
 }
 
+/** The visitor-visible notes currently indexed under a folder — what a
+ *  `{kind:"deleted", dir:true}` event is about to take away from the public
+ *  collection. Sampled synchronously by the SSE visitor filter, before the
+ *  chained reindex tears the records down. Hidden and unpublished notes are
+ *  never named, so fanning a folder delete out through this leaks nothing the
+ *  visitor could not already enumerate from /api/tree. */
+export function visibleNotesUnder(relFolder: string): string[] {
+  const prefix = `${relFolder}/`;
+  const out: string[] = [];
+  for (const notePath of publishedSet) {
+    if (notePath.startsWith(prefix) && isNoteVisibleToVisitor(notePath)) out.push(notePath);
+  }
+  return out.sort();
+}
+
 export function publishedCounts(): { notes: number; total: number } {
   return { notes: publishedSet.size, total: notes.size };
 }

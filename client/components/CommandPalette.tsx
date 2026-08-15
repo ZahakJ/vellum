@@ -142,6 +142,33 @@ const COMMANDS: Command[] = [
     themeDot: theme,
     available: () => true,
   })),
+  // Shell layout. Available to visitors too: where the panes sit and how much
+  // chrome is on screen is the reader's business, not the admin's.
+  {
+    id: "zen-mode",
+    label: () => t("cmdZen"),
+    hint: () => t("cmdZenHint"),
+    available: () => true,
+  },
+  {
+    id: "toggle-sidebar",
+    label: () => t("cmdToggleSidebar"),
+    hint: () => "Ctrl/Cmd B",
+    available: () => true,
+  },
+  {
+    id: "toggle-panel",
+    label: () => t("cmdTogglePanel"),
+    hint: () => "Ctrl/Cmd Shift B",
+    available: () => true,
+  },
+  {
+    // One command, two labels: it always names the edge you are NOT on.
+    id: "sidebar-side",
+    label: () => t(useStore.getState().sidebarSide === "left" ? "cmdSidebarRight" : "cmdSidebarLeft"),
+    hint: () => t("cmdLayoutHint"),
+    available: () => true,
+  },
   {
     id: "toggle-vim",
     label: () => t("cmdToggleVim"),
@@ -421,6 +448,18 @@ export default function CommandPalette() {
           break;
         case "toggle-vim":
           store.toggleVim();
+          break;
+        case "zen-mode":
+          store.setZen(!store.zen);
+          break;
+        case "toggle-sidebar":
+          store.setSidebarCollapsed(!store.sidebarCollapsed);
+          break;
+        case "toggle-panel":
+          store.setPanelCollapsed(!store.panelCollapsed);
+          break;
+        case "sidebar-side":
+          store.setSidebarSide(store.sidebarSide === "left" ? "right" : "left");
           break;
         case "delete-current":
           if (store.openPath) {

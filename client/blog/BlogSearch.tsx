@@ -134,6 +134,9 @@ export default function BlogSearch() {
                     <button
                       type="button"
                       className={`s-blog-search__hit${i === active ? " s-blog-search__hit--active" : ""}`}
+                      // A hit is a button, not a link, so the hover-preview
+                      // delegation needs the path spelled out (postPreview.ts).
+                      data-preview-path={hit.path}
                       onMouseEnter={() => setActive(i)}
                       onClick={() => pick(hit)}
                     >

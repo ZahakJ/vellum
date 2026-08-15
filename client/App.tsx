@@ -2,7 +2,7 @@
 // global keyboard shortcuts, and the single SSE subscription that keeps the
 // tree, backlinks, and externally-changed open notes fresh.
 
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { VaultEvent } from "../shared/types.ts";
 import { subscribeEvents } from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
@@ -30,6 +30,13 @@ import { dismissToasts, toast } from "./toast.ts";
  *  "changed" events arriving within this window of a local save. */
 const SELF_SAVE_WINDOW_MS = 1500;
 
+/** How long zen's ✕ lingers before fading out (any mouse move brings it back). */
+const ZEN_HINT_MS = 2000;
+
+/** macOS binds Ctrl+B to emacs-style "char left" inside CodeMirror and reads
+ *  Cmd as the app modifier — so plain Ctrl+B there belongs to the editor. */
+const IS_MAC = /Mac|iP(hone|ad|od)/.test(navigator.platform);
+
 // The CodeMirror editor is the heaviest part of the client and anonymous
 // visitors (reading view only) never need it — load it on demand so the
 // first-paint bundle stays lean.
@@ -49,9 +56,20 @@ export default function App() {
   const authReady = useStore((s) => s.authReady);
   const publicLayout = useStore((s) => s.publicLayout);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
+  const sidebarSide = useStore((s) => s.sidebarSide);
+  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
+  const zen = useStore((s) => s.zen);
   const locked = useStore((s) => !s.admin && !s.publicReads);
-  useStore((s) => s.language); // re-render the chrome strings on language change
+  const lang = useStore((s) => s.language); // re-render the chrome strings on language change
   const lastSaveRef = useRef(0);
+  /** Zen's ✕ has been sitting still long enough to fade out. */
+  const [zenIdle, setZenIdle] = useState(false);
+
+  // The grid follows the inline direction, so the sidebar already sits on the
+  // reading direction's leading edge (left in English, right in Arabic).
+  // "Flipped" means the reader asked for the OTHER edge — the one rule that
+  // has to be expressed physically, because the preference is physical.
+  const flipped = (lang === "ar") === (sidebarSide === "left");
 
   // Blog mode (PUBLIC_LAYOUT=blog): visitors get the classic blog shell,
   // which owns its own routes (/, /topic/…, article pages) — the app router
@@ -144,6 +162,28 @@ export default function App() {
     return subscribeEvents(onEvent);
   }, [admin]);
 
+  // Zen's only visible chrome is a faint ✕. It shows on entry (so the way out
+  // is never a secret), fades after a beat, and any mouse movement brings it
+  // back — the pointer is the one input that means "I am looking for a
+  // control". Leaving zen resets it for the next time.
+  useEffect(() => {
+    if (!zen) {
+      setZenIdle(false);
+      return;
+    }
+    let timer = window.setTimeout(() => setZenIdle(true), ZEN_HINT_MS);
+    const onMove = () => {
+      setZenIdle(false);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setZenIdle(true), ZEN_HINT_MS);
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("mousemove", onMove);
+    };
+  }, [zen]);
+
   // "Set banner…" requests from the editor's properties-card action.
   useEffect(() => {
     const onSetBanner = (): void => {
@@ -156,14 +196,40 @@ export default function App() {
 
   // Global keyboard shortcuts.
   useEffect(() => {
+    /** Is the caret inside the CodeMirror editor right now? */
+    const inEditor = (target: EventTarget | null): boolean =>
+      target instanceof Element && target.closest(".cm-editor") !== null;
+
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
       const store = useStore.getState();
+      // Esc leaves zen. It never fires out from under something that owns Esc
+      // itself: a modal or the palette (which close on it), a text field
+      // (the sidebar search clears on it), or vim (mode key — sacred).
+      if (e.key === "Escape" && store.zen) {
+        if (
+          store.paletteOpen ||
+          store.loginOpen ||
+          store.bannerModalOpen ||
+          store.moderationOpen ||
+          store.settingsOpen ||
+          document.querySelector(".s-confirm-overlay") !== null
+        ) {
+          return;
+        }
+        if (store.vimMode && inEditor(e.target)) return;
+        if (e.target instanceof Element && e.target.closest("input, textarea")) return;
+        e.preventDefault();
+        store.setZen(false);
+        return;
+      }
+      if (!(e.metaKey || e.ctrlKey)) return;
       const key = e.key.toLowerCase();
-      // Ctrl/Cmd+P and +K are ALWAYS ours — swallow them before any early
-      // return so the browser's print dialog / address-bar search can never
-      // fire, modal open or not, and regardless of what CM does downstream.
-      if (key === "p" || key === "k") e.preventDefault();
+      // Ctrl/Cmd+P, +K and +B are ALWAYS ours — swallow them before any early
+      // return so the browser's print dialog / address-bar search / bookmarks
+      // bar can never fire, modal open or not, and regardless of what CM does
+      // downstream. (Ctrl+Shift+B is Chrome's bookmark bar, plain Ctrl+B is
+      // Firefox's bookmarks sidebar: both have to die here.)
+      if (key === "p" || key === "k" || key === "b") e.preventDefault();
       // A modal dialog owns the keyboard: app-level shortcuts firing behind
       // the login/banner/moderation/confirm overlays would steal focus (e.g.
       // Ctrl+K focusing the sidebar search under the modal) or stack modals.
@@ -197,12 +263,34 @@ export default function App() {
         e.preventDefault();
         store.toggleReading();
         if (store.view === "graph") store.setView("editor");
+      } else if (key === "b" && e.shiftKey) {
+        // Ctrl/Cmd+Shift+B — the right panel. Nothing in CM or vim wants it,
+        // so it is unconditionally ours (and already preventDefault-ed above,
+        // which is what keeps Chrome's bookmark bar out of the layout).
+        e.stopPropagation();
+        store.setPanelCollapsed(!store.panelCollapsed);
+      } else if (key === "b") {
+        // Ctrl/Cmd+B — the sidebar. Same shape as the Ctrl+D rule below: the
+        // editor keeps plain Ctrl+B where the platform gave it a meaning
+        // (vim's page-up; macOS's emacs-style char-left), and Cmd+B toggles
+        // the sidebar from inside the editor on those setups.
+        if (!e.metaKey && inEditor(e.target) && (store.vimMode || IS_MAC)) return;
+        e.stopPropagation();
+        store.setSidebarCollapsed(!store.sidebarCollapsed);
+      } else if (key === "z" && e.shiftKey) {
+        // Ctrl/Cmd+Shift+Z — zen. On macOS this is ALSO CodeMirror's only
+        // redo binding (redo is Mod-y elsewhere), so the editor keeps Cmd+
+        // Shift+Z when the caret is in it — Ctrl+Shift+Z, the palette command
+        // and the ✕ all still enter zen there. stopPropagation everywhere
+        // else: CM must never redo and toggle zen off the same keystroke.
+        if (e.metaKey && inEditor(e.target)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        store.setZen(!store.zen);
       } else if (key === "d") {
         if (!store.admin) return; // daily note may create a file
         // Vim's Ctrl+D (half-page scroll) keeps priority inside the editor.
-        const inEditor =
-          e.target instanceof Element && e.target.closest(".cm-editor") !== null;
-        if (store.vimMode && inEditor && !e.metaKey) return;
+        if (store.vimMode && inEditor(e.target) && !e.metaKey) return;
         e.preventDefault();
         void openDailyNote();
       } else if (key === "n") {
@@ -237,8 +325,19 @@ export default function App() {
     );
   }
 
+  const shellClass = [
+    "s-app",
+    admin ? "" : "s-app--visitor",
+    sidebarOpen ? "s-app--drawer" : "",
+    flipped ? "s-app--flip" : "",
+    sidebarCollapsed ? "s-app--nosidebar" : "",
+    zen ? "s-app--zen" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className={`s-app${admin ? "" : " s-app--visitor"}${sidebarOpen ? " s-app--drawer" : ""}`}>
+    <div className={shellClass}>
       <Sidebar />
       {/* Mobile drawer chrome: backdrop dismisses; the toggle floats over the
           main column. Both are display:none above the narrow breakpoint. */}
@@ -247,6 +346,22 @@ export default function App() {
         onClick={() => useStore.getState().setSidebarOpen(false)}
         aria-hidden="true"
       />
+      {/* Slim reopen handle for a collapsed sidebar — a hairline strip on the
+          sidebar's own edge, so the bar always leaves a door where it stood.
+          (In zen there is no door: Esc and the ✕ are the way out.) */}
+      {sidebarCollapsed && !zen && (
+        <button
+          type="button"
+          className="s-reopen s-reopen--sidebar"
+          onClick={() => useStore.getState().setSidebarCollapsed(false)}
+          title={t("showSidebar")}
+          aria-label={t("showSidebar")}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M9 6l6 6-6 6" />
+          </svg>
+        </button>
+      )}
       <main className="s-main">
         <button
           type="button"
@@ -318,6 +433,26 @@ export default function App() {
       </main>
       <BacklinksPanel />
       <StatusBar />
+      {zen && (
+        <div className={`s-zen-exit-wrap${zenIdle ? " s-zen-exit-wrap--idle" : ""}`}>
+          {/* The keystroke, spelled out. Esc is the route that always works,
+              and a mode with no visible chrome must say so at least once. */}
+          <span className="s-zen-exit__hint" aria-hidden="true">
+            {t("zenEscHint")}
+          </span>
+          <button
+            type="button"
+            className="s-zen-exit"
+            onClick={() => useStore.getState().setZen(false)}
+            title={t("exitZen")}
+            aria-label={t("exitZen")}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+      )}
       <PreviewBanner />
       {paletteOpen && <CommandPalette />}
       {loginOpen && <LoginModal />}

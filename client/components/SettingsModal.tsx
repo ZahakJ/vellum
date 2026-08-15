@@ -28,6 +28,7 @@ interface Form {
   blogLocale: string;
   language: string;       // "" | "en" | "ar"
   languageFilter: string; // "" | "on" | "off"
+  languageToggle: string; // "" | "on" | "off" (public EN/ع switch; default off)
   excludeTags: string;  // comma-separated
   comments: string;     // "" | "on" | "off"
   share: string;        // "" | "on" | "off" (blog article share row; default off)
@@ -48,6 +49,7 @@ function formFrom(s: SettingsResponse): Form {
     blogLocale: s.blogLocale ?? "",
     language: s.language ?? "",
     languageFilter: s.languageFilter === undefined ? "" : s.languageFilter ? "on" : "off",
+    languageToggle: s.languageToggle === undefined ? "" : s.languageToggle ? "on" : "off",
     excludeTags: (s.excludeTags ?? []).join(", "),
     comments: s.commentsEnabled === undefined ? "" : s.commentsEnabled ? "on" : "off",
     share: s.shareButtons === undefined ? "" : s.shareButtons ? "on" : "off",
@@ -169,6 +171,9 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
   }
   if (f.languageFilter !== initial.languageFilter) {
     patch.languageFilter = f.languageFilter === "" ? null : f.languageFilter === "on";
+  }
+  if (f.languageToggle !== initial.languageToggle) {
+    patch.languageToggle = f.languageToggle === "" ? null : f.languageToggle === "on";
   }
   if (f.publicLayout !== initial.publicLayout) {
     patch.publicLayout = f.publicLayout === "app" || f.publicLayout === "blog" ? f.publicLayout : null;
@@ -642,6 +647,15 @@ export default function SettingsModal() {
               <select className="s-bmodal__input s-smodal__select" {...field("languageFilter")}>
                 <option value="">
                   {tf("inheritOption", { value: eff.languageFilter ? t("on") : t("off") })}
+                </option>
+                <option value="on">{t("on")}</option>
+                <option value="off">{t("off")}</option>
+              </select>
+            </Row>
+            <Row label={t("rowLanguageToggle")} hint={t("hintLanguageToggle")}>
+              <select className="s-bmodal__input s-smodal__select" {...field("languageToggle")}>
+                <option value="">
+                  {tf("inheritOption", { value: eff.languageToggle ? t("on") : t("off") })}
                 </option>
                 <option value="on">{t("on")}</option>
                 <option value="off">{t("off")}</option>
