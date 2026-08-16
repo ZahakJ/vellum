@@ -19,7 +19,7 @@
 // `preloadTags`), and why a missing or unreadable manifest silently produces
 // no tags at all rather than failing a page load.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 interface ManifestEntry {
@@ -31,18 +31,32 @@ interface ManifestEntry {
 type Manifest = Record<string, ManifestEntry>;
 
 let manifest: Manifest | null = null;
-let loaded = false;
+/** size+mtime of the manifest the cache was built from; null while unread.
+ *  A once-only latch here is what turned a rebuilt `dist/` into a page of
+ *  `<link>`s pointing at chunks that no longer exist: the SPA fallback answers
+ *  those URLs with index.html, and the browser refuses a module script served
+ *  as text/html. `server/assets.ts` keys its own cache the same way and for
+ *  the same reason — a stale HINT is not free once it names a dead file. */
+let stamp: string | null = null;
 
 function load(distDir: string): Manifest | null {
-  if (loaded) return manifest;
-  loaded = true;
+  const file = path.join(distDir, ".vite", "manifest.json");
+  let current: string;
   try {
-    manifest = JSON.parse(
-      readFileSync(path.join(distDir, ".vite", "manifest.json"), "utf8"),
-    ) as Manifest;
+    const st = statSync(file);
+    current = `${st.size} ${st.mtimeMs}`;
   } catch {
+    stamp = "missing";
     manifest = null; // no manifest (dev, or an older build) — hints are optional
+    return null;
   }
+  if (stamp === current) return manifest;
+  try {
+    manifest = JSON.parse(readFileSync(file, "utf8")) as Manifest;
+  } catch {
+    manifest = null; // unreadable or half-written — hints are optional
+  }
+  stamp = current;
   return manifest;
 }
 
