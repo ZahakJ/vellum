@@ -100,7 +100,7 @@ All `.env` keys (npm scripts load the file automatically via `node --env-file-if
 | `SITE_LANG` | Interface language: `en` (default) or `ar`. `ar` localizes every chrome string and mirrors the whole UI right-to-left (see [Arabic mode](#arabic-mode)) |
 | `LANGUAGE_FILTER` | `true` limits the public blog surfaces to notes written in `SITE_LANG`'s script (default off) |
 | `SITE_URL` | Canonical origin for RSS/canonical links, e.g. `https://notes.example.com`; unset → derived from request headers |
-| `ATTACHMENTS_DIR` | Vault-relative directory the in-app image upload writes into (default `attachments`), created on demand |
+| `ATTACHMENTS_DIR` | Vault-relative directory in-app uploads write into (default `attachments`), created on demand. The **Attachments** setting can override where uploads go entirely — see [Attachments](#attachments) |
 | `BANNER_FALLBACK` | Blog hero for posts without a `banner:` — `generated` (default; a deterministic abstract gradient from the note title) or `none` |
 
 ### Site settings
@@ -114,6 +114,7 @@ command palette): a panel with three groups —
   real content type and injected into every page's `<link rel="icon">`).
 - **Home page** — what visitors see at `/`: classic `note` mode with a chosen home note, or the
   `dashboard` magazine layout, plus an optional hero banner.
+- **Attachments** — where new attachments are written (see [Attachments](#attachments)).
 - **Site behavior** — default theme, public layout (`app`/`blog`), **language** (English /
   العربية) with its language filter and the optional **visitor switch**, date locale, excluded
   tags, and the comments toggle.
@@ -178,9 +179,60 @@ visitor-fetchable; unpublished notes' attachments stay invisible as always.
 As admin you rarely touch the YAML: the command palette's **Set banner…** (also a quiet button
 on the properties card) opens a modal to paste a URL, pick from the vault's image attachments,
 or upload a file (drag & drop or picker; png/jpeg/webp/gif/svg, 10 MB max, bytes are sniffed —
-the upload lands in `ATTACHMENTS_DIR`). The write is a surgical one-line frontmatter edit —
-the rest of the file is untouched. Posts without a banner get a subtle generated gradient in
-the blog list and article hero (`BANNER_FALLBACK=none` turns that off).
+the upload lands wherever the [Attachments](#attachments) setting points). The write is a
+surgical one-line frontmatter edit — the rest of the file is untouched. Posts without a banner
+get a subtle generated gradient in the blog list and article hero (`BANNER_FALLBACK=none`
+turns that off).
+
+### Attachments
+
+**Where new attachments go** is a setting, named the way Obsidian names it (*Default location
+for new attachments*), so a migrating vault behaves the way its owner already expects. Site
+settings → **Attachments**:
+
+| Mode | An upload lands in |
+| --- | --- |
+| Vault root | the top of the vault |
+| Same folder as the note | beside the note being edited |
+| Subfolder of the note's folder | `<note's folder>/<name>` — e.g. an `assets` next to each note |
+| Specified folder *(default)* | one fixed vault-relative folder — `ATTACHMENTS_DIR`, default `attachments` |
+
+The folder field is validated the way every vault path is: it stays inside the vault, is never
+a dot-folder (those are invisible to the tree, the indexer and the watcher), and is created on
+demand. **Existing attachments are never moved** — the setting decides where the *next* upload
+is written, and embeds resolve by basename regardless of which folder they live in.
+
+Every upload path obeys it: paste or drop in the editor, the file drop on the sidebar tree,
+and the banner/logo/favicon pickers' upload — those last three keep writing images, but into
+the same resolved folder. Fonts (`VELLUM_DATA/fonts`) and `custom.css` keep their own homes.
+
+**Anything the vault can hold, not just images.** `/api/upload` accepts images (png, jpeg,
+webp, gif, svg, avif, heic, bmp), **PDF**, audio (mp3, m4a, wav, ogg, opus, flac) and video
+(mp4, mov, webm) — 10 MB each, and the *bytes* are sniffed, so a renamed `.exe` is refused
+whatever its extension claims. Anything outside that list is refused **in the browser, before
+the upload**, in a message that names both what was turned away and what would have been
+welcome.
+
+**Drop files anywhere on the tree.** Drag files from your file manager onto a folder row (or
+onto a note row — they land beside it) and they are attached; the row lights up and says how
+many are coming. The toast afterwards names the folder they actually landed in and carries an
+**Undo** that moves them to `.trash/`. Names that collide are given the first free
+`name-2.ext`, and the toast says so.
+
+**Deleting says what it is really taking.** The vault tree holds markdown only, so a folder
+left holding four images after its note moved out used to describe itself as "0 notes" — and
+deleting it silently broke a published essay. Every delete confirmation now asks the server
+what is inside:
+
+> **Move "Media" to .trash?**
+> 0 notes, 60 attachments — 53 of them referenced by 48 notes. All of it moves to the vault's
+> .trash folder — recoverable from disk.
+
+Referencing notes are named outright while they are few enough to read. Only notes that
+*survive* the delete count as breakage — a note going in the same act is not a broken link.
+Both wikilink embeds (`![[fig.png]]`) and markdown links (`![](assets/fig.png)`) count, plus a
+note's `banner:`. The permanent-delete escalation repeats the same inventory, and deleting a
+single attachment (the × on a row of the banner picker's list) asks the same question.
 
 ### Comments
 
@@ -479,13 +531,13 @@ theme tokens.
 - **Wikilinks with autocomplete** — type `[[` and pick any note; `[[Name|alias]]` and `[[Name#heading]]` supported (type `#` inside the brackets to complete headings); heading links render as `Note › Heading` and jump straight to the heading; renames rewrite every link that pointed at the old name
 - **Click to follow, click to create** — plain click follows a rendered link; clicking an unresolved (dashed) link creates the note, Obsidian-style
 - **Frontmatter properties card** — YAML frontmatter collapses to a neat key/value card with clickable tag pills while your cursor is outside it
-- **Paste or drop images** — an image on your clipboard (or dragged from a file manager) uploads into `ATTACHMENTS_DIR` and lands as `![[name.png]]` at the cursor, with an "Uploading…" placeholder holding the spot while it's in flight
+- **Paste or drop attachments** — an image on your clipboard (or any accepted file dragged from a file manager: PDF, audio, video too) uploads and lands as `![[name.png]]` at the cursor, with an "Uploading…" placeholder holding the spot while it's in flight. Files can also be dropped straight onto the sidebar tree. Where they land is a [setting](#attachments); a type the server would reject is refused before the upload, not after
 - **Slash commands** — type `/` at the start of a line for a fuzzy menu of inserts: callout, code fence (with language search), table skeleton, task list, math block, divider, today's date, daily-note link
 - **Callout & fence autocomplete** — `> [!` suggests every callout type with its icon and color; ` ``` ` suggests languages as you type
 - **Hover previews** — rest on a `[[wikilink]]` and a floating card shows the target note's rendered opening (`[[Note#Heading]]` previews from that heading); footnote refs preview their definition
 - **Heading folding** — a chevron appears beside each heading on hover; fold a section down to a "N folded lines" chip (click to reopen)
 - **List/quote continuation** — `Enter` continues `-` lists, `- [ ]` tasks, numbered lists, and `>` quotes; `Enter` on an empty item exits. `Ctrl/Cmd ↑/↓` moves the current line. Pasting a URL over selected text makes a markdown link
-- **Folder delete, Obsidian-safe** — right-click a folder in the sidebar: "Delete folder" *moves* the whole subtree to the vault's `.trash/`, so it is recoverable from disk (the dialog names the folder and counts the notes first); a quieter "Delete permanently" beside it erases instead, behind its own confirmation
+- **Folder delete, Obsidian-safe** — right-click a folder in the sidebar: "Delete folder" *moves* the whole subtree to the vault's `.trash/`, so it is recoverable from disk; the dialog counts the notes **and the attachments**, and says how many of those attachments a surviving note still embeds ([Attachments](#attachments)). A quieter "Delete permanently" beside it erases instead, behind its own confirmation
 - **Vim mode**, autosave (600 ms debounce + `Ctrl/Cmd S`), and a keyboard-first surface
 
 ### Rendering

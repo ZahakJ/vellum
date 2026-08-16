@@ -3,6 +3,7 @@
 
 import type {
   Backlink,
+  DeleteImpact,
   FrontmatterResult,
   GraphData,
   MeData,
@@ -169,13 +170,48 @@ export function setFrontmatter(
   return request<FrontmatterResult>("/api/frontmatter", json("POST", { path, key, value }));
 }
 
-/** Upload an image into the vault's attachments dir (admin only). `asAdmin`
- *  bypasses the visitor-preview header (see request). */
-export function uploadAttachment(file: File, asAdmin = false): Promise<UploadResult> {
+/** Upload one attachment (admin only). `dir` is the vault folder the upload
+ *  happened IN — the open note's folder, the tree row it was dropped on — and
+ *  is what the "same folder"/"subfolder" attachment-location modes are
+ *  relative to; the server ignores it under the other two. `asAdmin` bypasses
+ *  the visitor-preview header (see request). */
+export function uploadAttachment(
+  file: File,
+  asAdmin = false,
+  dir?: string,
+): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file, file.name);
+  if (dir) form.append("dir", dir);
   // No Content-Type header: the browser sets the multipart boundary itself.
   return request<UploadResult>("/api/upload", { method: "POST", body: form }, asAdmin);
+}
+
+/** What deleting this folder (or attachment) would really take: notes,
+ *  attachments, and how many of those attachments a SURVIVING note still
+ *  embeds. Admin only. */
+export function getDeleteImpact(
+  path: string,
+  kind: "folder" | "attachment" = "folder",
+): Promise<DeleteImpact> {
+  return request<DeleteImpact>(
+    `/api/impact?path=${encodeURIComponent(path)}&kind=${kind}`,
+    undefined,
+    true,
+  );
+}
+
+/** Delete one attachment (admin only). Default moves it to the vault's
+ *  `.trash/` and answers where it landed; `permanent` unlinks it. */
+export function deleteAttachment(
+  path: string,
+  permanent = false,
+): Promise<{ trashPath?: string }> {
+  return request<{ trashPath?: string }>(
+    `/api/attachment?path=${encodeURIComponent(path)}${permanent ? "&permanent=true" : ""}`,
+    { method: "DELETE" },
+    true,
+  );
 }
 
 /** Every image attachment in the vault (admin only) — the banner picker.

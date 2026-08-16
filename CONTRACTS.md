@@ -45,6 +45,9 @@ properties listed in the styles contract; components must use tokens, never hard
 - `GET  /api/backlinks?path=` → `Backlink[]`
 - `GET  /api/tags` → `TagCount[]` (from `#tag` inline + frontmatter `tags:`)
 - `GET  /api/events` → SSE stream of `VaultEvent` (chokidar watcher; debounced 100ms; events named `message`, JSON data)
+- `POST /api/upload` (admin) multipart `file` + optional `dir` → `UploadResult` — see "Attachments"
+- `GET  /api/impact?path=&kind=` (admin) → `DeleteImpact` — what a delete would really take
+- `DELETE /api/attachment?path=&permanent=` (admin) → `{ trashPath? }`
 
 Path safety: every path param normalized, must resolve inside vault, must not contain `..`; only
 `.md` files served/written by note endpoints (400 otherwise). Wikilink resolution: `[[Name]]`
@@ -287,6 +290,72 @@ is a note route and 400s on a folder — so the folder menu holds only actions t
 Server side, `deleteFolder` lstats before it counts: a symlinked folder is a link, `fs.rename` /
 `fs.rm` unlink it without touching the target, so it reports `notes: 0` rather than describing a
 tree outside the vault that the call will not touch.
+
+## Attachments (location setting, any-file upload, delete impact)
+
+`shared/attachments.ts` is the single policy both halves import: the four location modes, the
+folder validator, and the accepted-type table. Neither side may keep its own copy.
+
+**Where an upload lands is a setting, and it is Obsidian's setting.** `settings.attachments =
+{ mode, folder }` mirrors "Default location for new attachments": `vault-root`, `same-folder`
+(beside the note being edited), `subfolder` (a named subfolder OF the note's folder), and
+`specified` (one fixed vault-relative folder). **`specified` + `ATTACHMENTS_DIR` is the default**,
+so an upgrade changes nothing until an admin says otherwise — which is why `PATCH` *deletes*
+`attachments.mode` when it is set to `"specified"` rather than storing it.
+
+- `site.ts::attachmentLocation()` merges the stored value over the env default; `uploadDirFor(dir)`
+  resolves it against the folder the upload happened in. `POST /api/upload` takes that folder as
+  the optional multipart field **`dir`** — the editor sends the open note's folder, the tree drop
+  sends the row it was dropped on, the pickers send the open note's folder. `dir` is untrusted:
+  it is normalized, and `safeAbs` on the joined result is what actually refuses traversal and
+  ignored trees (verified: `dir=../../etc` → 400, `dir=.obsidian` → 404).
+- The folder value is refused for the same reasons a vault path always is (traversal, absolute,
+  control characters) **plus dot-folders** — a dot-folder is invisible to the tree, the indexer
+  and the watcher, so an attachment written into one would never resolve again. `folderError()`
+  returns a REASON KEY, not a sentence: the server renders it into a 400, the settings panel
+  into localized inline copy, and the two can never drift apart.
+- **Existing attachments are never moved.** The setting decides where the NEXT upload goes;
+  embeds resolve by basename, so nothing breaks either way. Fonts (`VELLUM_DATA/fonts`) and
+  `custom.css` keep their dedicated locations.
+
+**Every type the vault can hold, sniffed by bytes.** `sniffAttachmentType(buf, hint)` in
+`server/api.ts` decides the stored extension from magic numbers — images, PDF, audio, video —
+and the `hint` (the uploader's own extension) only ever picks between aliases the bytes cannot
+distinguish (`jpg`/`jpeg`, `ogg`/`oga`/`opus`, `mp4`/`m4v`). The raw-MPEG-frame test for a
+tagless mp3 is `0xFF 0xEx`, two weak bytes, so it is checked LAST, after every format with a
+real magic number. SVG still has no magic bytes and is still scrubbed at write time.
+`isAcceptedAttachment()` is the client's mirror, and it exists so a file the server would
+reject is **refused before it is uploaded**, naming both what was turned away and what is
+welcome; a mixed batch asks (a half-finished drop nobody agreed to is its own surprise), an
+all-refused batch just says so.
+
+**`GET /api/impact?path=&kind=folder|attachment` (admin only, 404 for visitors) is what delete
+confirmations are allowed to say.** The tree carries markdown only, so a folder holding four
+images and no notes truthfully answered "0 notes" — and deleting it silently broke a published
+essay. The route answers `DeleteImpact`: notes, attachments, how many of those attachments a
+note that SURVIVES the delete still references, and up to `IMPACT_NAMED_MAX` (3) of those notes
+by path+title. Notes inside the doomed folder are excluded from the reference count on purpose:
+a note going in the same act is not a broken link. `attachmentReferrers()` in `server/indexer.ts`
+counts **both** reference syntaxes — `![[fig.png]]` (via `resolveEmbed`) and markdown
+destinations `![](assets/fig.png)` resolved vault-relative, note-relative and by basename —
+plus the note's `banner:`, which is a reference the reader never sees in the body. It is built
+on demand and never cached: it describes the vault at the instant someone is asked to destroy
+part of it, and a stale answer here is the exact failure the surface exists to prevent.
+
+The client copy is `impactSentence()` (`client/attachments.ts`): "0 notes, 60 attachments — 53
+of them referenced by 48 notes." Referencing notes are NAMED while they fit (each title
+bidi-isolated on its own) and become a plain count past that — "…and 43 more" is a list nobody
+finishes. The permanent-delete escalation repeats the same inventory, because the reader must
+not have to remember what the first dialog said. When `/api/impact` fails the dialog falls back
+to the client's own `countNotes()` and the old notes-only copy — a delete is never blocked by a
+measurement, and never invents one either.
+
+**`DELETE /api/attachment?path=&permanent=` (admin only)** is the two-speed delete a
+non-markdown file never had: `.trash/` by default (`fig.png` → `fig-2.png` on collision, the
+counter before the extension so the trashed copy still opens), `permanent` unlinks. It backs
+both the drop's **Undo** (which trashes rather than erases — an undo that erased would be worse
+than the drop it undoes) and the × on the banner picker's rows, which routes through
+`confirmDeleteAttachment()` and therefore carries the same "still embedded by…" warning.
 
 ## Localization & RTL (client)
 

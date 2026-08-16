@@ -8,10 +8,16 @@ import type { Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import {
+  ATTACHMENT_TYPES,
+  extensionOf,
+  normalizeFolder,
+} from "../shared/attachments.ts";
 import { stripBidiControls } from "../shared/bidi.ts";
 import { UPLOAD_MAX_BYTES } from "../shared/limits.ts";
 import type {
   CommentData,
+  DeleteImpact,
   FrontmatterResult,
   NoteData,
   PublishResult,
@@ -35,9 +41,13 @@ import {
   setCommentHidden,
 } from "./comments.ts";
 import {
+  attachmentUsage,
+  attachmentsUnder,
   backlinks,
   indexFile,
   isAllowedAttachment,
+  noteTitle,
+  notesUnder,
   isNotePublished,
   isNoteVisibleToVisitor,
   listImageAttachments,
@@ -56,11 +66,12 @@ import { patchSettings, settingsAssetPaths, settingsResponse } from "./settings.
 import { sendEncoded } from "./compress.ts";
 import { graphBody, invalidateGraph, localGraphJson } from "./graphCache.ts";
 import { invalidateTree, treeBody } from "./treeCache.ts";
-import { attachmentsDir, customCssPath, fontsDir } from "./site.ts";
+import { customCssPath, fontsDir, uploadDirFor } from "./site.ts";
 import {
   VaultError,
   createFolder,
   createNote,
+  deleteAttachment,
   deleteFolder,
   deleteNote,
   emitEvent,
@@ -530,19 +541,59 @@ api.get("/file", async (c) => {
 
 // ------------------------------------------------------- attachment uploads
 
-/** Sniff the actual image type from file bytes — extension and Content-Type
- *  are attacker-controlled and ignored. Returns the canonical extension. */
-function sniffImageType(buf: Buffer): string | null {
-  if (buf.length >= 8 && buf[0] === 0x89 && buf.toString("latin1", 1, 4) === "PNG") return "png";
-  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "jpg";
-  if (buf.length >= 6 && /^GIF8[79]a/.test(buf.toString("latin1", 0, 6))) return "gif";
-  if (
-    buf.length >= 12 &&
-    buf.toString("latin1", 0, 4) === "RIFF" &&
-    buf.toString("latin1", 8, 12) === "WEBP"
-  ) {
-    return "webp";
+/** ISO-BMFF brand → canonical extension (the `ftyp` box at offset 4 is what
+ *  separates an .avif from an .m4a from a .mov — they share one container). */
+function brandExt(brand: string): string {
+  if (brand === "avif" || brand === "avis") return "avif";
+  if (brand.startsWith("heic") || brand.startsWith("heix") || brand === "mif1" || brand === "hevc") {
+    return "heic";
   }
+  if (brand === "M4A ") return "m4a";
+  if (brand === "qt  ") return "mov";
+  return "mp4";
+}
+
+/** Sniff the actual attachment type from file bytes — extension and
+ *  Content-Type are attacker-controlled and ignored. Returns the canonical
+ *  extension, or null when the bytes are not a type we accept.
+ *
+ *  `hint` is the uploader's own extension, consulted ONLY to pick between
+ *  aliases the bytes cannot distinguish (jpg/jpeg, ogg/oga/opus, mp4/m4v);
+ *  the family is always decided by the magic number. */
+function sniffAttachmentType(buf: Buffer, hint = ""): string | null {
+  const alias = (canonical: string, others: string[]): string =>
+    others.includes(hint) ? hint : canonical;
+  const latin = (from: number, to: number): string =>
+    buf.length >= to ? buf.toString("latin1", from, to) : "";
+
+  // ── images ──
+  if (buf.length >= 8 && buf[0] === 0x89 && latin(1, 4) === "PNG") return "png";
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return alias("jpg", ["jpeg"]);
+  }
+  if (buf.length >= 6 && /^GIF8[79]a/.test(latin(0, 6))) return "gif";
+  if (latin(0, 4) === "RIFF" && latin(8, 12) === "WEBP") return "webp";
+  if (latin(0, 2) === "BM" && buf.length >= 14) return "bmp";
+  // ── documents ──
+  if (latin(0, 5) === "%PDF-") return "pdf";
+  // ── audio ──
+  if (latin(0, 3) === "ID3") return "mp3";
+  if (latin(0, 4) === "RIFF" && latin(8, 12) === "WAVE") return "wav";
+  if (latin(0, 4) === "OggS") return alias("ogg", ["oga", "opus"]);
+  if (latin(0, 4) === "fLaC") return "flac";
+  // ── ISO base media: mp4 / m4a / mov / avif / heic ──
+  if (latin(4, 8) === "ftyp") {
+    const ext = brandExt(latin(8, 12));
+    return ext === "mp4" ? alias("mp4", ["m4v"]) : ext;
+  }
+  // ── Matroska / WebM ──
+  if (buf.length >= 4 && buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) {
+    return "webm";
+  }
+  // An mp3 with no ID3 tag opens on a raw MPEG audio frame sync. Checked LAST
+  // of the binary formats: 0xFF 0xEx is two bytes, weak enough that anything
+  // with a real magic number must get its say first.
+  if (buf.length >= 4 && buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0) return "mp3";
   // SVG has no magic bytes: accept text that opens with an <svg …> root
   // (optionally after a BOM, an XML declaration, comments, or a DOCTYPE).
   const head = buf.toString("utf8", 0, Math.min(buf.length, 2048)).replace(/^\uFEFF/, "");
@@ -587,8 +638,12 @@ function sanitizeBaseName(name: string): string {
 }
 
 // Admin-only via the auth guard (POST on a non-exempt path). Multipart field
-// "file"; bytes sniffed for a real image type; stored under ATTACHMENTS_DIR
-// (vault-relative, created on demand) with a collision-free sanitized name.
+// "file"; bytes sniffed for a type we accept; stored in the folder the
+// attachment-location setting resolves to (vault-relative, created on demand)
+// with a collision-free sanitized name. The optional field "dir" names the
+// vault folder the upload happened IN — the open note's folder, or the tree
+// row it was dropped on — which is what the "same folder" and "subfolder"
+// modes are relative to; the other two modes ignore it.
 api.post("/upload", async (c) => {
   let form: Record<string, unknown>;
   try {
@@ -598,18 +653,24 @@ api.post("/upload", async (c) => {
   }
   const file = form.file;
   if (!(file instanceof File)) {
-    throw new VaultError(400, 'Multipart field "file" (the image) is required');
+    throw new VaultError(400, 'Multipart field "file" (the attachment) is required');
   }
   if (file.size > UPLOAD_MAX_BYTES) {
-    throw new VaultError(413, `Image too large (${UPLOAD_MAX_BYTES} bytes max)`);
+    throw new VaultError(413, `File too large (${UPLOAD_MAX_BYTES} bytes max)`);
   }
   let buf = Buffer.from(await file.arrayBuffer());
-  const ext = sniffImageType(buf);
+  const ext = sniffAttachmentType(buf, extensionOf(typeof file.name === "string" ? file.name : ""));
   if (!ext) {
-    throw new VaultError(400, "Not a recognized image (png, jpeg, webp, gif, svg)");
+    throw new VaultError(
+      400,
+      `Not a recognized attachment (${[...new Set(Object.keys(ATTACHMENT_TYPES))].join(", ")})`,
+    );
   }
   if (ext === "svg") buf = Buffer.from(sanitizeSvg(buf.toString("utf8")), "utf8");
-  const dir = attachmentsDir();
+  // The context folder is advisory and untrusted: normalizeFolder tidies it,
+  // safeAbs below is what actually refuses anything outside the vault.
+  const context = typeof form.dir === "string" ? normalizeFolder(form.dir) : "";
+  const dir = uploadDirFor(context);
   const base = sanitizeBaseName(file.name ?? "");
   // First free filename: name.ext, name-2.ext, name-3.ext, …
   let rel = "";
@@ -641,6 +702,51 @@ api.post("/upload", async (c) => {
 api.get("/attachments", (c) => {
   if (isPublishLimited(c)) throw new VaultError(404, "Not found");
   return c.json(listImageAttachments());
+});
+
+// What a delete would REALLY take. The tree carries markdown only, so a
+// folder holding four images and no notes described itself as "0 notes" — the
+// dialog that broke a published essay. This route is the counter-measure: it
+// counts attachments too and, crucially, how many of them a SURVIVING note
+// still embeds. Admin-eyes-only (it enumerates paths and note titles), so
+// visitors get the 404 an unknown route gives.
+// How many referencing notes the dialog may name outright. Past this the
+// client says "48 notes" instead: a list ending in "and 43 more" is not read,
+// and the count is the part that decides.
+const IMPACT_NAMED_MAX = 3;
+
+api.get("/impact", (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  const relPath = normalizeRel(requiredQuery(c.req.query("path"), "path"));
+  if (!relPath) throw new VaultError(400, "Query param \"path\" is required");
+  safeAbs(relPath); // traversal / ignored trees answer here, as everywhere
+  const isFolder = c.req.query("kind") !== "attachment";
+  const attachments = isFolder ? attachmentsUnder(relPath) : [relPath];
+  const doomedNotes = isFolder ? new Set(notesUnder(relPath)) : new Set<string>();
+  // A note inside the folder is not "breakage": it is going in the same act.
+  const { referenced, referencing } = attachmentUsage(attachments, (p) => doomedNotes.has(p));
+  const impact: DeleteImpact = {
+    path: relPath,
+    kind: isFolder ? "folder" : "attachment",
+    notes: doomedNotes.size,
+    attachments: attachments.length,
+    referenced,
+    referencing: referencing.slice(0, IMPACT_NAMED_MAX).map((p) => ({ path: p, title: noteTitle(p) })),
+    referencingNotes: referencing.length,
+  };
+  return c.json(impact);
+});
+
+// Delete one attachment, same two speeds as a folder: `.trash/` by default,
+// `?permanent=true` unlinks. Admin-only via the auth guard. Markdown keeps
+// going through /api/note — this route exists for the files no other delete
+// could reach, and for the undo of an upload that just landed.
+api.delete("/attachment", async (c) => {
+  const filePath = requiredQuery(c.req.query("path"), "path");
+  const permanent = TRUTHY_QUERY.has((c.req.query("permanent") ?? "").toLowerCase());
+  const result = await deleteAttachment(filePath, { permanent });
+  await whenIndexed();
+  return c.json(result);
 });
 
 // ------------------------------------------------------ comments (marginalia)
