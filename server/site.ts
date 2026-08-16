@@ -12,6 +12,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { numeralSystem, toNumerals } from "../shared/numerals.ts";
 import { isTheme, THEMES as THEME_IDS } from "../shared/themes.ts";
+import { isCustomThemeId } from "../shared/customTheme.ts";
 import { getSettings } from "./settings.ts";
 
 interface SiteConfig {
@@ -19,7 +20,7 @@ interface SiteConfig {
   defaultTheme: string | null;
   dataDir: string;
   excludeTags: Set<string>;
-  publicLayout: "app" | "blog";
+  publicLayout: "app" | "blog" | "designed";
   tagline: string | null;
   footer: string | null; // raw SITE_FOOTER (may contain {year}/{siteName}); null → default
   blogLocale: string | null; // BLOG_LOCALE as given; null → derive (language-aware) in the getter
@@ -52,12 +53,30 @@ let config: SiteConfig = {
  *  400 rather than dropping the value quietly. */
 function readEnvTheme(raw: string | undefined): string | null {
   const value = raw?.trim().toLowerCase() || null;
-  if (value === null || isTheme(value)) return value;
+  // A custom theme id passes the SHAPE check here and nothing more: this runs
+  // inside initSite(), before dataDir() has a value, so designs.json cannot be
+  // consulted yet without a startup-order cycle. Existence is checked where it
+  // is cheap and where the answer matters — /api/me only names a default theme
+  // the instance actually has.
+  if (value === null || isTheme(value) || isCustomThemeId(value)) return value;
   console.error(
-    `vellum: DEFAULT_THEME="${value}" is not a built-in theme — ignoring. ` +
-      `One of: ${THEME_IDS.join(", ")}`,
+    `vellum: DEFAULT_THEME="${value}" is not a built-in theme (or a custom:<name> one) — ignoring. ` +
+      `Built-ins: ${THEME_IDS.join(", ")}`,
   );
   return null;
+}
+
+/** PUBLIC_LAYOUT, validated. An unrecognized value is the default layout and
+ *  SAYS SO, for readEnvTheme's reason: a typo'd `PUBLIC_LAYOUT=deisgned` that
+ *  silently serves the app shell is an operator staring at an unchanged site
+ *  with nothing anywhere explaining why. */
+function readEnvLayout(raw: string | undefined): "app" | "blog" | "designed" {
+  const value = raw?.trim().toLowerCase() || "";
+  if (value === "blog" || value === "designed" || value === "app") return value;
+  if (value !== "") {
+    console.error(`vellum: PUBLIC_LAYOUT="${value}" is not app, blog or designed — ignoring.`);
+  }
+  return "app";
 }
 
 /** Read site settings from the environment. Call once at startup. */
@@ -80,8 +99,9 @@ export function initSite(env: NodeJS.ProcessEnv = process.env): void {
         .filter(Boolean),
     ),
     // Blog mode: visitors get a classic blog shell instead of the app chrome.
-    // Anything but exactly "blog" (case-insensitive) is the default app layout.
-    publicLayout: env.PUBLIC_LAYOUT?.trim().toLowerCase() === "blog" ? "blog" : "app",
+    // "designed" composes the visitor shell from the active design instead
+    // (server/designs.ts); anything else is the default app layout.
+    publicLayout: readEnvLayout(env.PUBLIC_LAYOUT),
     tagline: env.SITE_TAGLINE?.trim() || null,
     footer: env.SITE_FOOTER?.trim() || null,
     blogLocale: env.BLOG_LOCALE?.trim() || null,
@@ -121,9 +141,15 @@ export function excludedTags(): Set<string> {
   return config.excludeTags;
 }
 
-/** "blog" → visitors see the classic blog shell (settings.publicLayout, else
- *  PUBLIC_LAYOUT); admin sessions always keep the full app regardless. */
-export function publicLayout(): "app" | "blog" {
+/** "blog" → visitors see the classic blog shell; "designed" → the active
+ *  design composes it (settings.publicLayout, else PUBLIC_LAYOUT). Admin
+ *  sessions always keep the full app regardless.
+ *
+ *  This is the CONFIGURED value. What a visitor actually gets is
+ *  `servedLayout()` in server/auth.ts, which downgrades "designed" to "blog"
+ *  whenever there is no renderable design — the fallback happens on the
+ *  server so a visitor's first byte is already the pristine base. */
+export function publicLayout(): "app" | "blog" | "designed" {
   return getSettings().publicLayout ?? config.publicLayout;
 }
 

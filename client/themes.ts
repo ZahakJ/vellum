@@ -8,11 +8,21 @@
 // re-exports THEMES/Theme so the store's contract in CONTRACTS.md still reads
 // as it did.
 
-import { DARK_THEMES, LIGHT_THEMES, THEMES, type Theme, type ThemeGroup } from "../shared/themes.ts";
-import type { I18nKey } from "./i18n.ts";
+import {
+  DARK_THEMES,
+  LIGHT_THEMES,
+  THEMES,
+  isTheme,
+  themeGroup,
+  type Theme,
+  type ThemeGroup,
+} from "../shared/themes.ts";
+import { lookupCustomTheme, resolveBaseTheme } from "./design/customThemes.ts";
+import { t, type I18nKey } from "./i18n.ts";
 
 export { DARK_THEMES, LIGHT_THEMES, THEMES, isTheme, themeGroup } from "../shared/themes.ts";
 export type { Theme, ThemeGroup } from "../shared/themes.ts";
+export type { ThemeChoice } from "../shared/customTheme.ts";
 
 /** The other side of the day for a theme: the light room that matches a dark
  *  one, and back again. A ☾/☀ button (the public blog's) means "the same site,
@@ -38,6 +48,50 @@ const COUNTERPART: Record<Theme, Theme> = {
 
 export function counterpartTheme(theme: Theme): Theme {
   return COUNTERPART[theme] ?? THEMES[0];
+}
+
+// ── Custom themes ───────────────────────────────────────────────────────────
+// A custom theme is a base + overrides (shared/customTheme.ts). Everything the
+// chrome asks about a theme — which half of the picker, which glyph the ☾/☀
+// button draws, which room it flips to — has an answer for one, and it is
+// always derived from the base. These three wrappers are what the surfaces
+// call instead of the built-in-only functions above, so nothing that already
+// imports `themeGroup`/`counterpartTheme` changes meaning.
+
+/** Which half of the day a choice belongs to. */
+export function choiceGroup(choice: string): ThemeGroup {
+  const custom = lookupCustomTheme(choice);
+  if (custom) return custom.group;
+  return isTheme(choice) ? themeGroup(choice) : "dark";
+}
+
+/** The other side of the day. A custom DARK room flips to its base's light
+ *  counterpart rather than to another custom one: the ☾/☀ button promises
+ *  "the same site, lit differently", and only the built-in pairs are curated
+ *  to keep that promise. */
+export function counterpartChoice(choice: string): string {
+  const custom = lookupCustomTheme(choice);
+  if (custom) return counterpartTheme(custom.base);
+  return isTheme(choice) ? counterpartTheme(choice) : THEMES[0];
+}
+
+/** What a reader is SHOWN for a theme choice: a custom theme's own name, or
+ *  the localized label of one of the fifteen. Every surface that names the
+ *  theme in force (the settings trigger, the picker's rows, the status-bar
+ *  tooltip) goes through this, so a custom theme is named rather than
+ *  described as the room it was built on. */
+export function choiceLabel(choice: string): string {
+  const custom = lookupCustomTheme(choice);
+  if (custom) return custom.name;
+  return isTheme(choice) ? t(THEME_LABELS[choice].name) : t(THEME_LABELS[THEMES[0]].name);
+}
+
+/** The built-in whose swatch tokens paint a preview of this choice. The
+ *  `--swatch-<id>-*` trio is keyed on built-in ids and is CONSTANT by design,
+ *  so a custom theme previews as its base plus its own overrides — which is
+ *  what it is. */
+export function choiceBase(choice: string): Theme {
+  return resolveBaseTheme(choice);
 }
 
 /** Human label + one-line room description per theme id. The IDS are the

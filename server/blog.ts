@@ -8,6 +8,7 @@
 import type { Context } from "hono";
 import type { PostMeta } from "../shared/types.ts";
 import { posts, publishedBanner } from "./indexer.ts";
+import { staticPagesActive } from "./pages.ts";
 import { faviconPath } from "./settings.ts";
 import { blogLocale, siteLanguage, siteName, siteUrl, tagline } from "./site.ts";
 import { noteCandidates, stripNoteExt } from "../shared/noteFormat.ts";
@@ -86,7 +87,10 @@ function rfc822(iso: string): string {
 export function renderFeed(origin: string): string {
   // The feed is a public discovery surface: the languageFilter applies
   // (posts(true)), exactly like the visitor post list.
-  const items = posts(true)
+  // …and, in designed mode, minus the static pages: an About page is part of
+  // the site, not an item in its feed (server/pages.ts). staticPagesActive()
+  // is false under the stock blog, so this feed is byte-for-byte what it was.
+  const items = posts(true, staticPagesActive())
     .slice(0, FEED_MAX_ITEMS)
     .map((post) => {
       const link = origin + notePathToUrl(post.path);

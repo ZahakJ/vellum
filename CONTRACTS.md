@@ -1759,6 +1759,228 @@ instance is the only possible answer. Ids are `custom:<file>` (`shared/fonts.ts`
   download in `PATCH /api/settings`, under the same "the faces are on disk before settings.json
   names them" rule.
 
+## The site design engine (`publicLayout: "designed"`)
+
+`settings.publicLayout` has a THIRD value. `"blog"` (the default) is the stock blog;
+`"designed"` composes the visitor shell from a design document in `VELLUM_DATA/designs.json`.
+Which one a session is SERVED is `servedLayout()` in `server/auth.ts`, not the setting: it
+downgrades `"designed"` to `"blog"` whenever there is no renderable design, so the fallback
+happens before the first byte and the browser never has to recover from a missing one.
+
+**THE STOCK BLOG IS A PRISTINE, SEPARATE, ALWAYS-WORKING BASE, and that is checkable from the
+diff.** `client/styles/blog.css` is untouched. `client/blog/*` is untouched except five lines in
+`BlogShell`'s `ThemeButton`, which belong to the CUSTOM THEME feature rather than to this one
+(`themeGroup`/`counterpartTheme` → `choiceGroup`/`counterpartChoice`, so the ☾/☀ button answers
+for a custom theme as well as for the fifteen). The designed shell is a SECOND renderer beside
+the first — `client/design/`, with its own routing, its own section components and its own
+stylesheet, every class `s-dsn-*` — and the two meet at exactly one `if` in `App.tsx`. Nothing
+in `client/design/` mutates, forks, subclasses, monkey-patches or re-styles a stock component;
+what it DOES reuse is the product's shared, pure machinery (the reading renderer, the banner
+helpers, the nav singleton, `formatDate`), because a second markdown renderer is the place an
+XSS fix would fail to land.
+
+**Switching is LOSSLESS in both directions.** The design lives in its own file and is never
+consulted while `publicLayout` is anything else, so flipping to `"blog"` is a RESCUE — nothing
+deleted, nothing migrated — and flipping back returns the site exactly as it was. That is what
+lets the error boundary offer "back to the stock blog" as a one-click escape rather than a
+decision. `scripts/shoot-design.mjs` asserts the round trip byte-for-byte.
+
+### Why `designs.json` and not more keys in `settings.json`
+
+Asked and answered, and the answer is not tidiness (the argument is written out at the head of
+`server/designs.ts`):
+
+1. `getSettings()` is on the hot path — `siteName()`, `siteLanguage()`, `publicLayout()` consult
+   it per request through one mtime-cached parsed object. A design document is one to two orders
+   of magnitude larger, and a dozen custom themes larger again.
+2. `patchSettings()` rewrites the ENTIRE raw object on every save (by design — it preserves
+   unknown keys). Nesting designs there means a one-character tagline edit rewrites every design,
+   and one interrupted rename risks both.
+3. Corruption has to be survivable INDEPENDENTLY. A corrupt `settings.json` already degrades to
+   "env defaults in effect"; a corrupt design file must degrade to the stock blog — and if they
+   are one file, a stray byte in a section's markdown takes the site name, the language and the
+   publish configuration with it.
+4. Versioning, migration and quarantine are file-level concerns `settings.json` has never needed
+   and would grow only for this.
+5. Export/import is a whole-file operation on a design and a nonsense one on settings.
+
+What stays in `settings.json` is the one thing that IS a setting: `publicLayout`. WHICH design is
+active lives beside the designs, so a renamed or deleted design cannot leave `settings.json`
+naming something that is not there.
+
+`designs.json` is `0600`, written write-then-rename with a per-writer tmp name, and read through
+an mtime-checked cache — the three properties `settings.ts` documents next door, for the same
+reasons.
+
+### The schema, migration and quarantine
+
+`DESIGN_SCHEMA` (`shared/design.ts`) is the version this build authors and renders, and a
+document declares its own — PER DOCUMENT, not per file, because an imported design carries its
+own and one stale import must not quarantine the designs beside it. There are exactly three
+outcomes and never a fourth:
+
+- equal → validated and rendered;
+- older with a registered step in `MIGRATIONS` → migrated, then validated. The step that exists
+  today is `0 → 1`: a document with no `schema` key at all, which is what a hand-written or
+  third-party design looks like. Nothing in it can be MISunderstood — the fields we do not find,
+  validation supplies — so it migrates rather than quarantining;
+- anything else (older with no step, or NEWER than this build) → **QUARANTINED**: kept on disk
+  byte-for-byte, never rendered, listed in the panel with the reason. A design authored by a
+  newer Vellum must not be rendered "as best we can": this build would silently drop the keys it
+  does not know, and a public homepage losing a section without anybody being told is precisely
+  the invisible failure the whole feature is written against. `persist()` writes a quarantined
+  row back exactly as it was read.
+
+**Validation is a strict allowlist twice over**: an unknown section `kind` is a 400 naming it,
+and an unknown KEY inside a section is a 400 naming it (`KIND_KEYS`). Every value is
+range-checked, every string is stripped of control characters and bidi overrides
+(`shared/bidi.ts` — this text renders into the public page beside note titles), an image
+reference must be an `https://` URL or a safe vault image path, and a CTA link must be
+site-relative or `https://` — a homepage button is not a place that accepts `javascript:`.
+Prototype keys (`__proto__`, `constructor`) hit the allowlist like any other unknown key.
+
+**The client validates AGAIN before it renders a byte**, with the same shared validator. A
+`designs.json` edited by hand past the API is a supported way to configure this product (it is
+the same escape hatch `settings.json` has), and a server one build ahead of a cached bundle is a
+real state; neither may put a malformed section in front of a visitor.
+
+### Routes
+
+Mounted at `/api/design` from `server/api.ts`, BELOW `authGuard`, so every mutation is already
+401 to a visitor and to an admin wearing the preview header. Reads add their own gate —
+`assertAdminRead()` answers **401** under preview mode, which is the honest answer to "may I read
+the design panel while asking to be treated as a visitor".
+
+- `GET /api/design` — the admin overview: designs (with quarantine reasons), themes, the section
+  kinds and the token table the panel builds its menus from.
+- `GET|PUT|DELETE /api/design/docs/:id`, `POST /api/design/docs`,
+  `POST /api/design/docs/:id/{duplicate,reset}`, `GET /api/design/docs/:id/export`,
+  `POST /api/design/docs/import`, `PUT /api/design/active`.
+- `POST /api/design/themes`, `PUT|DELETE /api/design/themes/:id`.
+- **`GET /api/design/public`** — visitor-safe, and the one route with a per-session shape.
+- **`GET /api/design/themes.css`** — the generated custom-theme stylesheet. In `OPEN_PATHS` for
+  `custom.css`'s reason: pure styling, no vault content, and the login page of a `PUBLIC=false`
+  instance should be painted in the colours that instance chose. `immutable`, because its link
+  carries a content signature as `?v=`.
+
+**`/public` blanks a `note` section's PATH for a session that may not read it** rather than
+dropping the section. Both halves matter: the path never travels, so a design cannot become a
+"does this note exist" oracle for the publish set or the language filter; and the section still
+ARRIVES, so the renderer meets something it cannot render and the boundary does what it does for
+every other broken design. Dropping it instead would have shown visitors a silently shorter
+homepage — the invisible state this product keeps refusing.
+
+### THE ERROR BOUNDARY
+
+A correctness feature, not a nicety, and it is gated: `scripts/shoot-design.mjs` breaks the site
+three ways on purpose and measures what each session gets.
+
+An invalid config, a deleted note a section points at, or a render-time throw all end in one
+answer:
+
+- **a visitor** gets `<BlogShell />` — the stock component, unmodified, no props — automatically.
+  Never a blank page and never a stack trace. The gate measures rendered TEXT, not markup length,
+  because "blank" and "slow" look identical otherwise.
+- **the owner** (an admin previewing their own site, `store.previewVisitor`) keeps the designed
+  page with the failing section replaced by a card that NAMES it, under a strip carrying
+  "Back to the stock blog" — which is `PATCH /api/settings {publicLayout:"blog"}` and nothing
+  else, so it is lossless.
+
+The boundary is **per section**, not per page: a boundary that catches everything can only say
+"something broke", and React only knows which child threw if the boundary is that child's own
+parent. Boundaries are keyed on `design.updatedMs`, so a fixed design clears every failure card
+without a reload.
+
+**Three doors reach it, and the server closes two of them earlier.** A corrupt or quarantined
+store never reaches the browser at all (`servedLayout()`), and `/api/me` carries a
+`designNotice` to a REAL admin session — never to a visitor, never to an admin in preview — so
+the owner is told in the app, where they actually are, rather than only on a page they are not
+looking at. That notice also covers the case the server can see and the boundary cannot reach in
+time: a valid design whose `note` section points at a note that has since been deleted,
+unpublished or language-hidden.
+
+### Custom themes (`custom:<slug>`)
+
+A custom theme is **not a sixteenth block in `tokens.css`** and never becomes one. It is
+`{ base, tokens }` — one of the fifteen plus a SPARSE map of overrides — applied by putting the
+BASE's id on `<html data-theme>` and the theme's slug on `<html data-custom-theme>`, which
+`/api/design/themes.css` keys at `:root[data-custom-theme="…"]`. That selector is (0,2,0) against
+`[data-theme="…"]`'s (0,1,0), so an override wins and nothing else moves. Three consequences, and
+each is why this shape beat "generate a whole theme block":
+
+- `tokens.css` is never rewritten, never parsed, and never shipped to the server;
+- a theme that overrides four tokens stays four tokens on disk, so "reset this token" is a
+  DELETE rather than a re-derivation, and an upstream retune of the base reaches every custom
+  theme built on it;
+- a base theme removed from the product is a loud validation failure at read time, not a room
+  with half its tokens missing.
+
+`client/design/customThemes.ts::applyThemeChoice` is the ONLY writer of both attributes — the
+picker's live preview, the store's `setTheme` and the builder's preview all go through it.
+
+**The id is `custom:<slug>` everywhere a theme id is spoken**: `settings.defaultTheme`,
+`DEFAULT_THEME`, `localStorage["vellum.theme"]`, the picker, the palette dot. The prefix is what
+lets every existing `isTheme()` guard keep meaning exactly what it meant (a BUILT-IN theme) while
+new callers ask `isThemeChoice()`. `client/themes.ts` grew `choiceGroup` / `counterpartChoice` /
+`choiceBase` / `choiceLabel` for the surfaces that must cope with both; `Theme` is unchanged.
+`readEnvTheme()` accepts the SHAPE at startup (it runs before `dataDir()` has a value, so
+`designs.json` cannot be consulted without a cycle) and `/api/me` withholds a `defaultTheme` the
+instance no longer has. `PATCH defaultTheme` checks existence, because a default theme naming a
+deleted one is a public site quietly painted in the fallback.
+
+**A stylesheet refresh needs a fresh SIGNATURE, not just a fresh registry.** The route is
+`immutable`; refreshing the theme list after a save while leaving the link's `?v=` alone means
+the browser answers from cache and the theme just saved renders as its bare base — measured
+exactly that way (`data-custom-theme="foxfire"` on the document, `--accent` still nocturne's).
+`reloadCustomThemes()` computes the signature with the SAME shared function the server uses, so
+no round trip is needed to learn a string both sides can derive.
+
+**Deleting is guarded**: a theme a design still names is a 409 naming the design — the same
+in-use rule the font routes follow, because a dangling reference is a site rendered in a theme
+nobody chose.
+
+### The contrast rules are ONE implementation
+
+`shared/contrast.ts` holds the sRGB luminance, the WCAG ratio, the CIELAB conversion, the CIE76
+ΔE and every floor. `scripts/check-contrast.mjs` imports it (Node runs `.ts` directly) and so
+does the theme builder, which prints the same warnings live while an author drags a colour. A
+builder carrying its own copy of the formula is a builder that will one day bless a theme the
+gate rejects — and that is the theme that ships.
+
+The gate also gained a ground it never had: **`--text` and `--text-muted` are now checked against
+`--bg-hover` as well**, because `--bg-hover` is a real ground (DESIGN.md paints the sidebar's tag
+pills and the backlink cards on it at rest) and both tokens clear it in all fifteen themes —
+worst measured 5.62:1 muted, 12.27:1 text. **`--text-faint` is deliberately held to two grounds**
+(`FAINT_GROUNDS`): faint-on-hover measures 2.73–3.00:1 in twelve of the fifteen, and that is not
+twelve bugs — DESIGN.md already names `--bg-hover` as the tag pill's ground and says in the same
+breath that faint measures 2.7:1 there, which is exactly why the pill's COUNT is `--text-muted`.
+Adding the third ground would have failed twelve shipping themes to enforce a rule the product
+does not have; the rule it does have — faint never carries reading text — is already enforced on
+the two grounds faint is painted on.
+
+### The builder
+
+`client/components/ThemeBuilder.tsx`, mounted on `<body>` like the theme picker and the toast,
+opened from the picker's header ("New custom theme") and from a pencil on each custom row.
+
+- **The preview is the app.** Edits are written to a `<style>` element under a reserved
+  `__preview` id and applied to the live document — the picker's rule, for the picker's reason.
+  The CSS comes from the SAME generator the server serves, so what is on screen is byte-identical
+  to what will be served after Save. Closing restores the theme that was in force.
+- **The base is chosen by looking at it.** Fifteen swatch cards painted from the CONSTANT
+  `--swatch-<id>-*` tokens, not a `<select>` — the rule the settings panel states about native
+  chrome, and the same argument the theme picker makes about naming fifteen pigment nouns with
+  nothing saying what any of them looks like.
+- **Unset is a real state.** Every row shows the value it INHERITS and offers a reset that
+  deletes rather than re-derives. The inherited values are read off the live document through a
+  probe element carrying `data-theme`, never from a table in the client: a second definition of
+  fifteen themes would go stale the first time one is retuned, and the probe also picks up a
+  `custom.css` that legitimately changed a base.
+- **The warnings are the gate**, in words, above the controls that cause them, with a dot on any
+  token group holding a failure. A rule the author cannot see is a rule they will break.
+- Export writes a `vellum.theme` JSON file; import reads one into the DRAFT (never straight into
+  the store), so the author sees what arrived, live, before anything is saved.
+
 ## Backup & sync (server/gitSync.ts)
 
 `settings.gitSync { enabled (default FALSE), remote, branch (default "main"), intervalMinutes
@@ -3242,3 +3464,212 @@ back to 85.2px; 768 and 1440 unchanged at 53.8px). `anywhere` stays, for the pat
   created seconds ago whose entire content has just been written BACK into the source note on the
   line above, so `.trash` would hold a second copy of text the vault already has, under a name the
   reader chose once and then took back. The ordering is the safety: the restore lands first.
+## Site design engine — the composed pages
+
+`settings.publicLayout` gains a third value, **`"designed"`**, beside `app` and `blog` (stock, the
+default). This section covers the VISIBLE half of it: the home page a design composes, the article
+page it wraps, and the composer that edits both.
+
+> **How the engine is laid out.** The design engine was built in three parts, and they were
+> reconciled into one before landing. There is exactly ONE design document
+> (`shared/design.ts`, `DesignDoc`), ONE store (`server/designs.ts` →
+> `VELLUM_DATA/designs.json`), ONE HTTP surface (`server/designRoutes.ts`, mounted at
+> `/api/design`), ONE public renderer (`client/design/`) and ONE composer
+> (`client/components/design/`). The chrome half of the document — nav, typography, header,
+> footer — has its own module, `shared/designChrome.ts`, and hangs off the document as
+> `DesignDoc.chrome`; it is a separate FILE, not a separate document, because two modules
+> describing one file is how a store ends up with two ideas of what a design is. Stylesheets:
+> `styles/design.css` (the rendered site) and `styles/designer.css` + `styles/composer.css`
+> (the panel).
+
+**THE STOCK BLOG IS A CODE PATH THIS NAMESPACE ONLY READS FROM.** `client/blog/` and
+`styles/blog.css` are not mutated, forked, monkey-patched or conditionally branched — the diff is
+the proof, and it is meant to be. Designed mode composes its OWN tree (`DesignedSite`,
+`DesignedArticle`) out of the stock furniture it imports: `TagChips` and `PostMetaLine` from
+`PostList.tsx`, `formatDate`/`NavLink`/`isRtlText` from `util.tsx`, `topicUrl` from `nav.ts`,
+`Marginalia`, `renderMarkdown`, `bannerSrc`/`generatedBannerCss`, and the `.s-blog-heading`,
+`.s-blog-meta`, `.s-blog-pn`, `.s-blog-share` and `.s-blog-related__*` classes by name. Reuse is
+what makes a designed page and a stock page the same product; a fork is what would make them two.
+Consequence, deliberately: an improvement to a stock component reaches designed mode for free, and
+a designed page cannot drift from the design language without someone editing this namespace.
+
+- **`schema.ts` is the wire contract, and `normalizeDesign(unknown)` is TOTAL.** It takes a parsed
+  blob, a half-written file, `null`, `42` — and always returns a renderable `DesignConfig`. Wrong
+  types are coerced or defaulted, numbers clamped, unknown section types dropped, duplicate ids
+  regenerated, duplicate article parts collapsed, missing parts appended switched OFF, and a `body`
+  part always present. **A corrupt design is therefore survivable exactly as a corrupt
+  settings.json is**, and — the point of concentrating it here — no renderer below needs a single
+  optional-chain on an option it declared. Verified: a config with `count: "many"`,
+  `columns: 99`, `card: "banana"`, `enabled: "yes"`, a `"wormhole"` section, a duplicate id, a
+  `null`, a bare `42` and `article: "not an array"` renders a correct page and prints no
+  "undefined" anywhere.
+- **The config is plain JSON with no derived state**, which is what makes flipping to stock and
+  back LOSSLESS: nothing is computed at save time, so a retained design re-activates identically.
+  `serializeDesign()`/`parseDesign()` are the export/import pair, and `stockDesign()` is both the
+  starting design and what "reset to stock defaults" returns to — shaped as closely as sections
+  allow to what the stock blog already renders, so turning the engine on is a starting point
+  rather than a blank screen.
+- **EVERY SECTION DEGRADES BY REMOVING ITSELF.** A section with nothing to say returns `null`, so
+  a designed page can never show a heading over an empty box, a card grid with no cards, or a
+  "Most discussed" rule above white space — the failure DESIGN.md forbids, on the marketing
+  surface. Where a fallback beats a disappearance it is spelled out in the section's own comment
+  rather than left to a `?.` in the JSX: the hero walks `note → latest → site` (an empty top of
+  page reads as a broken site), and Featured falls back to the newest post. The page itself prints
+  one honest `blogNothingPublished` line when the vault has nothing published — every section has
+  correctly vanished by then, and a blank page is not an answer.
+- **Every read goes through an endpoint the stock blog already uses, with the session's own cookie
+  and `withPreview()`**: `/api/posts`, `/api/note`, `/api/graph`, `/api/comments?path=`. No section
+  invents a data path, so no section can become a second, laxer door onto the vault. "Recent
+  comments" is the one that had to be built rather than found — there is no site-wide visitor
+  endpoint for it and there must not be one, since `/api/comments/all` is admin-only precisely
+  because it enumerates — so it asks the per-note route (visitor-scoped, gated on publication) for
+  the ≤8 posts `/api/posts` already said carry comments, and drops any thread that fails.
+- **A note named by a design is resolved against the tree this session can see** (`resolveNotePath`
+  — a title through the editor's own `resolveLink`, a path checked against `collectNotes`). Not for
+  safety, which `/api/note` already provides: a section pointed at a deleted note would otherwise
+  refetch it on every render and paint a red 404 in the console about a page behaving exactly as
+  designed.
+- **A custom markdown/HTML block goes through `renderMarkdown()`** — the reading renderer, hence
+  `rawHtml.ts`'s sanitizer. `dangerouslySetInnerHTML` appears nowhere in the namespace, so a
+  designed site is exactly as XSS-resistant as a published note. Guarded by `scripts/shoot-designer.mjs`,
+  which feeds a block `<script>`, `<img onerror>`, `<iframe>`, `<svg onload>` and a `javascript:`
+  href and asserts all five die while the prose survives.
+- **Each section renders inside its own `SectionBoundary`.** A throw removes THAT section and
+  reports `{ id, type, message }` upward; the page above decides what to do with it. The admin
+  surfaces (`DesignedPreview`, the composer's footer) NAME the failing section and offer one-click
+  revert to stock — "something went wrong" would leave the operator to find the block by switching
+  sections off one at a time.
+- **`store.ts` is a seam, deliberately thin.** `loadDesign()`/`saveDesign()` over a pluggable
+  `DesignBackend`; the built-in one is this browser's localStorage and says so in the composer
+  (`designBackendIsLocal()` → `dsnLocalOnly`). Whatever owns instance settings installs the real
+  backend with `setDesignBackend()` at boot. A load that fails, is absent or is corrupt returns
+  `stockDesign()` rather than throwing out of a boot path.
+- **`entry.ts` is the namespace's ONLY point of contact with the app**: it mounts its own React
+  root on `<body>` (the `toast.ts` / `openThemePicker()` pattern), so the whole integration is one
+  `import "./designer/entry.ts"` in `App.tsx` — no store field, no prop chain, no line in App's
+  render. Three admin-only doors: `openDesigner()` / `openDesignedPreview(path)` for a palette row
+  or a Settings button to call, a `vellum:designer` window event, and `?designer=1` /
+  `?designer=preview[&path=…]` in the URL. The panels are DYNAMIC imports — a visitor never
+  downloads the composer.
+
+**The composer.** Two tabs (home / article), a reorderable list, and a live preview of the real
+components beside it.
+
+- **Drag is not the only way to reorder.** `SectionList` rows are draggable *and* carry ↑/↓
+  buttons, with Alt+↑/↓ from the focused row; the buttons are always there, not a small-screen
+  fallback, because native HTML5 drag is unreachable with a keyboard and unreliable under a finger.
+  A button move keeps focus ON the moved row — reordering is a repeated gesture, and a list that
+  drops focus after each press turns three presses into three hunts for the button.
+- **A locked row still moves.** The article `body` may be repositioned (everything above it is the
+  header region, everything below the footer) but cannot be switched off or removed, and its switch
+  and ✕ are ABSENT rather than disabled: an inert control is a question the reader answers twice.
+- **The preview's width switcher is honest because designer.css states its breakpoints as
+  CONTAINER queries** (`container-name: dsn` on `.s-dsn-home` / `.s-dsn-art`), so a 390px frame
+  inside a 1440px window lays out exactly as a phone does. Media queries would have made the one
+  surface that could catch a broken phone layout the surface that hides it. On the real site the
+  container is the page, so the two agree. The frame is scaled with `zoom`, not a transform: a
+  transform leaves the untransformed height behind and the stage scrolls a phantom.
+- **Every control is one of OURS** (`components/controls/*`), for the reason the settings panel
+  gives. The one addition is a `textarea` — the set had none because nothing in settings needed
+  one, and a single-line input for a paragraph of prose is not a smaller version of the right
+  control but the wrong one. A note is picked from a LIST of published posts, not typed as a path.
+- **Reading-renderer furniture is hidden against the designed roots, not against `.s-blog`.** The
+  renderer emits a frontmatter properties card and an inline banner for the app's reading view;
+  the stock blog hides both with `.s-blog .s-rv-props` / `.s-rv-banner`, which is a rule about
+  where the markup happens to be mounted. `designer.css` restates the same two facts (plus the
+  marginalia measure, and the reading column's page padding) against `.s-dsn-home` / `.s-dsn-art`,
+  so a designed page is correct wherever a shell mounts it — including a composer preview that is
+  not inside `.s-blog` at all. Without it an article drew its banner twice.
+
+**Gate:** `scripts/shoot-designer.mjs` (dev harness, needs playwright or `CHROMIUM=`). It shoots
+the composer and the designed pages at 1440/768/390 in both languages across five themes, and it
+asserts the behaviour that screenshots cannot: reorder + toggle + save round-trip through the
+store, the starved design renders no orphan headings, the corrupt design renders at all, and the
+sanitizer holds.
+
+
+## The site designer — navigation, static pages, typography, header & footer
+
+`settings.publicLayout` takes a THIRD value, `"designed"` (`app` | `blog` (stock, default) |
+`designed`). What it selects is a composed site; what it must never do is disturb the one
+underneath it.
+
+- **THE STOCK BLOG IS A SEPARATE, PRISTINE, ALWAYS-WORKING BASE.** `client/blog/` and
+  `styles/blog.css` are not forked, not patched and not conditionally branched: the designed
+  shell (`client/design/`) composes its OWN tree — its own header, menu and footer — and mounts
+  the stock article / topic / home components underneath as read-only leaves. Its stylesheet
+  (`styles/design.css`) carries `.s-dsg` on EVERY rule without exception, so removing that one
+  class leaves the stock rules and nothing else. A reviewer can confirm the whole guarantee by
+  grepping the diff for `client/blog/`: the only edits there are none.
+- **SWITCHING IS INSTANT AND LOSSLESS BOTH WAYS.** The design lives in
+  `VELLUM_DATA/design.json`; the switch lives in `settings.json`. Nothing in `designStore.ts`
+  reads `publicLayout`, so going back to stock is a setting change and NOTHING else — the design
+  file is not touched, not cleared, not migrated — and going forward again returns it byte for
+  byte. A rescue you cannot undo is not a rescue. `POST /api/design/reset` is the separate,
+  deliberate act that removes the file (leaving the instance as a fresh clone is, rather than as
+  a file full of explicit defaults that would shadow every future change to "stock").
+- **A BROKEN DESIGN DROPS VISITORS TO STOCK, AND NAMES ITSELF TO THE ADMIN.** Three failure
+  modes, one outcome: an unreadable `design.json` (`corrupt: true` on `/api/design/site`), a
+  failed load, or a render-time throw caught by `DesignBoundary` — one boundary per section
+  (`header`/`nav`/`page`/`footer`), because "the site is broken" and "the footer's third column
+  is broken" are different facts and only the second is actionable. A visitor gets
+  `<BlogShell/>` whole; the admin (a real admin session, or an admin previewing as a visitor)
+  gets the designed site with the failing section held out, a notice naming it, and one click
+  that PATCHes `publicLayout` back to `blog`. The boundary resets on a `resetKey` (config +
+  route), never on `children` — an identity comparison there is a new element every render and
+  turns one broken section into an infinite render/throw loop.
+- **A CORRUPT DESIGN FILE IS SURVIVABLE EXACTLY AS A CORRUPT `settings.json` IS.** `readRaw()`
+  never throws: one `console.warn`, an empty document, and `normalizeChrome()` fills the stock
+  values. Unknown top-level keys are preserved verbatim on every write (the settings.ts rule) —
+  the document is shared, `chrome` is one slice of it, and a client that has never heard of
+  another key must not delete it.
+- **TWO VALIDATORS, ONE SET OF RULES** (`shared/designChrome.ts`, pure — no fs, fetch, React or
+  DOM). `normalizeChrome(raw)` is LENIENT and never throws: every READ goes through it, on both
+  sides. `validateChrome(raw)` is STRICT and throws `DesignError(path, code)`: every WRITE goes
+  through it. They agree on what is legal and differ only in what they do about an illegal
+  value, which is the difference between "an operator typed this just now" and "this is what is
+  on disk". `server/designApi.ts` maps the code onto `VaultError(400, …, code)` so the client
+  translates a stable name rather than printing English prose.
+- **BOUNDS ARE THE FEATURE.** `TYPO_BOUNDS` is the single table behind the designer's sliders,
+  the strict validator and the lenient clamp — a control physically cannot offer a value the
+  PATCH refuses. Body 15–21px, measure 58–86ch, line height 1.4–1.9, weight 400–800, scale
+  1.10–1.414, rhythm 0.75–1.6. Heading SIZES are derived (`base × ratio^n`, `typographyVars()`),
+  not six independent fields: six fields is six ways to put an h3 above its h2. Colours are
+  never a design input — a design decides size, weight, rhythm and arrangement; the fifteen
+  themes stay fifteen themes.
+- **THE MEASURE IS EMITTED TWICE.** `--dsg-measure` (ch) caps the PROSE, because a character
+  count is what the control means; `--dsg-measure-px` caps every wrapper around it, because a
+  `ch` resolves against each element's own font-size and the page column, the article header and
+  the footer grid would otherwise each land on a different width.
+- **NAVIGATION IS HAND-BUILT, AND VISITOR-SCOPED SERVER-SIDE.** Items are `home` / `note` /
+  `page` / `topic` / `url` / `group`, ≤ 20 top level, ≤ 12 per submenu, ONE level of nesting
+  (a second level is a 400, not a silent flatten). `visitorNav()` drops every hidden item, every
+  item whose note is not `isNoteVisibleToVisitor()`, every topic in `excludedTags()`, and every
+  group left with no children — so a menu can neither ship a dead link nor name an unpublished
+  note's path to an anonymous reader. The item stays in the STORED design: unpublishing a note
+  for a week must not delete the menu entry pointing at it, and the builder flags it instead.
+  URL targets are `http(s)://…` or site-relative `/…` only (no `javascript:`, no `data:`, no
+  protocol-relative `//host`), and note targets are re-checked with `normalizeRel` + `safeAbs`
+  server-side: only the server can answer "does this path stay inside the vault".
+- **STATIC PAGES ARE A FRONTMATTER FLAG, `page: true`** (`server/pages.ts` documents the choice
+  against a designated folder: a page keeps its place in the vault, its wikilinks and its
+  permalink, and the flag is reversible in one keystroke). A page must still be `publish: true`.
+  It is read on every index (`NoteRecord.page`) and ACTED ON only when `staticPagesActive()` —
+  i.e. in designed mode — which is what keeps the stock feed bit-for-bit what it was:
+  `posts(visitor, excludePages)` is called with `false` everywhere the stock blog calls it. In
+  designed mode the page leaves `/api/posts` and `/feed.xml` and renders through `PageView` (no
+  date, no reading time, no tags, no prev/next, no related). `GET /api/design/pages` lists them,
+  visitor-scoped like everything else.
+- **API** (all under `/api/design`, mounted below the auth guard): `GET /site` (anyone —
+  visitor-scoped chrome + pages + `corrupt`), `GET /pages` (anyone), `GET /` (admin; 404 to
+  visitors like `/api/settings` — it names hidden items, unpublished notes and an absolute path),
+  `PATCH /` (merge a partial chrome per SECTION — a list is replaced wholesale, since "moved to
+  the top" and "deleted" are the same diff to a field-wise merge), `PUT /` (import a whole
+  document, ≤ 256 KB, unknown keys kept), `POST /reset`.
+- **The designer** (`client/components/design/`) is a DRAFT surface: every control writes to a
+  draft, the preview redraws from the draft, Save is one request. The preview renders the REAL
+  components with the REAL derived tokens — a preview built from a second rendition is a preview
+  of the rendition — but never routes: no nav handler, no `pushState`, clicks swallowed at the
+  container, and a specimen body instead of a fetch. Its door is one palette row (the theme
+  picker's precedent: what it opens is a browsing-and-building surface, so it is one row, not
+  five), and it mounts a root on `<body>` like `openThemePicker()`.

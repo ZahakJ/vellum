@@ -18,7 +18,8 @@
     "check-contrast": "node scripts/check-contrast.mjs",
     "check-caret": "node scripts/check-caret.mjs",
     "check-sections": "node scripts/check-sections.mjs",
-    "check-excerpt": "node scripts/check-excerpt.mjs"
+    "check-excerpt": "node scripts/check-excerpt.mjs",
+    "check-design": "node scripts/shoot-design.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",

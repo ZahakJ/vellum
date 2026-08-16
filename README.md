@@ -126,9 +126,9 @@ All `.env` keys (npm scripts load the file automatically via `node --env-file-if
 | `COMMENTS` | `on` enables reader comments under published notes (default off) |
 | `VELLUM_DATA` | Server data directory — the comments SQLite db, your `custom.css`, and `fonts/` (your own files, plus the self-hosted catalog cache in `fonts/catalog/`; default `./data`) |
 | `SITE_NAME` | Site name shown in the sidebar wordmark, page titles, and the login modal (default `Vellum`) |
-| `DEFAULT_THEME` | Theme for visitors who haven't picked one — any of the fifteen (see [Theming](#theming)); unknown names are ignored with a warning |
+| `DEFAULT_THEME` | Theme for visitors who haven't picked one — any of the fifteen, or `custom:<name>` for one you built (see [Theming](#theming)); unknown names are ignored with a warning |
 | `EXCLUDE_TAGS` | Comma-separated tags hidden from the visitor site's topic sections and tag pills (workflow/status tags like `baby,child,adult`); admin views unaffected |
-| `PUBLIC_LAYOUT` | `blog` gives visitors a classic blog layout instead of the app shell (see [Blog mode](#blog-mode)); default `app` |
+| `PUBLIC_LAYOUT` | `blog` gives visitors a classic blog layout instead of the app shell (see [Blog mode](#blog-mode)); `designed` composes it from a design you author (see [Designed mode](#designed-mode)); default `app` |
 | `SITE_TAGLINE` | Masthead subtitle under the site name (blog mode) |
 | `SITE_FOOTER` | Blog footer line; `{year}`/`{siteName}` substituted (default `© {year} {SITE_NAME}`) |
 | `BLOG_LOCALE` | BCP47 locale for post dates and the RSS channel language (default: follows `SITE_LANG`) |
@@ -429,6 +429,37 @@ speak only in published notes — unpublished paths are indistinguishable from u
 Absolute URLs in both are built from `SITE_URL` when set, else derived from the request's
 `Host`/`X-Forwarded-*` headers.
 
+### Designed mode
+
+`PUBLIC_LAYOUT=designed` (or **Settings → Publishing & comments → Public layout → Designed**) is
+the third visitor shell: instead of the built-in blog's fixed page, your homepage is **composed
+from a design you author** — a hero, blocks of markdown, a note pulled in whole, a grid or a list
+of posts, a topic cloud, a call to action, rules and space — plus site-level choices (masthead or
+a single bar or nothing at all, the reading measure, density, which article furniture shows).
+
+**The built-in blog does not move.** It is a separate, pristine, always-working code path that
+the designer never touches: designed mode is a *second* renderer that composes its own page, not
+a re-styling of the first. Which is what makes the switch worth having —
+
+**Flipping between stock and designed is instant and lossless, both ways.** Your design lives in
+`VELLUM_DATA/designs.json` and is not consulted while the layout is anything else, so switching
+back to `blog` deletes nothing and switching forward again returns your site exactly as it was.
+Going back to stock is a rescue, not a decision.
+
+**Designs are named, versioned, and portable.** Keep several, duplicate one to try something,
+export any of them as JSON (custom themes it uses travel with it) and import it into another
+instance. Import is always *additive* — a colliding name gets a fresh id, and nothing you already
+have is ever silently overwritten. "Reset to stock defaults" is always one click away. A design
+written by a NEWER Vellum than the one you are running is kept on disk and listed with the
+reason, never rendered half-understood.
+
+**A broken design is your visitors' non-event.** If the config is invalid, if a section points at
+a note you deleted, or if anything throws while rendering, **visitors are dropped to the built-in
+blog automatically** — never a blank page, never a stack trace. You get told instead: a notice in
+the app naming the failing section, and one click back to the stock blog. `node
+scripts/shoot-design.mjs` is the gate that keeps that promise honest — it breaks the site all
+three ways on purpose and measures what a visitor and an owner each get.
+
 ### Arabic & RTL
 
 Vellum speaks Arabic. `SITE_LANG=ar` (or **Settings → Language → العربية**, applied live
@@ -688,6 +719,25 @@ belongs behind the surface that shows the values.) A
 reader's choice sticks in their own browser; `DEFAULT_THEME=cinnabar` — or Settings → Appearance & language
 → *Default theme* — sets what first-time visitors see before they choose. An unknown
 `DEFAULT_THEME` is ignored with a line on stderr at startup rather than silently.
+
+**Make your own.** The fifteen are a starting point, not a ceiling. **Themes → New custom
+theme** opens a builder: pick one of the fifteen as a base, then override any token you like —
+grounds, text, accent, borders, the thirteen callout hues, the eight syntax colors, the graph —
+and watch the whole app change behind the panel while you do it, because the only honest preview
+of a theme is the theme. Tokens you do not touch keep coming from the base, so a later retune of
+that base reaches your theme for free, and every row's *reset* deletes the override rather than
+freezing today's value into it.
+
+The builder runs **the project's own contrast gate live**: the same code
+`scripts/check-contrast.mjs` runs — body text ≥ 4.5:1 and secondary ≥ 3:1 against all three
+grounds, the accent ≥ 4.5:1 on its own ground, and the accent at least 18 ΔE from your body text
+(not a contrast ratio: a theme whose accent is a shade of its own type has no accent channel at
+all). Warnings appear in words, above the control that caused them, with a mark on any group that
+holds one.
+
+Save it under a name and it is selectable **everywhere a built-in theme is**: the picker (its own
+"Your themes" group), the ☾/☀ button, Settings → *Default theme*, and `DEFAULT_THEME=custom:<name>`
+in your `.env`. Export it as JSON, mail it, import it on another instance.
 
 **Restyle it.** Drop a `custom.css` into your data directory (`VELLUM_DATA`, default `./data/`)
 and Vellum serves it at `/api/custom.css` and loads it after its own stylesheets — for every
@@ -1039,9 +1089,12 @@ missing, untranslated, dead, or if the English and Arabic sides of an entry disa
 their `{placeholders}`. "Dead" is counted from the call sites only: the dictionary file is
 excluded from the usage scan, because a key whose English value happens to be its own name
 (`read: { en: "read" }`) otherwise matches inside its own definition and reports itself used.
-`npm run check-contrast` holds every one of the fifteen themes to WCAG on the four text tokens
-against both grounds (`--bg` and the raised surfaces), including `--text-faint` at the 3:1
-non-text bar.
+`npm run check-contrast` holds every one of the fifteen themes to WCAG on the four text tokens:
+body text and secondary text against all three grounds (`--bg`, the raised surfaces and the
+hover ground the tag pills sit on), the accent against the page, and `--text-faint` at the 3:1
+non-text bar on the two grounds it is licensed to paint on. The formulas and floors live in
+`shared/contrast.ts`, which the custom theme builder imports as well — one implementation, or a
+builder would eventually bless a theme the gate rejects.
 `scripts/shoot.mjs` is the screenshot harness used for visual review: point it at a running
 server (`node scripts/shoot.mjs http://localhost:6801 shots`) and it captures the editor, graph,
 and palette in both themes — it needs `npm i -D playwright` plus either
@@ -1077,6 +1130,15 @@ moved subtree's own headings, and it may add a blank line at a seam; it may neve
 never duplicate one. It also asserts that a section cannot be dropped inside itself, that a
 zero-distance move is a no-op, and that extraction's two halves cover the original exactly.
 `SEED=…` replays a failure, `ROUNDS=…` sets the sample size.
+`node scripts/shoot-design.mjs` is the gate for the design engine's error boundary — the one
+promise in the product that cannot be reviewed by reading it. It breaks a designed site three
+ways on purpose (a corrupt `designs.json`, a section pointing at a note that is not there, and a
+section renderer patched to throw and rebuilt) and, for each, measures what a VISITOR gets
+(the built-in blog, a page with real text on it, nothing escaping the boundary) against what the
+OWNER gets (the designed page, the failing section named, the revert control present). It also
+round-trips stock ⇄ designed and asserts the design comes back byte-identical. Everything it
+touched is restored on the way out, including on failure:
+`PORT=6801 VELLUM_PASSWORD=… npm run check-design`.
 `node scripts/check-contrast.mjs` is the accessibility gate for `client/styles/tokens.css`:
 every theme must keep body text ≥ 4.5:1, secondary text ≥ 3:1, and the accent ≥ 4.5:1 against
 the page — the accent pair is read as text twice over (wikilinks and tag pills in the prose, and
@@ -1226,6 +1288,22 @@ number for a local label and the target's *title* across a note boundary,
 because a bare "1" means nothing in someone else's paper; and BibTeX is not
 run — `\cite` resolves against a `\bibitem` in the document or a note carrying
 that `citekey:`, and is otherwise left alone.
+### Publishing
+
+- **Three public shells** — the app itself, the built-in blog, or a site you design: a homepage
+  composed from hero / markdown / a whole note / post grids / post lists / topics / calls to
+  action / rules, plus the masthead, measure, density and article furniture. The built-in blog
+  stays a pristine, separate, always-working base, and switching between the two is lossless in
+  both directions
+- **A broken design never reaches a reader** — an invalid config, a section pointing at a note
+  you deleted, or anything that throws while rendering drops visitors to the built-in blog
+  automatically, while telling *you* which section failed and offering one click back to stock
+- **Designs are named, versioned, exportable** — keep several, duplicate one to experiment,
+  export as JSON and import it elsewhere (always additively), reset to stock defaults at any
+  time; a design written by a newer Vellum is kept and listed, never rendered half-understood
+- **Custom themes** — build a sixteenth room on top of any of the fifteen, overriding only what
+  you want, with the project's own contrast gate warning you inline as you go; selectable
+  everywhere a built-in theme is, and exportable
 
 ### Navigating
 

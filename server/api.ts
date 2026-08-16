@@ -64,6 +64,8 @@ import {
   whenIndexed,
   wikilinkRegex,
 } from "./indexer.ts";
+import { designRoutes } from "./designRoutes.ts";
+import { staticPagesActive } from "./pages.ts";
 import { gitStatus, initRepo, syncNow } from "./gitSync.ts";
 import { dirOf, rewriteDestinations, rewriteForMove } from "./moveLinks.ts";
 import { yamlQuote } from "./publish.ts";
@@ -1138,13 +1140,26 @@ api.get("/tag-labels", (c) => {
 api.get("/posts", (c) => {
   // Visitor sessions (and admin-as-visitor preview) get the languageFilter
   // applied; admin lists are never filtered.
-  const list = posts(isPublishLimited(c));
+  // Static pages leave the feed ONLY in designed mode (server/pages.ts): with
+  // the stock blog on, staticPagesActive() is false and this is the call it
+  // always was.
+  const list = posts(isPublishLimited(c), staticPagesActive());
   if (commentsEnabled()) {
     const counts = commentCounts(!isPublishLimited(c));
     for (const post of list) post.commentCount = counts.get(post.path) ?? 0;
   }
   return c.json(list);
 });
+
+// -------------------------------------------------------------------- design
+// The site design engine (VELLUM_DATA/designs.json): named, versioned designs
+// and custom themes. Mounted here, BELOW the auth guard, so every mutation
+// under the prefix is already 401 to a visitor and to an admin wearing the
+// preview header; the routes add the read-side gate themselves. Two routes
+// under it are deliberately public — /api/design/public (the active design,
+// scrubbed per session) and /api/design/themes.css (styling, like
+// custom.css). See server/designRoutes.ts.
+api.route("/design", designRoutes);
 
 // ------------------------------------------------------------------ settings
 // Instance settings (VELLUM_DATA/settings.json): siteName / tagline / footer /

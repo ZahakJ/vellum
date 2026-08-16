@@ -5,11 +5,12 @@ import { closesFence, fenceOpener, type Fence } from "../shared/fences.ts";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import MiniSearch from "minisearch";
-import type { Backlink, GraphData, GraphEdge, PostMeta, SearchHit, TagCount, VaultEvent } from "../shared/types.ts";
+import type { Backlink, GraphData, GraphEdge, PageMeta, PostMeta, SearchHit, TagCount, VaultEvent } from "../shared/types.ts";
 import { stripBidiControls } from "../shared/bidi.ts";
 import { isNotePath, isTexPath, noteCandidates, noteTitleOf, stripNoteExt } from "../shared/noteFormat.ts";
 import { markdownAnchors, type NoteAnchor } from "../shared/anchors.ts";
 import { cleanLabelEntry, tagKey, type TagLabelMap } from "../shared/tagLabels.ts";
+import { pageFlag } from "./pages.ts";
 import { publishFlag, readFrontmatter } from "./publish.ts";
 import { readNoteFrontmatter } from "./noteFrontmatter.ts";
 import { readTexNote } from "./texNote.ts";
@@ -42,6 +43,11 @@ interface NoteRecord {
   labels: Record<string, string> | null;
   /** frontmatter `publish` is exactly true / "true" */
   published: boolean;
+  /** frontmatter `page` is exactly true / "true" — a STATIC PAGE (About,
+   *  Contact): still an ordinary note, but not an article. Read on every
+   *  index so the flag is live; ACTED ON only in designed mode (see
+   *  server/pages.ts), which is what keeps the stock blog unchanged. */
+  page: boolean;
   /** frontmatter `banner:` raw value (https URL or vault-relative attachment
    *  path), trimmed; null when absent/non-string. */
   banner: string | null;
@@ -364,6 +370,7 @@ export async function indexFile(relPath: string): Promise<void> {
     tags: parseTags(parts.tagSource, parts.frontmatter),
     labels: labelsOfFm(fm),
     published: publishFlag(fm),
+    page: pageFlag(fm),
     banner: typeof fm.banner === "string" && fm.banner.trim() ? fm.banner.trim() : null,
     dateMs:
       parseFmDate(fm.date) ??
@@ -590,6 +597,7 @@ async function indexOversized(relPath: string, abs: string, stat: { size: number
     tags: parseTags("", frontmatter),
     labels: labelsOfFm(fm),
     published: publishFlag(fm),
+    page: pageFlag(fm),
     banner: typeof fm.banner === "string" && fm.banner.trim() ? fm.banner.trim() : null,
     dateMs:
       parseFmDate(fm.date) ??
@@ -1400,7 +1408,7 @@ function postMeta(record: NoteRecord): PostMeta {
  *  EXCLUDE_TAGS filtered). Per-note fields are cached on the index record and
  *  refresh incrementally as notes reindex. `visitor` additionally applies the
  *  languageFilter (public lists only — admin surfaces are never filtered). */
-export function posts(visitor = false): PostMeta[] {
+export function posts(visitor = false, excludePages = false): PostMeta[] {
   const out: { dateMs: number; meta: PostMeta }[] = [];
   for (const notePath of publishedSet) {
     const record = notes.get(notePath);
@@ -1410,11 +1418,37 @@ export function posts(visitor = false): PostMeta[] {
     // one that answers "what is on my blog", so a stencil sitting in it is the
     // same lie there as on the public page.
     if (isTemplateNote(notePath)) continue;
+    // Static pages (frontmatter `page: true`) are part of the site, not of
+    // the feed. The caller decides — `excludePages` is false everywhere the
+    // stock blog calls this, so its lists are exactly what they always were;
+    // designed mode passes staticPagesActive() (server/pages.ts).
+    if (excludePages && record.page) continue;
     out.push({ dateMs: record.dateMs, meta: postMeta(record) });
   }
   return out
     .sort((a, b) => b.dateMs - a.dateMs || a.meta.path.localeCompare(b.meta.path))
     .map((entry) => entry.meta);
+}
+
+/** Published STATIC PAGES (frontmatter `page: true`), alphabetical by title —
+ *  the list the navigation builder offers and the designed shell routes.
+ *  `visitor` applies the languageFilter, exactly as posts() does, so a page
+ *  the filter curates away is never named to an anonymous caller. */
+export function pages(visitor = false): PageMeta[] {
+  const out: PageMeta[] = [];
+  for (const notePath of publishedSet) {
+    const record = notes.get(notePath);
+    if (!record || !record.page) continue;
+    if (visitor && languageHidden(record)) continue;
+    out.push({ path: record.path, title: record.title });
+  }
+  return out.sort((a, b) => a.title.localeCompare(b.title) || a.path.localeCompare(b.path));
+}
+
+/** True when this note is a published static page — the designed shell's
+ *  router asks before choosing the page layout over the article layout. */
+export function isStaticPage(relPath: string): boolean {
+  return notes.get(relPath)?.page === true;
 }
 
 export function search(query: string, publishedOnly = false): SearchHit[] {

@@ -46,6 +46,10 @@ import {
   TAG_LABEL_MAX,
   type TagLabelMap,
 } from "../shared/tagLabels.ts";
+import { isCustomThemeId } from "../shared/customTheme.ts";
+// The design store owns the custom themes `defaultTheme` may now name. The
+// import is one-way (designs.ts asks site.ts for dataDir, never this module).
+import { hasThemeChoice } from "./designs.ts";
 import { envHomeNote } from "./auth.ts";
 import { commentsEnabled } from "./comments.ts";
 // Backup & sync: the gitSync validators and the write-only credential store
@@ -100,6 +104,16 @@ const TAGS_MAX = 200;
  *  because at fifteen ids a hand-kept mirror means the panel offers a theme
  *  the PATCH answers 400 to. */
 const THEMES = new Set<string>(THEME_IDS);
+
+/** A theme id this file may STORE: one of the fifteen, or a well-formed
+ *  `custom:<name>`. Shape only — whether the custom theme still exists is
+ *  asked on the PATCH path (which can afford the read) and again by /api/me,
+ *  never on this read path, which must never throw and never touch a second
+ *  file. A stored id whose theme was deleted then behaves exactly like a
+ *  deleted built-in would: the client falls back to its own default. */
+function isStoredTheme(value: string): boolean {
+  return THEMES.has(value) || isCustomThemeId(value);
+}
 
 /** Vault-image extensions a favicon/logo may carry (what /api/upload can
  *  produce, plus .ico for hand-placed favicons). */
@@ -222,10 +236,12 @@ export function getSettings(): SettingsData {
   str("siteName", SITE_NAME_MAX);
   str("tagline", TAGLINE_MAX);
   str("footer", FOOTER_MAX);
-  if (typeof raw.defaultTheme === "string" && THEMES.has(raw.defaultTheme)) {
+  if (typeof raw.defaultTheme === "string" && isStoredTheme(raw.defaultTheme)) {
     out.defaultTheme = raw.defaultTheme;
   }
-  if (raw.publicLayout === "app" || raw.publicLayout === "blog") out.publicLayout = raw.publicLayout;
+  if (raw.publicLayout === "app" || raw.publicLayout === "blog" || raw.publicLayout === "designed") {
+    out.publicLayout = raw.publicLayout;
+  }
   if (typeof raw.blogLocale === "string" && raw.blogLocale.length <= LOCALE_MAX && isValidLocale(raw.blogLocale)) {
     out.blogLocale = raw.blogLocale;
   }
@@ -562,16 +578,24 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     // closed lowercase enum, so there is one canonical form to coerce to.
     const clean = cleanValue(v, "defaultTheme")?.toLowerCase() ?? null;
     if (clean === null) return null;
-    if (!THEMES.has(clean)) {
-      throw new VaultError(400, `Settings key "defaultTheme" must be one of: ${[...THEMES].join(", ")}`);
+    // A custom theme is selectable everywhere a built-in is, and this is one
+    // of those places — but only one that EXISTS. `hasThemeChoice` reads
+    // designs.json, so the failure mode a bare shape check would leave (a
+    // default theme naming a theme somebody deleted, and a public site quietly
+    // painted in the fallback) is a 400 here instead.
+    if (!THEMES.has(clean) && !hasThemeChoice(clean)) {
+      throw new VaultError(
+        400,
+        `Settings key "defaultTheme" must be one of: ${[...THEMES].join(", ")} — or a custom theme this instance has`,
+      );
     }
     return clean;
   }),
   publicLayout: stringKey("publicLayout", (v) => {
     const clean = cleanValue(v, "publicLayout")?.toLowerCase() ?? null;
     if (clean === null) return null;
-    if (clean !== "app" && clean !== "blog") {
-      throw new VaultError(400, 'Settings key "publicLayout" must be "app" or "blog"');
+    if (clean !== "app" && clean !== "blog" && clean !== "designed") {
+      throw new VaultError(400, 'Settings key "publicLayout" must be "app", "blog" or "designed"');
     }
     return clean;
   }),

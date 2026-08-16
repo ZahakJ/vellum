@@ -17,7 +17,7 @@ import { countPhrase, t, tf } from "../i18n.ts";
 import { MetaSep } from "../metaSep.tsx";
 import { isPublishedContent } from "../publish.ts";
 import { DRAWER_QUERY, useStore } from "../state.ts";
-import { themeGroup } from "../themes.ts";
+import { choiceGroup, choiceLabel } from "../themes.ts";
 import SyncBadge from "./SyncBadge.tsx";
 import { openThemePicker } from "./ThemePicker.tsx";
 import { noteLabelOf, stripNoteExt } from "../../shared/noteFormat.ts";
@@ -496,10 +496,10 @@ export default function StatusBar() {
           type="button"
           className="s-statusbar__btn"
           onClick={openThemePicker}
-          title={tf("themeTitle", { theme })}
+          title={tf("themeTitle", { theme: choiceLabel(theme) })}
           aria-label={t("browseThemes")}
         >
-          {themeGroup(theme) === "light" ? "☀" : "☾"}
+          {choiceGroup(theme) === "light" ? "☀" : "☾"}
         </button>
         <button
           type="button"

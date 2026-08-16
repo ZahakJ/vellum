@@ -24,9 +24,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { customThemeChoice, type CustomTheme } from "../../shared/customTheme.ts";
+import { applyThemeChoice, getCustomThemes, subscribeCustomThemes } from "../design/customThemes.ts";
 import { t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
-import { THEME_GROUPS, THEME_LABELS, type Theme } from "../themes.ts";
+import { choiceBase, choiceLabel, THEME_GROUPS, THEME_LABELS, type Theme } from "../themes.ts";
+import { openThemeBuilder } from "./ThemeBuilder.tsx";
 
 /** Two columns. ←/→ move by one across the whole list; ↑/↓ move by a ROW —
  *  which is not the same as moving by COLS, because each group is its own
@@ -39,37 +42,58 @@ import { THEME_GROUPS, THEME_LABELS, type Theme } from "../themes.ts";
  *  first row in the SAME column, clamped to what that row actually holds. */
 const COLS = 2;
 
-const GROUP_SIZES = THEME_GROUPS.map((g) => g.themes.length);
-const GROUP_STARTS = GROUP_SIZES.reduce<number[]>(
-  (acc, size, i) => [...acc, (acc[i - 1] ?? 0) + (GROUP_SIZES[i - 1] ?? 0)],
-  [],
-);
+/** The picker's groups, at the moment it opens: the two shipped ones, plus
+ *  "Your themes" when this instance has any. Custom themes are browsed exactly
+ *  where the built-ins are — the surface that shows the values — because that
+ *  is what "selectable everywhere a built-in theme is" has to mean on the one
+ *  surface built for looking at them. */
+function pickerGroups(custom: CustomTheme[]): { group: string; themes: string[] }[] {
+  const groups: { group: string; themes: string[] }[] = THEME_GROUPS.map((g) => ({
+    group: g.group as string,
+    themes: [...g.themes] as string[],
+  }));
+  if (custom.length > 0) {
+    groups.push({ group: "custom", themes: custom.map((theme) => customThemeChoice(theme.id)) });
+  }
+  return groups;
+}
 
-/** The index one visual row up (dir -1) or down (dir +1) from `index`. */
-function rowStep(index: number, dir: 1 | -1): number {
+/** The index one visual row up (dir -1) or down (dir +1) from `index`.
+ *
+ *  Sizes are passed in rather than computed once at import: with a custom
+ *  group the geometry changes at runtime, and stepping by a stale row length
+ *  is the exact bug this function replaced (an ODD group flips the column
+ *  parity at its boundary, which made Parchment unreachable by ArrowDown). */
+function rowStep(index: number, dir: 1 | -1, sizes: number[]): number {
+  const starts = sizes.reduce<number[]>(
+    (acc, _size, i) => [...acc, (acc[i - 1] ?? 0) + (sizes[i - 1] ?? 0)],
+    [],
+  );
   let g = -1;
-  for (let i = 0; i < GROUP_STARTS.length; i++) if (index >= GROUP_STARTS[i]) g = i;
+  for (let i = 0; i < starts.length; i++) if (index >= starts[i]) g = i;
   if (g < 0) return index;
-  const size = GROUP_SIZES[g];
-  const local = index - GROUP_STARTS[g];
+  const size = sizes[g];
+  const local = index - starts[g];
   const row = Math.floor(local / COLS);
   const col = local % COLS;
   const lastRow = Math.ceil(size / COLS) - 1;
   if (dir === 1) {
-    if (row < lastRow) return GROUP_STARTS[g] + Math.min(size - 1, (row + 1) * COLS + col);
-    if (g + 1 >= GROUP_SIZES.length) return index;
-    return GROUP_STARTS[g + 1] + Math.min(GROUP_SIZES[g + 1] - 1, col);
+    if (row < lastRow) return starts[g] + Math.min(size - 1, (row + 1) * COLS + col);
+    if (g + 1 >= sizes.length) return index;
+    return starts[g + 1] + Math.min(sizes[g + 1] - 1, col);
   }
-  if (row > 0) return GROUP_STARTS[g] + (row - 1) * COLS + col;
+  if (row > 0) return starts[g] + (row - 1) * COLS + col;
   if (g === 0) return index;
-  const prevLastRow = Math.ceil(GROUP_SIZES[g - 1] / COLS) - 1;
-  return GROUP_STARTS[g - 1] + Math.min(GROUP_SIZES[g - 1] - 1, prevLastRow * COLS + col);
+  const prevLastRow = Math.ceil(sizes[g - 1] / COLS) - 1;
+  return starts[g - 1] + Math.min(sizes[g - 1] - 1, prevLastRow * COLS + col);
 }
 
 /** Apply a theme to the document WITHOUT persisting it — the preview channel.
- *  (state.ts's setTheme is the committing one; it writes localStorage.) */
-function previewTheme(theme: Theme): void {
-  document.documentElement.setAttribute("data-theme", theme);
+ *  (state.ts's setTheme is the committing one; it writes localStorage.)
+ *  Routed through applyThemeChoice so a CUSTOM theme previews with its
+ *  overrides on, not as the base it was built from. */
+function previewTheme(theme: string): void {
+  applyThemeChoice(theme);
 }
 
 function ThemePicker({ onClose }: { onClose: () => void }) {
@@ -78,15 +102,23 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
   useStore((s) => s.language);
 
   /** The theme in force when the panel opened — what Esc restores. */
-  const openedWith = useRef<Theme>(theme);
-  const flat = useMemo(() => THEME_GROUPS.flatMap((g) => g.themes), []);
+  const openedWith = useRef<string>(theme);
+  // Re-render when a custom theme is created, edited or deleted from the
+  // builder the panel opens: the row that was just saved has to be here when
+  // the builder closes over it.
+  const [customTick, setCustomTick] = useState(0);
+  useEffect(() => subscribeCustomThemes(() => setCustomTick((n) => n + 1)), []);
+  const custom = useMemo(() => getCustomThemes(), [customTick]);
+  const groups = useMemo(() => pickerGroups(custom), [custom]);
+  const flat = useMemo(() => groups.flatMap((g) => g.themes), [groups]);
+  const sizes = useMemo(() => groups.map((g) => g.themes.length), [groups]);
   const [cursor, setCursor] = useState(() => Math.max(0, flat.indexOf(theme)));
   const listRef = useRef<HTMLDivElement>(null);
   /** Committed themes must not be un-previewed by the unmount cleanup. */
   const committed = useRef(false);
 
   const commit = useCallback(
-    (pick: Theme) => {
+    (pick: string) => {
       committed.current = true;
       setTheme(pick);
       onClose();
@@ -128,7 +160,7 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
       const row = (dir: 1 | -1): void => {
         e.preventDefault();
         e.stopPropagation();
-        setCursor((c) => rowStep(c, dir));
+        setCursor((c) => rowStep(c, dir, sizes));
       };
       switch (e.key) {
         case "Escape":
@@ -158,7 +190,7 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [cancel, commit, cursor, flat]);
+  }, [cancel, commit, cursor, flat, sizes]);
 
   // Focus the list so the panel owns the keyboard even when it was opened by
   // a click, and keep the highlighted row in view.
@@ -181,6 +213,20 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
         <div className="s-tpick__head">
           <span className="s-tpick__title">{t("themePicker")}</span>
           <span className="s-tpick__hint">{t("themePickerHint")}</span>
+          {/* THE DOOR to the builder. It lives here because this is the panel
+              that already answers "what looks are there" — a sixteenth room is
+              made from the fifteen, and the base picker inside the builder is
+              this same list. */}
+          <button
+            type="button"
+            className="s-tpick__new"
+            onClick={() => {
+              onClose();
+              openThemeBuilder(null);
+            }}
+          >
+            {t("tbNew")}
+          </button>
           <button type="button" className="s-bmodal__close" onClick={cancel} aria-label={t("close")}>
             ×
           </button>
@@ -194,16 +240,23 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
           aria-label={t("themePicker")}
           aria-activedescendant={`s-tpick-opt-${flat[cursor]}`}
         >
-          {THEME_GROUPS.map((group) => (
+          {groups.map((group) => (
             <div key={group.group} className="s-tpick__group">
               <div className="s-tpick__grouphead">
-                {t(group.group === "dark" ? "themeGroupDark" : "themeGroupLight")}
+                {t(
+                  group.group === "dark"
+                    ? "themeGroupDark"
+                    : group.group === "light"
+                      ? "themeGroupLight"
+                      : "themeGroupCustom",
+                )}
               </div>
               <div className="s-tpick__grid">
                 {group.themes.map((id) => {
                   index += 1;
                   const at = index;
                   const on = at === cursor;
+                  const mine = custom.find((entry) => customThemeChoice(entry.id) === id) ?? null;
                   return (
                     <button
                       key={id}
@@ -220,7 +273,7 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
                       onClick={() => commit(id)}
                       // The id is still the value DEFAULT_THEME and the
                       // palette take, so it stays reachable from the row.
-                      title={tf("themeIdTitle", { name: t(THEME_LABELS[id].name), id })}
+                      title={tf("themeIdTitle", { name: choiceLabel(id), id })}
                     >
                       {/* A miniature of the ROOM, not of the tokens. Three
                           10px dots could not tell sumi from void from basalt
@@ -229,7 +282,14 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
                           and an accent chip shows what the theme does with
                           them. Still painted from the CONSTANT --swatch-*
                           tokens, so it is never the theme on screen. */}
-                      <span className="s-tpick__card" data-theme-swatch={id} aria-hidden="true">
+                      {/* The swatch trio is keyed on the fifteen built-in ids
+                          and is CONSTANT across themes, so a custom room shows
+                          the one it was built on — under its own name. */}
+                      <span
+                        className="s-tpick__card"
+                        data-theme-swatch={choiceBase(id)}
+                        aria-hidden="true"
+                      >
                         <span className="s-tpick__card-rule" />
                         <span className="s-tpick__card-line" />
                         <span className="s-tpick__card-foot">
@@ -242,12 +302,42 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
                           {/* The label is chrome copy now; the note-derived
                               direction rule does not apply, but a <bdi> keeps
                               a Latin name from dragging an Arabic row. */}
-                          <bdi className="s-tpick__name">{t(THEME_LABELS[id].name)}</bdi>
+                          <bdi className="s-tpick__name">{choiceLabel(id)}</bdi>
                           {id === theme && (
                             <span className="s-tpick__current">{t("themeCurrent")}</span>
                           )}
+                          {mine && (
+                            // Editing is a SEPARATE target from picking: a
+                            // click on the row still means "wear this", which
+                            // is what every other row in the panel means.
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="s-tpick__edit"
+                              title={t("tbEdit")}
+                              aria-label={t("tbEdit")}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onClose();
+                                openThemeBuilder(mine);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key !== "Enter" && e.key !== " ") return;
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onClose();
+                                openThemeBuilder(mine);
+                              }}
+                            >
+                              ✎
+                            </span>
+                          )}
                         </span>
-                        <span className="s-tpick__desc">{t(THEME_LABELS[id].desc)}</span>
+                        <span className="s-tpick__desc">
+                          {mine
+                            ? tf("tbBasedOn", { base: t(THEME_LABELS[mine.base].name) })
+                            : t(THEME_LABELS[id as Theme].desc)}
+                        </span>
                       </span>
                     </button>
                   );

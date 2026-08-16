@@ -22,6 +22,7 @@ import { commentsEnabled } from "./comments.ts";
 import { fontsSignature, slotsAreSystem } from "./fonts.ts";
 import { dateCalendar, fontSlots, getSettings, textAlign, textDirection } from "./settings.ts";
 import { bannerFallback, blogLocale, customCssPath, dataDir, defaultTheme, footerLine, languageFilterEnabled, publicLayout, siteLanguage, siteName, tagline } from "./site.ts";
+import { activeDesign, customThemesSig, hasThemeChoice } from "./designs.ts";
 import { normalizeRel } from "./vault.ts";
 
 const COOKIE_NAME = "vellum_session";
@@ -598,6 +599,24 @@ function homeNoteVisible(ref: string): boolean {
   }
 }
 
+/**
+ * The layout a session is actually SERVED, as opposed to the one configured.
+ *
+ * "designed" downgrades to "blog" whenever the design store has nothing this
+ * build can render — an empty store, a corrupt designs.json, a document
+ * quarantined by the schema check. The downgrade happens HERE, on the server,
+ * and that is the point: the stock blog is the always-working base, so a
+ * broken design must never be something the browser has to notice and recover
+ * from. It is the same answer the client's error boundary gives for the
+ * failures only the browser can see (a section that throws, a note that has
+ * gone), arrived at one layer earlier.
+ */
+export function servedLayout(): "app" | "blog" | "designed" {
+  const configured = publicLayout();
+  if (configured !== "designed") return configured;
+  return activeDesign().design ? "designed" : "blog";
+}
+
 authRoutes.get("/me", (c) => {
   // Preview: an admin session that asked to be treated as a visitor gets the
   // exact visitor-shaped payload (admin: false, no counts, published-only
@@ -673,11 +692,67 @@ authRoutes.get("/me", (c) => {
   // visitor-fetchable via the settings-asset allowlist on /api/file).
   if (settings.logo) me.logo = settings.logo;
   if (settings.favicon) me.favicon = true;
-  // Blog mode (PUBLIC_LAYOUT=blog): layout + masthead/footer/locale copy.
-  // Sent to admin sessions too — the client applies the blog shell only when
-  // the session is not admin, but the admin UI may want to preview the copy.
-  if (publicLayout() === "blog") {
-    me.publicLayout = "blog";
+  // Blog and designed modes (PUBLIC_LAYOUT=blog / designed): layout +
+  // masthead/footer/locale copy. Sent to admin sessions too — the client
+  // applies the public shell only when the session is not admin, but the
+  // admin UI may want to preview the copy.
+  // Custom themes are the public site's own colour, so their signature travels
+  // to every session exactly as the font signature does — its presence makes
+  // the client link /api/design/themes.css and its value is that link's ?v=.
+  const themeSig = customThemesSig();
+  if (themeSig !== "") me.customThemes = themeSig;
+  // A default theme is only named when the instance still HAS it: a custom
+  // theme that was deleted while `settings.defaultTheme` named it would
+  // otherwise reach every browser as a data-theme nothing answers.
+  if (me.defaultTheme && !hasThemeChoice(me.defaultTheme)) delete me.defaultTheme;
+  // Blog and designed modes share the whole public-shell payload below —
+  // masthead copy, footer, locale, home config — because a designed site is
+  // still a site with a name and a footer. What separates them is one field.
+  const layout = servedLayout();
+  if (layout !== "app") {
+    me.publicLayout = layout;
+    if (layout === "designed") {
+      const { design } = activeDesign();
+      // A signature, not the document: the design travels on its own route
+      // (/api/design/public), which is where the visitor scrubbing lives.
+      if (design) me.design = `${design.id}.${design.updatedMs}`;
+    }
+    // Why the designed site is NOT being served, for the owner only. A
+    // visitor is given the stock blog and no explanation — that is the whole
+    // promise — and an admin previewing as a visitor is a visitor here too,
+    // so the notice does not follow them into the preview they asked for.
+    if (admin && publicLayout() === "designed") {
+      const { design, notice } = activeDesign();
+      if (notice) me.designNotice = notice;
+      else if (design) {
+        // A design that is perfectly VALID can still be unrenderable, and the
+        // commonest way is the one nobody is watching for: a `note` section
+        // pointing at a note that has since been deleted, unpublished, or
+        // hidden by the language filter. The browser finds that out and the
+        // error boundary handles it — but only for somebody who is LOOKING at
+        // the public site, and the owner is normally in the editor. So the
+        // server checks the one thing it can check cheaply and says it in the
+        // app, where the owner actually is.
+        const dead = design.sections.find((section) => {
+          if (section.kind !== "note" || section.hidden) return false;
+          if (section.note === "") return true;
+          try {
+            return !isNoteVisibleToVisitor(normalizeRel(section.note));
+          } catch {
+            return true;
+          }
+        });
+        if (dead && dead.kind === "note") {
+          me.designNotice = {
+            reason: "section",
+            design: design.name,
+            // The admin may name the note: this payload is admin-only, and
+            // the path is exactly what makes the notice actionable.
+            detail: `${dead.id} → ${dead.note || "(unset)"}`,
+          };
+        }
+      }
+    }
     const tl = tagline();
     if (tl) me.tagline = tl;
     me.footer = footerLine();
@@ -709,6 +784,11 @@ const OPEN_PATHS = new Set([
   // instance's own type. It names only catalog faces this server already
   // cached — no vault content, no external URL.
   "/api/site-fonts.css",
+  // The custom-theme override stylesheet, for the same reason and on the same
+  // terms: hex colours out of a closed allowlist, no vault content, and the
+  // login page of a PUBLIC=false instance should be painted in the colours
+  // that instance chose.
+  "/api/design/themes.css",
 ]);
 
 /** /api/fonts/* is styling like custom.css: open to visitors and the login
