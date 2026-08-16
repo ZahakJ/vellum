@@ -13,6 +13,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GraphData, GraphNode } from "../../shared/types.ts";
+import { prefersReducedMotion } from "../a11y.ts";
 import { getGraph } from "../api.ts";
 import { autoDir, localeNum, t } from "../i18n.ts";
 import { useStore } from "../state.ts";
@@ -196,10 +197,20 @@ function createMiniSim(
     }
     if (hood.center.id !== lastCenterId) {
       lastCenterId = hood.center.id;
-      pulseT0 = performance.now();
+      // The pulse ring is pure delight — it carries nothing the panel does
+      // not already say — so a reader who asked for less motion never sees it.
+      pulseT0 = prefersReducedMotion() ? 0 : performance.now();
     }
     alpha = 1;
     needsDraw = true;
+    // Reduced motion: settle the little constellation before it is ever
+    // painted, so it arrives placed instead of springing into position.
+    if (prefersReducedMotion()) {
+      while (alpha > ALPHA_MIN) {
+        step();
+        alpha *= ALPHA_DECAY;
+      }
+    }
     wake();
   }
 
@@ -715,7 +726,30 @@ export default function LocalGraph() {
           </p>
         ) : (
           <div className="s-localgraph__body" ref={wrapRef}>
-            <canvas className="s-localgraph__canvas" ref={canvasRef} />
+            <canvas
+              className="s-localgraph__canvas"
+              ref={canvasRef}
+              role="img"
+              aria-label={t("localGraphAria")}
+            />
+            {/* The canvas is a picture that happens to be navigable with a
+                mouse. This is the same neighbourhood as a list of real
+                buttons: silent and out of the way until something focuses
+                it, then it unfolds under the canvas so a sighted keyboard
+                reader can see where they are. */}
+            <nav className="s-localgraph__alt" aria-label={t("linkedNotesAria")}>
+              {hood.neighbors.map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  className="s-localgraph__altitem"
+                  dir="auto"
+                  onClick={() => useStore.getState().openNote(n.id)}
+                >
+                  {n.title}
+                </button>
+              ))}
+            </nav>
           </div>
         ))}
     </section>

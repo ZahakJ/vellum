@@ -202,6 +202,35 @@ names where they exist in app.css; anything extra styled inline is a bug — put
 - Errors surface to the user via `console.error` + a transient `.s-toast` div helper in
   `client/toast.ts` (`export function toast(msg: string)`) — shell agent owns it.
 
+## Accessibility (client — normative, gated by `npm run check-a11y`)
+
+`client/a11y.ts` holds the three shared primitives. Use them; do not re-implement them.
+
+- **Dialogs.** Every modal surface calls `useDialog(panelRef, …)`: it traps Tab inside the panel
+  and — the half that keeps getting dropped — returns focus to the control that opened it. Panels
+  carry `role="dialog" aria-modal="true"` and `aria-labelledby` pointing at their own title node.
+  `Confirm.tsx` keeps its own bespoke trap (it has a three-button ring and Enter semantics).
+- **Motion.** `prefersReducedMotion()` / `scrollBehavior()` are the only way to ask. CSS gets the
+  blanket rule in `styles/a11y.css`; anything animated in JS (the two graphs, smooth scrolls) opts
+  out itself. Canvas simulations settle without painting the drift rather than freezing mid-layout.
+- **Keyboard.** No control is pointer-only. Imperative DOM that is "a link" without an `href`
+  (`.s-rv-wikilink`, `[data-fn]`) carries `role="link" tabindex="0"` and is activated through
+  `activateOnKey`. The sidebar tree is ONE tab stop: `role="tree"` on `.s-tree__root`, rows are
+  `role="treeitem"` with `aria-level/posinset/setsize`, and the current row is named by
+  `aria-activedescendant` + a `.s-tree__item--cursor` class (arrows/Home/End/Enter/F2/Delete/
+  Shift+F10; Left and Right are LOGICAL, so they swap in RTL). The tab bar is a roving-tabindex
+  `role="tablist"`; the palette and the blog search are `combobox` + `listbox`/`option`.
+- **Names.** Every icon-only control has an `aria-label`. A placeholder is never a label. Settings
+  rows render a real `<label for>` and wire `aria-describedby` / `aria-invalid` onto their one
+  control child (`Row` does this — call sites pass a single element).
+- **Landmarks.** Both shells open with an `.s-skip` link to `#s-main` / `#s-blog-main`. Every
+  repeated landmark (`aside`, `nav`, the status bar `footer`) is named. Page outlines start at `h1`.
+- **State is never colour alone.** Toggles carry `aria-pressed` and a shape (the status bar's gold
+  underline); the dirty tab dot has `.s-sr-only` text beside it; validation errors are `role="alert"`
+  text with a `⚠` marker.
+- `.s-sr-only` is the screen-reader-only utility. Waive a checker rule with a trailing
+  `// a11y-ok: <reason>` on the offending line, never by loosening the rule.
+
 ## Folder deletion (server, shipped)
 
 `DELETE /api/folder?path=<rel>&permanent=<bool>` → `{ notes: number, trashPath?: string }`

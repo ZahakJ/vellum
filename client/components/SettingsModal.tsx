@@ -5,8 +5,9 @@
 // PATCHes only the keys that changed, then refreshes /api/me so the wordmark,
 // layout, theme default, and favicon apply live — no reload.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, ReactNode } from "react";
+import { Children, cloneElement, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import type { ChangeEvent, ReactElement, ReactNode } from "react";
+import { useDialog } from "../a11y.ts";
 import type { SettingsPatch, SettingsResponse } from "../../shared/types.ts";
 import { getSettings, listAttachments, patchSettings, uploadAttachment } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
@@ -220,6 +221,14 @@ function ImagePicker({
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
+  // The picker is a dialog stacked on the settings dialog: it takes the trap
+  // while it is up and gives focus back to the "Pick" button that opened it.
+  // (Escape is owned by SettingsModal's own capture-phase handler, which
+  // closes the picker first — so no onEscape here.)
+  useDialog(panelRef);
 
   useEffect(() => {
     let disposed = false;
@@ -260,20 +269,26 @@ function ImagePicker({
   return (
     <div className="s-palette-overlay s-smodal-picker" onMouseDown={onClose}>
       <div
+        ref={panelRef}
         className="s-bmodal"
         role="dialog"
-        aria-label={title}
+        aria-modal="true"
+        aria-labelledby={titleId}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="s-bmodal__head">
-          <span className="s-bmodal__title">{title}</span>
+          <span className="s-bmodal__title" id={titleId}>{title}</span>
           <button type="button" className="s-bmodal__close" onClick={onClose} aria-label={t("close")}>
             ×
           </button>
         </div>
 
-        <div
+        {/* Real button: a div that opens a file picker is unreachable by
+            keyboard (see BannerModal). Drag handlers ride along on it. */}
+        <button
+          type="button"
           className={`s-bmodal__drop${dragOver ? " s-bmodal__drop--over" : ""}`}
+          aria-label={t("chooseImageFile")}
           onClick={() => fileInputRef.current?.click()}
           onDragOver={(e) => {
             e.preventDefault();
@@ -300,13 +315,14 @@ function ImagePicker({
               e.target.value = "";
             }}
           />
-        </div>
+        </button>
 
         <div className="s-bmodal__pick">
           <input
             className="s-bmodal__input"
             type="text"
             placeholder={t("searchAttachments")}
+            aria-label={t("searchAttachments")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             spellCheck={false}
@@ -343,6 +359,13 @@ function ImagePicker({
 // Row scaffolding
 // ---------------------------------------------------------------------------
 
+/** A settings row: label on the left, one control on the right.
+ *
+ *  The label used to be a <div>, which meant twenty inputs and selects in this
+ *  panel had NO accessible name at all — a screen reader read "edit text,
+ *  blank" twenty times down the page. It is a real <label> now, and the row
+ *  wires the id/`aria-describedby`/`aria-invalid` onto its single control
+ *  child so no call site has to remember to. */
 function Row({
   label,
   hint,
@@ -354,15 +377,39 @@ function Row({
   error?: string;
   children: ReactNode;
 }) {
+  const id = useId();
+  const hintId = `${id}-hint`;
+  const errorId = `${id}-err`;
+  const described = [hint ? hintId : null, error ? errorId : null]
+    .filter(Boolean)
+    .join(" ");
+  const only = Children.only(children);
+  const control = isValidElement(only)
+    ? cloneElement(only as ReactElement<Record<string, unknown>>, {
+        id,
+        "aria-describedby": described || undefined,
+        "aria-invalid": error ? true : undefined,
+      })
+    : only;
   return (
     <div className={`s-smodal__row${error ? " s-smodal__row--invalid" : ""}`}>
-      <div className="s-smodal__label">
+      <label className="s-smodal__label" htmlFor={id}>
         {label}
-        {hint && <span className="s-smodal__hint">{hint}</span>}
-      </div>
+        {hint && (
+          <span className="s-smodal__hint" id={hintId}>
+            {hint}
+          </span>
+        )}
+      </label>
       <div className="s-smodal__control">
-        {children}
-        {error && <span className="s-smodal__error">{error}</span>}
+        {control}
+        {/* role="alert" so a validation failure is spoken when it appears,
+            not only when the reader happens to tab back onto the field. */}
+        {error && (
+          <span className="s-smodal__error" id={errorId} role="alert">
+            {error}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -377,12 +424,18 @@ function ImageField({
   invalid,
   onChange,
   onOpenPicker,
+  // Forwarded by Row: the row's <label> points at `id`, so the text field —
+  // not the wrapper div — has to be the thing carrying it.
+  id,
+  "aria-describedby": describedBy,
 }: {
   value: string;
   placeholder: string;
   invalid?: boolean;
   onChange: (v: string) => void;
   onOpenPicker: () => void;
+  id?: string;
+  "aria-describedby"?: string;
 }) {
   const trimmed = value.trim();
   const [broken, setBroken] = useState(false);
@@ -407,6 +460,9 @@ function ImageField({
       <input
         className="s-bmodal__input"
         type="text"
+        id={id}
+        aria-describedby={describedBy}
+        aria-invalid={invalid ? true : undefined}
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
@@ -440,6 +496,12 @@ export default function SettingsModal() {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [picker, setPicker] = useState<"favicon" | "logo" | "homeBanner" | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
+  // Trap + restore. Escape stays with the capture-phase handler below, which
+  // has to close the PICKER first when one is stacked on top.
+  useDialog(panelRef);
 
   useEffect(() => {
     let disposed = false;
@@ -518,13 +580,15 @@ export default function SettingsModal() {
   return (
     <div className="s-palette-overlay" onMouseDown={close}>
       <div
+        ref={panelRef}
         className="s-bmodal s-smodal"
         role="dialog"
-        aria-label={t("siteSettings")}
+        aria-modal="true"
+        aria-labelledby={titleId}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="s-bmodal__head">
-          <span className="s-bmodal__title">
+          <span className="s-bmodal__title" id={titleId}>
             {t("siteSettings")} — <em>settings.json</em>
           </span>
           <button type="button" className="s-bmodal__close" onClick={close} aria-label={t("close")}>
@@ -706,7 +770,9 @@ export default function SettingsModal() {
         )}
 
         <div className="s-smodal__foot">
-          <span className="s-smodal__dirty">
+          {/* "Unsaved changes" / "Fix the marked fields" / "Saving…" is the
+              panel's only status text — it has to be spoken, not just shown. */}
+          <span className="s-smodal__dirty" role="status">
             {saving
               ? t("saving")
               : dirty

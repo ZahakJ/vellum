@@ -3,7 +3,8 @@
 // picker). Writes ride POST /api/frontmatter via the store's setBanner; the
 // editor/reading pane reloads itself through the store's usual choreography.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useDialog } from "../a11y.ts";
 import { getNote, listAttachments, uploadAttachment } from "../api.ts";
 import { bannerFromContent, bannerSrc } from "../banner.ts";
 import { localeNum, t, tf } from "../i18n.ts";
@@ -29,20 +30,15 @@ export default function BannerModal() {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
   const close = useCallback(() => setOpen(false), [setOpen]);
 
-  // Esc closes (capture phase so the editor doesn't swallow it first).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        close();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [close]);
+  // Esc closes (capture phase so the editor doesn't swallow it first), Tab
+  // stays inside the modal, and closing hands focus back to whatever opened
+  // it. The URL field takes focus itself in the load effect below.
+  useDialog(panelRef, { manualFocus: true, onEscape: close });
 
   // Load the picker list + the note's current banner.
   useEffect(() => {
@@ -113,13 +109,15 @@ export default function BannerModal() {
   return (
     <div className="s-palette-overlay" onMouseDown={close}>
       <div
+        ref={panelRef}
         className="s-bmodal"
         role="dialog"
-        aria-label={t("setBannerAction")}
+        aria-modal="true"
+        aria-labelledby={titleId}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="s-bmodal__head">
-          <span className="s-bmodal__title">
+          <span className="s-bmodal__title" id={titleId}>
             {t("bannerTitle")} — <em>{titleOf(openPath)}</em>
           </span>
           <button type="button" className="s-bmodal__close" onClick={close} aria-label={t("close")}>
@@ -142,6 +140,7 @@ export default function BannerModal() {
             className="s-bmodal__input"
             type="text"
             placeholder={t("bannerUrlPlaceholder")}
+            aria-label={t("bannerUrlPlaceholder")}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
@@ -159,8 +158,12 @@ export default function BannerModal() {
           </button>
         </div>
 
-        <div
+        {/* A <div onClick> that opens a file picker is a control no keyboard
+            can reach. It is a button; the drag handlers ride along on it. */}
+        <button
+          type="button"
           className={`s-bmodal__drop${dragOver ? " s-bmodal__drop--over" : ""}`}
+          aria-label={t("chooseImageFile")}
           onClick={() => fileInputRef.current?.click()}
           onDragOver={(e) => {
             e.preventDefault();
@@ -187,13 +190,14 @@ export default function BannerModal() {
               e.target.value = "";
             }}
           />
-        </div>
+        </button>
 
         <div className="s-bmodal__pick">
           <input
             className="s-bmodal__input"
             type="text"
             placeholder={t("searchAttachments")}
+            aria-label={t("searchAttachments")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             spellCheck={false}

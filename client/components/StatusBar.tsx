@@ -70,7 +70,9 @@ export default function StatusBar() {
     : [];
 
   return (
-    <footer className="s-statusbar">
+    // A named landmark, because this <footer> is not a site footer: it is the
+    // app's status strip, and "contentinfo" with no name says nothing.
+    <footer className="s-statusbar" aria-label={t("statusBarAria")}>
       {crumbs.length > 0 ? (
         <span className="s-statusbar__crumbs" title={openPath ?? undefined}>
           {crumbs.map((part, i) => (
@@ -114,6 +116,7 @@ export default function StatusBar() {
             className={`s-statusbar__btn s-statusbar__pub${
               openPublished ? " s-statusbar__pub--on" : ""
             }`}
+            aria-pressed={openPublished === true}
             onClick={() => void togglePublish(openPath)}
             title={t(openPublished ? "unpublishTitle" : "publishTitle")}
           >
@@ -134,6 +137,7 @@ export default function StatusBar() {
             className={`s-statusbar__btn s-statusbar__pubcount${
               publishedFilter ? " s-statusbar__btn--on" : ""
             }`}
+            aria-pressed={publishedFilter}
             onClick={() => setPublishedFilter(!publishedFilter)}
             title={t(publishedFilter ? "showFullVault" : "filterToPublished")}
           >
@@ -199,6 +203,7 @@ export default function StatusBar() {
           <button
             type="button"
             className={`s-statusbar__btn${readingMode ? " s-statusbar__btn--on" : ""}`}
+            aria-pressed={readingMode}
             onClick={toggleReading}
             title={t("readTitle")}
           >
@@ -210,6 +215,7 @@ export default function StatusBar() {
           <button
             type="button"
             className={`s-statusbar__btn${vimMode ? " s-statusbar__btn--on" : ""}`}
+            aria-pressed={vimMode}
             onClick={toggleVim}
             title={t("vimTitle")}
           >
@@ -235,6 +241,7 @@ export default function StatusBar() {
       <button
         type="button"
         className={`s-statusbar__btn${view === "graph" ? " s-statusbar__btn--on" : ""}`}
+        aria-pressed={view === "graph"}
         onClick={() => setView(view === "graph" ? "editor" : "graph")}
         title={t("graphTitle")}
       >
