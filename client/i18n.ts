@@ -1385,6 +1385,201 @@ const DICT = {
     ar: "حزمة الماكرو التي تجعل ملاحظة ‎.tex‎ تُترجم خارج ڤيلوم",
   },
   newTexNote: { en: "New LaTeX note", ar: "ملاحظة لاتخ جديدة" },
+
+  // ── Sectioning (heading menu, outline drag, focus, numbering) ─────────────
+  // A heading is a HANDLE on a subtree, and every string here names an action
+  // on that subtree rather than on the line the reader clicked.
+  sectionActions: { en: "Section actions", ar: "إجراءات القسم" },
+  copySectionLink: { en: "Copy link to section", ar: "نسخ رابط القسم" },
+  copySectionMd: { en: "Copy section as Markdown", ar: "نسخ القسم بصيغة ماركداون" },
+  extractSection: { en: "Extract section to a new note", ar: "استخراج القسم إلى ملاحظة جديدة" },
+  selectSection: { en: "Select section", ar: "تحديد القسم" },
+  focusSection: { en: "Focus section", ar: "إفراد القسم" },
+  foldBelow: { en: "Fold all below", ar: "طي كل ما تحته" },
+  unfoldBelow: { en: "Unfold all below", ar: "توسيع كل ما تحته" },
+  sectionLinkCopied: { en: "Link to section copied", ar: "نُسخ رابط القسم" },
+  sectionCopied: { en: "Section copied", ar: "نُسخ القسم" },
+  sectionCopyFailed: { en: "Could not copy — the clipboard refused", ar: "تعذّر النسخ — رفضت الحافظة" },
+  sectionExtracted: {
+    en: "Moved “{title}” into {path}",
+    ar: "نُقل “{title}” إلى {path}",
+  },
+  sectionExtractUndone: { en: "Extraction undone", ar: "أُلغي الاستخراج" },
+  sectionExtractFailed: { en: "Could not extract the section", ar: "تعذّر استخراج القسم" },
+  sectionMoved: { en: "Moved “{title}”", ar: "نُقل “{title}”" },
+  sectionMoveUndone: { en: "Move undone", ar: "أُلغي النقل" },
+  sectionMoveFailed: { en: "Could not move the section", ar: "تعذّر نقل القسم" },
+  // A mode that removes what is on screen has to say so, and has to name the
+  // way back in the same breath.
+  focusSectionOn: { en: "Focused one section — Esc restores", ar: "أُفرد قسم واحد — Esc يعيد الباقي" },
+  numberHeadings: { en: "Number the headings", ar: "ترقيم العناوين" },
+  unnumberHeadings: { en: "Stop numbering the headings", ar: "إيقاف ترقيم العناوين" },
+  scGroupSections: { en: "Sections", ar: "الأقسام" },
+  scPrevHeading: { en: "Previous heading", ar: "العنوان السابق" },
+  scNextHeading: { en: "Next heading", ar: "العنوان التالي" },
+  scFocusSection: { en: "Focus one section (Esc restores)", ar: "إفراد قسم واحد (Esc يعيد الباقي)" },
+  scSectionMenu: { en: "Section actions on a heading", ar: "إجراءات القسم على عنوان" },
+  scSectionMenuKey: { en: "Right-click a heading, or ⋯", ar: "نقر يمين على عنوان، أو ⋯" },
+  scReorderSection: { en: "Reorder a whole section", ar: "إعادة ترتيب قسم كامل" },
+  scViaOutlineDrag: { en: "Drag a row in Outline", ar: "سحب صف في المخطط" },
+
+  // ── Banners: the value that named nothing ────────────────────────────────
+  // A banner used to vanish when it failed to load, which made a typo and "no
+  // banner" identical on screen. These are what the ADMIN surfaces say
+  // instead; a visitor still sees nothing.
+  bannerMissing: { en: "Banner image not found", ar: "لم يُعثر على صورة الغلاف" },
+  bannerMissingTitle: {
+    en: "No file in the vault matches “{value}”",
+    ar: "لا يوجد ملف في الخزانة يطابق “{value}”",
+  },
+
+  // ── Templates ────────────────────────────────────────────────────────────
+  cmdInsertTemplate: { en: "Insert template…", ar: "إدراج قالب…" },
+  cmdNewFromTemplate: { en: "New note from template…", ar: "ملاحظة جديدة من قالب…" },
+  templateFilterPlaceholder: { en: "Search templates…", ar: "بحث في القوالب…" },
+  templatePreviewHint: { en: "Pick a template to preview it", ar: "اختر قالبًا لمعاينته" },
+  templateEmptyBody: { en: "This template has no body — only properties.", ar: "هذا القالب بلا متن — خصائص فقط." },
+  // The picker's preview shows the template's FRONTMATTER as well as its body:
+  // two templates whose bodies are both "# {{title}}" are told apart by these
+  // rows and by nothing else, and one of them may publish the note.
+  // A name the vault cannot address: `[`, `]`, `#` and `|` end or re-open a
+  // wikilink, and an extraction leaves `[[<this name>]]` behind.
+  promptNoLinkChars: {
+    en: "A name cannot contain [ ] # or |",
+    ar: "لا يمكن أن يحتوي الاسم على ‎[ ] # أو |‎",
+  },
+  // Why a note whose frontmatter says `align: justify` is set flush anyway.
+  layoutHardWrapped: {
+    en: "set flush — this note’s paragraphs are wrapped by hand",
+    ar: "يُضبط على الحافة — فقرات هذه الملاحظة ملفوفة يدويًا",
+  },
+  templateSetsProps: { en: "Properties it sets", ar: "الخصائص التي يضبطها" },
+  templateNoProps: { en: "No properties — body only", ar: "بلا خصائص — متن فقط" },
+  templateBodyLabel: { en: "Body", ar: "المتن" },
+  templatePublishWarn: {
+    en: "Publishes the note to the public site",
+    ar: "ينشر الملاحظة على الموقع العلني",
+  },
+  templatesNoFolder: {
+    en: "No templates folder yet. Name one in Settings → Vault.",
+    ar: "لا يوجد مجلد قوالب بعد. حدّده في الإعدادات ← الخزانة.",
+  },
+  templatesFolderEmpty: { en: "“{folder}” holds no notes yet.", ar: "المجلد “{folder}” لا يحتوي ملاحظات بعد." },
+  templatesFolderIs: { en: "Templates: {folder}", ar: "القوالب: {folder}" },
+  templatesFolderDetected: { en: "Templates: {folder} (detected)", ar: "القوالب: {folder} (مكتشف تلقائيًا)" },
+  templatesFailed: { en: "Could not load the templates.", ar: "تعذّر تحميل القوالب." },
+  templateInserted: { en: "Inserted “{name}”", ar: "أُدرج “{name}”" },
+  templateFailed: { en: "Applying the template failed", ar: "فشل تطبيق القالب" },
+  defaultTemplateFailed: {
+    en: "The default template could not be applied — the note is empty",
+    ar: "تعذّر تطبيق القالب الافتراضي — الملاحظة فارغة",
+  },
+  // Settings rows.
+  templatesSection: { en: "Templates", ar: "القوالب" },
+  templatesFolderLabel: { en: "Templates folder", ar: "مجلد القوالب" },
+  templatesFolderHint: {
+    en: "Vault-relative folder holding your template notes. Its notes never appear in the blog’s post list. Leave it empty and a folder named Templates is found automatically.",
+    ar: "مجلد داخل الخزانة يحوي ملاحظات القوالب. لا تظهر ملاحظاته في قائمة مقالات المدونة. اتركه فارغًا ليُكتشف مجلد باسم Templates تلقائيًا.",
+  },
+  templatesDetectedHint: { en: "Found automatically: {folder}", ar: "اكتُشف تلقائيًا: {folder}" },
+  defaultTemplateLabel: { en: "Template for new notes", ar: "قالب الملاحظات الجديدة" },
+  defaultTemplateHint: {
+    en: "Applied to every note created from here. Off by default — new notes are born empty.",
+    ar: "يُطبَّق على كل ملاحظة تُنشأ من هنا. معطّل افتراضيًا — تُنشأ الملاحظات فارغة.",
+  },
+  templatePlaceholdersHint: {
+    en: "Placeholders: {{date}}, {{time}}, {{title}}, {{Title}}, {{date:FORMAT}}, {{hdate}}. Anything else is left as written.",
+    ar: "العناصر النائبة: {{date}} و{{time}} و{{title}} و{{Title}} و{{date:FORMAT}} و{{hdate}}. وما عداها يبقى كما كُتب.",
+  },
+
+  // ── Localization: calendar, note layout, tag labels ───────────────────────
+  // Three features, one section, because they answer one question: what does
+  // this instance look like to a reader who does not read English.
+
+  // The note-layout broadcast. ONE set of words for two surfaces (the
+  // properties card's chip and the status bar's segment), which is what stops
+  // the two from drifting; they are deliberately SHORT, because both live in
+  // a strip that is already competing for width.
+  layoutDirection: { en: "Direction", ar: "الاتجاه" },
+  layoutAlignment: { en: "Alignment", ar: "المحاذاة" },
+  layoutDirAuto: { en: "Auto", ar: "تلقائي" },
+  layoutDirLtr: { en: "LTR", ar: "يسارية" },
+  layoutDirRtl: { en: "RTL", ar: "يمينية" },
+  layoutAlignStart: { en: "Start", ar: "البداية" },
+  layoutAlignLeft: { en: "Left", ar: "يسار" },
+  layoutAlignRight: { en: "Right", ar: "يمين" },
+  layoutAlignCenter: { en: "Centred", ar: "توسيط" },
+  layoutAlignJustify: { en: "Justified", ar: "ضبط" },
+  layoutSourceNote: { en: "set by this note", ar: "محدَّد في هذه الملاحظة" },
+  layoutSourceSite: { en: "the site default", ar: "الإعداد الافتراضي للموقع" },
+  layoutSegmentLabel: { en: "Text layout", ar: "تخطيط النص" },
+
+  // Settings → Appearance & language: the calendar.
+  groupCalendar: { en: "Calendar", ar: "التقويم" },
+  rowDateCalendar: { en: "Date calendar", ar: "تقويم التواريخ" },
+  hintDateCalendar: {
+    en: "Which calendar every date a reader sees is printed in — post dates, comment timestamps, the backup badge. Hijri dates use Umm al-Qura, the calendar printed on the calendars people own.",
+    ar: "التقويم الذي تُطبع به كل تواريخ الموقع الظاهرة للقارئ: تواريخ المقالات، وأوقات التعليقات، وشارة النسخ الاحتياطي. التواريخ الهجرية بحساب أم القرى، وهو التقويم المطبوع في الرزنامات المتداولة.",
+  },
+  calGregorian: { en: "Gregorian", ar: "ميلادي" },
+  calHijri: { en: "Hijri", ar: "هجري" },
+  calBoth: { en: "Both", ar: "كلاهما" },
+  calSpecimen: { en: "Today reads", ar: "تاريخ اليوم" },
+  calFeedNote: {
+    en: "The RSS feed is unaffected: its XML keeps RFC-822 Gregorian dates, which is what an aggregator parses.",
+    ar: "لا تتأثر خلاصة RSS: يبقى ملف XML بتواريخ ميلادية بصيغة RFC-822، وهي ما يقرأه القارئ الآلي.",
+  },
+  calArabicSuggest: {
+    en: "This instance speaks Arabic, and many Arabic sites date their writing by the Hijri calendar. A suggestion, not a default — nothing changes until you pick it.",
+    ar: "لغة هذا الموقع العربية، وكثير من المواقع العربية تؤرّخ كتاباتها بالتقويم الهجري. هذا اقتراح لا إعداد افتراضي: لا يتغيّر شيء حتى تختاره.",
+  },
+
+  // Settings → Appearance & language: note direction and alignment.
+  groupNoteLayout: { en: "Note layout", ar: "تخطيط الملاحظات" },
+  rowTextDirection: { en: "Text direction", ar: "اتجاه النص" },
+  hintTextDirection: {
+    en: "Base direction for note prose in the editor, the reading view and blog articles. Auto lets every paragraph decide from its own first letter, which is what a mixed vault wants.",
+    ar: "الاتجاه الأساسي لنص الملاحظات في المحرر وعرض القراءة ومقالات المدونة. «تلقائي» يترك كل فقرة تقرر بحسب أول حرف فيها، وهو ما يناسب خزانة تجمع اللغتين.",
+  },
+  rowTextAlign: { en: "Text alignment", ar: "محاذاة النص" },
+  hintTextAlign: {
+    en: "Where lines sit inside the column. Code blocks, tables and display maths are never centred or justified, whatever this says.",
+    ar: "موضع الأسطر داخل العمود. لا تُوسَّط كتل الشيفرة والجداول والمعادلات المعروضة ولا تُضبط مهما كان هذا الإعداد.",
+  },
+  noteLayoutOverride: {
+    en: "Any note overrides both from its own frontmatter — dir: rtl, align: justify — and a note that does says so in its properties card and in the status bar.",
+    ar: "تستطيع أي ملاحظة تجاوز الإعدادين من ترويستها — dir: rtl و align: justify — والملاحظة التي تفعل ذلك تعلنه في بطاقة خصائصها وفي شريط الحالة.",
+  },
+
+  // Settings → Appearance & language: localised tag labels.
+  groupTagLabels: { en: "Tag labels", ar: "تسميات الوسوم" },
+  tagLabelsNote: {
+    en: "What a tag is CALLED on the front end. The vault keeps its own tags exactly as written: links, addresses, hidden tags and the language filter all go on matching the real value, search answers to both spellings, and no note is ever rewritten.",
+    ar: "الاسم الذي يظهر به الوسم للقارئ. تبقى وسوم الخزانة كما كُتبت تمامًا: الروابط والعناوين والوسوم المخفية وتصفية اللغة كلها تطابق القيمة الأصلية، والبحث يستجيب للتهجئتين، ولا يُعاد كتابة أي ملاحظة.",
+  },
+  rowTagsFolder: { en: "Tags folder", ar: "مجلد الوسوم" },
+  hintTagsFolder: {
+    en: "Where a tag’s own page lives. A note there may carry a labels map in its frontmatter, and it outranks the table below — so the naming travels with the vault.",
+    ar: "المجلد الذي تعيش فيه صفحة الوسم. يمكن لملاحظة فيه أن تحمل خريطة labels في ترويستها، وهي تتقدّم على الجدول أدناه — فتسافر التسمية مع الخزانة نفسها.",
+  },
+  /** The table's own row label. NOT the group heading it sits under — a row
+   *  whose label repeats the heading two lines above it says nothing twice. */
+  tagLabelsRowLabel: { en: "Labels", ar: "التسميات" },
+  tagLabelsTag: { en: "Tag", ar: "الوسم" },
+  tagLabelsEnglish: { en: "English", ar: "بالإنجليزية" },
+  tagLabelsArabic: { en: "Arabic", ar: "بالعربية" },
+  tagLabelsAdd: { en: "Add a tag", ar: "إضافة وسم" },
+  tagLabelsRemove: { en: "Remove this label", ar: "حذف هذه التسمية" },
+  tagLabelsEmpty: {
+    en: "No labels yet. Add one to give a tag another name on the front end.",
+    ar: "لا توجد تسميات بعد. أضف واحدة لتمنح وسمًا اسمًا آخر في الواجهة.",
+  },
+  tagLabelsTagPlaceholder: { en: "canonical tag", ar: "الوسم الأصلي" },
+  tagLabelsLabelPlaceholder: { en: "shown instead", ar: "المعروض بدلًا منه" },
+  tagLabelsPageWins: {
+    en: "A tag with its own page in the tags folder is named there instead — this table is for the tags that have none.",
+    ar: "الوسم الذي له صفحة في مجلد الوسوم يُسمّى هناك بدلًا من هنا — وهذا الجدول للوسوم التي لا صفحة لها.",
+  },
 } satisfies Record<string, Entry>;
 
 export type I18nKey = keyof typeof DICT;

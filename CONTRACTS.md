@@ -214,6 +214,20 @@ interface State {
   (word count of open note, vim toggle, theme toggle). App wires keyboard: `Ctrl/Cmd+P` palette,
   `Ctrl/Cmd+G` graph toggle, `Ctrl/Cmd+N` new note. App subscribes to SSE → `loadTree()` +
   refresh open note if changed externally.
+
+**EVERY WRITER CLAIMS ITS OWN WRITE BEFORE SENDING IT** (`state.ts::markSelfWrite` /
+`recentSelfWrite`, read by App's SSE handler). The server writes the file and notifies its
+subscribers while it is still handling the PUT, so the echo of a save OVERTAKES the response —
+measured on the 1,388-note fixture, the SSE frame landed at t=4237ms and the PUT resolved at
+t=4239ms. In those two milliseconds `dirty` is still true and no save has yet "finished", which is
+exactly the state the handler reads as somebody else's edit: every autosave, on every note, raised
+"changed on disk — your unsaved edits were kept" about the reader's own typing. The claim is made
+BEFORE the request by the code that sends it (the editor's autosave and its unmount flush, the
+outline's section write, the publish toggle, the banner setter) and it is PER PATH, so a save to
+one note cannot swallow a genuine external change to another. The old dirty→clean stamp survives
+as a second belt, for a writer some future path forgets to claim. The alarm itself is unchanged:
+an external write to a DIRTY note still toasts, and to a clean one still reloads silently.
+
 - Editor agent owns `client/editor/` and `client/components/Editor.tsx`.
   Props: `{ path: string }`. It loads the note via
   `client/api.ts` fetchers, autosaves (600ms debounce after change; also on Ctrl/Cmd+S),
@@ -1541,6 +1555,29 @@ this is a language decision, not a direction one.
   DESIGN.md's hard rule is strip OR render; plain text cannot render a tag, so the whole token goes
   (the shape `isFurnitureLine` already uses). Search matching is unaffected: MiniSearch indexes the
   raw `body` and a separate `tags` field, not the stripped prose.
+- **`--banner-tint` names how far the hash may pull the ACCENT, not how much accent to add
+  back.** The generated banner's inner mix is
+  `color-mix(in oklab, hsl(<hash hue>) var(--banner-tint, 0%), var(--accent))` — accent first,
+  hue second. Written the other way round the token's floor value (0%, which parchment,
+  sandstone, linen and solar all set, and which any theme that never declares it inherits by
+  omission) meant the MAXIMUM foreign hue the outer floor allows — 45% — while the dark themes
+  that "clamped hardest" at 45% imported the least. That inversion is why parchment, the theme
+  the accent floor was written for, shipped a pink card beside a green one on a gold-and-cream
+  page. Now 0% is pure accent, a theme that forgets the token is safe rather than maximally
+  foreign, and every generated field on the four light themes is the room's own gold. Verified
+  card-and-hero on iron-gall, parchment, cinnabar and lapis.
+- **The tag-in-prose rule has a gate: `scripts/check-excerpt.mjs`**, documented in README beside
+  the other gates. It writes a fixture whose body ENDS in a tag line (and whose first paragraph
+  ends in two), then walks all three surfaces that share `stripInlineMd` — `/api/posts` excerpt,
+  `/api/search` snippet, `/api/backlinks` context — for a de-hashed tag word, for a surviving raw
+  `#tag`, AND for the sentence the tags were glued to, so a stripper cannot pass by deleting the
+  paragraph. It needs no browser and deletes its fixtures however the run ends.
+- **One label rule for every gesture that starts on a tree row.** `itemLabel()` (client/move.ts)
+  is what the reader is shown; `MoveItem.name` stays the byte the API is called with. The drag
+  ghost already used it — the Move-to picker's heading, the delete confirm's title (Sidebar and
+  the palette's `delete-current` alike) and the delete toast did not, so one file wore two names
+  inside two seconds: a row reading "Welcome" opening a dialog about "Welcome.md". The dialog
+  BODY still prints the full path, because that sentence is about what happens on disk.
 - **An empty public list says WHY it is empty, and never how much it is hiding.** With the
   languageFilter on, the blog's empty state adds one line naming the rule
   (`blogFilteredByLanguage`); `/api/me` carries `languageFilter` as a BOOLEAN policy flag and
@@ -1964,6 +2001,12 @@ ends becomes a per-note `renamed`; anything hidden at its new address leaves as 
   (`noteLabelOf`). The ghost read "Welcome.md" while the row it had just left read "Welcome", and
   the same disk name went on to the Move-to conflict dialog, its prefilled field and the error
   toasts. The landed-name toast follows the same rule.
+- **No source file in this repo contains a literal NUL byte.** `MovePicker.tsx` carried one, as
+  the sentinel React key for the vault-root row (`row.path || "\u0000root"`), written as the byte
+  rather than as the escape. A file with a NUL in it is not text: git reports "Binary files
+  differ" and shows no diff for it, GitHub renders nothing, and a source file nobody can review is
+  a source file nobody reviews — which is how it survived. The escape is the same string at
+  runtime. If a sentinel is needed, spell it.
 - **Keyboard and touch get the same operation, not a lesser one.** HTML5 drag does not exist on a
   touch screen and cannot be reached from the keyboard at all, so `MovePicker.tsx` — the row menu's
   "Move to…" and the palette's "Move note to…" — is a folder picker shaped like the command palette
@@ -2048,6 +2091,20 @@ it.
 - **Assoc is decided by the click's own y.** One document position sits at the end of one visual
   row AND the start of the next; the two rows are ~30px apart, so `assocAt` compares
   `coordsAtPos(pos, 1)` and `coordsAtPos(pos, -1)` against the pointer.
+- **AND THE ANSWER IS CONSTRAINED TO THE ELEMENT UNDER THE POINTER, which is a BIDI correction.**
+  `caretPositionFromPoint` does not answer "which glyph is here"; it answers "which INSERTION POINT
+  is nearest", and at a bidi seam those are different questions whose answers can be a hundred
+  characters apart. A line whose base direction is LTR and whose body is one long Arabic run ends
+  in a neutral — a full stop — and the bidi algorithm gives that neutral the PARAGRAPH's direction,
+  so it is painted at the visual RIGHT edge of the last row: on top of the leading edge of that
+  row's first logical Arabic glyph. Two positions, 73 characters apart, sharing one x; Chromium
+  returns the later one, so clicking the first glyph of the row put the caret at the end of the
+  sentence. So `posFromPoint` keeps the browser's position only when it lies inside the document
+  range of the element `elementFromPoint` names, and otherwise takes the nearest boundary that
+  does. A REPLACING widget's own DOM collapses to a point (`from === to`) and is left alone —
+  "click the rendered math to edit its source" is a widget-start answer by design. On every
+  ordinary click the position is already inside the element it was read from, so this costs one
+  comparison. `check-caret` covers it: the case is the gate's own `LINK-AR` line, in the RTL half.
 - **A drag leaves the content**, so `posFromPointOrNearest` falls through to
   `posAtCoords(…, false)` — the height-map estimate is the right tool once the DOM has no glyph to
   offer, and a selection that stops updating past the last line is a selection that snaps back.
@@ -2452,3 +2509,736 @@ FIRST paint), the folding (environments as well as sections), the autocomplete (
 `\cite{`, `\begin{`) and what live preview MEANS. `\label` is the one command hidden outright on an
 inactive line — it prints nothing in the PDF either, and left visible it set a `\label` key in
 heading type beside every section title.
+
+## Sectioning — a heading is a handle, not a line
+
+**`client/sections.ts` is the one answer to "what does this heading own".** A markdown heading owns
+itself plus everything under it until the next heading at the same or a shallower level, nested
+headings included; every affordance below reads or rewrites that one span, so none of them can
+disagree about where a section ends. The heading scan is `reading/toc.ts`'s `extractHeadings`,
+deliberately and not a second copy of the rule — the outline panel is the surface a reader DRAGS,
+so a boundary the outline cannot see would move content nobody selected. Frontmatter and fenced
+code are skipped there, once, for both (`### ` inside a ``` block is code, not structure).
+
+- **`scripts/check-sections.mjs` is the gate**, beside the other four in the README. It generates
+  thousands of documents out of the shapes that break naive implementations — YAML frontmatter,
+  fences whose bodies contain `### ` lines, skipped levels, empty sections, a section at EOF, CRLF,
+  no trailing newline — and asserts the reorder is a PERMUTATION: it may change the order of a
+  note's lines and the depth of the moved subtree's own headings, and it may add a blank line at a
+  seam; it may never lose a line and never duplicate one. It also asserts a section can never be
+  dropped inside itself, that a zero-distance move is a no-op, and that extraction's two halves
+  cover the original exactly. This is the most destructive thing in the product not called
+  "delete": it runs on a keyless gesture, one 4px slip away, while the reader is looking at forty
+  outline rows rather than at the 1,200 lines being rearranged.
+- **A reorder is one splice of a LINE ARRAY**, and re-levelling rewrites only the `#` prefixes of
+  the moved block's own headings, by one shared delta, clamped so the shallowest never rises above
+  `#` and the deepest never falls past `######`. Blank lines are only ever ADDED at the seams
+  (a heading must not land welded to the paragraph above it); removing one would be an edit nobody
+  asked for.
+
+### The two bridges, and why the editor is the source of truth
+
+Autosave is 600ms behind the keyboard and the outline stops recounting while a note is dirty, so
+`getNote()` can be a version of the note one paragraph old — extracting a section from THAT
+silently reverts whatever was typed in the last half second. `sectionActions.ts` therefore offers
+every read and every write to the live editor first, through two synchronous CustomEvents its
+extension answers (`vellum:section-read` / `vellum:section-apply`), and falls through to the API
+only when no editor holds the path, which is exactly the reading-view case. **A write through the
+editor is ONE transaction over the whole document**, so Ctrl+Z takes a drag back in a single press
+and the existing autosave carries it to disk — the outline never writes a file itself. The toast's
+Undo is the second door, for the reader whose hand is on the mouse and whose focus is in the panel.
+
+### Section actions (`sectionMenu.ts`, `editor/sectioning.ts`, `reading/headingMenu.ts`)
+
+One menu, three doors: the ⋯ beside a heading's fold chevron, a right-click on any heading line, a
+right-click on any outline row. It reuses the tree's `.s-menu` chrome verbatim — two context menus
+that look different in one app is a bug — and clamps the same way (opens toward the reading
+direction, folds back at the trailing edge, 8px margin), because the pointer is regularly at the
+trailing screen edge: the outline pane lives there in English and the notes sidebar in Arabic.
+
+- **Rows a surface cannot perform are ABSENT, not disabled** — the rule the LaTeX formatting menu
+  already follows. *Fold all below*, *Select section* and *Focus section* act on a CodeMirror view,
+  so an outline right-click asks `openEditorSectionMenu()` first and only falls back to the
+  three-row reading menu when no editor is mounted on that path.
+- **The reading view's heading menu stands down for a session that cannot write**, which on a
+  blog-mode instance is every visitor: `[[Note#Heading]]` is vault syntax meaning nothing outside
+  the vault, "extract" is an edit, and taking a reader's own context menu away to offer two
+  commands they cannot use would be theft. Same reason it declines when text is selected — copying
+  the selection is what a right-click over a selection means, everywhere in this app.
+- **EXTRACTION LEAVES THE HEADING BEHIND**, at its own depth, with a `[[link]]` under it. A reader
+  scrolling the note has to see that a section used to be here, and the outline has to keep the
+  entry: extraction is a reorganization, and one that makes a heading vanish from the table of
+  contents reads as data loss. The new note carries the subtree VERBATIM — its root heading keeps
+  the `##` it had — because "never rewrite what was not asked for" outranks tidiness. The new file
+  is created BEFORE the source is rewritten; the reverse order can leave a note whose section was
+  cut and whose replacement was never written.
+- **The ⋯ IS a hover affordance, and that does not contradict the fold chevron's rule.** The
+  chevron is visible at rest because folding had NO other door and the owner could not find it.
+  This menu has four (heading right-click, outline right-click, Shift+F10, and the keystrokes for
+  the commands it holds), so a ⋯ printed at full strength on every heading of a forty-heading note
+  is noise in the one column the product exists to keep quiet. On a COARSE pointer there is no
+  hover, so there it is always on at 30px — the touch shell's own exception.
+- **It is absolutely positioned out of a zero-width host.** The fold chevron pulls itself into the
+  prose gutter with a negative margin, a trick only ONE element on a line can play: a second one
+  shifts the first, and the heading's own text goes with it.
+
+### The outline is a tool (`reading/TocPanel.tsx`)
+
+Dragging a row reorders that whole section inside the note. Four rules hold the gesture honest:
+**click still scrolls** (the row is a `<button>` that also carries `draggable`, so HTML5 drag is
+the browser's own click/drag disambiguation and nothing here guesses a threshold); **the drop is
+shown before it happens, at the DEPTH it will land at** (a gold rule between two rows, indented to
+that level — a reorder that also silently re-parents is every outliner's failure mode, and the
+indicator is what makes the re-parenting a decision); **drag toward the reading direction to nest
+deeper**, measured on the INLINE axis so hand and indent agree in Arabic; and **spring-loaded
+nesting** — 600ms of dwell on a row means "into this section", the drag-over-a-folder gesture the
+tree already teaches, which is what makes a deep nest reachable without pixel-hunting a 10px
+indent step. The drop indicator is `position: absolute` inside the list rather than spliced between
+rows: an indicator that takes up space pushes every row below it down by its own height, so the row
+the reader is aiming at moves away at the moment they aim.
+
+The panel keeps the FULL section list (furniture headings included, which the rows do not show):
+a section the outline hides is still a section the note holds, and a drop point computed from the
+visible rows alone would carry someone else's lines. `.tex` notes do not drag — their structure is
+`\section{…}` and this model does not describe it. The active-heading highlight is untouched by all
+of it.
+
+### Comfort
+
+- **Fold state survives a reload, per note, keyed by heading SLUG.** Line numbers are the one
+  property of a fold that a keystroke three paragraphs above it changes, and a fold that silently
+  walks to another section on the next reload is worse than no persistence at all. Slugs are the
+  reading view's ids, generated by the rule the outline and the anchor table already share.
+  `localStorage` under `vellum.folds`, LRU-capped at 80 notes, debounced 250ms (one "fold all
+  below" is one gesture and a dozen effects).
+- **Focus section (`Ctrl/Cmd+Alt+F`) collapses everything but the section at the caret**, ancestors
+  and descendants excepted, and Esc restores the fold set EXACTLY as it was — a reader who had
+  three sections folded before pressing it must not find them open afterwards. Entering toasts
+  "Focused one section — Esc restores", because a mode that removes what is on screen has to say so
+  and name the way back in the same breath. **The Esc binding is NOT `Prec.high`**: under vim Esc
+  is sacred, so it sits below the vim compartment (Ctrl/Cmd+Alt+F is the way back out there) and
+  declines — returns `false` — whenever no section is focused, so nothing else loses the key.
+- **Jump to previous / next heading is `Ctrl/Cmd+Alt+↑` / `↓`**, checked against the whole map:
+  Ctrl/Cmd+B, +I and +U are formatting's, Ctrl/Cmd+Arrow is move-line, Alt+Arrow is CodeMirror's
+  own, Ctrl/Cmd+Shift+[ / ] fold and Ctrl/Cmd+Alt+[ / ] fold all, Ctrl/Cmd+Alt+T is templates.
+  The editor answers it from its keymap; in reading mode, where there is no caret, the shell
+  answers it as a SCROLL, off the same active-heading signal the outline highlights with — so the
+  key, the highlight and the panel always agree about which section the reader is in.
+- **Auto-numbered headings are a READING affordance and never touch the source.** Nothing is
+  written into the markdown, so a note can be numbered today and plain tomorrow and reach git
+  unchanged. Two switches, and the note's own one wins in BOTH directions: a device preference
+  (`vellum.headingNumbers`, off by default, toggled by the outline header's `1.` — it lives over
+  the list it numbers), and frontmatter `numbered: true` / `false`. **The blog reads frontmatter
+  ONLY**: a visitor has no preference of ours, so a published post is numbered because its author
+  said so in the file, and an admin whose device preference is on must not see a preview no visitor
+  will get. Depth is relative to the shallowest heading present, a skipped level advances one
+  counter rather than three, and a note whose FIRST heading is its only `#` has that h1 treated as
+  the title — numbering it "1." and its real sections "1.1, 1.2" puts the table of contents one
+  level deeper than the document it describes. Numerals follow `getNumerals()`, the same system
+  every count in the chrome uses: an outline row printing "1.1" in a panel whose tag counts read
+  "١١٤" is exactly the mismatch that rule exists to prevent.
+
+### The divider is punctuation, and colour alone was not enough
+
+`.s-rv-hr` was `border-top: 1px solid var(--border)` — byte-identical to the h1 rule and to the
+blog byline rule, so one page carried three chrome hairlines and one CONTENT hairline at the same
+weight, colour and measure. It is gold now, and **the first pass at that was still not the
+distinction it looked like**: measured on iron-gall, 1px of `--accent` at 65% alpha over a
+near-black ground is FAINTER than the 1px `--border` hairline 200px above it, so the hierarchy was
+not merely undistinguished but inverted. It is **2px, gold at 88%, solid from 15% to 85% of the
+measure and fading to nothing at both ends** — against a 1px `--border` chrome rule that is a
+difference of weight AND colour AND length, three ways at once. Stated entirely in `--accent`, so
+all fifteen themes follow their own gold and none needs a rule of its own; the chrome rules are
+untouched, because this is about the divider earning a treatment, not about making furniture
+quieter. Markdown's three spellings become two things a typesetter has always had to say: `---` /
+`___` is the plain rule (a BREATH, not a border — it does not touch the measure's edges), `***`
+adds the ✦ the wordmark carries. **All three surfaces draw the same divider**: `.s-rv-hr` in
+reading view, `.cm-s-hr-rule` in live preview (`RuleWidget`), and `.s-blog .s-rv-hr` for the
+published page — that last one stated in `reading.css` beside the others rather than in `blog.css`,
+because the visitor refinements are scoped `.s-app--visitor`, a class the blog shell never sees,
+and a fourth copy of these numbers is how the surfaces drifted in the first place.
+
+## Banner resolution — one ladder, four rungs (client/banner.ts, GET /api/banner)
+
+A `banner:` value is a reference to an image, and until now it was the ONLY reference form in
+the product with its own rule. `bannerSrc()` sent anything that was not an `https://` URL
+straight to `/api/file?path=<value>`, so a BARE FILENAME — the form every Obsidian user writes,
+and the only one with no autocomplete behind it — 404'd unless the image happened to sit at the
+vault root, while `[[wikilinks]]`, `![[embeds]]` and `![](Media/x.png)` had always found a file
+by basename from anywhere. The ladder, in order:
+
+1. an `https://` URL — used as-is. Any OTHER scheme (`http:`, `data:`, `javascript:`) resolves
+   to null rather than being mangled into a vault path: a mixed-content hero is worse than no
+   hero, and `normalizeRel("http://x/y.png")` produces a path that can only 404.
+2. an exact vault-relative path, case-insensitively (`attachmentsByPathLower`) — a value typed
+   from what a file manager showed must not be the one form that is case-SENSITIVE.
+3. that path relative to the referring note's OWN folder — `cover.png` beside the note,
+   `img/cover.png` under it, `../shared/cover.png` beside its parent.
+4. the basename, through `resolveEmbed()` — the same case-insensitive, shortest-path-wins index
+   the embed layer uses.
+
+`server/indexer.ts resolveImageRef(value, fromDir?)` is the ONE implementation. `resolveBanner()`
+(post list, blog hero, og:image, the published-attachment allowlist) is a wrapper that passes the
+note's own folder; `settingsAssetPaths()` runs the logo/home-banner/favicon values through it too,
+because allowlisting only the literal string is how a logo the admin can see in the settings panel
+404s for every visitor. `GET /api/banner?value=&note=` serves the client, visitor-scoped to files
+`/api/file` would actually hand over (allowlisted attachment or settings asset) — a miss is
+`200 {path:null}`, like `/api/resolve`, because a typo'd banner is an ordinary state of a vault.
+The client caches per `(value, note)` pair, misses included, and drops the cache wherever
+`clearBrokenEmbeds()` runs: the same events invalidate both, the visitor-preview toggle included.
+
+### A banner that names nothing is NEVER silent — and never loud at a visitor
+
+`buildBannerEl()` used to attach `img.onerror → wrap.remove()`. A typo and "no banner at all"
+therefore rendered identically, on the one surface whose entire job is to show you your own file:
+the author writes `banner: cover.png`, nothing appears, and nothing distinguishes a broken value
+from a feature that is not working. Split by AUDIENCE, exactly as the embed layer splits its
+broken-embed chip from the blog's quiet missing-image card:
+
+- **Admin** (`buildBannerEl(value, class, {admin: true})`) — the dashed `…__missing` card: the
+  same dashed-danger language as `cm-s-embed-broken`, the failing value spelled out at `--text`
+  (a filename is text a reader must READ, so never `--text-faint`), and a **Set banner…** button
+  dispatching the same `vellum:set-banner` event the properties card's action does. The fix is one
+  click from the symptom. The editor is admin-only by construction; the reading view passes
+  `useStore.getState().admin`, which is already false inside visitor preview.
+- **Visitor** — nothing at all. A stranger cannot act on it, and a dashed box on a published
+  article is the author's mess on the reader's page. The blog's own hero/thumbnail keep falling
+  through to the generated gradient.
+
+`useBannerSrc()` (client/components/BannerImg.tsx) is the React half — the logo, the dashboard
+hero, the settings image field and both banner modals read a typed value through it. Its `pending`
+state is load-bearing: "we have not asked yet" must not paint as "this names nothing".
+
+## Templates (client/templates.ts, client/templateActions.ts)
+
+Obsidian's core Templates plugin, so a vault dragged over works UNMODIFIED: `{{date}}`,
+`{{time}}`, `{{title}}`, `{{date:FORMAT}}` / `{{time:FORMAT}}` with moment-style tokens and
+`[literal]` escapes. Two additions, both because this product has a calendar setting Obsidian
+does not: `{{Title}}` (Title Case) and `{{hdate}}` / `{{date:hijri}}` (Umm al-Qura, through
+`shared/dates.ts` — nothing here hand-rolls a lunar calendar or a month name).
+
+**Title Case exempts the FIRST and the LAST word** from the small-word list, which is the rule
+every style that has one states (Chicago, AP). Exempting only the first was a bug with teeth: a
+note the reader named "From Template A" came back as "From Template a" — the trailing "A" is not
+an article there, it is the name of the thing, and `{{Title}}` had quietly downcased a capital the
+author typed. Interior small words still fall, which is the whole point of the list ("The Lord Of
+The Rings" → "The Lord of the Rings"), and a word carrying an INNER capital is always left alone
+("iOS notes" → "iOS Notes", never "Ios Notes").
+
+**An unknown placeholder is left VERBATIM.** `{{cursor}}`, a Templater expression, a stray `{{`:
+blanking a token we do not implement destroys text the author typed AND hides the fact that the
+template expects something we do not do.
+
+**Where the site's date settings apply, and where they deliberately do not.** A template's date
+lands in two kinds of place that want opposite things. The NAMED formats (`{{date:long}}`,
+`full`, `medium`, `short`) and `{{hdate}}` are prose: they go through `formatCalendarDate()`, the
+same formatter the blog cards use, and follow `settings.dateCalendar` and the numeral policy. The
+TOKEN formats stay Gregorian and Western-digit — `{{date}}` is `YYYY-MM-DD` by Obsidian's
+definition, it lands in `date:` frontmatter lines and filenames, and `١٤٤٨-٠٢-١٣` there is a date
+field nothing can parse and a year off by six centuries. A token format that asks for a month or
+weekday NAME is prose by construction, so its digits follow the numeral policy too.
+
+### Frontmatter hygiene — a fix, not a feature
+
+- **Identity keys are MINTED, never copied.** `id`, `uuid`, `guid`, `permalink`, `slug`. The
+  owner's own template carries `id: 1733593454224005` and every note ever created from it
+  inherited that exact value — a duplicate-key bug that spreads silently and only surfaces when
+  something downstream keys on it. The fresh value keeps the SHAPE of the one it replaces: a uuid
+  stays a uuid, a 16-digit timestamp stays 16 digits (`mintIdentity`). The key is in the template
+  because something parses it; a shape change is the same bug wearing different clothes.
+- **Merge, never stack.** Inserting into a note that already has frontmatter folds the template's
+  keys into the EXISTING block. A second `---` block halfway down a file is not frontmatter — it
+  is a horizontal rule followed by text that looks like YAML.
+- **The target wins on a shared key, and no key appears twice.** The note's `publish:`, `date:`,
+  `tags:` are facts about that note; the template's are defaults. Entries are kept as RAW LINES
+  and never round-tripped through a YAML serializer, so lists, nested maps, quoted strings with
+  colons and block scalars all survive byte for byte.
+
+### The folder, and what it means for the blog
+
+`settings.templatesFolder`, vault-relative. Unset, the server auto-detects — `Templates`,
+`_templates`, `قوالب`, with a leading ordering prefix stripped (`4 - Templates`, `04. Templates`;
+real vaults number their top level) — and matches WHOLE, so "Templates for clients" is a folder of
+notes, not of templates. Ambiguity means **null**, never a guess: a wrong guess hides real posts
+from the blog and offers the wrong list of templates, which is strictly worse than asking. The
+merge rule lives in `server/settings.ts templatesFolder()` and the indexer calls it lazily —
+the two modules are a cycle (settings → site → indexer), so only a runtime call is safe either way.
+
+`posts()` skips notes under it, in the ADMIN list as well as the visitor one: a template carrying
+the `publish: true` it exists to hand DOWN would otherwise appear on the site as an article of
+literal `{{date}}` placeholders, and the admin's post list is the one that answers "what is on my
+blog". `settings.defaultTemplate` applies one template to every note created from inside Vellum;
+off by default, because a product that silently writes into every new note is a product that has
+to be fought. A failure there is logged and toasted and the note stays empty — creation never
+depends on it.
+
+### Keys and surfaces
+
+`Ctrl/Cmd Alt T` inserts, `Ctrl/Cmd Alt Shift T` creates — one key, `Shift` picks the second
+command, exactly the shape the pane toggles kept. **Alt is not decoration**: `Ctrl/Cmd T` is the
+browser's new tab and `Ctrl/Cmd Shift T` reopens a closed one, neither is takeable, and a
+keystroke that fights the browser is a keystroke that loses. Matched on `e.code === "KeyT"` as
+well as `e.key`, because Alt rewrites `key` on macOS (Option+T is "†"), and `AltGraph` is
+excluded like the pane toggles. Both commands are in the palette; "New note from template…" is
+also in the tree's folder menu, where it carries a DESTINATION the other two doors do not.
+
+The picker previews the template's body with placeholders ALREADY FILLED — what is about to land,
+not what the file says: a template's name says almost nothing about what it will put in the note,
+and the difference between two of them is often three lines of frontmatter. "New note from
+template…" asks for the NAME first, so `{{title}}` in that preview is the real one.
+
+## Localization: calendar, note layout, tag labels
+
+Three display features, one section, because they answer one question — what does this instance
+look like to a reader who does not read English — and because all three share the same hard
+rule: **nothing here changes a byte in the vault.** No frontmatter is rewritten, no tag is
+renamed, no filename moves. Every one of them is a rendering decision that a `git diff` of the
+vault cannot see.
+
+### Hijri dates (`shared/dates.ts`, `client/dates.ts`)
+
+`settings.dateCalendar` = `"gregorian"` (default) | `"hijri"` | `"both"`. No env counterpart,
+for `languageToggle`'s reason: it is a runtime editorial choice whose default is the one that
+changes nothing. It rides `/api/me` to **every** session and in **both** shells (the app's own
+moderation rows, sync status and settings print dates too), and only when it is not the default,
+so a default instance's payload is byte-for-byte what it was.
+
+- **`islamic-umalqura`, and the choice is documented in the module.** Intl offers four Islamic
+  calendars. `islamic` is observational and drifts by a day between ICU builds; `islamic-civil`
+  and `islamic-tbla` are the tabular variants, which never drift and are not what any Arabic
+  reader's wall calendar says. Umm al-Qura is the only one that is both stable and
+  recognisable, so it is hard-coded — a display convention, not a preference with a long tail.
+- **`client/dates.ts` is THE place a date is formatted for a human**, the way `i18n.ts` is the
+  place chrome copy lives and `shared/numerals.ts` is the place numerals are decided. Four
+  surfaces each held their own `Intl.DateTimeFormat` call before this landed (blog meta and
+  dashboard cards, marginalia, moderation, the backup badge). That was survivable with one
+  calendar; with three it means a site that prints `٢ صفر` on a post and `15 Aug` in the
+  moderation row beside it, and a reader is right to read one of them as a bug. The calendar is
+  pushed into the module by `state.ts::loadMe`, beside `setLang`/`setNumeralLocale`, and BEFORE
+  the store commit — a component re-rendering off `dateCalendar` must already see `siteDate()`
+  answering in the new calendar.
+- **`"both"` is ordered by the SITE LANGUAGE, and the secondary half is bidi-isolated.** Arabic
+  leads with the Hijri date and parenthesises the Gregorian one; English does the reverse. The
+  parentheses go INSIDE the FSI…PDI isolate, because they belong to the run they enclose — the
+  same rule `tf()` applies to every interpolated value. Month names come from Intl and digits
+  from `localeDigits(blogLocale)`: nothing is hand-spelled, and one line never carries two
+  numbering systems.
+- **RSS IS NOT A CALLER.** `/feed.xml` keeps RFC-822 Gregorian `<pubDate>`s whatever the
+  instance displays. It is a wire format an aggregator parses, not a date a person reads, and a
+  reader changing their site's calendar must not change what a feed consumer sees.
+- **Daily notes keep ISO filenames and display the configured calendar.**
+  `daily/2026-08-16.md` is still that path on disk, in every `[[2026-08-16]]` and in every sort.
+  `dailyNoteLabel()` (client/daily.ts) answers **null** in gregorian mode — there the filename
+  already IS the date, and re-spelling it as "16 August 2026" would change a label nobody
+  complained about — and the Hijri (or dual) date otherwise, which the status-bar crumb prints.
+  The date is read back at LOCAL noon, because `dailyNotePath()` built the name from local date
+  parts: parsing it as UTC midnight shifts the day for half the planet, and a shifted day is a
+  different MONTH NAME in Hijri, not a rounding error.
+- The moderation row's "same year, so drop the year" test is Gregorian by construction, so it
+  is switched off outside gregorian mode: a comment from eight months ago sits in a different
+  Hijri year and would lose the one digit that says so.
+
+### Note direction & alignment (`shared/textLayout.ts`, `client/textLayout.ts`)
+
+`settings.textDirection` = `"auto"` (default) | `"ltr"` | `"rtl"`; `settings.textAlign` =
+`"start"` (default) | `"left"` | `"right"` | `"center"` | `"justify"`. Both defaults are the
+behaviour that shipped. **A note overrides either from its own frontmatter — `dir:` / `align:`
+— and the note wins.**
+
+- **ONE module resolves it and ONE module applies it.** Three surfaces have to agree byte for
+  byte (the editor's prose, the reading view, the blog article), and three components each
+  setting their own `dir` and `text-align` is three chances to disagree — invisible until a
+  reader opens the same note in the editor and on the public site and finds two documents.
+  `applyNoteLayoutTo(el, content)` is the reading view's and the blog's single call, on the
+  SAME element the renderer just handed them; `client/editor/noteLayout.ts` is the editor's,
+  because its prose is a live document whose frontmatter the reader is editing.
+- **`dir` is an ATTRIBUTE, alignment is a DATA ATTRIBUTE, and neither is an inline style.**
+  `auto` has no CSS spelling, so the direction has to be the attribute the browser's own bidi
+  algorithm reads. The alignment is `data-note-align` rather than `style="text-align:…"`
+  because an inline value is inherited by every code fence and table in the note with nothing
+  short of `!important` able to take it back — and those are exactly what must never be centred.
+- **A PINNED DIRECTION HAS TO REACH THE BLOCKS.** Every rendered note block carries `dir="auto"`
+  (the rule that lets an Arabic callout sit beside an English one, each barred on its own side),
+  and a block attribute OUTRANKS its container's. So a note that pinned `rtl` was pinning a
+  value every paragraph then overrode: the editor obeyed it (its per-line attribute IS the block
+  attribute) and the reading view did not — the same note as two documents. `pinBlocks()` pushes
+  the pin down onto the blocks that carry `auto`, marks them so it can be undone, and skips the
+  ones that keep their own direction.
+- **WHAT NEVER TAKES A CENTRED OR JUSTIFIED MEASURE, OR A PINNED DIRECTION:** code (fenced,
+  indented and inline), tables, and display maths. `const x = 1;` inside a `dir="rtl"` container
+  renders as `;const x = 1` — the semicolon swept to the far end of the line, in the one place
+  on screen where the position of punctuation IS the meaning — and a `|---|---|` rule stops
+  lining up with its own header. In the rendered view that is `textlayout.css`
+  (`unicode-bidi: plaintext`, the CSS spelling of `dir="auto"`, so an Arabic string literal
+  inside a code block still sets correctly); in the EDITOR those blocks are just LINES, so
+  `noteLayout.ts::sourceLines()` finds them from the syntax tree and **`bidi.ts` decorates
+  them** — that file is the only writer of the per-line `dir` attribute, because two plugins
+  writing one attribute is a coin toss. Callouts, quotes and lists are prose and follow the
+  note. An authored column alignment (`:---:` → `.s-rv-al-c`) always wins: it is content.
+- **AND THAT CARVE-OUT IS UNCONDITIONAL, NOT ONLY UNDER A PIN.** Scoping it to `[data-note-dir]`
+  covered the smaller half of the problem: a note that pins nothing — nearly all of them — has no
+  `dir` on its container, and a `<pre>` carries no `dir="auto"` of its own the way a paragraph
+  does, so on an ARABIC INSTANCE every code block in the reading view, the blog article and the
+  hover card inherited `rtl` straight from `<html>` and rendered `const x = 1;` as `;const x = 1`.
+  Measured on a plain English note with no frontmatter at all, so it was never about the note: it
+  was the SHELL's direction reaching content that is not prose. The rule is keyed on the
+  renderer's own classes (`.s-rv-pre`, `.s-rv-mathblock`, `.s-rv-math--display`, `.katex-display`
+  block; `.s-rv-code`, `.s-rv-math` inline as an isolate rather than plaintext, since a run inside
+  a sentence must not become its own paragraph), which exist nowhere but inside rendered note
+  content — so it reaches all three surfaces without any of them opting in, and reaches no chrome.
+- **A TABLE TAKES ITS DIRECTION FROM ITS OWN CONTENT**, `dir="auto"` on the `<table>`. The cells
+  already carried it and the table did not, so it inherited the shell: an English table on an
+  Arabic instance came out with its COLUMNS REVERSED while each cell's text sat the right way
+  round inside it. An Arabic table still reads right to left, and a pinned note still overrides
+  both through `pinBlocks()`.
+- **A `.tex` note takes the direction and refuses the measure.** Its source is markup end to
+  end; a centred `\begin{…}` moves under the reader's caret for no gain.
+- **THE DISAGREEMENT IS BROADCAST, IN TWO PLACES, IN ONE VOICE.** `layoutBadge()` returns the
+  chip or null, and null is the answer whenever the note agrees with the site — a badge that is
+  always lit is a badge nobody reads. The properties card carries it in its header (beside the
+  tag pills, where the frontmatter is) and the status bar as a quiet `.s-statusbar__layout`
+  segment. Both are LABELS, not switches: the value lives in the note's frontmatter, which is
+  where it is changed, so neither takes the mode pill's lit treatment. The `text` names only
+  the halves that DIFFER; the `title` names BOTH with their sources, because "why is this note
+  centred" is the question the chip exists to answer and half an answer sends the reader to the
+  file.
+- **A settings save repaints an OPEN note.** `noteLayoutChanged` (a `StateEffect`, the
+  `languageChanged` pattern one file over) is dispatched by `Editor.tsx` when the store's
+  `textDirection`/`textAlign` move, and both editor plugins rebuild on it; `ReadingView` takes
+  the same two values as render dependencies. Rebuilding the whole `EditorState` would answer
+  too, and would spend the reader's undo history on two attributes.
+
+### Localised tag labels (`shared/tagLabels.ts`, `server/tagLabels.ts`, `client/tagLabels.ts`)
+
+**DISPLAY ONLY.** `#software` stays `#software` in every note, every URL, every `EXCLUDE_TAGS`
+match and every search key; what changes is the WORD on a chip. Resolution order, highest first:
+
+1. **the tag's own page** — a note at `<settings.tagsFolder>/<tag>.md` (auto-detected, then
+   `tags/`; nested
+   tags nest) carrying a frontmatter `labels: { ar: … }` map. First because a label written
+   there travels WITH the vault: clone it, sync it, open it in Obsidian, and the naming is still
+   a note. The PATH is the tag, so a page cannot disagree with its own filename. A bare
+   `labels: برمجيات` is read as the Arabic label, which is what a hand-written page says.
+2. **`settings.tagLabels`** — `tag → language → label`, for tags with no page. Edited in
+   Settings → Language as a compact table, one row per tag and a column per language.
+3. **the canonical tag**, which is what every unlabelled tag renders as and what the whole
+   feature degrades to.
+
+Merging is per LANGUAGE, not per tag: a page naming only an Arabic label must not delete the
+English one a settings row gives the same tag.
+
+- **`tagsFolder` AUTO-DETECTS, exactly as `templatesFolder` does.** It shipped with a hard `tags`
+  default beside a templates field that looked for its folder, and on the vault both were measured
+  against — whose folders are `4 - Templates` and `2 - Tags` — the picker found its templates and
+  every Arabic tag chip silently rendered its canonical English tag. Two halves of one promise
+  ("works on an imported Obsidian vault"), landed by two people, disagreeing. `detectTagsFolder()`
+  is `detectTemplatesFolder()`'s rule verbatim — an ordering prefix is not part of the name, the
+  rest must match WHOLE, a single match wins, several match and the single ROOT-level one wins,
+  otherwise null — over `/^_?tags?$|^وسوم$|^الوسوم$/i`. It resolves in `server/settings.ts` beside
+  `templatesFolder()` rather than in `server/tagLabels.ts` where it began: the two fields answer
+  the same question about the same vault, and a reader comparing them should not read two files to
+  learn that only one of them looks. Unlike templates it never answers null — an unlabelled chip is
+  a correct chip, so the documented `tags` name is a safe floor. `effectiveSettings` carries
+  `tagsFolderDetected` beside `templatesFolderDetected`, and the panel prints the found folder from
+  the SAME `templatesDetectedHint` string, because a second copy of "Found automatically: {folder}"
+  is a second copy to translate.
+
+- **`/api/tag-labels` is scoped like `/api/tags`.** Open to every session (a chip's word is what
+  the public site paints), but a visitor is told the labels of the tags that session can already
+  enumerate. An unfiltered map would name every `EXCLUDE_TAGS` tag and every tag carried solely
+  by language-filtered notes — precisely the existence those two rules withhold.
+- **The labels are read off the INDEX, not off the disk.** `NoteRecord.labels` holds a cleaned
+  `{ lang: label }` map for any note that carries the key, and `tagPageLabels(folder)` filters
+  by path at query time. Storing it unconditionally rather than only for notes under the tags
+  folder is deliberate: the folder is a runtime setting, and gating the read on it would make
+  renaming `tags/` to `topics/` need a full reindex to take effect.
+- **URLs keep canonical slugs, and the localised form is a REDIRECT.** `topicUrl()` is unchanged
+  everywhere; `BlogTopic` resolves the segment through `canonical()` (which answers for an
+  already-canonical value too, so it is one lookup and not a branch) and rewrites the address
+  with `history.replaceState` — never a push, because a history entry that immediately redirects
+  turns Back into a loop. A labelled chip carries the canonical tag in its `title`.
+- **SEARCH MATCHES BOTH SPELLINGS, and it does so by rewriting the QUERY.** `expandTagQuery()`
+  appends a tag's canonical form when the query holds one of its labels. Feeding the labels into
+  minisearch's `tags` field instead would tie a display setting to the index: editing one label
+  in the settings panel would leave every note's indexed tags stale until a reindex, and saving
+  a tag page in Obsidian would have to re-index every note carrying the tag. The query is where
+  the two vocabularies meet, it is one string long, and canonical terms already match — so the
+  rewrite only ADDS.
+- **`client/tagLabels.ts` is a plain module with subscribers**, like `i18n.ts` and `sync.ts`:
+  every tag surface in both shells needs it, several of them are imperative DOM with no React
+  context to reach into (the properties card, the blog nav's measuring pass), and the map is one
+  instance-wide fact. `useTagLabels()` hands React a VERSION rather than the map, because
+  `useSyncExternalStore` compares snapshots by identity and the map is replaced wholesale on
+  every load. A failed load is SILENT and keeps the previous map: a chip falling back to its
+  canonical tag is a correct chip.
+- **ONE PILL, ONE BUILDER — and `renderInline` was the copy that did not localise.** The reading
+  view builds a tag pill twice: a DOM builder (the properties card's) and an HTML-string one
+  inside `renderInline`, which is what paragraphs, headings, table cells, list items, callouts and
+  footnotes ALL go through. Only the first read the label, so an Arabic instance printed
+  «التعمية» on its sidebar cloud, its properties cards and its blog nav while every tag in the
+  PROSE — and every tag in a HOVER CARD, which renders through the same function — still read
+  `#cryptography`. Both now carry the label as text, the canonical tag in `data-tag` (what the
+  delegated click searches on) and in `title`, and `dir="auto"`, which is not optional: `#` is
+  bidi-neutral, so a chip without it reads «التعمية#» under an RTL base direction.
+- **The OUTLINE localises the tags in a heading too** (`labelTagsInText`, display only). A row
+  reading "Notes on #cryptography" pointing at a heading reading «Notes on #التعمية» is the same
+  disagreement the heading NUMBERS were made one computation to avoid; the row's `title` keeps the
+  heading as the file spells it. It is deliberately NOT applied to `Section.text`, which is
+  written into files (`[[Note#Heading]]`, the stub an extraction leaves) and into anchors.
+- **The EDITOR's inline tags stay canonical.** They are a mark decoration over the source
+  characters, not a widget replacing them: relabelling them would make the pill a different width
+  from the text under the caret, which is precisely what `check-caret` exists to catch.
+- **The blog nav measures the LABEL.** `NavTopics` lays its row out from a hidden twin; measuring
+  the canonical tag while drawing the Arabic label is how the row ends up one topic too wide at
+  exactly the width it was tuned for.
+- **The settings editor is a TABLE, and it writes the map WHOLE.** Two scripts side by side in a
+  line-oriented field reorder around their own separator, and the reader is then editing a
+  string they cannot read back. The tag column is `dir="ltr"` (it is a URL segment and a search
+  key); the label columns are `dir="auto"`. The PATCH replaces `tagLabels` rather than merging
+  it, because the editor holds all of it on screen and a merging patch would make deleting a row
+  impossible. Emptying both labels deletes the label on save — there is nothing to confirm, the
+  tag itself is untouched, and what comes back is the tag's own name. `effectiveSettings` returns
+  the STORED map only: prefilling the editor with a label the vault owns would copy it into
+  `settings.json` the first time the panel was saved, and the page would stop being the source
+  of truth for its own name.
+
+## Fenced code is a CHARACTER and a LENGTH (shared/fences.ts)
+
+Four separate line-walkers each carried the same four characters of regex and the same wrong
+idea: `const FENCE_RE = /^\s*(```|~~~)/` driving `inFence = !inFence`. A toggle is blind to which
+marker opened a block and how long its run was. CommonMark closes a fence only on a run of the
+SAME character, AT LEAST AS LONG as the opener, with nothing but whitespace after it — so a
+```` ```markdown ```` block whose body shows a `~~~` block "closed" on the inner marker and every
+line after it was read as document structure.
+
+- **The outline REWRITES THE FILE, which is what made this data loss and not a display bug.**
+  `client/reading/toc.ts::extractHeadings` feeds `client/sections.ts`, and therefore
+  `sectionsOf()`, `moveSection()`, `extractSection()` and every outline row. A `### ` living
+  inside such a fence became a section the document does not have: reproduced end to end, the
+  outline showed 3 rows over a 2-heading note and ONE drag of the phantom row swallowed
+  `# Next section` and its body INTO the code fence, deleted the note's second section and
+  dropped a paragraph out of the document. Extraction was worse — it carried the fence CLOSERS
+  out into the new note and left the source with an unbalanced fence.
+- **The anchor table had to agree with it.** `shared/anchors.ts` generates the ids
+  `[[Note#anchor]]`, transclusion and the hover previews resolve against, and the reading view
+  assigns its heading ids from `toc.ts`. Two scanners with two answers is an anchor that silently
+  misses, so both now read `shared/fences.ts`. `client/editor/links.ts` (the `[[Note#` completion
+  list and `findHeadingLine`) and `server/indexer.ts`'s `FenceSkipper` (excerpts, snippets,
+  backlink context) read it too — a note is one document and cannot have two opinions about
+  where its code is.
+- **A backtick fence's info string may not contain a backtick**, which is what keeps a line of
+  inline code from opening a block.
+- **A line's carriage return comes off before it is matched.** `md.replace(/\r\n/g,"\n")` was not
+  the same thing: a CRLF note whose final newline has been trimmed ends in a DANGLING `\r`, and
+  `.` and `$` do not cross one — so that line matched neither the fence regex nor the heading
+  regex and the file's last fence never closed. `sourceLines()` is the split every caller uses.
+- **THE GATE WAS SOUND, ITS CORPUS WAS ONE SHAPE SHORT.** `scripts/check-sections.mjs` only ever
+  emitted fences that open and close with the same marker, so a toggle passed all four thousand
+  documents. `makeDoc()` now also emits a ```` ```markdown ```` block holding a `~~~` block and a
+  four-backtick block holding a three-backtick one; the UNCHANGED assertions then reported 3,535
+  failures out of 4,000 against the old scanner, and 0 against this one.
+
+## Line endings are the note's, not ours (client/sections.ts, client/templates.ts)
+
+Two of the section/template write paths silently rewrote every line ending in a file. No content
+was lost either way — but this file's own rule for these writers is that blank lines are only ever
+ADDED at the seams, and converting twelve hundred terminators is a far larger edit nobody asked
+for. On a `gitSync` instance it lands as the whole file in the next diff.
+
+- **`splitLines()` keeps each line's OWN terminator.** It used to return one `nl` for the whole
+  document, chosen as `md.includes("\r\n") ? "\r\n" : "\n"` — which is not "the document's
+  flavour", it is "any CRLF anywhere wins": a note with ONE stray CRLF had all six of its endings
+  converted by a single outline drag (measured: 1 CRLF in, 6 CRLF out, 0 bare LF left; now 1 in,
+  1 out). The majority ending is still computed, and is used for exactly one thing — the blank
+  line the reorder may ADD at a seam, which has to end somehow.
+- **`sectionOffsets()` was the same root cause with a different symptom.** It accumulated
+  character offsets with that single `nl`, so on a mixed-ending note it drifted one byte per LF
+  line walked past: the offsets for section B of `# A\nbody a\n\r\n# B\nbody b\n` sliced
+  `B\nbody b\n` — one character into the heading. Its only consumer is `selectSection()`, so the
+  blast radius was a wrong selection rather than a wrong write. Now it walks the same per-line
+  terminators and slices `# B\nbody b\n`.
+- **`applyTemplate()` no longer normalizes the TARGET.** It did `splitFrontmatter(targetSrc
+  .replace(/\r\n/g,"\n"))` and returned that as `content`, which `templateActions.ts` writes
+  straight back — so inserting a template into an ordinary Windows or git-synced note rewrote
+  every ending to LF (measured: 7 CRLF in the target, 0 in the merged content; now 9 in, 11 out,
+  and the two added are the template's own merged rows). The template's body and the merged
+  frontmatter block are re-ended in the TARGET's majority ending on the way in.
+- **The gate asserts it.** `makeDoc()` now emits mixed-ending documents (a third of the CRLF
+  runs), and a reorder must never DECREASE either ending count — it may only add lines. An
+  extraction may not introduce an ending the source document did not have at all.
+
+## The section ⋯ on a coarse pointer (client/styles/preview.css)
+
+The menu behind this button has four doors on a desktop — right-click a heading, right-click an
+outline row, `Shift+F10`, and the keystrokes for the commands it holds. On a phone it has ONE, and
+that one used to hang off the leading edge of the screen: `inset-inline-start: -52px` on a 30px
+button hung off a zero-width host, with nothing clamping it against a `--prose-gutter` of
+`min(56px, 7.37%)`. Measured on Chromium at 390: every heading's button at left=-17.3 / right=12.7,
+58% off-screen; at 360, left=-19.5 / right=10.5. DESIGN.md: "Never let any panel's content overflow
+the viewport horizontally."
+
+- **The gutter cannot hold it at ANY width, so it leaves the gutter.** The fold chevron already
+  owns that space (-26px, 18px wide) and the touch shell's rule is a 44px target: 44 + 18 is 62px
+  of controls for 56px of gutter even on a tablet, which is why a 30px compromise shipped under a
+  comment claiming 44. On a coarse pointer the ⋯ moves to the heading's INLINE END, inside the
+  column, and the gutter is left to the chevron alone. Measured after: 317.3–361.3 at 390,
+  289.5–333.5 at 360, `scrollWidth` still equal to the viewport, and the menu opens on tap fully
+  inside the viewport (101.3–331.8 of 390).
+- **The heading LINE is the containing block and reserves the room** (`position: relative` +
+  `padding-inline-end: 44px`, scoped by `:has(.cm-s-sectbtn)` so it reaches heading lines only),
+  which is what keeps the button off the title's letters. Everything is logical: RTL puts the ⋯
+  at 28.7–72.7 and the chevron at 367.3–385.3.
+- **A context menu is a touch surface too.** `.s-menu__item` takes a 44px floor on a coarse
+  pointer — it is the whole door this affordance opens, and 33.6px rows were the same half-promise
+  the button used to make.
+- **On a FINE pointer the pair is one cluster, so it lines up.** At `bottom: -0.28em` the ⋯ centre
+  sat a measured 2px under the chevron's at every heading level (the widget host does not inherit
+  the heading's size, so the offset is a constant); `calc(-0.28em + 2px)` puts the delta at 0.0px
+  on every heading level measured (h1, h2, h3).
+
+## A separator that cannot be read as a digit (client/metaSep.tsx)
+
+The blog's meta line, the article header, the app's status bar, the graph HUD and the attachment
+caption all print counts side by side and marked the boundary with U+00B7. At the 12–13px those
+lines are set in, in the shipped Arabic face, that glyph is INDISTINGUISHABLE FROM `٠` — and it
+sits flush against a run of Eastern Arabic digits. Measured on an Arabic instance with
+`dateCalendar: both`: the status bar's DOM read `٥٦ كلمة · ٣١٠ حرفًا` and PAINTED as ٣١٠٠ —
+310 characters read as 3,100, on the one surface the Hijri work exists to make legible.
+
+- **The switch is on the NUMBERING SYSTEM, not the language.** An Arabic instance configured
+  `ar-EG-u-nu-latn` prints Latin digits and a tick is safe there; the default `arab` numerals are
+  the case that breaks.
+- **What replaces it is not another character.** A character beside digits is how this happened.
+  It is the HAIRLINE the status bar already marks its own groups with — 1px `--border`, the same
+  rule at the same weight — which cannot be read as anything at all. English is untouched, byte
+  for byte: "95 words · 518 chars", "1 August 2026 · 86 words · 1 min read".
+- **`metaSepText()` is the string form**, for the two places an element cannot go (a joined
+  attachment caption, a `title` attribute). There the Arabic case takes `،`, which is the
+  punctuation the language already uses for this and is not a digit in any face.
+
+## The template picker previews BOTH halves (client/components/TemplatePicker.tsx)
+
+The module's own header says the preview exists because "the difference between two of them is
+often three lines of frontmatter" — and it previewed `splitFrontmatter(note.content).body`. Two
+templates whose bodies are both `# {{title}}` and whose blocks are `publish: true / tags:
+[essay, longform] / banner: …` and `publish: false / tags: [private] / dir: rtl` previewed
+IDENTICALLY, as the single line `# On the Ruled Page`. Picking the wrong row silently set
+`publish: true` on a note bound for a public website, and the panel had shown nothing that could
+warn anyone.
+
+- **Rows, never the raw `---` block.** `templateProperties()` (client/templates.ts) reads the
+  frontmatter into key/value pairs with the values in plain reading form: an inline list loses its
+  brackets, a block list reads "a, b", a quoted scalar loses its quotes. The picker is outside the
+  editor, where DESIGN.md forbids showing markup to a reader.
+- **`publish: true` is marked, and named.** The row takes the accent and the panel carries one
+  sentence — "Publishes the note to the public site" — because that is the only property in the
+  set whose consequence is a stranger reading the note. The accent, not `--danger`: publishing is
+  a thing the reader may well want, it just may not be a thing they meant to pick blind.
+- **The body preview resolves ONE direction for the whole block.** `dir="auto"` on a `<pre>`
+  resolves per bidi PARAGRAPH, and every newline in a `pre` ends one — so an Arabic template's
+  Latin line flew to the opposite edge of the mono box while its neighbours stayed put. It is
+  resolved once, over the whole body (`autoDir`).
+- **The selected row carries the command palette's gold bar.** DESIGN.md specifies
+  `--accent-soft` PLUS a 2px accent bar on the leading edge; this list shipped the ground without
+  the bar, which is two answers to "which row am I on" in one product.
+
+## Generated banners on a theme with no hue to spend (client/banner.ts)
+
+Four light themes ship `--banner-tint: 0%` (parchment, sandstone, linen, solar), and there `hue()`
+collapses to pure `--accent` for all three blobs — verified in the browser: the two extreme hash
+hues resolve to the same colour on all four, and to different ones on iron-gall's 45%. What was
+left to tell two posts apart was blob POSITION (invisible under a 55% accent floor: three blobs of
+one colour on one ground is one wash wherever you put them), the base gradient's angle, and a rule
+angle hashed over 20–69° — ONE QUADRANT — with a CONSTANT gap and a constant blob strength. Six
+consecutive parchment thumbs at their shipped 132×88 came out the same beige hatched sticker.
+
+- **Three more levers, and not one of them is a colour**, so all three survive a zero tint: the
+  rule angle takes two bands (15–75° and 105–165°, never level, never steep) so two posts can be
+  hatched in MIRRORED directions; the rule SPACING is hashed; and the blobs carry a per-post
+  STRENGTH and reach. Measured over six titles: shipped gave gap 7 / strength 46 / spread 58 for
+  every one of them and angles 26–65 with a duplicate pair; now gaps 4–8, strengths 40–58,
+  spreads 58–66 and angles 18–156, with every post differing on at least two levers.
+- **Card ↔ hero unity is preserved by construction.** Angle, spread and the strength scale are
+  shared between the two sizes; only the gap (in the 0.64 ratio the shipped 7:11 already held) and
+  the existing `boost` differ, because 130px of anything reads flatter than 780px of it.
+
+## Justification needs a paragraph (client/textLayout.ts, styles/textlayout.css)
+
+Most vaults that have been through a plain-text editor are wrapped at a fill column, and every one
+of those source newlines is a forced break here (the editor draws a `.cm-line`, the reading view
+and the blog draw a `<br>`). A forced break ends a LINE without ending the BLOCK, so a source line
+wider than the measure is broken by the browser, its first half stretched to the far margin as if
+it were mid-paragraph and its remainder left beside it as a two-word stub — all the way down the
+note. Soft-wrapped prose, where one source line is one paragraph, justifies beautifully.
+
+- **The note's SOURCE decides, once, and all three surfaces read the same answer off the same
+  attribute** (`data-note-hardwrap`) — which is the entire point of this module. `isHardWrapped()`
+  counts prose lines that sit in a RUN of two or more, skipping frontmatter, fenced code,
+  headings, lists, quotes, table rows and link definitions; four such lines and a 60% share are
+  the bar, so one wrapped block inside an otherwise soft-wrapped essay does not decide.
+- **It is stamped only for the alignment it changes.** A hard-wrapped note that is centred, or
+  flush, is a hard-wrapped note nothing is wrong with.
+- **The chip says why.** A note whose frontmatter says `align: justify` still reads "Justified" —
+  that is what its frontmatter says, and the chip names the frontmatter — but the tooltip now adds
+  "set flush — this note's paragraphs are wrapped by hand", because a page that does not look
+  justified with nothing on screen explaining it is the invisible-state trap this bar exists to
+  close.
+
+## The missing-banner card at 390 (client/styles/app.css)
+
+`--text` on the failing value, because "a filename is text a reader must READ", was already the
+rule — but `min-width: 0` plus `overflow-wrap: anywhere` let that value take the whole shortfall of
+a phone-width row, where the icon, the label and the **Set banner…** button all compete on one
+flex line and the value is the only item allowed to shrink. It went to 24.6px wide and broke ONE
+GLYPH PER LINE — "kyo / to- / cov / er. / png" — stretching the card from 53.8px to 129.6px. A
+`min-width: 14ch` floor gives the row a reason to wrap: the button drops to the next line and the
+name keeps a readable measure (measured: 121.4px and one line at 390, 180.1px at 360, card height
+back to 85.2px; 768 and 1440 unchanged at 53.8px). `anywhere` stays, for the pathological
+80-character filename that still has to fit somewhere.
+
+## Small corrections that came with the above
+
+- **The blog's sticky masthead is OPAQUE.** It was `--bg` at 86% over a 12px backdrop blur, and a
+  blurred-but-legible sentence is still a sentence: at 390, where the column is narrow and there is
+  always prose under a 52px bar, "something the author put there." read clean through the word
+  TOPICS. Blur softens contrast; it does not stop a reader parsing letterforms. The two hairlines
+  are what separate the bar from the page, as they always were.
+- **Outline heading numbers print the period the toggle promises.** The button is labelled "1.",
+  the module header names the three spellings "1.", "2.3", "4.1.2", and the CSS beside the rows
+  talks about a column of "9." / "10." / "11." — while the rows printed a bare "1 2 3".
+  `numberLabel()` adds the terminator to a top-level number only; a compound number's own dots
+  already say it is one. One function, so the outline and the rendered heading cannot disagree.
+- **`tagLabels` is capped at 200 ENTRIES**, the number its sibling `excludeTags` has capped its
+  length at since the day it was written. Per-key (50) and per-label (60) budgets existed; the map
+  size did not, and a 5,000-entry PATCH was accepted with a 200 — `settings.json` grew to 378 KB
+  and `GET /api/settings` to 489 KB, a response the settings panel fetches every time it opens.
+  Visitor exposure was correctly nil throughout (`/api/tag-labels` stayed at 46 bytes), which makes
+  it a self-inflicted wound rather than a hole. The 400 names the other half of the feature: a tag
+  with a page in the tags folder is named there instead.
+- **An absolute path in a vault path key is a 400, not a rewrite.** `normalizeRel()` strips the
+  leading slash before `path.isAbsolute()` could ever see one, so `{"templatesFolder":"/etc"}`
+  came back 200 stored as `etc` and `{"defaultTemplate":"/etc/passwd.md"}` as `etc/passwd.md`.
+  `safeAbs()` kept both inside the vault so nothing escaped — but the admin who typed an absolute
+  path silently got a DIFFERENT folder from the one they named, while `..`, a dotdir and a
+  note-where-a-folder-belongs all answered with a clear 400. `vaultRel()` is the one helper
+  `templatesFolder`, `defaultTemplate` and `home.note` share; Windows drive letters are refused
+  the same way.
+- **A heading a wikilink cannot spell falls back to its SLUG.** `copySectionLink` emitted
+  `[[Note#<heading text>]]` verbatim, so `## Weird ]] | [[Other#x` produced a link the parser
+  stops reading at the first `]]` — not a broken link so much as a link that quietly points
+  somewhere else. The display text is still what goes in (it survives an edit to the heading's
+  inline markup, which is why it was chosen); a heading carrying `[`, `]`, `#` or `|` takes
+  `section.slug` instead, which `shared/anchors.ts` resolves by first and which is spellable by
+  construction. The extraction stub is the same problem from the other end: `suggestedName()` and
+  the prompt's own `check()` now refuse those four characters in a filename, because the stub left
+  behind is `[[<that name>]]`.
+- **An extraction refused for a name that is already taken says so.** `createNote` 409s before a
+  byte of the source note is rewritten (verified: the source is untouched), so the reader's next
+  move is to type another name — which "extracting failed" does not tell them.
+  `templateActions.ts` makes exactly this distinction on exactly this 409.
+- **The extraction Undo's permanent delete is documented where it happens.** It is the only delete
+  in the product that bypasses `.trash/`, and `client/api.ts`'s own comment on that function is
+  "a note is not a cheaper thing to lose than a folder". What it erases is a note this same toast
+  created seconds ago whose entire content has just been written BACK into the source note on the
+  line above, so `.trash` would hold a second copy of text the vault already has, under a name the
+  reader chose once and then took back. The ordering is the safety: the restore lands first.

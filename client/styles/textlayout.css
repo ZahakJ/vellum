@@ -1,0 +1,186 @@
+/* Note alignment — the site setting and the per-note `align:` override.
+ *
+ * ONE stylesheet for all three prose surfaces (the editor's `.cm-content`, the
+ * reading view's `.s-reading__content` and the blog article's, which is the
+ * same element). They are addressed by the data attribute `client/textLayout.ts`
+ * stamps rather than by their own class names, so the rule set cannot drift
+ * from one surface to the next — which is the entire requirement.
+ *
+ * Direction is NOT here: it is the `dir` attribute, applied to the same
+ * elements, and the browser's own bidi algorithm does the work. A CSS
+ * `direction` property could not express `auto`.
+ *
+ * Imported by `client/textLayout.ts` (so it travels with the module that needs
+ * it, the way `reading.css` travels with ReadingView) — not linked from
+ * index.html, which the shell owns.
+ */
+
+[data-note-align="left"] {
+  text-align: left;
+}
+
+[data-note-align="right"] {
+  text-align: right;
+}
+
+[data-note-align="center"] {
+  text-align: center;
+}
+
+[data-note-align="justify"] {
+  text-align: justify;
+  /* Justified prose without hyphenation opens rivers at this measure; both
+   * scripts support it and Arabic in particular is set justified by default in
+   * every book it has ever appeared in. */
+  hyphens: auto;
+  -webkit-hyphens: auto;
+}
+
+/* A HARD-WRAPPED NOTE IS NOT JUSTIFIED, because it has no paragraph to
+ * justify. Every source newline in such a note is a forced break — the editor
+ * draws a `.cm-line`, the reading view and the blog draw a `<br>` — and a
+ * forced break ends a LINE without ending the block, so a source line wider
+ * than the measure has its first half stretched to the far margin and its
+ * remainder left standing beside it as a two-word stub, all the way down the
+ * note. Soft-wrapped prose, where one source line is one paragraph, justifies
+ * beautifully and is untouched: the attribute is stamped from the note's own
+ * source (`client/textLayout.ts::isHardWrapped`), once, by the one module all
+ * three surfaces read — so they still agree byte for byte.
+ *
+ * `hyphens` goes back with it: hyphenation is here to keep justified rivers
+ * closed, and a flush-start note does not want words broken for nothing. */
+[data-note-align="justify"][data-note-hardwrap] {
+  text-align: start;
+  hyphens: none;
+  -webkit-hyphens: none;
+}
+
+/* ── WHAT IS NEVER CENTRED OR JUSTIFIED ────────────────────────────────────
+ *
+ * Code is source: a centred fence stops lining up with itself, and a justified
+ * one has its indentation stretched. A table's cells carry their own column
+ * alignment from the markdown (`:---:` → `.s-rv-al-c`), which is authored data
+ * and must outrank a site-wide preference. Display math is a typeset box that
+ * centres itself. Callout and quote BODIES follow the note — they are prose —
+ * but the code inside them does not, which is why these selectors are
+ * descendant-wide rather than child-only.
+ *
+ * Only `center` and `justify` are carved out. `left`/`right` leave a code
+ * block where it already was in one of the two directions, and a reader who
+ * pins a direction has said something about the whole document.
+ */
+[data-note-align="center"] :is(pre, code, kbd, samp, table, th, td, .s-rv-code, .s-rv-pre, .s-rv-table, .s-rv-tablewrap, .s-rv-math--display, .s-rv-mathblock, .cm-s-math-block, .katex-display),
+[data-note-align="justify"] :is(pre, code, kbd, samp, table, th, td, .s-rv-code, .s-rv-pre, .s-rv-table, .s-rv-tablewrap, .s-rv-math--display, .s-rv-mathblock, .cm-s-math-block, .katex-display) {
+  text-align: start;
+  hyphens: none;
+  -webkit-hyphens: none;
+}
+
+/* KaTeX centres its own display boxes; say so explicitly rather than letting
+ * the reset above hand them a leading edge. */
+[data-note-align="center"] .katex-display,
+[data-note-align="justify"] .katex-display,
+[data-note-align="left"] .katex-display,
+[data-note-align="right"] .katex-display {
+  text-align: center;
+}
+
+/* An authored column alignment always wins — it is content, not chrome. */
+[data-note-align] .s-rv-al-c {
+  text-align: center;
+}
+
+[data-note-align] .s-rv-al-r {
+  text-align: end;
+}
+
+/* ── WHAT NEVER TAKES *ANY* INHERITED DIRECTION ────────────────────────────
+ *
+ * The rule below carves code and maths out of a PINNED direction. That was
+ * only half the problem, and the smaller half: a note that pins nothing — the
+ * overwhelming majority — has no `dir` on its container at all, and a `<pre>`
+ * carries no `dir="auto"` of its own the way a paragraph does. So on an
+ * ARABIC INSTANCE every code block in the reading view, the blog article and
+ * the hover card inherited `rtl` straight from `<html>`, and
+ *
+ *     const x = 1;        rendered as        ;const x = 1
+ *
+ * — the semicolon swept to the far end, in the one place on screen where the
+ * position of punctuation IS the meaning. Measured on a plain English note
+ * with no frontmatter of any kind, so this was never about the note: it was
+ * the shell's direction reaching content that is not prose.
+ *
+ * Keyed on the RENDERER'S OWN CLASSES rather than on a container, because
+ * these classes exist nowhere but inside rendered note content — so the rule
+ * reaches all three surfaces without any of them having to opt in, and reaches
+ * no chrome. `plaintext` is the CSS spelling of `dir="auto"` applied per LINE,
+ * which is what a code block wants: an Arabic string literal still sets right
+ * to left inside a fence that stays left to right. `direction: ltr` is only
+ * the fallback for a line with no strong character at all.
+ */
+.s-rv-pre,
+.s-rv-mathblock,
+.s-rv-math--display,
+.katex-display {
+  direction: ltr;
+  unicode-bidi: plaintext;
+}
+
+/* Inline code and inline maths are RUNS inside a sentence, not paragraphs of
+ * their own, so they take an isolate — `plaintext` here would break the
+ * sentence around them into separate paragraphs. */
+.s-rv-code,
+.s-rv-math {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* ── WHAT NEVER TAKES A PINNED DIRECTION ───────────────────────────────────
+ *
+ * `const x = 1;` inside a `dir="rtl"` container renders as `;const x = 1` —
+ * the semicolon swept to the far end of the line by the bidi algorithm, in the
+ * one place on screen where the POSITION OF PUNCTUATION IS THE MEANING. Same
+ * for a `|---|---|` table rule and for typeset maths, which is LTR notation in
+ * every language that uses it.
+ *
+ * `unicode-bidi: plaintext` is the CSS spelling of `dir="auto"`: each line
+ * resolves its own direction from its own first strong character, so a code
+ * block holding an Arabic string literal still sets that literal correctly
+ * while the code around it stays left to right. The `direction: ltr` beside it
+ * is only the fallback for a line with no strong character at all.
+ *
+ * Scoped to `[data-note-dir]` — a PINNED direction — never to `[dir]`: under
+ * the default `auto` every block already decides for itself, and a blanket
+ * reset there would be a regression.
+ */
+[data-note-dir] :is(pre, code, kbd, samp, .s-rv-pre, .s-rv-code, .cm-s-math-block, .s-rv-math--display, .s-rv-mathblock, .katex, .katex-display) {
+  direction: ltr;
+  unicode-bidi: plaintext;
+}
+
+/* Inline code inside a right-to-left sentence is a RUN inside that sentence,
+ * so it takes an isolate rather than its own paragraph direction — otherwise
+ * `plaintext` would break the sentence around it into separate paragraphs. */
+[data-note-dir] :is(p, li, td, th, blockquote) > code {
+  unicode-bidi: isolate;
+}
+
+/* ── The editor ────────────────────────────────────────────────────────────
+ *
+ * In the editor a table and a code fence are LINES, so `noteLayout.ts` marks
+ * them and this is the rule that pays for it. Without it, `| a | b |` and
+ * ```` ```ts ```` drift to the middle of the column as the reader types.
+ */
+.cm-content[data-note-align] .cm-line.cm-s-noalign,
+.cm-content[data-note-align] .cm-line.cm-s-codeblock,
+.cm-content[data-note-align] .cm-line.cm-s-math-srcline {
+  text-align: start;
+  hyphens: none;
+  -webkit-hyphens: none;
+}
+
+/* A `.tex` note's source is markup end to end: it takes the direction, never a
+ * centred or justified measure. */
+.cm-content[data-note-source="tex"] {
+  text-align: start;
+}

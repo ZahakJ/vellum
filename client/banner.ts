@@ -1,14 +1,112 @@
 // Note banners: shared client helpers. A banner value is either an https URL
-// or a vault-relative attachment path (served by /api/file). Notes without a
+// or a reference to a file in the vault (served by /api/file). Notes without a
 // banner get a deterministic generated gradient in the blog surfaces — built
 // from the note title's hash, mixed with theme tokens so it stays subtle and
 // harmonious in every theme.
+//
+// FOUR ACCEPTED FORMS, and the last two are the whole point of this module.
+// `banner:` used to mean "an https URL or a path from the vault root, and
+// nothing else": a BARE FILENAME — which is what an Obsidian user writes, and
+// the only form with no autocomplete behind it — was sent straight to
+// /api/file?path=cover.png and 404'd unless the image happened to sit at the
+// vault root. Every OTHER link form in the product (wikilinks, ![[embeds]],
+// `![](Media/x.png)`) resolves a bare name from anywhere in the vault. So the
+// banner climbs the same ladder now, server-side (GET /api/banner):
+//
+//   1. an `https://` URL                        → used as-is
+//   2. an exact vault-relative path             → Media/cover.png
+//   3. that path relative to the NOTE'S FOLDER  → cover.png beside the note
+//   4. the basename, resolved like an embed     → case-insensitive, shortest
+//                                                 path wins, vault-wide
+//
+// Resolutions are cached exactly as the embed layer caches its own (a
+// definitive miss is cached too — a broken banner must stay quiet), and the
+// cache is dropped whenever a file appears or is renamed.
 
-/** Banner value → <img src>: https URLs pass through (https ONLY — an http://
- *  banner would be mixed content), vault paths via /api/file. */
+import { withPreview } from "./api.ts";
+import type { BannerResolution } from "../shared/types.ts";
+
+/** A RESOLVED banner value → <img src>: https URLs pass through (https ONLY —
+ *  an http:// banner would be mixed content), vault paths via /api/file.
+ *
+ *  Callers holding a value that came from the SERVER already resolved (a
+ *  PostMeta.banner, an /api/banner answer) use this directly. Callers holding
+ *  a raw authored value — frontmatter, a settings field — go through
+ *  `resolveBanner()` below first, or they are back to form 2 only. */
 export function bannerSrc(value: string): string {
   if (/^https:\/\//i.test(value)) return value;
   return `/api/file?path=${encodeURIComponent(value)}`;
+}
+
+// ── Resolution (server /api/banner, cached) ─────────────────────────────────
+
+/** Cache key: the value and the note it was written in resolve together —
+ *  `cover.png` in `Trips/Kyoto.md` and `cover.png` in `Recipes/Miso.md` are
+ *  two different images. JSON-encoded rather than concatenated: any separator
+ *  a filename could itself contain would collide two different lookups. */
+function cacheKey(value: string, notePath: string | null): string {
+  return JSON.stringify([notePath, value]);
+}
+
+const resolved = new Map<string, string | null>();
+const pending = new Map<string, Promise<string | null>>();
+
+/** Resolve a banner value to an https URL or a vault path — synchronously
+ *  when the answer is already known, otherwise a promise. `null` is a
+ *  DEFINITIVE miss (no file of that name anywhere the caller may see), and it
+ *  is cached as such: an admin surface renders the missing-image placeholder,
+ *  a visitor surface renders nothing.
+ *
+ *  Mirrors resolveAttachment() in editor/embeds.ts deliberately — same shape,
+ *  same caching rule, same "the endpoint is missing on an older server" escape
+ *  hatch (fall back to treating the value as a literal path, which is exactly
+ *  the old behaviour). */
+export function resolveBanner(
+  value: string,
+  notePath: string | null = null,
+): string | null | Promise<string | null> {
+  const key = cacheKey(value, notePath);
+  if (resolved.has(key)) return resolved.get(key) ?? null;
+  const inFlight = pending.get(key);
+  if (inFlight) return inFlight;
+  const params = new URLSearchParams({ value });
+  if (notePath) params.set("note", notePath);
+  const p = fetch(`/api/banner?${params.toString()}`, withPreview())
+    .then(async (res) => {
+      let hit: string | null;
+      if (res.ok) {
+        const body = (await res.json()) as Partial<BannerResolution>;
+        hit = typeof body.path === "string" ? body.path : null; // null = known miss
+      } else {
+        hit = literalFallback(value); // older server: the pre-ladder behaviour
+      }
+      resolved.set(key, hit);
+      pending.delete(key);
+      return hit;
+    })
+    .catch(() => {
+      const hit = literalFallback(value);
+      resolved.set(key, hit);
+      pending.delete(key);
+      return hit;
+    });
+  pending.set(key, p);
+  return p;
+}
+
+/** What a banner value meant before the ladder existed: an https URL, or the
+ *  value as a vault path. Used only when /api/banner cannot be reached. */
+function literalFallback(value: string): string | null {
+  if (/^https:\/\//i.test(value)) return value;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return null; // http:, data:, javascript:
+  return value;
+}
+
+/** A file appeared or was renamed in the vault: every cached resolution
+ *  (misses included) may now be wrong. Called from the same place the embed
+ *  layer clears its own caches. */
+export function clearBannerCache(): void {
+  resolved.clear();
 }
 
 /** Extract the frontmatter `banner:` value from raw note content, or null.
@@ -85,18 +183,38 @@ export function generatedBannerCss(title: string, variant: "hero" | "thumb" = "h
   // anything reads flatter than 780px of it, but a nudge is not a second look.
   const sat = 52;
   const boost = thumb ? 1.35 : 1;
-  // EVERY BLOB IS IN THE ROOM'S OWN FAMILY. `--banner-tint` alone let a theme
-  // opt out entirely (parchment sat at 0%), and a hash hue with no floor is
-  // how iron-gall's gold-and-brown page ended up carrying a green→yellow card:
-  // clip-art, in a product whose identity is one palette per theme. The outer
-  // mix puts a HARD FLOOR of accent under every hue, so the hash still tells
-  // two posts apart — by where the warmth sits and how the field is ruled —
-  // and never by importing a colour the theme does not own. `--banner-tint`
-  // still tunes how far past that floor a theme goes, and still resolves at
-  // the element, so a theme switch repaints live.
+  // EVERY BLOB IS IN THE ROOM'S OWN FAMILY. A hash hue with no floor is how
+  // iron-gall's gold-and-brown page ended up carrying a green→yellow card:
+  // clip-art, in a product whose identity is one palette per theme. So the
+  // outer mix puts a HARD FLOOR of accent under every hue, and the inner mix
+  // starts FROM the accent and lets `--banner-tint` say how far the hash may
+  // pull it away — the accent is the base colour, never the correction.
+  //
+  // That order is the whole fix, and it is not a rephrasing. Written the other
+  // way round (`accent var(--banner-tint), hsl(…)`) the token read as "how
+  // much accent to add back", so its floor value — 0%, which four light themes
+  // set and which is also what any theme that never declares the token gets —
+  // meant FORTY-FIVE PERCENT RAW HUE, the maximum, and the dark themes that
+  // clamped hardest at 45% were the ones importing least. Parchment, the theme
+  // the rule was written for, shipped a pink card and a green card on a
+  // gold-and-cream page. Now 0% is pure accent, which is what a floor should
+  // mean, and a theme that forgets the token is safe rather than maximally
+  // foreign. The hash still tells two posts apart — by where the warmth sits,
+  // how the field is ruled, and (where a theme allows it) a swing of hue — and
+  // never by importing a colour the theme does not own. `--banner-tint`
+  // resolves at the element, so a theme switch still repaints live.
+  //
+  // On a room that allows NO swing (`--banner-tint: 0%` — the four light
+  // themes) every blob is then the same accent and the hash speaks through
+  // POSITION, the base gradient's angle and the ruling alone. That is the
+  // honest trade and it was measured, not assumed: carrying the base a
+  // deterministic 3–15% toward `--text` as a second lever was tried here and
+  // removed, because a blob is only mixed a quarter to a half of the way into
+  // `--bg-raised` and the ink shift disappears into that — invisible variation
+  // is complexity, not variation.
   const hue = (deg: number): string =>
     "color-mix(in oklab, var(--accent) 55%, " +
-    `color-mix(in oklab, var(--accent) var(--banner-tint, 0%), hsl(${deg} ${sat}% 52%)))`;
+    `color-mix(in oklab, hsl(${deg} ${sat}% 52%) var(--banner-tint, 0%), var(--accent)))`;
   const c = (deg: number, strength: number): string =>
     `color-mix(in oklab, ${hue(deg)} ${Math.round(strength * boost)}%, var(--bg-raised))`;
   // The base layer is tinted at BOTH sizes: an untinted raised-bg corner reads
@@ -110,18 +228,47 @@ export function generatedBannerCss(title: string, variant: "hero" | "thumb" = "h
   // hero size and as texture rather than mush at 130px. Painted from --text, so
   // it is the theme's own ink at 7–9% and cannot fight any of the fifteen
   // grounds; the accent stays where the accent belongs.
-  const ruleAngle = 20 + ((h >>> 19) % 50); // 20–69deg — never level, never steep
-  const gap = thumb ? 7 : 11;
+  // ON A ROOM WITH NO HUE TO SPEND, THE HASH SPENDS VALUE AND TEXTURE.
+  //
+  // Four light themes ship `--banner-tint: 0%` (parchment, sandstone, linen,
+  // solar), and there `hue()` collapses to pure `--accent` for all three
+  // blobs. What was left to tell two posts apart was blob POSITION — invisible
+  // under a 55% accent floor, because three blobs of the same colour on the
+  // same ground is one wash wherever you put them — the base gradient's angle,
+  // and a rule angle hashed over 20–69°: ONE QUADRANT, with a constant gap.
+  // Four consecutive parchment thumbs came out the same beige hatched sticker,
+  // and a topic page of them read as one image repeated — which is exactly the
+  // "an image that failed to load" outcome the grain was added to prevent.
+  //
+  // So the three levers below are hashed too, and every one of them survives a
+  // zero tint because none of them is a colour:
+  //   · the rule angle now takes TWO bands (15–75° and 105–165°), so two posts
+  //     can be hatched in mirrored directions rather than 50° apart;
+  //   · the rule SPACING is hashed, in the 0.64 ratio the two sizes already
+  //     hold, so a fine hatch and a wide one are different fields at both
+  //     sizes and still one picture across them;
+  //   · the blobs carry a per-post STRENGTH, so the warmth is deep on one post
+  //     and barely there on the next. On a tinted theme that rides along under
+  //     the hue swing; on an untinted one it is the whole difference, and it
+  //     stays inside `--accent` and `--bg-raised` — the theme's own two
+  //     colours, never an imported one.
+  const band = (h >>> 19) % 122;
+  const ruleAngle = band < 61 ? 15 + band : 105 + (band - 61); // never level, never steep
+  const gapBase = 6 + ((h >>> 23) % 8); // 6–13px at hero size
+  const gap = thumb ? Math.max(4, Math.round(gapBase * 0.64)) : gapBase; // the shipped 7:11
   const ink = thumb ? 9 : 7;
+  // 0.72–1.32 — a blob half again as deep on one post as on another.
+  const lift = 0.72 + (((h >>> 5) % 13) * 5) / 100;
+  const spread = 54 + ((h >>> 25) % 14); // 54–67% — how far the warmth reaches
   const grain =
     `repeating-linear-gradient(${ruleAngle}deg, ` +
     `color-mix(in oklab, var(--text) ${ink}%, transparent) 0 1px, ` +
     `transparent 1px ${gap}px)`;
   return [
     grain,
-    `radial-gradient(115% 160% at ${x1}% ${y1}%, ${c(h1, 34)} 0%, transparent 58%)`,
-    `radial-gradient(105% 150% at ${x2}% ${y2}%, ${c(h2, 26)} 0%, transparent 62%)`,
-    `radial-gradient(130% 170% at ${x3}% 105%, ${c(h3, 18)} 0%, transparent 66%)`,
+    `radial-gradient(115% 160% at ${x1}% ${y1}%, ${c(h1, 34 * lift)} 0%, transparent ${spread}%)`,
+    `radial-gradient(105% 150% at ${x2}% ${y2}%, ${c(h2, 26 * lift)} 0%, transparent ${spread + 4}%)`,
+    `radial-gradient(130% 170% at ${x3}% 105%, ${c(h3, 18 * lift)} 0%, transparent ${spread + 8}%)`,
     baseLayer,
   ].join(", ");
 }

@@ -1,6 +1,7 @@
 // Indexer: in-memory search + link-graph index, built once at startup and kept
 // fresh incrementally from vault watcher events.
 
+import { closesFence, fenceOpener, type Fence } from "../shared/fences.ts";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import MiniSearch from "minisearch";
@@ -8,10 +9,14 @@ import type { Backlink, GraphData, GraphEdge, PostMeta, SearchHit, TagCount, Vau
 import { stripBidiControls } from "../shared/bidi.ts";
 import { isNotePath, isTexPath, noteCandidates, noteTitleOf, stripNoteExt } from "../shared/noteFormat.ts";
 import { markdownAnchors, type NoteAnchor } from "../shared/anchors.ts";
+import { cleanLabelEntry, tagKey, type TagLabelMap } from "../shared/tagLabels.ts";
 import { publishFlag, readFrontmatter } from "./publish.ts";
 import { readNoteFrontmatter } from "./noteFrontmatter.ts";
 import { readTexNote } from "./texNote.ts";
 import { excludedTags, languageFilterEnabled, siteLanguage } from "./site.ts";
+// Cyclic with this module (settings.ts → site.ts → here) and inert: every
+// call below happens at request time, never while either module is loading.
+import { templatesFolder } from "./settings.ts";
 import { listFolderFiles, listVaultFiles, onEvent, readNote, safeAbs } from "./vault.ts";
 
 interface NoteRecord {
@@ -28,6 +33,13 @@ interface NoteRecord {
    *  climbs out of the vault are dropped here, not later. */
   assets: string[];
   tags: string[];
+  /** Frontmatter `labels:` — a TAG PAGE's own display names, `{ ar: برمجيات }`.
+   *  Kept on every record rather than only on notes under the tags folder,
+   *  because the folder is a runtime setting: gate the read on it and renaming
+   *  `tags/` to `topics/` would need a full reindex to take effect. Null when
+   *  the note has no such key, which is every note but a handful. Display
+   *  only — nothing here ever changes what a tag IS. */
+  labels: Record<string, string> | null;
   /** frontmatter `publish` is exactly true / "true" */
   published: boolean;
   /** frontmatter `banner:` raw value (https URL or vault-relative attachment
@@ -95,6 +107,12 @@ let allowedAttachmentsCache: Set<string> | null = null; // null = recompute
 // extension) -> paths, so ![[image.png]] embeds resolve like wikilinks.
 const attachmentPaths = new Set<string>();
 const attachmentsByName = new Map<string, Set<string>>();
+// Lowercased attachment path -> the real path. A banner (and any other
+// path-form image reference) may be written with the casing the author's file
+// manager showed them — "Media/Cover.PNG" for "media/cover.png" — and a vault
+// that resolves basenames case-insensitively must not turn out to be
+// case-SENSITIVE the moment the value carries a folder.
+const attachmentsByPathLower = new Map<string, string>();
 
 /** Markdown larger than this gets a MINIMAL record instead of a full one: its
  *  body is never read, so it is absent from full-text search, the link graph,
@@ -344,6 +362,7 @@ export async function indexFile(relPath: string): Promise<void> {
     xrefs: parts.xrefs,
     assets: parts.assets,
     tags: parseTags(parts.tagSource, parts.frontmatter),
+    labels: labelsOfFm(fm),
     published: publishFlag(fm),
     banner: typeof fm.banner === "string" && fm.banner.trim() ? fm.banner.trim() : null,
     dateMs:
@@ -569,6 +588,7 @@ async function indexOversized(relPath: string, abs: string, stat: { size: number
     citekeys: citekeyOf(fm),
     excerptSource: null,
     tags: parseTags("", frontmatter),
+    labels: labelsOfFm(fm),
     published: publishFlag(fm),
     banner: typeof fm.banner === "string" && fm.banner.trim() ? fm.banner.trim() : null,
     dateMs:
@@ -632,6 +652,7 @@ function addAttachment(relPath: string): void {
   let set = attachmentsByName.get(key);
   if (!set) attachmentsByName.set(key, (set = new Set()));
   set.add(relPath);
+  attachmentsByPathLower.set(relPath.toLowerCase(), relPath);
 }
 
 function removeAttachment(relPath: string): void {
@@ -639,6 +660,9 @@ function removeAttachment(relPath: string): void {
   allowedAttachmentsCache = null;
   const key = path.posix.basename(relPath).toLowerCase();
   const set = attachmentsByName.get(key);
+  if (attachmentsByPathLower.get(relPath.toLowerCase()) === relPath) {
+    attachmentsByPathLower.delete(relPath.toLowerCase());
+  }
   if (!set) return;
   set.delete(relPath);
   if (set.size === 0) attachmentsByName.delete(key);
@@ -935,19 +959,105 @@ export function resolveCitekey(key: string, publishedOnly = false): string | nul
 
 // ------------------------------------------------------------------- banners
 
-/** Resolve a note's `banner:` value: https URLs pass through (http:// is
- *  refused — a mixed-content <img> is worse than the generated fallback);
- *  anything else must name a known attachment — an exact vault-relative path
- *  first, then wikilink-style basename resolution. null when unset/unresolvable. */
-function resolveBanner(record: NoteRecord): string | null {
-  const value = record.banner;
-  if (!value) return null;
-  if (/^https:\/\//i.test(value)) return value;
-  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return null; // http:, data:, etc.
-  const rel = path.posix.normalize(value.replace(/\\/g, "/").replace(/^\.?\/+/, "")).replace(/\/+$/, "");
-  if (attachmentPaths.has(rel)) return rel;
+/** THE image-reference ladder — one function, four rungs, and every banner
+ *  surface in the product climbs it (note frontmatter, the blog hero and its
+ *  thumbnails, og:image, the dashboard hero, the logo and favicon settings,
+ *  and GET /api/banner for the client's own render paths).
+ *
+ *  In order: an `https://` URL passes through (http:/data:/anything else is
+ *  refused — a mixed-content <img> is worse than the generated fallback); an
+ *  exact vault-relative path; that path RELATIVE TO THE REFERRING NOTE'S OWN
+ *  FOLDER, which is where an Obsidian user keeps a note's images; then the
+ *  basename, resolved exactly as `![[embed]]` resolves it (case-insensitive,
+ *  shortest path wins).
+ *
+ *  The third and fourth rungs are the bug this exists for. `banner: cover.png`
+ *  is what every Obsidian user writes, wikilinks and embeds have always
+ *  resolved a bare name from anywhere in the vault, and the banner alone
+ *  demanded the file sit at the vault ROOT — so the one link form with no
+ *  autocomplete behind it was also the one with the strictest rule, and it
+ *  failed by rendering nothing.
+ *
+ *  `fromDir` is the referring note's folder ("" for the vault root, undefined
+ *  when the reference belongs to no note — a settings value). */
+export function resolveImageRef(value: string, fromDir?: string): string | null {
+  const raw = value.trim();
+  if (raw === "") return null;
+  if (/^https:\/\//i.test(raw)) return raw;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return null; // http:, data:, javascript:…
+  const rel = normalizeRefPath(raw);
+  if (rel === "") return null;
+  // 1. exact vault-relative path (case-insensitively — see attachmentsByPathLower)
+  const exact = attachmentHit(rel);
+  if (exact) return exact;
+  // 2. relative to the note's own folder ("cover.png" beside the note,
+  //    "img/cover.png" under it, "../shared/cover.png" beside its parent)
+  if (fromDir !== undefined && fromDir !== "") {
+    const joined = normalizeRefPath(`${fromDir}/${rel}`);
+    if (joined !== "") {
+      const near = attachmentHit(joined);
+      if (near) return near;
+    }
+  }
+  // 3. basename, through the resolver embeds use
   const byName = resolveEmbed(path.posix.basename(rel));
   return byName !== null && attachmentPaths.has(byName) ? byName : null;
+}
+
+/** A reference path in vault-relative form: backslashes folded, `.`/`..`
+ *  segments applied, leading and trailing slashes dropped. A `..` that walks
+ *  above the vault root leaves nothing to resolve, and says so with "". */
+function normalizeRefPath(value: string): string {
+  const parts: string[] = [];
+  for (const seg of value.replace(/\\/g, "/").split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      if (parts.length === 0) return "";
+      parts.pop();
+      continue;
+    }
+    parts.push(seg);
+  }
+  return parts.join("/");
+}
+
+/** An indexed attachment at this exact path, case-insensitively. */
+function attachmentHit(rel: string): string | null {
+  if (attachmentPaths.has(rel)) return rel;
+  return attachmentsByPathLower.get(rel.toLowerCase()) ?? null;
+}
+
+/** The folder a note lives in ("" at the vault root). */
+function folderOf(relPath: string): string {
+  const cut = relPath.lastIndexOf("/");
+  return cut === -1 ? "" : relPath.slice(0, cut);
+}
+
+/** A note's `banner:` value resolved against the ladder above, with the note's
+ *  own folder as the relative base. null when unset/unresolvable. */
+function resolveBanner(record: NoteRecord): string | null {
+  if (!record.banner) return null;
+  return resolveImageRef(record.banner, folderOf(record.path));
+}
+
+/** GET /api/banner: the same ladder, for a value the CLIENT holds (frontmatter
+ *  it has just parsed, a settings value it is about to paint). `notePath` is
+ *  the note the value came from, when it came from one.
+ *
+ *  `publishedOnly` is the visitor scope, and it is the same gate /api/file
+ *  applies: a visitor may learn where a banner resolved only when the file is
+ *  one they are allowed to fetch. Otherwise the answer is null, which every
+ *  caller renders as "no banner" — never as a path that would 404. */
+export function resolveBannerRef(
+  value: string,
+  notePath: string | null,
+  publishedOnly: boolean,
+  visitorMayFetch: (relPath: string) => boolean,
+): string | null {
+  const hit = resolveImageRef(value, notePath === null ? undefined : folderOf(notePath));
+  if (hit === null || /^https:\/\//i.test(hit)) return hit;
+  if (publishedOnly && !visitorMayFetch(hit)) return null;
+  return hit;
 }
 
 /** A published note's banner as the client uses it (https URL or allowlisted
@@ -956,6 +1066,115 @@ export function publishedBanner(relPath: string): string | null {
   if (!publishedSet.has(relPath)) return null;
   const record = notes.get(relPath);
   return record ? resolveBanner(record) : null;
+}
+
+// ----------------------------------------------------------------- templates
+
+/** Folder basenames that MEAN "templates" without a reader having configured
+ *  anything: Obsidian's own default, the underscore-prefixed convention, and
+ *  the Arabic word an ar-language vault would use.
+ *
+ *  A LEADING ORDERING PREFIX IS NOT PART OF THE NAME. Real vaults number their
+ *  top level — "4 - Templates", "04. Templates", "1_Templates" (Johnny.Decimal
+ *  and PARA both do it, and the vault this was measured against is one of
+ *  them) — and a matcher that misses those is a matcher that misses the case
+ *  it exists for. The prefix is stripped, then the rest must match WHOLE:
+ *  "Templates for clients" is a folder of notes about templates, not a folder
+ *  of templates, and guessing it would hide real posts from the blog. */
+const ORDERING_PREFIX = /^\s*\d+\s*[-._)]*\s*/;
+const TEMPLATE_FOLDER_NAMES = /^_?templates?$|^قوالب$/i;
+
+function looksLikeTemplatesFolder(name: string): boolean {
+  return TEMPLATE_FOLDER_NAMES.test(name.replace(ORDERING_PREFIX, "").trim());
+}
+
+/** The vault's templates folder when it is UNAMBIGUOUS, else null.
+ *
+ *  Auto-detection exists so the feature works on an imported Obsidian vault
+ *  with nothing configured; it must never GUESS. So: every folder holding an
+ *  indexed file is a candidate by basename, and the answer is the single
+ *  match — or, when several match, the single one at the vault root. Two
+ *  plausible folders and no root-level tie-break means null, and the settings
+ *  field says which one to pick. A wrong guess here would hide a folder of
+ *  real posts from the blog and offer the reader the wrong list of templates,
+ *  which is strictly worse than asking. */
+export function detectTemplatesFolder(): string | null {
+  const candidates = new Set<string>();
+  const consider = (relPath: string): void => {
+    const segments = relPath.split("/");
+    // The file's own name is not a folder — stop one short.
+    for (let i = 0; i < segments.length - 1; i++) {
+      if (looksLikeTemplatesFolder(segments[i])) candidates.add(segments.slice(0, i + 1).join("/"));
+    }
+  };
+  for (const notePath of notes.keys()) consider(notePath);
+  for (const attPath of attachmentPaths) consider(attPath);
+  if (candidates.size === 1) return [...candidates][0];
+  const atRoot = [...candidates].filter((p) => !p.includes("/"));
+  return atRoot.length === 1 ? atRoot[0] : null;
+}
+
+// --------------------------------------------------------------- tag pages
+
+/** Folder basenames that MEAN "the tag pages live here". Same shape and same
+ *  ordering-prefix rule as the templates matcher above, and shared with it for
+ *  the same reason the templates one exists: an imported Obsidian vault names
+ *  this folder itself, and a feature that only works once the reader has found
+ *  a settings field is a feature nobody finds.
+ *
+ *  THIS FOLDER IS THE HALF THAT WAS MISSING. Templates auto-detected from the
+ *  first day; tag labels shipped with a hard `tags` default beside it, so on
+ *  the vault both were measured against — whose folders are "4 - Templates"
+ *  and "2 - Tags" — the picker found its templates and every Arabic tag chip
+ *  silently rendered its canonical English tag. Two halves of one promise,
+ *  disagreeing. */
+const TAG_FOLDER_NAMES = /^_?tags?$|^وسوم$|^الوسوم$/i;
+
+function looksLikeTagsFolder(name: string): boolean {
+  return TAG_FOLDER_NAMES.test(name.replace(ORDERING_PREFIX, "").trim());
+}
+
+/** The vault's tag-pages folder when it is UNAMBIGUOUS, else null. The rule is
+ *  `detectTemplatesFolder`'s, deliberately: single match wins, several match
+ *  and the single ROOT-level one wins, otherwise null and the settings field
+ *  says which. A wrong guess costs less here than it does for templates (a
+ *  mislabelled chip, not a hidden post), but "never guess" is cheaper still
+ *  and keeps one rule in the reader's head for both fields. */
+export function detectTagsFolder(): string | null {
+  const candidates = new Set<string>();
+  for (const notePath of notes.keys()) {
+    const segments = notePath.split("/");
+    for (let i = 0; i < segments.length - 1; i++) {
+      if (looksLikeTagsFolder(segments[i])) candidates.add(segments.slice(0, i + 1).join("/"));
+    }
+  }
+  if (candidates.size === 1) return [...candidates][0];
+  const atRoot = [...candidates].filter((p) => !p.includes("/"));
+  return atRoot.length === 1 ? atRoot[0] : null;
+}
+
+/** True when `relPath` lives in the templates folder. A template is a stencil,
+ *  not a post: it renders as literal `{{date}}` placeholders and duplicates
+ *  every real article's structure, so it stays out of the blog's post list
+ *  (and therefore out of RSS, the dashboard and the topic pages built from
+ *  it) even when its frontmatter carries the `publish: true` it was written to
+ *  hand DOWN to the notes made from it. */
+export function isTemplateNote(relPath: string): boolean {
+  // Called lazily, never at module-evaluation time: settings.ts imports this
+  // module (through site.ts), so the two are a cycle and only a RUNTIME call
+  // is safe in either direction. The merge rule — stored value over
+  // auto-detection — lives there and is not copied here.
+  const folder = templatesFolder();
+  if (folder === null) return false;
+  return relPath === folder || relPath.startsWith(`${folder}/`);
+}
+
+/** Note paths inside the templates folder, sorted — the picker's list. */
+export function templateNotes(): string[] {
+  const folder = templatesFolder();
+  if (folder === null) return [];
+  const prefix = `${folder}/`;
+  return [...notes.keys()].filter((p) => p.startsWith(prefix)).sort((a, b) => a.localeCompare(b));
 }
 
 // ------------------------------------------------------------------- publish
@@ -1187,6 +1406,10 @@ export function posts(visitor = false): PostMeta[] {
     const record = notes.get(notePath);
     if (!record) continue;
     if (visitor && languageHidden(record)) continue;
+    // A template is not a post — in EITHER list. The admin's post list is the
+    // one that answers "what is on my blog", so a stencil sitting in it is the
+    // same lie there as on the public page.
+    if (isTemplateNote(notePath)) continue;
     out.push({ dateMs: record.dateMs, meta: postMeta(record) });
   }
   return out
@@ -1388,6 +1611,41 @@ export function tags(publishedOnly = false): TagCount[] {
     .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
 }
 
+// -------------------------------------------------------- tag page labels
+
+/** Frontmatter `labels:` → a cleaned `{ lang: label }` map, or null when the
+ *  note carries none (which is every note but the tag pages). */
+function labelsOfFm(fm: Record<string, unknown>): Record<string, string> | null {
+  if (fm.labels === undefined || fm.labels === null) return null;
+  const entry = cleanLabelEntry(fm.labels);
+  return Object.keys(entry).length > 0 ? entry : null;
+}
+
+/** The display labels the VAULT itself declares: every note under `folder`
+ *  that carries a frontmatter `labels:` map, keyed by the tag its path names.
+ *
+ *  The path IS the tag, nested tags included — `tags/lang/arabic.md` names
+ *  `lang/arabic` — so a tag page needs no `tag:` key to say what it is about
+ *  and cannot disagree with its own filename. This is source (a) of the
+ *  resolution order in `shared/tagLabels.ts`, and it is first because a label
+ *  written here travels with the vault: clone it, sync it, open it in
+ *  Obsidian, and the naming is still there. */
+export function tagPageLabels(folder: string): TagLabelMap {
+  const out: TagLabelMap = {};
+  const root = folder.replace(/^\/+|\/+$/g, "");
+  if (root === "") return out;
+  const prefix = `${root.toLowerCase()}/`;
+  for (const record of notes.values()) {
+    if (record.labels === null) continue;
+    const lower = record.path.toLowerCase();
+    if (!lower.startsWith(prefix)) continue;
+    const tag = tagKey(stripNoteExt(record.path.slice(prefix.length)));
+    if (tag === "") continue;
+    out[tag] = { ...(out[tag] ?? {}), ...record.labels };
+  }
+  return out;
+}
+
 // ------------------------------------------------------- markdown stripping
 
 /** Remove block-level markers from the start of a line (headings, quotes,
@@ -1480,14 +1738,22 @@ function stripInlineMd(text: string): string {
  *  the full-body stripper and the excerpt builder. skip() returns true when
  *  the line is fence/math/hr furniture that must not reach the prose. */
 class FenceSkipper {
-  private inFence = false;
+  // WHICH marker opened the block, and how long its run was — `shared/fences.ts`
+  // for why a toggle is not enough: a ```markdown block showing a `~~~` block
+  // "closed" on the inner marker, and the rest of the code came out as prose in
+  // the excerpt on the front page.
+  private fence: Fence | null = null;
   private inMath = false;
   skip(raw: string): boolean {
-    if (/^\s*(```|~~~)/.test(raw)) {
-      this.inFence = !this.inFence;
+    if (this.fence) {
+      if (closesFence(raw, this.fence)) this.fence = null;
       return true;
     }
-    if (this.inFence) return true;
+    const opened = fenceOpener(raw);
+    if (opened) {
+      this.fence = opened;
+      return true;
+    }
     // $$ display math is raw LaTeX — leave it out entirely.
     const t = raw.trim();
     if (!this.inMath && t.startsWith("$$")) {

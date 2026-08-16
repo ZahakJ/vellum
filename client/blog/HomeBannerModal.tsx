@@ -7,10 +7,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listAttachments, patchSettings, uploadAttachment } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
+import { useBannerSrc } from "../components/BannerImg.tsx";
 import { localeNum, t, tf } from "../i18n.ts";
 import { UPLOAD_MAX_MB } from "../../shared/limits.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
+
+/** The hero as it stands. The stored value is whatever the admin typed, so it
+ *  goes down the same resolution ladder a note's `banner:` does — and this
+ *  modal, the one place the value can be fixed, says outright when it names
+ *  nothing rather than showing a blank frame. */
+function CurrentHomeBanner({ value }: { value: string }) {
+  const { src, missing } = useBannerSrc(value);
+  return (
+    <div className={`s-bmodal__current${missing ? " s-bmodal__current--missing" : ""}`}>
+      {src ? <img src={src} alt="" /> : <span className="s-bmodal__missing">{t("bannerMissing")}</span>}
+      <span className="s-bmodal__currentpath" dir="auto">
+        {value}
+      </span>
+    </div>
+  );
+}
 
 export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
   const current = useStore((s) => s.home?.banner ?? null);
@@ -108,14 +125,7 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        {current && (
-          <div className="s-bmodal__current">
-            <img src={bannerSrc(current)} alt="" />
-            <span className="s-bmodal__currentpath" dir="ltr">
-              {current}
-            </span>
-          </div>
-        )}
+        {current && <CurrentHomeBanner value={current} />}
 
         <div className="s-bmodal__row">
           <input

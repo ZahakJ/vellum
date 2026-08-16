@@ -3,6 +3,7 @@
 // this file is what lets the reading view ship without the editor bundle.
 
 import { withPreview } from "../api.ts";
+import { clearBannerCache } from "../banner.ts";
 import { t } from "../i18n.ts";
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
@@ -117,10 +118,16 @@ export function markEmbedBroken(key: string): void {
 
 /** A file appeared/renamed in the vault: give failed embeds another chance.
  *  Cached resolves (including definitive misses) are dropped too — the new
- *  file may be exactly the one an embed was waiting for. */
+ *  file may be exactly the one an embed was waiting for.
+ *
+ *  BANNERS RIDE ALONG. A banner resolves through the same vault-wide index an
+ *  embed does (client/banner.ts), so it goes stale on exactly the same events
+ *  — including the visitor-preview toggle, where resolution is scope-dependent
+ *  and a cached admin answer would paint a hero a visitor cannot fetch. */
 export function clearBrokenEmbeds(): void {
   brokenKeys.clear();
   resolveCache.clear();
+  clearBannerCache();
 }
 
 // ── Broken-embed placeholder ────────────────────────────────────────────────

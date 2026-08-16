@@ -78,20 +78,47 @@
    measure's edges), and `***` adds the ✦ the wordmark already carries. The
    margin is 2.8em against a 1.7 line-height — the old 1.6em was barely more
    air than a paragraph gap, which is to say the rule separated without giving
-   the breath it exists to buy. */
+   the breath it exists to buy.
+
+   COLOUR ALONE WAS NOT THE DISTINCTION IT LOOKED LIKE. Measured on iron-gall:
+   the first pass drew the divider 1px tall in `--accent` at 65% alpha, which
+   over a near-black ground is *fainter* than the h1's 1px `--border` hairline
+   sitting 200px above it — so the content divider was still the quieter of
+   the two lines, and the hierarchy was not merely undistinguished but
+   INVERTED. It is 2px now, gold at 88%, with the solid run reaching 15%–85%
+   of the measure. Against a 1px `--border` chrome rule that is a difference
+   of weight AND of colour AND of length, three ways at once, in every theme —
+   it is stated entirely in `--accent`, so a theme that retunes its gold
+   retunes its divider, and none of the fifteen needs a rule of its own. The
+   chrome rules are untouched: this is about the divider earning its own
+   treatment, not about making the furniture quieter. */
 .s-rv-hr {
   position: relative;
-  height: 1px;
+  height: 2px;
   border: none;
+  border-radius: 2px;
   margin: 2.8em 0;
   overflow: visible;
   background: linear-gradient(
     to right,
     transparent,
-    color-mix(in srgb, var(--accent) 65%, transparent) 22%,
-    color-mix(in srgb, var(--accent) 65%, transparent) 78%,
+    color-mix(in srgb, var(--accent) 88%, transparent) 15%,
+    color-mix(in srgb, var(--accent) 88%, transparent) 85%,
     transparent
   );
+}
+
+/* THE BLOG IS THE THIRD SURFACE, and it was the one the rule above could not
+   reach: the visitor refinements below are scoped `.s-app--visitor`, which is
+   a class the app shell puts on ITS root — the blog shell mounts `.s-blog`
+   and never sees it. So the same divider read as one thing in the reading
+   pane and a tighter, full-measure thing on the published page, twelve pixels
+   of chrome apart. One rule, stated where the divider is defined rather than
+   in blog.css, because a fourth copy of these numbers is how the three
+   surfaces drifted in the first place. */
+.s-blog .s-rv-hr {
+  margin: 3.2em auto;
+  width: 72%;
 }
 
 .s-rv-hr--orn::after {
@@ -876,6 +903,116 @@ span.s-rv-math-live {
 .s-toc__item--l5 { padding-inline-start: 48px; }
 .s-toc__item--l6 { padding-inline-start: 58px; }
 .s-toc__item--l1.s-toc__item--active { color: var(--text); }
+
+/* ── The outline as a TOOL: dragging a row reorders that section ───────────
+   The list is the positioning context for the drop rule, which is absolutely
+   placed rather than spliced between rows: an indicator that takes up space
+   pushes every row below it down by its own height, so the row the reader is
+   aiming at moves away from the pointer at the moment they aim. */
+
+.s-toc__list {
+  position: relative;
+}
+
+.s-toc__item[draggable="true"] {
+  /* `grab` and not `move`: nothing is being moved until the drag starts, and
+     the row's first job is still "click me to scroll there". */
+  cursor: grab;
+}
+
+.s-toc__list--dragging .s-toc__item {
+  cursor: grabbing;
+}
+
+/* The row in flight stays legible — it is the thing being placed, and a row
+   faded to 30% is a row the reader can no longer read the name of while
+   deciding where it goes. */
+.s-toc__item--dragging {
+  opacity: 0.55;
+  background: var(--bg-hover);
+}
+
+/* Spring-loaded: dwelling on a row means "inside this section". The accent
+   ring says the row is a DESTINATION, which is a different thing from the
+   active-row bar (that one says "you are here"), so it is drawn as an outline
+   rather than as a fill. */
+.s-toc__item--spring {
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+/* The drop rule, indented to the depth the section will LAND at — the whole
+   point of drawing it. Gold, because it is punctuation in the reader's own
+   gesture rather than furniture (the same argument the content divider makes
+   against the chrome hairlines). */
+.s-toc__drop {
+  position: absolute;
+  inset-inline-end: 10px;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none; /* never steal the dragover from the row underneath */
+  z-index: 2;
+}
+
+.s-toc__drop::before {
+  content: "";
+  position: absolute;
+  inset-block-start: -3px;
+  inset-inline-start: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ── Heading numbers ───────────────────────────────────────────────────────
+   The outline's numbers and the reading view's numbers are one computation
+   (reading/headingNumbers.ts), so a row and the heading it points at can
+   never print different numbers. Tabular figures: a column of "9.", "10.",
+   "11." that shifts its text left by a digit reads as three indent levels. */
+
+.s-toc__num {
+  display: inline-block;
+  min-width: 1.6em;
+  margin-inline-end: 0.45em;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.s-toc__item--active .s-toc__num,
+.s-toc__item:hover .s-toc__num {
+  color: var(--accent);
+}
+
+.s-toc__numbtn {
+  flex: none;
+  min-width: 24px;
+  font-family: var(--font-serif);
+  font-size: 0.82rem;
+  line-height: 1;
+  color: var(--text-faint);
+}
+
+.s-toc__numbtn--on {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* The number ahead of a rendered heading. IN THE FLOW, not hung in the
+   margin: the gutter is `min(56px, 7.37%)` and shrinks with the viewport
+   (CONTRACTS, "the reading column is monotone in viewport width"), so a
+   hanging "4.2.1" is a number that fits at 1440 and pushes the document into
+   horizontal overflow at 820. Gold, one weight lighter than the heading it
+   numbers, so it reads as an index rather than as the first word. */
+.s-rv-hnum {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  margin-inline-end: 0.5em;
+}
 
 /* ── Visitor typography — the public face ──────────────────────────────────
    Same 760px measure as the editor; the refinement is in scale and rhythm:

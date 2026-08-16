@@ -56,16 +56,25 @@ function destination(dir: string): string {
   return dir ? tf("promptInFolder", { folder: dir }) : t("promptAtRoot");
 }
 
-/** New note in `dir` ("" = vault root). Creates it, opens it, and leaves the
- *  caret in the editor — the store's createNote owns all three. */
-export async function promptNewNote(dir: string): Promise<void> {
-  const path = await promptModal({
-    title: t("newNote"),
+/** Ask for a note path in `dir` ("" = vault root) and hand it back WITHOUT
+ *  creating anything. The naming rule — the extension, the folder join, the
+ *  `..`/dotfile refusals, the "creates ideas/Untitled.md" line under the
+ *  field — is the one above, so a second creation flow cannot drift from the
+ *  first. Null when the reader cancelled. */
+export function promptNotePath(dir: string, title: string): Promise<string | null> {
+  return promptModal({
+    title,
     body: destination(dir),
     value: "Untitled.md",
     placeholder: "Untitled.md",
     check: (raw) => check(dir, true, raw),
   });
+}
+
+/** New note in `dir` ("" = vault root). Creates it, opens it, and leaves the
+ *  caret in the editor — the store's createNote owns all three. */
+export async function promptNewNote(dir: string): Promise<void> {
+  const path = await promptNotePath(dir, t("newNote"));
   if (path) await useStore.getState().createNote(path);
 }
 

@@ -646,6 +646,33 @@ select:focus,
   user-select: none;
 }
 
+/* ------------------------------------------------- the meta separator ---- */
+/* The mark between two counts on one line (client/metaSep.tsx). Where the
+   instance prints Eastern Arabic digits a `·` is not a separator, it is a
+   `٠` glued to the number beside it — "٧٨٦ حرفًا" painted as ٧٨٦٠ — so the
+   tick becomes the HAIRLINE the status bar already marks its groups with:
+   1px of `--border`, the same rule at the same weight, which no reader can
+   mistake for a digit because it is not a character. */
+.s-metasep {
+  user-select: none;
+}
+
+.s-metasep--rule {
+  display: inline-block;
+  width: 1px;
+  height: 0.85em;
+  background: var(--border);
+  vertical-align: -0.06em;
+}
+
+/* The status bar's pair and the graph HUD are inline TEXT, not flex rows, so
+   the mark carries its own side bearings there — the blog's meta line gets
+   them from the row's `gap`. */
+.s-statusbar__counts .s-metasep,
+.s-graph__hudsep {
+  margin-inline: 0.42em;
+}
+
 /* --------------------------------------------------------- context menu -- */
 
 .s-menu {
@@ -699,6 +726,18 @@ select:focus,
 .s-menu__item--danger:hover {
   background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
+}
+
+/* A context menu is a TOUCH surface too — it is the whole door the section
+   affordance opens on a phone (preview.css moves the ⋯ inside the column for
+   exactly that reason), and 33.6px rows are the same half-promise the ⋯ used
+   to make. The shell's rule applies here as everywhere else. */
+@media (pointer: coarse) {
+  .s-menu__item {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
 }
 
 @keyframes s-pop-in {
@@ -1130,6 +1169,75 @@ select:focus,
   object-fit: cover;
   border-radius: calc(var(--radius) + 2px);
   border: 1px solid var(--border);
+}
+
+/* A `banner:` that names nothing — ADMIN SURFACES ONLY (the reading view's
+   copy of this lives in reading/reading.css; a visitor gets no furniture at
+   all). The hero used to delete itself on a load error, which made a typo and
+   "no banner" render identically; this is the dashed language the broken-embed
+   placeholder already speaks, plus the value that failed and the button that
+   fixes it. Everything here is --text-muted or better at full opacity: the
+   name of a file is text a reader has to READ. */
+.s-editor .cm-s-banner__missing,
+.s-rv-banner__missing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px dashed color-mix(in srgb, var(--danger) 45%, var(--border));
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--bg-raised);
+  font-family: var(--font-ui);
+  font-size: 0.813rem;
+  color: var(--text-muted);
+}
+
+.s-editor .cm-s-banner__missingicon,
+.s-rv-banner__missingicon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--danger) 65%, var(--text-muted));
+}
+
+/* A FILENAME IS TEXT A READER MUST READ — so it gets a line, not a column.
+   `min-width: 0` plus `overflow-wrap: anywhere` let this value take the whole
+   shortfall of a 390px row: the label, the value and the Set banner… button
+   all compete on one flex line, and the only one allowed to shrink went to
+   24px wide and broke ONE GLYPH PER LINE — "kyo / to- / cov / er. / png",
+   stretching the card to 130px (260 at 2×). The row already wraps; it just had
+   no reason to. A floor in characters gives it one, so the button drops to the
+   next line and the name keeps a readable measure. `anywhere` stays, for the
+   pathological 80-character filename that still has to fit somewhere. */
+.s-editor .cm-s-banner__missingname,
+.s-rv-banner__missingname {
+  flex: 1 1 auto;
+  min-width: 14ch;
+  font-family: var(--font-mono);
+  font-size: 0.786rem;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.s-editor .cm-s-banner__missingaction,
+.s-rv-banner__missingaction {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+
+.s-editor .cm-s-banner__missingaction:hover,
+.s-rv-banner__missingaction:hover {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
 }
 
 /* Empty state shown when no note is open.
@@ -2366,11 +2474,240 @@ select:focus,
   border: 1px solid var(--border);
 }
 
+/* The value that is set, spelled out. --text-muted, not --text-faint: this is
+   a FILENAME — something the reader is here to read and compare against what
+   they meant to type — and --text-faint is the non-text token (DESIGN.md). */
 .s-bmodal__currentpath {
   font-family: var(--font-mono);
   font-size: 0.786rem;
-  color: var(--text-faint);
+  color: var(--text-muted);
   word-break: break-all;
+}
+
+/* The same row when the value resolves to no file. The picker is where this
+   gets fixed, so it is the one surface that must NAME the failure. */
+.s-bmodal__current--missing .s-bmodal__currentpath {
+  color: var(--text);
+}
+
+.s-bmodal__missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 148px;
+  height: 56px;
+  padding: 0 8px;
+  border: 1px dashed color-mix(in srgb, var(--danger) 45%, var(--border));
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+/* Resolution in flight: a quiet frame, never the ⌀ — "we have not asked yet"
+   must not read as "this names nothing". */
+.s-smodal__imgthumb--pending {
+  border-style: dashed;
+  opacity: 0.5;
+}
+
+/* ── Template picker ──────────────────────────────────────────────────────
+   A list and a preview, side by side. The preview is the point: a template's
+   NAME says almost nothing about what it will put in the note, so the panel
+   shows the body with its placeholders already filled — what is about to
+   land, not what the file says. Below 640px the two stack, and the preview
+   keeps a floor so it is still a preview rather than a hint of one. */
+
+.s-tmpl {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.s-tmpl__body {
+  display: grid;
+  grid-template-columns: minmax(180px, 34%) 1fr;
+  gap: 12px;
+  min-height: 0;
+  flex: 1;
+}
+
+.s-tmpl__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 180px;
+  max-height: 44vh;
+  overflow-y: auto;
+}
+
+.s-tmpl__item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.s-tmpl__item:hover {
+  background: var(--bg-hover);
+}
+
+/* ONE SELECTED-ROW TREATMENT IN THE APP. The command palette's selected row is
+   `--accent-soft` PLUS a 2px gold bar on its leading edge (DESIGN.md), and
+   this list shipped the ground without the bar — two different answers to
+   "which row am I on" in one product. Logical inset, so RTL puts the bar on
+   the right like every other active row. */
+.s-tmpl__item--active {
+  background: var(--accent-soft);
+  position: relative;
+}
+
+.s-tmpl__item--active::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 2px;
+  border-start-start-radius: var(--radius);
+  border-end-start-radius: var(--radius);
+  background: var(--accent);
+}
+
+.s-tmpl__name {
+  font-family: var(--font-serif);
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.s-tmpl__path {
+  font-family: var(--font-mono);
+  font-size: 0.714rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.s-tmpl__preview {
+  min-width: 0;
+  min-height: 180px;
+  max-height: 44vh;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.s-tmpl__pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.65;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ── The template's PROPERTIES, above its body ────────────────────────────
+   The half the preview used to leave out. Two templates whose bodies are both
+   `# {{title}}` are told apart here and nowhere else, and one of the rows may
+   be `publish: true`. Key/value rows rather than the `---` block itself: the
+   picker is outside the editor, where raw markup may not be shown. */
+.s-tmpl__propshead {
+  font-size: 0.688rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+}
+
+.s-tmpl__propshead--body {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.s-tmpl__props {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 2px 10px;
+  font-size: 0.75rem;
+}
+
+.s-tmpl__prop {
+  display: contents;
+}
+
+.s-tmpl__propkey {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.s-tmpl__propval {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* THE ONE ROW THAT PUTS A NOTE ON A PUBLIC WEBSITE reads as the toggle that
+   does the same thing elsewhere: the accent, not a danger colour — publishing
+   is a thing the reader may well want, it just may not be a thing they meant
+   to pick blind. */
+.s-tmpl__prop--publish .s-tmpl__propkey,
+.s-tmpl__prop--publish .s-tmpl__propval {
+  color: var(--accent);
+}
+
+.s-tmpl__publishwarn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+.s-tmpl__publishmark {
+  color: var(--accent);
+}
+
+.s-tmpl__noprops {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.s-tmpl__previewempty {
+  color: var(--text-muted);
+  font-size: 0.813rem;
+}
+
+/* Which folder the list came from. A picker whose contents depend on a
+   setting has to name the setting — especially when the folder was
+   auto-detected and the reader never chose it. */
+.s-tmpl__foot {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 640px) {
+  .s-tmpl__body {
+    grid-template-columns: 1fr;
+  }
+
+  .s-tmpl__list,
+  .s-tmpl__preview {
+    max-height: 30vh;
+  }
 }
 
 .s-bmodal__row {

@@ -33,6 +33,7 @@ import {
   completionKeymap,
 } from "@codemirror/autocomplete";
 import { autoLineDirection } from "./bidi.ts";
+import { noteLayoutExtension } from "./noteLayout.ts";
 import { editorTheme, vellumHighlighting } from "./theme.ts";
 import { livePreview } from "./livePreview.ts";
 import { pointerSelection } from "./pointer.ts";
@@ -42,6 +43,7 @@ import { wikilinkAutocomplete } from "./autocomplete.ts";
 import { imageUploads } from "./uploads.ts";
 import { hoverPreviews } from "./hoverPreview.ts";
 import { headingFolds } from "./folding.ts";
+import { sectioning } from "./sectioning.ts";
 import { attachVimStatus, detachVimStatus } from "./vimStatus.ts";
 import { t } from "../i18n.ts";
 import { isTexPath } from "../../shared/noteFormat.ts";
@@ -120,6 +122,14 @@ export function buildEditorState(options: EditorSetupOptions): EditorState {
       // honor that per-line direction for cursor movement.
       EditorView.perLineTextDirection.of(true),
       autoLineDirection,
+      // …and the SITE (or the note's own frontmatter) may pin both the
+      // direction and the ALIGNMENT of that prose. bidi.ts above already
+      // resolves the direction into the per-line attribute; this paints the
+      // alignment onto `.cm-content` and marks the lines that must never take
+      // it — a centred code fence stops lining up with itself. Format-blind
+      // like everything else at this level: a `.tex` note takes the direction
+      // and refuses the measure, one branch inside the plugin.
+      noteLayoutExtension(options.path),
       // THE ONE BRANCH IN THE EXTENSION LIST. Everything above and below it is
       // format-blind — the theme, the vim compartment, the save keymap, the
       // caret handling, the uploads. What differs between a `.md` and a `.tex`
@@ -168,6 +178,12 @@ export function buildEditorState(options: EditorSetupOptions): EditorState {
       // Markdown's heading folds are markdown's; a `.tex` note folds
       // environments and sections through texFolds above.
       ...(isTexPath(options.path) ? [] : [headingFolds()]),
+      // The section affordances: the ⋯ beside each heading's chevron, the
+      // heading context menu, jump-to-heading / focus-section / select-section,
+      // fold state that survives a reload, and the bridge the outline panel
+      // writes its drags through. Markdown only, for the same reason folding
+      // is: a `.tex` note's structure is `\section{…}` and texFolds owns it.
+      ...(isTexPath(options.path) ? [] : [sectioning()]),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) options.onDocChanged(update.view);
       }),

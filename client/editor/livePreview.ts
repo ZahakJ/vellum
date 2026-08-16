@@ -34,6 +34,7 @@ import { parseWikilink, resolveLink, WIKILINK_RE } from "./links.ts";
 import { posFromEvent } from "./pointer.ts";
 import { bannerFromYaml } from "../banner.ts";
 import { getLang, t, tf } from "../i18n.ts";
+import { label as tagLabel } from "../tagLabels.ts";
 import { buildBannerEl, buildPropsCard, parseProps, TAG_RE } from "./noteMeta.ts";
 import {
   FileCardWidget,
@@ -824,11 +825,16 @@ class FrontmatterWidget extends WidgetType {
   // language in the identity a live settings flip left an Arabic card sitting
   // above English editor chrome (and vice versa) until a full reload.
   readonly lang = getLang();
-  constructor(readonly yaml: string) {
+  constructor(
+    readonly yaml: string,
+    /** The note this frontmatter belongs to — a `banner: cover.png` resolves
+     *  against its folder first (client/banner.ts). */
+    readonly notePath: string,
+  ) {
     super();
   }
   override eq(other: FrontmatterWidget): boolean {
-    return other.yaml === this.yaml && other.lang === this.lang;
+    return other.yaml === this.yaml && other.lang === this.lang && other.notePath === this.notePath;
   }
   toDOM(): HTMLElement {
     // Header action: opens the banner modal (handled in the shell via a
@@ -862,7 +868,12 @@ class FrontmatterWidget extends WidgetType {
         // because `#` is bidi-neutral and an RTL base direction sweeps it to
         // the display end. See the sidebar's <bdi> tag pill, which was right.
         pill.dir = "auto";
-        pill.textContent = `#${value}`;
+        // WHAT THE CHIP SAYS vs WHAT THE CHIP IS. The label is display only —
+        // `data-tag` above still carries the canonical tag, and so does the
+        // search this pill dispatches, so nothing downstream learns a new
+        // vocabulary. The `title` keeps naming the canonical value, which is
+        // how a reader of an Arabic instance finds out what to type.
+        pill.textContent = `#${tagLabel(value)}`;
         pill.title = tf("searchTag", { tag: value });
         pill.addEventListener("click", (ev) => {
           ev.preventDefault();
@@ -881,7 +892,12 @@ class FrontmatterWidget extends WidgetType {
     if (banner) {
       const wrap = document.createElement("div");
       wrap.className = "cm-s-fmblock";
-      wrap.appendChild(buildBannerEl(banner, "cm-s-banner"));
+      // The editor is an admin-only surface by construction (a read-only
+      // session never mounts CodeMirror), so a banner that resolves to
+      // nothing shows the card that says so.
+      wrap.appendChild(
+        buildBannerEl(banner, "cm-s-banner", { notePath: this.notePath, admin: true }),
+      );
       wrap.appendChild(card);
       return wrap;
     }
@@ -910,6 +926,9 @@ function buildBlockDecorations(state: EditorState): DecorationSet {
   const doc = state.doc;
   const active = activeLines(state);
   const decos: Range<Decoration>[] = [];
+  // The note's own path: a `banner:` resolves against its folder before it
+  // resolves against the vault (client/banner.ts).
+  const notePath = state.facet(notePathFacet);
 
   const anyActiveBetween = (firstLine: number, lastLine: number): boolean => {
     for (let n = firstLine; n <= lastLine; n++) {
@@ -929,7 +948,7 @@ function buildBlockDecorations(state: EditorState): DecorationSet {
           : "";
       const spec =
         parseProps(yaml).length > 0
-          ? { widget: new FrontmatterWidget(yaml), block: true }
+          ? { widget: new FrontmatterWidget(yaml, notePath), block: true }
           : { block: true };
       decos.push(Decoration.replace(spec).range(doc.line(1).from, fmEnd));
     }
@@ -959,7 +978,16 @@ function buildBlockDecorations(state: EditorState): DecorationSet {
       // Thematic break → the drawn divider, while the cursor is elsewhere.
       if (node.name === "HorizontalRule") {
         const line = doc.lineAt(node.from);
-        if (!active.has(line.number) && line.text.trim() !== "") {
+        // NOT THE FRONTMATTER FENCES. `---` opening and closing a properties
+        // block is a delimiter, not content — the block above is already
+        // replaced by the properties card — and the markdown parser has no
+        // frontmatter mode, so it hands both fences over as thematic breaks.
+        // The result was a gold content rule floating above the properties
+        // card of every note that has frontmatter, which is exactly the
+        // "three chrome hairlines and one content hairline" confusion
+        // DESIGN.md says the divider must never join.
+        const inFrontmatter = fmEnd > 0 && node.from < fmEnd;
+        if (!inFrontmatter && !active.has(line.number) && line.text.trim() !== "") {
           decos.push(
             Decoration.replace({
               widget: new RuleWidget(line.text.trim().startsWith("*")),

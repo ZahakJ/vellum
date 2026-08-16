@@ -110,11 +110,14 @@
   --graph-edge: #5a5245;
   --graph-vignette: rgba(9, 8, 6, 0.4);
 
-  /* How far generated banner gradients (client/banner.ts) pull their hash
-     hues toward --accent. Dark themes clamp hard — raw saturated hues fight
-     the candlelit identity; parchment overrides to 0% (pastel mixes already
-     read right on paper). Resolved at the consuming element, so it is safe
-     to override per theme. */
+  /* How far a generated banner (client/banner.ts) lets its hash hue pull the
+     ACCENT away from itself. The accent is the base colour of every blob and
+     this is the swing, so 0% is pure accent — the safe floor, and what a theme
+     that never declares the token inherits. The four light themes sit at 0%
+     (a paper ground shows a foreign hue at any strength); the dark rooms allow
+     45%, which the outer accent floor in banner.ts halves again. Resolved at
+     the consuming element, so it is safe to override per theme and a theme
+     switch repaints live. */
   --banner-tint: 45%;
 
   /* Font stacks. Latin-first is the default: a stack is consulted per

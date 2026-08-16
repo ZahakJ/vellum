@@ -884,7 +884,14 @@ export function renderTex(src: string, opts: RenderOptions): HTMLElement {
   // comment block is frontmatter, so it reads as frontmatter.
   if (!opts.embedded && doc.frontmatter.trim() !== "") {
     const banner = bannerFromYaml(doc.frontmatter);
-    if (banner) root.appendChild(buildBannerEl(banner, "s-rv-banner"));
+    if (banner) {
+      root.appendChild(
+        buildBannerEl(banner, "s-rv-banner", {
+          notePath: opts.notePath,
+          admin: useStore.getState().admin,
+        }),
+      );
+    }
     const card = buildPropsCard(doc.frontmatter, {
       prefix: "s-rv-props",
       makeTag: (value) => {

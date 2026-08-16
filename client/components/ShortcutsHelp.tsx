@@ -19,6 +19,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { openDailyNote } from "../daily.ts";
+import { insertTemplateCommand, newNoteFromTemplateCommand } from "../templateActions.ts";
 import { t, type I18nKey } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { openThemePicker } from "./ThemePicker.tsx";
@@ -115,6 +116,24 @@ const GROUPS: Group[] = [
       },
       { label: "cmdDailyNote", keys: ["Ctrl/Cmd", "D"], admin: true, run: () => void openDailyNote() },
       { label: "newNote", keys: ["Ctrl/Cmd", "N"], admin: true },
+      // Templates wear Alt because Ctrl/Cmd+T and +Shift+T belong to the
+      // browser (new tab / reopen closed tab) — the sheet has to be able to
+      // answer "what is the template key" in one glance, including WHY it is
+      // not the obvious one. Both rows run from here, in the app shell.
+      {
+        label: "cmdInsertTemplate",
+        keys: ["Ctrl/Cmd", "Alt", "T"],
+        admin: true,
+        shell: "app",
+        run: () => void insertTemplateCommand(),
+      },
+      {
+        label: "cmdNewFromTemplate",
+        keys: ["Ctrl/Cmd", "Alt", "Shift", "T"],
+        admin: true,
+        shell: "app",
+        run: () => void newNoteFromTemplateCommand(),
+      },
       { label: "scFollowLink", via: "scFollowLinkKey" },
       // The tree carries images and PDFs now, and nothing else on screen says
       // that a click on one opens a viewer or that the arrows walk the folder.
@@ -146,6 +165,21 @@ const GROUPS: Group[] = [
       // invisible affordance is not an answer to "I could not find it".
       { label: "scFold", keys: ["Ctrl/Cmd", "Shift", "[ / ]"], via: "scFoldKey", admin: true },
       { label: "scFoldAll", keys: ["Ctrl/Cmd", "Alt", "[ / ]"], admin: true },
+    ],
+  },
+  {
+    // SECTIONS ARE THEIR OWN GROUP for the reason Formatting is: a heading is
+    // a handle on a whole subtree, and the five things a reader can do to that
+    // subtree are not five more rows of "editing". Two of them have no
+    // keystroke at all — the outline drag is the flagship gesture of the
+    // panel, and a gesture nobody can enumerate is a gesture nobody finds.
+    title: "scGroupSections",
+    items: [
+      { label: "scReorderSection", via: "scViaOutlineDrag", admin: true, shell: "app" },
+      { label: "scSectionMenu", via: "scSectionMenuKey", admin: true },
+      { label: "scPrevHeading", keys: ["Ctrl/Cmd", "Alt", "↑"], admin: true },
+      { label: "scNextHeading", keys: ["Ctrl/Cmd", "Alt", "↓"], admin: true },
+      { label: "scFocusSection", keys: ["Ctrl/Cmd", "Alt", "F"], admin: true },
     ],
   },
   {

@@ -14,6 +14,7 @@ import type { TreeNode } from "../../shared/types.ts";
 import { getNote } from "../api.ts";
 import { getKatex, loadKatex } from "../katex.ts";
 import { t, tf } from "../i18n.ts";
+import { label as tagLabel } from "../tagLabels.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { parseWikilink, resolveLink } from "../editor/links.ts";
@@ -266,12 +267,28 @@ function renderInline(raw: string, ctx: Ctx, multiline = false): string {
 
   // #tags → search pills. Tags hidden from the surface (EXCLUDE_TAGS on
   // blog renders) stay plain text — no pill styling, no dead-end topic link.
+  //
+  // THE PILL SAYS THE LABEL AND MEANS THE TAG, exactly as the DOM builder
+  // below (`s-rv-tag`, ~line 650) and the editor's properties card already do.
+  // This one was the copy that did not: `renderInline` is what paragraphs,
+  // headings, table cells, list items, callouts and footnotes all go through,
+  // so an Arabic instance labelled its sidebar cloud, its properties cards and
+  // its blog nav «التعمية» while every tag in the PROSE — and every tag in a
+  // hover card, which renders through here — still read `#cryptography`. One
+  // pill, two builders, one of them localised: the drift this codebase keeps
+  // writing down, in the surface a reader looks at most.
+  //
+  // `data-tag` stays canonical (it is what the delegated click searches on),
+  // the title names the canonical value so a reader can always learn what to
+  // type, and `dir="auto"` is not optional — `#` is bidi-neutral, so under an
+  // RTL base direction a chip without it reads «التعمية#».
   s = s.replace(TAG_RE, (_m, pre: string, name: string) => {
     if (ctx.visibleTags && !ctx.visibleTags.has(name.toLowerCase())) return `${pre}#${name}`;
     return (
       pre +
       keep(
-        `<button type="button" class="s-rv-tag" data-tag="${esc(name)}">#${esc(name)}</button>`,
+        `<button type="button" class="s-rv-tag" data-tag="${esc(name)}" dir="auto"` +
+          ` title="${esc(tf("searchTag", { tag: name }))}">#${esc(tagLabel(name))}</button>`,
       )
     );
   });
@@ -643,7 +660,10 @@ function propsCard(yaml: string): HTMLElement | null {
       // Arabic. Without the isolate the neutral `#` is swept to the display
       // end by an RTL base direction and the chip reads `matrix#`.
       pill.dir = "auto";
-      pill.textContent = `#${value}`;
+      // Display only: `data-tag` above keeps the canonical tag, which is what
+      // the reading view's delegated handler searches on.
+      pill.textContent = `#${tagLabel(value)}`;
+      pill.title = tf("searchTag", { tag: value });
       return pill;
     },
   });
@@ -867,6 +887,15 @@ function renderBlocks(lines: string[], ctx: Ctx, root: HTMLElement): void {
       wrap.className = "s-rv-tablewrap";
       const table = document.createElement("table");
       table.className = "s-rv-table";
+      // COLUMN ORDER IS CONTENT, so the table takes its direction from its own
+      // text, exactly as every other rendered block does. The cells already
+      // carried `dir="auto"` and the table did not, so it inherited the SHELL:
+      // an English table on an Arabic instance came out with its columns
+      // reversed — "Column | Another" read "Another | Column" — while each
+      // cell's own text sat the right way round inside it. An Arabic table
+      // still reads right to left, because its own first strong character
+      // says so.
+      table.dir = "auto";
       const alignCls = (j: number): string =>
         aligns[j] ? ` class="s-rv-al-${aligns[j] === "center" ? "c" : "r"}"` : "";
       table.innerHTML =
@@ -943,7 +972,18 @@ function renderNote(md: string, ctx: Ctx, root: HTMLElement): void {
         // Banner hero above the properties card (the blog shell hides this
         // and renders its own full-width hero instead).
         const banner = bannerFromYaml(yaml);
-        if (banner) root.appendChild(buildBannerEl(banner, "s-rv-banner"));
+        if (banner) {
+          // The note's own path is the relative base ("cover.png" beside it),
+          // and `admin` decides whether an unresolvable value shows the
+          // missing-image card or nothing at all. `admin` is already false
+          // while previewing as a visitor, which is the answer this wants.
+          root.appendChild(
+            buildBannerEl(banner, "s-rv-banner", {
+              notePath: ctx.notePath,
+              admin: useStore.getState().admin,
+            }),
+          );
+        }
         const card = propsCard(yaml);
         if (card) root.appendChild(card);
       }

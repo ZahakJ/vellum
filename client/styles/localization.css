@@ -1,0 +1,155 @@
+/* Localization chrome: the note-layout broadcast, the calendar specimen and
+ * the tag-label editor.
+ *
+ * Every colour is a token and every directional value is logical — these
+ * surfaces are the ones an Arabic instance looks at hardest.
+ */
+
+/* ── The note-layout broadcast ─────────────────────────────────────────────
+ * Two surfaces, one look, because they say the same sentence: the properties
+ * card's header chip (where the frontmatter is) and the status bar's segment
+ * (where the reader is). Both are LABELS, not switches — the value lives in
+ * the note's own frontmatter, which is where it is changed — so neither takes
+ * the mode pill's lit treatment. Quiet is the point: DESIGN.md holds anything
+ * a reader has to READ to --text-muted, and that is exactly what these are.
+ */
+
+.s-statusbar .s-statusbar__layout {
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-size: 0.92em;
+  letter-spacing: 0.02em;
+}
+
+.cm-s-props__layout,
+.s-rv-props__layout {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: 8px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* ── The calendar specimen ─────────────────────────────────────────────────
+ * The three segments name three calendars; this is the only thing that shows
+ * what one of them PRINTS. It reads as a value, not as prose, so it takes the
+ * body colour while the sentence around it stays muted.
+ */
+.s-smodal__specdate {
+  color: var(--text);
+  font-family: var(--font-serif);
+}
+
+/* ── The tag-label editor ──────────────────────────────────────────────────
+ * A compact key/value table: tag · English · Arabic · remove. The grid is
+ * `1fr 1fr 1fr auto` rather than fixed columns because the panel's measures
+ * are in rem (Arabic sets ~6% wider at the same rem) and a px column would
+ * collide with its own label there — the trap the panel documents.
+ */
+
+.s-taglabels {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.s-taglabels__head,
+.s-taglabels__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.s-taglabels__head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  /* A column heading is a label naming a thing, so --text-muted, not faint. */
+  color: var(--text-muted);
+}
+
+.s-taglabels__empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.s-taglabels__del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+
+/* An icon button that draws no icon is a dot: name the size explicitly rather
+ * than trusting whatever the surrounding button rules do to an inline SVG. */
+.s-taglabels__del svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
+.s-taglabels__del:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--bg-hover);
+}
+
+.s-taglabels__add {
+  align-self: start;
+  margin-block-start: 2px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.s-taglabels__add:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Touch: the same 44px floor the rest of the shell keeps. A tablet is 1024px
+ * wide and still has no mouse. */
+@media (max-width: 700px), (pointer: coarse) {
+  .s-taglabels__del,
+  .s-taglabels__add {
+    min-height: 44px;
+  }
+
+  /* Four columns of input at 390px is four unusable inputs — the row stacks,
+   * and the remove button goes to its own line at the trailing edge. */
+  .s-taglabels__head {
+    display: none;
+  }
+
+  .s-taglabels__row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .s-taglabels__row > :nth-child(2),
+  .s-taglabels__row > :nth-child(3) {
+    grid-column: 1 / -1;
+  }
+}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getGraph } from "../api.ts";
 import { autoDir, countPhrase, t } from "../i18n.ts";
+import { MetaSep } from "../metaSep.tsx";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import type { GraphData, GraphNode } from "../../shared/types.ts";
@@ -752,7 +753,8 @@ export default function GraphView() {
         ))}
       {stats !== null && stats.notes > 0 && (
         <div className="s-graph__hud">
-          {countPhrase(stats.notes, admin ? "notes" : "publishedNotes")} ·{" "}
+          {countPhrase(stats.notes, admin ? "notes" : "publishedNotes")}
+          <MetaSep className="s-graph__hudsep" />
           {countPhrase(stats.links, "links")}
         </div>
       )}

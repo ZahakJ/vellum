@@ -13,11 +13,13 @@ import { isNotePath, isTexPath, stripNoteExt } from "../shared/noteFormat.ts";
 import { UPLOAD_MAX_BYTES } from "../shared/limits.ts";
 import type {
   AnchorsResponse,
+  BannerResolution,
   CommentData,
   FrontmatterResult,
   NoteData,
   PublishedPaths,
   PublishResult,
+  TagLabelsResponse,
   TreeNode,
   UploadResult,
   VaultEvent,
@@ -52,6 +54,7 @@ import {
   publishedNotes,
   publishedPaths,
   registerAttachment,
+  resolveBannerRef,
   resolveCitekey,
   resolveEmbed,
   resolveLabel,
@@ -93,6 +96,9 @@ import {
   sniffFontFormat,
 } from "./customFonts.ts";
 import { fontSlots, patchSettings, settingsAssetPaths, settingsResponse } from "./settings.ts";
+// Localised tag labels: display names for canonical tags, plus the query
+// rewrite that makes search answer to both spellings.
+import { expandTagQuery, visibleTagLabels } from "./tagLabels.ts";
 import { attachmentsDir, customCssPath, fontsDir } from "./site.ts";
 import {
   VaultError,
@@ -616,6 +622,48 @@ api.get("/resolve", (c) => {
   return c.json({ path: resolveEmbed(name, isPublishLimited(c)) });
 });
 
+// A `banner:` value (or any settings image reference) → the file it names.
+//
+// The client cannot answer this itself: the ladder ends in the vault-wide
+// basename index, and a visitor's tree does not carry attachments at all. A
+// miss is 200 `{ path: null }`, like /api/resolve — a typo'd banner is an
+// ordinary state of a vault, not a server error — and null is exactly what the
+// admin surfaces turn into the "missing image" placeholder and the visitor
+// surfaces turn into nothing at all.
+//
+// `note` is the note the value was read from, and it is what makes
+// `banner: cover.png` beside the note work. Visitors are scoped to files
+// /api/file would actually serve them, so this can never become a probe for
+// which unpublished attachments exist.
+api.get("/banner", (c) => {
+  const value = requiredQuery(c.req.query("value"), "value");
+  const note = c.req.query("note");
+  let notePath: string | null = null;
+  if (note !== undefined && note !== "") {
+    try {
+      notePath = normalizeRel(note);
+    } catch {
+      notePath = null; // an unusable note path just drops the relative rung
+    }
+  }
+  const limited = isPublishLimited(c);
+  // A visitor may not use a private note's folder as the search base, and may
+  // not learn where anything they cannot fetch lives.
+  if (limited && notePath !== null && !isNoteVisibleToVisitor(notePath)) notePath = null;
+  const hit = resolveBannerRef(
+    value,
+    notePath,
+    limited,
+    // The two visitor-fetchable sets /api/file itself honours: attachments a
+    // published note uses, plus the assets settings names (logo, home banner,
+    // favicon). Resolving to a path the very next request would 404 on is the
+    // failure this endpoint exists to remove.
+    (rel) => isAllowedAttachment(rel) || settingsAssetPaths().has(rel),
+  );
+  const result: BannerResolution = { value, path: hit };
+  return c.json(result);
+});
+
 // ------------------------------------------------ anchors & cross-references
 //
 // One anchor space: a markdown heading and a LaTeX \label are the same kind of
@@ -1056,7 +1104,12 @@ api.delete("/comments/:id", (c) => {
   return c.json({ ok: true });
 });
 
-api.get("/search", (c) => c.json(search(c.req.query("q") ?? "", isPublishLimited(c))));
+// SEARCH MATCHES BOTH SPELLINGS OF A TAG. `expandTagQuery` appends the
+// canonical tag whenever the query holds one of its localised labels, so an
+// Arabic reader typing «برمجيات» finds the notes tagged `#software` — without
+// the index ever learning about a display setting (see server/tagLabels.ts for
+// why the rewrite lives on the query and not in minisearch's `tags` field).
+api.get("/search", (c) => c.json(search(expandTagQuery(c.req.query("q") ?? ""), isPublishLimited(c))));
 
 api.get("/graph", (c) => c.json(graph(isPublishLimited(c))));
 
@@ -1066,6 +1119,17 @@ api.get("/backlinks", (c) => {
 });
 
 api.get("/tags", (c) => c.json(tags(isPublishLimited(c))));
+
+// The DISPLAY names of those tags: canonical tag → language → label, merged
+// from the tag pages' own frontmatter and settings.tagLabels. Open to every
+// session, because a chip's word is what the public site paints — and scoped
+// exactly like /api/tags above, so it can never become an oracle for a tag
+// EXCLUDE_TAGS or the language filter is hiding. The canonical tag stays the
+// key everywhere: this route changes what a reader SEES and nothing else.
+api.get("/tag-labels", (c) => {
+  const response: TagLabelsResponse = { labels: visibleTagLabels(isPublishLimited(c)) };
+  return c.json(response);
+});
 
 // Blog: published notes as posts, newest first. Visitor-safe by construction
 // (published notes only, EXCLUDE_TAGS filtered). With COMMENTS=on each post

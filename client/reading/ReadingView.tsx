@@ -9,7 +9,9 @@ import Marginalia from "../components/Marginalia.tsx";
 import { t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
+import { numberRendered, useHeadingNumberTick } from "./headingNumbers.ts";
 import { renderNoteContent } from "./renderNote.ts";
+import { applyNoteLayoutTo } from "../textLayout.ts";
 import "./reading.css";
 
 /** Scroll positions survive tab switches; module-level so remounts keep them. */
@@ -39,6 +41,12 @@ export default function ReadingView({ path }: { path: string }) {
   // the empty-note hint), and it is imperative DOM — so this component's own
   // subscription to `language` is what re-renders it on a live settings flip.
   const language = useStore((s) => s.language);
+  const siteTextDirection = useStore((s) => s.textDirection);
+  const siteTextAlign = useStore((s) => s.textAlign);
+  // Auto-numbered headings: a reading affordance, off by default, overridden
+  // per note by frontmatter `numbered:`. The tick repaints when the outline
+  // panel's "1." toggle flips the device preference (reading/headingNumbers.ts).
+  const numberTick = useHeadingNumberTick();
 
   // Load + render (re-runs when the tree resolves or a pending save lands).
   useEffect(() => {
@@ -53,6 +61,11 @@ export default function ReadingView({ path }: { path: string }) {
           tree: useStore.getState().tree,
         });
         el.classList.add("s-reading__content");
+        // The site's direction/alignment, or whatever this note's own
+        // frontmatter `dir:`/`align:` asks for instead. The SAME call the blog
+        // article makes on the SAME element, which is what makes "identical in
+        // the editor, the reading view and the blog" true by construction.
+        applyNoteLayoutTo(el, note.content);
         if (note.content.trim() === "") {
           const hint = document.createElement("p");
           hint.className = "s-reading__empty";
@@ -61,6 +74,7 @@ export default function ReadingView({ path }: { path: string }) {
           );
           el.appendChild(hint);
         }
+        numberRendered(el, note.content);
         bodyRef.current?.replaceChildren(el);
         // [[Note#Heading]] navigation: land on the requested heading.
         const pending = useStore.getState().pendingHeading;
@@ -111,7 +125,11 @@ export default function ReadingView({ path }: { path: string }) {
       disposed = true;
       scrollPositions.set(path, host.scrollTop);
     };
-  }, [path, tree, isDirty, language]);
+    // The site's note-layout defaults are dependencies for the same reason
+    // `language` is: they are half of what `applyNoteLayoutTo` resolves, and a
+    // settings save has to repaint the open note rather than waiting for it to
+    // be reopened.
+  }, [path, tree, isDirty, language, numberTick, siteTextDirection, siteTextAlign]);
 
   // Active-heading tracking while scrolling.
   useEffect(() => {

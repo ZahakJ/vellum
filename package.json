@@ -16,7 +16,9 @@
     "typecheck": "tsc --noEmit",
     "check-i18n": "node scripts/check-i18n.mjs",
     "check-contrast": "node scripts/check-contrast.mjs",
-    "check-caret": "node scripts/check-caret.mjs"
+    "check-caret": "node scripts/check-caret.mjs",
+    "check-sections": "node scripts/check-sections.mjs",
+    "check-excerpt": "node scripts/check-excerpt.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",
