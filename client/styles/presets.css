@@ -751,10 +751,6 @@
   text-overflow: ellipsis;
 }
 
-.s-dsgp-detail__sep {
-  color: var(--text-faint);
-}
-
 /* The stepper: ‹ 3 of 11 › — how far into the shelf this is, and the two
    keys that move. Pushed to the inline-end together with the action, so the
    bar reads back · where · then · how-far · state · act. */

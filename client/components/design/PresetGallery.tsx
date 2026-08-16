@@ -579,15 +579,17 @@ function PresetDetail({
           <BackArrow />
           <span>{t("presetBack")}</span>
         </button>
-        {/* THE CRUMB. `›` is Bidi_Mirrored — the browser already draws it
-            flipped under dir="rtl" — so it needs no rule and must not get
-            one (CONTRACTS, "Do not mirror a directional glyph"). The preset's
-            own name is note-shaped text and takes its own direction. */}
+        {/* THE LAST SEGMENT OF THE PANEL'S TRAIL, NOT A SECOND TRAIL.
+            This line used to draw its own root — "Presets › Broadsheet" —
+            about 100px under the panel's own crumb, which was at that moment
+            reading "Design your site › Presets". Two breadcrumbs on one screen
+            saying different things answer "where you are, in the panel"
+            (CONTRACTS) twice, and the shorter one wins the eye. So the root
+            and its separator are gone: the panel says where the room is, this
+            says which preset is open in it, and the trail reads as one. The
+            preset's own name is note-shaped text and takes its own
+            direction. */}
         <p className="s-dsgp-detail__crumb">
-          <span className="s-dsgp-detail__crumbroot">{t("designTabPresets")}</span>
-          <span className="s-dsgp-detail__sep" aria-hidden="true">
-            ›
-          </span>
           <bdi className="s-dsgp-detail__crumbleaf">{name}</bdi>
         </p>
         {total > 1 && at >= 0 && (

@@ -1967,6 +1967,15 @@ const DICT = {
   designAllSaved: { en: "Everything saved", ar: "كل شيء محفوظ" },
   designDiscard: { en: "Discard", ar: "تجاهل" },
   designSave: { en: "Save design", ar: "حفظ التصميم" },
+  // Leaving the designer with decisions still in the air — Esc, the ×, or a
+  // stray click on the backdrop. The question names the loss, because the
+  // panel is the one place in the product where a keystroke used to erase an
+  // afternoon's work silently.
+  designCloseUnsavedTitle: { en: "Close without saving?", ar: "إغلاق دون حفظ؟" },
+  designCloseUnsavedBody: {
+    en: "Your unsaved design changes will be discarded.",
+    ar: "ستُفقد تغييرات التصميم غير المحفوظة.",
+  },
 
   designTabNav: { en: "Navigation", ar: "التنقل" },
   designTabNavIntro: {

@@ -828,6 +828,17 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     if ("folder" in a) {
       if (a.folder === null || a.folder === "") delete current.folder;
       else if (typeof a.folder === "string") {
+        // JUDGE THE RAW STRING FIRST. `cleanValue` REPAIRS control characters
+        // (it replaces every run of them with a space), so by the time it had
+        // run, "med\0ia" was the perfectly storable folder "med ia" and
+        // `FOLDER_PROBLEM.control` was unreachable code — while CONTRACTS
+        // says such a value is REFUSED. Nothing unsafe reached the disk either
+        // way; the bug is that the API answered 200 and quietly stored a
+        // folder the author never typed.
+        const rawProblem = folderError(a.folder);
+        if (rawProblem !== null) {
+          throw new VaultError(400, `Settings key "attachments.folder" ${FOLDER_PROBLEM[rawProblem]}`);
+        }
         const clean = cleanValue(a.folder, "attachments.folder", FOLDER_MAX);
         if (clean === null) delete current.folder;
         else {
