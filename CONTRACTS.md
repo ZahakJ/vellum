@@ -2835,8 +2835,32 @@ like and must not learn.
   `IntersectionObserver`, which no input device can starve — the old `onFocus` path armed the
   180 ms timer despite the comment above it promising keyboard readers an immediate render, and
   that disagreement is gone with the timer.
-- **Selecting opens a detail pane** above the grid: the real canvas at `clipHeight: 1400`, the
-  blurb, the family, the theme swatch and its name, "Use this design", and two sentences that have
+- **Selecting is a NAVIGATION, and the detail is a room with a door on it.** Opening a preset
+  takes the shelf over (`.s-dsgp--detail`; the search bar, the chips and the grid go `hidden`)
+  and the view opens with the three things a drilled-in screen owes its reader, in the order they
+  are looked for: **back** at the inline-start as a real button with the word on it
+  (`presetBack` / `presetBackToGallery`), **where** as a crumb `Presets › Kiosk` plus a position
+  in the shelf being browsed (`presetPosition`, the FILTERED index — "3 of 11" inside a family,
+  never "17 of 59"), and **what happens next** at the inline-end: the one accent button, with the
+  state it changes from printed beside it (`presetPreviewOnly`, "Preview — not applied yet").
+  Before this it was a sheet that unfolded above the grid whose only exit was a button called
+  "Close" at the bottom of a column of copy, below the fold, beside the button that applies the
+  preset to the site — and "Close" in a modal panel reads as "close the panel".
+  - **The shelf is hidden, never unmounted**, so back is lossless: the query, the family chip and
+    the cards' own DOM survive. The scrollport's offset and the card that had focus are recorded
+    on the way in and restored on the way out — a keyboard reader who opened card 31 lands back
+    on card 31, not on the search box. The scrollport is FOUND (nearest ancestor whose computed
+    `overflow-y` scrolls), not named: it belongs to `.s-dsgr__controls`, which is another file.
+  - **Esc unwinds one step.** `isPresetDetailOpen()` / `closePresetDetail()` are the same
+    module-level precedence handle `SectionPicker` established and exist for the same measured
+    reason: both layers listen in the capture phase, capture order is registration order, and the
+    panel (mounted first) wins — so one Esc used to close the whole designer over an unsaved
+    design when the reader only meant to leave a preset. The panel ASKS. Backspace also goes back
+    (bubble-phase, and it stands down inside any field), and **← / → step along the shelf in the
+    READING direction** — in an RTL shelf the next card is to the LEFT, and arrows that ignored
+    that would walk an Arabic reader backwards through their own catalog.
+  The detail also carries the real canvas at `clipHeight: 1400`, the
+  blurb, the family, the theme swatch and its name, and two sentences that have
   to be said before somebody clicks — that a preset ships the shape and the words stay theirs, and
   that applying makes an editable copy the preset can never reach again. The right half also
   carries **what this page is made of** (the section manifest, glyph and name, in order) and the
@@ -2863,6 +2887,63 @@ like and must not learn.
   leaves that band, so scrolling to the end of the catalog and back leaves the document the size
   it started. The unmount, the 600 ms leave grace and the unmounted preview stage are what buy
   that, and a regression in any of them shows up here first.
+
+### A SCALED PREVIEW IS ANCHORED PHYSICALLY, BECAUSE ITS ORIGIN IS PHYSICAL
+
+`transform-origin` has no logical form. Every surface that draws a design smaller than life lays
+the page out at a fixed width (`CANVAS_WIDTH` 1120, or a device width) and scales the pixels — and
+the box being scaled is placed by FLOW, which IS logical. In `[dir="rtl"]` those two disagree by
+exactly `layoutWidth − boxWidth`: the 1120px block aligns its RIGHT edge to the container's right
+edge, so its left edge sits at negative x, and a `top left` origin scales it about a corner off
+the side of the card.
+
+That is not a cosmetic drift. Measured on an Arabic instance before the fix: every gallery card
+drew its page at x −145…76 of a card at 754…975 — **entirely outside its own `overflow: hidden`,
+so all fifty-nine cards were blank rectangles** — and the preset detail sheet drew a page clipped
+to its right-hand third, which is the "preview shifted to the right" the owner reported. In
+English the identical code is pixel-perfect, which is why this is a rule with a gate behind it
+rather than a screenshot somebody remembers to take.
+
+The rule: **in `scale` mode the page leaves flow** — `.s-dsgv--scale .s-dsgv__page { position:
+absolute; top: 0; left: 0; transform-origin: top left }` in `presets.css`, with a physical `left`
+so the anchor and the origin are the same corner in both directions, and **no `[dir]` rule at
+all**. `DesignCanvas` writes only `width` and `transform` inline and must not write the origin
+back. `native` mode keeps flow — it is not transformed and it has to scroll. `.s-dsgs__frame` (the
+stage's iframe, `designer.css`) has always been arranged this way and carries the same note; it is
+the pattern, not the exception.
+
+**Gated by `scripts/check-designer-nav.mjs`** (`npm run check-designer-nav`, `PORT` +
+`VELLUM_PASSWORD`; `LANGS` and `WIDTHS` override the `en,ar × 1440,1280` default). It measures the
+drawn page's rect against its container's on the card and on the detail sheet, in both directions
+at both widths (2px of sub-pixel slop and not one more), and drives the whole navigation model:
+the crumb, the one-tab-stop rail with arrow/Home/End, the drill-in, focus landing in the room,
+offset and focus restored on the way out, reading-direction arrows, and Esc unwinding one step
+before it closes the panel. It finds the designer's door STRUCTURALLY (the status-bar icon
+buttons, tried in turn) rather than by typing a word into the palette, because the palette
+searches localised labels and would open nothing on the one instance this gate exists for. It
+switches the instance language — it must, that is the point — and puts it back, on failure too.
+Verified to FAIL on the pre-fix stylesheet with `dx −899` on the card and `dx −430` on the detail,
+and to pass in English either way.
+
+### Where you are, in the panel: `.s-dsgr__crumbs`
+
+One line under the head, always: **`Design your site › <design> › <room>`**, with the middle
+segment present only on the tabs that edit one document (the library tabs — Designs, Presets —
+are a shelf OF designs, not a room inside one). The rail said which room and the footer said
+whether anything was unsaved; nothing said which DESIGN, so a panel holding two of them looked
+identical whichever was loaded and every control on every tab was editing a thing the screen never
+named. The design's name is note-shaped text and is wrapped in `<bdi>` with the separators OUTSIDE
+the isolate, the same rule every other note-derived chrome label follows; `›` is `Bidi_Mirrored`
+and therefore gets no transform.
+
+**The rail is a real tablist**: `aria-orientation="vertical"`, `aria-controls` the panel,
+`tabIndex` roving with the selection so Tab always re-enters at the room the reader is in — eight
+buttons that were each their own tab stop cost eight presses to cross a menu. Up/Down walk it,
+Home/End reach its ends, and Left/Right are accepted too and follow the READING direction, because
+the rail sits on the inline-start edge and a reader who just crossed between two side-by-side
+columns with the horizontal arrows should not have to switch hands to walk the column they landed
+in. Selection follows focus (an "automatic" tablist), which is right here because every panel is
+instant and none of them loses anything on the way past.
 
 ## Backup & sync (server/gitSync.ts)
 

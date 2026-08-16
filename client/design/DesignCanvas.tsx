@@ -212,10 +212,25 @@ export default function DesignCanvas({
   // the design reflows exactly as it would on a reader's screen of that width;
   // that is what the designer's pane wants, because an author there is reading
   // their own type rather than judging a shape from across the room.
+  // THE ORIGIN IS NOT WRITTEN HERE, AND THAT IS THE RTL FIX.
+  //
+  // `transform-origin` is PHYSICAL and has no logical form, so it only agrees
+  // with the box it scales if the box is placed physically too. In flow layout
+  // it is not: a `width: 1120px` block inside a 221px card aligns to its
+  // container's INLINE-START edge, which under `[dir="rtl"]` is the RIGHT one —
+  // so the pre-transform box ran from -899 to 221 and a `top left` origin
+  // shrank it about x = -899. Measured on the Arabic instance: every gallery
+  // card drew its page at x -145…76 of a card at 754…975, i.e. entirely outside
+  // its own `overflow: hidden` — fifty-nine blank cards — and the preset detail
+  // sheet drew a page clipped to its own right-hand third. The one thing an
+  // author was asked to judge was the one thing not on screen.
+  //
+  // So presets.css takes the page out of flow in `scale` mode (`position:
+  // absolute; left: 0`) and keeps the origin there beside it. Physical anchor,
+  // physical origin, one direction-proof rule, exactly the arrangement
+  // `.s-dsgs__frame` already uses for the stage's iframe.
   const style: CSSProperties = {
-    ...(fit === "scale"
-      ? { width: `${width}px`, transform: `scale(${scale})`, transformOrigin: "top left" }
-      : {}),
+    ...(fit === "scale" ? { width: `${width}px`, transform: `scale(${scale})` } : {}),
     "--dsn-width": `${design.site.width}px`,
     ...typographyVars(chrome.typography),
   } as CSSProperties;

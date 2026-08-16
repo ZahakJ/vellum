@@ -34,6 +34,22 @@
      picture of a page is a lie about a page nobody can click. */
   pointer-events: none;
   user-select: none;
+}
+
+/* THE SCALED PAGE IS ANCHORED PHYSICALLY, BECAUSE ITS ORIGIN IS PHYSICAL.
+   `transform-origin` has no logical form. In flow layout the page's box aligns
+   to its container's INLINE-START edge, so under [dir="rtl"] the 1120px box sat
+   at negative x and `top left` scaled it about a corner off the side of the
+   card: every gallery card in an Arabic instance was blank and the detail
+   sheet's preview was clipped to a third of itself (measured — DesignCanvas
+   carries the numbers). Out of flow with a physical `left: 0`, the anchor and
+   the origin are the same corner in both directions and no [dir] rule is
+   needed. `.s-dsgs__frame` in designer.css is the same arrangement for the
+   same reason. `native` keeps flow: it is not transformed and it must scroll. */
+.s-dsgv--scale .s-dsgv__page {
+  position: absolute;
+  top: 0;
+  left: 0;
   transform-origin: top left;
 }
 
@@ -419,6 +435,16 @@
   gap: 14px;
 }
 
+/* `hidden` HAS TO WIN, and a `display` on a class beats the user agent's
+   `[hidden] { display: none }` every time — the shelf is hidden by the
+   attribute while the detail is up, and its rows all name a display of their
+   own. One rule at the top of the block rather than a `--hidden` modifier per
+   row: the attribute is the state, and the state must not be expressible in
+   two places. */
+.s-dsgp [hidden] {
+  display: none;
+}
+
 .s-dsgp__bar {
   display: flex;
   align-items: center;
@@ -625,27 +651,181 @@
   color: var(--text-muted);
 }
 
-/* The detail pane — the chosen preset, big, above the grid. */
+/* THE DETAIL IS A ROOM YOU WALKED INTO, not a drawer that slid open.
+   The shelf is `hidden` while it is up, so this is the whole view: a bar
+   across the top (back, crumb, position, the one loud action), the picture,
+   and the column of facts. The three-column bar is what a drilled-in screen
+   owes its reader — where am I, how do I get out, what happens if I commit —
+   and it sits ABOVE the fold, which is the entire complaint the old sheet's
+   bottom-of-the-column "Close" earned. */
 .s-dsgp-detail {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr);
+  grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr);
   gap: 16px;
   padding: 14px;
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: 12px;
+  /* The room ARRIVES from the reading-end, the way a step forward looks in
+     both directions: `--dsgp-in` is +1 in LTR and -1 in RTL, so one keyframe
+     serves both and no [dir] rule duplicates it. */
+  --dsgp-in: 1;
   animation: s-dsgp-open 200ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+[dir="rtl"] .s-dsgp-detail {
+  --dsgp-in: -1;
 }
 
 @keyframes s-dsgp-open {
   from {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateX(calc(var(--dsgp-in) * 14px));
   }
   to {
     opacity: 1;
     transform: none;
   }
+}
+
+/* The bar spans both columns and stays on one line until it cannot. */
+.s-dsgp-detail__bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-block-end: 12px;
+  border-block-end: 1px solid var(--border);
+}
+
+/* BACK IS A BUTTON WITH A WORD ON IT. An arrow alone is a guess, and a
+   drilled-in view whose only exit is a guess is the view the owner could not
+   get out of. */
+.s-dsgp-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  /* Logical, because the arrow sits on the inline-START edge and wants the
+     tighter side of the pill in both directions. */
+  padding: 5px 11px;
+  padding-inline-start: 9px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+.s-dsgp-back:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* SVG is geometry and bidi never touches it, so the arrow is mirrored here —
+   the one thing a `›` glyph would have got for free and an SVG must be told.
+   (CONTRACTS, "Localization & RTL": glyphs no, paths yes.) */
+[dir="rtl"] .s-dsgp-back__arrow,
+[dir="rtl"] .s-dsgp-step__arrow {
+  transform: scaleX(-1);
+}
+
+.s-dsgp-detail__crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.s-dsgp-detail__crumbleaf {
+  color: var(--text);
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.s-dsgp-detail__sep {
+  color: var(--text-faint);
+}
+
+/* The stepper: ‹ 3 of 11 › — how far into the shelf this is, and the two
+   keys that move. Pushed to the inline-end together with the action, so the
+   bar reads back · where · then · how-far · state · act. */
+.s-dsgp-detail__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: auto;
+}
+
+.s-dsgp-detail__arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+
+.s-dsgp-detail__arrow:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.s-dsgp-detail__arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.s-dsgp-detail__pos {
+  min-width: 6ch;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* "Preview — not applied yet". The dot is the same language the save bar
+   speaks: a state, lit, beside the button that ends it. */
+.s-dsgp-detail__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  /* --text-muted, not --text-faint: this is a STATE the reader has to read
+     before they press the button beside it, and the faint token is gated for
+     glyphs and incidental hints (scripts/check-contrast.mjs says why). */
+  color: var(--text-muted);
+}
+
+.s-dsgp-detail__state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.65;
+}
+
+/* The keystrokes, printed once, at the foot of the column where the eye
+   lingers rather than in the bar where it lands. */
+.s-dsgp-detail__keys {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .s-dsgp-detail__stage {
