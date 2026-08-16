@@ -106,7 +106,8 @@ header, and none of them said so; the README recommends nginx in front, where a 
 hand an admin's whole vault tree to the next anonymous visitor. Routes that set their own
 `Cache-Control` keep it, and anything marked `immutable` (the content-addressed font routes, which
 hold no session-varying byte) is skipped entirely so a CDN can still cache it. The SPA shell,
-`/feed.xml` and the static assets get the same treatment in `index.ts`, plus the origin's security
+`/feed.xml`, `/sitemap.xml`, `/robots.txt` and the static assets get the same treatment in
+`index.ts`, plus the origin's security
 headers: `Content-Security-Policy` (`script-src 'self'`, `frame-ancestors 'none'`, `object-src
 'none'`, `base-uri 'none'`; `style-src` keeps `'unsafe-inline'` because React style props, KaTeX and
 the generated banner gradients are inline by design; `img-src`/`media-src` allow remote https/http
@@ -1750,12 +1751,13 @@ or a reader's language ignored.
 
 **`"follow"` needs the reader's language, so the client declares it.** `X-Vellum-Lang: ar|en` on
 every API call (`client/api.ts::withPreview` sets it beside the preview header), and `?lang=` on
-the two surfaces that cannot send a header — `/api/events`, because EventSource has no header
-API, and `/feed.xml`, because a feed reader is not our client and `/feed.xml?lang=ar` is how the
-Arabic side of a bilingual site becomes its own subscribable URL. **Validated and gated exactly
+the three surfaces that cannot send a header — `/api/events`, because EventSource has no header
+API, and `/feed.xml` and `/sitemap.xml`, because neither a feed reader nor a crawler is our
+client and `?lang=ar` is how the Arabic side of a bilingual site becomes its own subscribable and
+its own submittable URL. **Validated and gated exactly
 as `X-Vellum-Preview` is**: the value must be exactly `"ar"` or `"en"` (anything else is dropped,
 not coerced — a mistyped scope falls back to the site language rather than to a guess), the query
-form is honored only on those two paths, and the whole claim is honored **only while
+form is honored only on those three paths, and the whole claim is honored **only while
 `settings.languageToggle` is on**. An instance that offers readers no language switch has no
 reader language to speak of, and letting a header say otherwise would be a second, undocumented
 way to re-scope the public site. `X-Vellum-Lang` is therefore a `Vary` dimension on every `/api`
@@ -1828,10 +1830,34 @@ synthetic dir event is emitted before the chained reindex removes the records �
 `{kind:"deleted"}` per note that was visible. Hidden and unpublished notes under the folder are
 never named, so the fan-out says nothing `/api/tree` did not already.
 
-**The served `<head>` is a discovery surface too.** `server/blog.ts` has two exported entry
-points — `renderFeed()` (RSS) and `injectHead()` (the crawler-facing `<title>`/`og:`/canonical
-block on the served SPA shell) — and both resolve notes through `posts(true)`, the visitor list.
-The head injection is the loudest of the two: it is what puts a note into Google and into social
+**The crawler gets a map, not the SPA shell.** `/sitemap.xml` and `/robots.txt` are real routes
+(`server/index.ts`, rendered by `server/blog.ts`). Both used to fall through to the SPA catch-all,
+so a crawler asking a *publishing* product for its sitemap got `200 text/html` — a page of
+JavaScript claiming to be a site map. `/sitemap.xml` is a sitemaps.org 0.9 `urlset`: the front
+door, then every note in `posts(true, scope.lang)` — the same visitor list, the same
+`languageFilter`, the same `?lang=` carve-out and the same `canRead()` gate as `/feed.xml`, so it
+can never name a note the site's own pages hide, and `PUBLIC=false` answers it 401. `<lastmod>` is
+the note's own date in W3C form; the front door borrows the newest post's, because a `lastmod` that
+is always "now" teaches a crawler to ignore the field. It diverges from the feed in exactly one
+way: **static pages stay in.** The feed drops them (`staticPagesActive()`) because an About page
+is not an article; a sitemap is not a timeline but the list of URLs this site serves, and About is
+one of them. Topic pages are out — each is an index over URLs the file already names —
+and `<changefreq>`/`<priority>` are omitted rather than invented, because no major crawler has
+read either in years. The 50,000-URL protocol ceiling is enforced newest-first, with an XML
+comment when it bites.
+
+**`/robots.txt` is the one crawler surface that does NOT 401.** RFC 9309 §2.3.1.3 reads a 4xx on
+`robots.txt` as *no rules exist — crawl freely*, so the gate that correctly protects the sitemap
+would, on this one path, say the opposite of what `PUBLIC=false` means. A request that cannot read
+gets `200` with `User-agent: *` / `Disallow: /` and **no `Sitemap:` line**; a request that can gets
+`Allow: /`, `Disallow: /api/` and the sitemap. Neither body discloses anything — every real path
+still enforces its own gate — and the locked one stops the crawl instead of inviting it.
+
+**The served `<head>` is a discovery surface too.** `server/blog.ts` has four exported entry
+points — `renderFeed()` (RSS), `renderSitemap()`, `renderRobots()` and `injectHead()` (the
+crawler-facing `<title>`/`og:`/canonical block on the served SPA shell) — and each of the three
+that names notes resolves them through `posts(true)`, the visitor list.
+The head injection is the loudest of them: it is what puts a note into Google and into social
 cards, `og:description` carries a 220-character excerpt of the body, and `og:image` carries its
 banner. A `matchPublished()` iterating the admin `posts()` handed all of that to any anonymous
 crawler that guessed the deep link while `/feed.xml`, one function below, correctly hid it.

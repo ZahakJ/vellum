@@ -1,9 +1,9 @@
-// Blog surface: the RSS feed and crawler-facing <head> injection for the
-// served SPA shell. Both are anonymous discovery surfaces, so both speak only
-// in VISITOR-visible notes — published AND not curated away by the
-// languageFilter (posts(true)). An unpublished, filtered-out or unknown path
-// gets the generic site meta, so nothing about the private vault (existence
-// included) ever leaks through these routes.
+// Blog surface: the RSS feed, the sitemap, robots.txt and the crawler-facing
+// <head> injection for the served SPA shell. All four are anonymous discovery
+// surfaces, so all four speak only in VISITOR-visible notes — published AND
+// not curated away by the languageFilter (posts(true)). An unpublished,
+// filtered-out or unknown path gets the generic site meta, so nothing about
+// the private vault (existence included) ever leaks through these routes.
 
 import type { Context } from "hono";
 import type { PostMeta } from "../shared/types.ts";
@@ -131,6 +131,128 @@ export function renderFeed(origin: string, scope: LanguageScope): string {
     ...items,
     "  </channel>",
     "</rss>",
+    "",
+  ].join("\n");
+}
+
+// ------------------------------------------------------------------ sitemap
+
+/** Sitemap protocol ceiling: 50,000 URLs (and 50 MB) per file. A vault that
+ *  publishes more than that needs a sitemap index, which is a different
+ *  document; until one exists, the newest 50,000 are the honest answer and the
+ *  file says so in a comment rather than silently ending. */
+const SITEMAP_MAX_URLS = 50_000;
+
+/** W3C Datetime, the profile `<lastmod>` is defined in. `PostMeta.date` is
+ *  already ISO-8601 UTC; only the milliseconds are dropped — they are noise in
+ *  a "when did this page last change" answer, not precision. An unparseable
+ *  date yields null and the entry simply carries no `<lastmod>`: a URL without
+ *  a date is a normal sitemap entry, a URL with a broken one is an invalid
+ *  document. */
+function w3cDate(iso: string): string | null {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/**
+ * `/sitemap.xml` — every visitor-visible published note, plus the front door.
+ *
+ * SCOPED EXACTLY LIKE THE FEED, and for the same reason: this is the document
+ * a crawler reads to decide what exists. `posts(true, scope.lang)` is the
+ * visitor list — published, EXCLUDE_TAGS-curated, languageFilter applied — so
+ * a sitemap can never name a note the site's own pages hide. (The route above
+ * it also refuses to render at all without read access; see server/index.ts.)
+ *
+ * IT DIFFERS FROM THE FEED IN ONE DELIBERATE WAY: static pages stay IN.
+ * `renderFeed` passes `staticPagesActive()` to drop them, because an About
+ * page is not an article and must not be the newest item in a reader's
+ * timeline. A sitemap is not a timeline — it is the list of URLs this site
+ * serves, and About is one of them. Nothing is dropped here.
+ *
+ * Topic pages (`/topic/<tag>`) are deliberately absent: every one of them is
+ * an index over URLs this file already names, so listing them inflates the
+ * document without adding a document. `<changefreq>` and `<priority>` are
+ * absent for the same kind of reason — no major crawler has used either for
+ * years, and a field nobody reads is a claim nobody checks.
+ */
+export function renderSitemap(origin: string, scope: LanguageScope): string {
+  const all = posts(true, scope.lang);
+  const items = all.slice(0, SITEMAP_MAX_URLS - 1); // -1: the home URL below
+  const urls: string[] = [];
+  // The front door changes whenever the newest post does, so it borrows that
+  // date rather than claiming "now" on every fetch — a lastmod that is always
+  // the moment of the request teaches a crawler to distrust the field.
+  const newest = items.length > 0 ? w3cDate(items[0].date) : null;
+  urls.push(
+    [
+      "  <url>",
+      `    <loc>${xmlEscape(`${origin}/`)}</loc>`,
+      ...(newest ? [`    <lastmod>${newest}</lastmod>`] : []),
+      "  </url>",
+    ].join("\n"),
+  );
+  for (const post of items) {
+    const lastmod = w3cDate(post.date);
+    urls.push(
+      [
+        "  <url>",
+        `    <loc>${xmlEscape(origin + notePathToUrl(post.path))}</loc>`,
+        ...(lastmod ? [`    <lastmod>${lastmod}</lastmod>`] : []),
+        "  </url>",
+      ].join("\n"),
+    );
+  }
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    // The same quiet note the feed carries, in the one place an XML document
+    // has for one: this sitemap is wider than the site's own setting asked
+    // for, because the language it asked for matched nothing.
+    ...(scope.fallbackFrom
+      ? [
+          `<!-- language filter "${xmlEscape(scope.fallbackFrom)}" matched no published note; ` +
+            `serving all languages -->`,
+        ]
+      : []),
+    ...(all.length > items.length
+      ? [`<!-- ${all.length} published notes; newest ${items.length} listed (50,000 URL limit) -->`]
+      : []),
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...urls,
+    "</urlset>",
+    "",
+  ].join("\n");
+}
+
+/**
+ * `/robots.txt`.
+ *
+ * `discoverable` is `canRead(c)` — whether this request may see published
+ * notes at all.
+ *
+ * THIS ROUTE ANSWERS 200 EVEN WHEN THE SITEMAP DOES NOT, and that is the one
+ * place the pair diverges from `/feed.xml`'s "401 without a session". RFC 9309
+ * §2.3.1.3 says a 4xx on robots.txt means "no rules exist" — the crawler MAY
+ * then fetch anything it likes. So the 401 that correctly protects the sitemap
+ * would, on this one path, say the OPPOSITE of what a locked instance means.
+ * A locked instance instead answers the only thing that is both true and
+ * disclosive of nothing: `Disallow: /`, and no sitemap line to follow. Every
+ * real path still 401s on its own; this just stops the crawl before it starts.
+ *
+ * `/api/` is disallowed on an open instance too. It is not secret — it is the
+ * same content the pages carry, in a shape no reader wants in a search
+ * result, plus a per-request `Vary` a crawler cache handles badly.
+ */
+export function renderRobots(origin: string, discoverable: boolean): string {
+  if (!discoverable) {
+    return ["User-agent: *", "Disallow: /", ""].join("\n");
+  }
+  return [
+    "User-agent: *",
+    "Allow: /",
+    "Disallow: /api/",
+    "",
+    `Sitemap: ${origin}/sitemap.xml`,
     "",
   ].join("\n");
 }

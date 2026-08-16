@@ -81,7 +81,8 @@ PUBLIC_LAYOUT=blog
 SITE_NAME=Night Garden
 ```
 
-Restart, and `/` is a blog: masthead, topic nav, article pages, RSS at `/feed.xml`. Put it on the
+Restart, and `/` is a blog: masthead, topic nav, article pages, RSS at `/feed.xml`, a sitemap at
+`/sitemap.xml` and a `/robots.txt` that points at it. Put it on the
 internet behind any HTTPS reverse proxy pointed at `localhost:6801` — see
 [Publishing & access](docs/publishing.md).
 
@@ -92,7 +93,7 @@ internet behind any HTTPS reverse proxy pointed at `localhost:6801` — see
 - **[Templates and banners](docs/templates-and-notes.md)** — Obsidian's own template syntax, a `banner:` hero on any note, drag-to-move sections, a trash you can restore from
 - **[LaTeX notes](docs/latex.md)** — `.tex` files are notes: edited, searched, linked and published like any other, and they still compile
 - **[Publishing](docs/publishing.md)** — one frontmatter flag, a real server-side visitor preview, rate-limited reader comments with built-in moderation
-- **[Blog mode](docs/blog-mode.md)** — masthead, topic nav, dashboard home, hover previews, RSS and server-injected SEO meta
+- **[Blog mode](docs/blog-mode.md)** — masthead, topic nav, dashboard home, hover previews, RSS, sitemap/robots and server-injected SEO meta
 - **[Designed mode](docs/designer.md)** — compose your own homepage from sections, fifty-nine shipped presets, with the stock blog kept as an always-working fallback
 - **[Fifteen themes](docs/theming.md)** — eleven dark, four light, every one gated at WCAG AA, plus a custom-theme builder and `custom.css`
 - **[Real typography](docs/typography.md)** — a self-hosted font catalog and your own uploads, with per-character Arabic that sets correctly inside an English sentence

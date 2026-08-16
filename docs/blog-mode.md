@@ -103,22 +103,39 @@ next posts, a "Related" list (published notes wikilinked from/to it), and
 tiny "powered by Vellum" credit — hide it with `.s-blog-powered { display: none }` in your
 [`custom.css`](theming.md#restyle-it) if you prefer.
 
-## RSS and SEO
+## RSS, sitemap and SEO
 
-Two crawler-facing surfaces come along regardless of layout (both respect `PUBLIC=false` and
-speak only in published notes — unpublished paths are indistinguishable from unknown ones):
+Four crawler-facing surfaces come along regardless of layout (all of them respect `PUBLIC=false`
+and speak only in published notes — unpublished paths are indistinguishable from unknown ones):
 
 - **RSS** at `/feed.xml` — RSS 2.0, advertised on every page via
   `<link rel="alternate" type="application/rss+xml">`, items linking to each note's deep-link
   URL with the excerpt as description. `<pubDate>`s are always RFC-822 Gregorian, whatever the
   [date calendar setting](arabic-and-rtl.md#hijri-dates) says — that is a wire format an
   aggregator parses, not a date a person reads.
+- **Sitemap** at `/sitemap.xml` — the sitemaps.org 0.9 `urlset`: the front door, then every
+  visitor-visible published note, newest first, each with a `<lastmod>` taken from the note's own
+  date (frontmatter `date`/`created`/`published`, else the file's birthtime). Static pages
+  (`page: true`) are listed here even though the feed drops them — an About page is not an
+  article, but it is a URL this site serves. Topic pages are not: each one is an index over URLs
+  already in the file. Capped at the protocol's 50,000 URLs, newest kept, with an XML comment
+  saying so if your vault ever gets there.
+- **Robots** at `/robots.txt` — `Allow: /`, `Disallow: /api/`, and a `Sitemap:` line pointing at
+  the sitemap above.
 - **SEO meta** — the served HTML shell carries server-injected `<title>`, `meta description`,
   Open Graph (`og:type=article` on note pages) and canonical tags; note deep links get the
   note's own title and excerpt, everything else the generic site meta.
 
-Absolute URLs in both are built from `SITE_URL` when set, else derived from the request's
+Absolute URLs in all of them are built from `SITE_URL` when set, else derived from the request's
 `Host`/`X-Forwarded-*` headers.
 
-Vellum serves no `sitemap.xml` and no `robots.txt` of its own — the feed and the in-page links are
-the whole crawler surface. Add either at your reverse proxy if you want them.
+Both the feed and the sitemap take `?lang=ar` / `?lang=en` when
+[the language filter](arabic-and-rtl.md) is on — a crawler and a feed reader cannot send the
+header the app's own pages use, so a bilingual site's two sides are two URLs.
+
+**On a `PUBLIC=false` instance** the sitemap is behind login exactly like the feed (a 401 without
+a session), and `robots.txt` answers `Disallow: /` to anyone who is not signed in. That last one
+is deliberately *not* a 401: [RFC 9309 §2.3.1.3](https://www.rfc-editor.org/rfc/rfc9309.html)
+reads a 4xx on `robots.txt` as "no rules exist, crawl freely", which is the opposite of what a
+private vault means. The `Disallow: /` body discloses nothing — every real path still 401s on its
+own — it just stops the crawl before it starts.

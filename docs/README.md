@@ -26,7 +26,7 @@
 
 | | |
 | --- | --- |
-| [Blog mode](blog-mode.md) | The stock blog: masthead, topic nav, dashboard home, RSS, SEO |
+| [Blog mode](blog-mode.md) | The stock blog: masthead, topic nav, dashboard home, RSS, sitemap, SEO |
 | [Designed mode](designer.md) | Composing your own homepage from sections; presets, nav, static pages |
 
 ## Look & language
