@@ -23,7 +23,7 @@ Obsidian is excellent — and if it fits, use it. Vellum exists for the gap it l
 | --- | --- |
 | ![Blog dashboard home](docs/screenshots/blog-dashboard.png)<br>*Blog mode's dashboard home — posts as cards, each with a generated gradient until you set a banner.* | ![Blog article with comments](docs/screenshots/blog-article.png)<br>*An article page: related posts, then "Marginalia" — built-in, rate-limited reader comments.* |
 | ![Graph view](docs/screenshots/graph.png)<br>*Graph view — a hand-rolled canvas force simulation; drag nodes, click to open.* | ![Command palette](docs/screenshots/palette.png)<br>*The command palette fuzzy-matches notes and commands alike.* |
-| ![The four themes](docs/screenshots/themes.png)<br>*Four hand-tuned themes: iron-gall, void, lapis, and parchment.* | <img src="docs/screenshots/mobile.png" alt="Blog home on a phone" width="320"><br>*The public site, phone-sized.* |
+| ![The fifteen themes](docs/screenshots/themes.png)<br>*Fifteen hand-tuned themes — eleven dark, four light — each defining its whole palette.* | <img src="docs/screenshots/mobile.png" alt="Blog home on a phone" width="320"><br>*The public site, phone-sized.* |
 
 ## Quickstart
 
@@ -91,7 +91,7 @@ All `.env` keys (npm scripts load the file automatically via `node --env-file-if
 | `COMMENTS` | `on` enables reader comments under published notes (default off) |
 | `VELLUM_DATA` | Server data directory — the comments SQLite db, your `custom.css`, and `fonts/` (your own files, plus the self-hosted catalog cache in `fonts/catalog/`; default `./data`) |
 | `SITE_NAME` | Site name shown in the sidebar wordmark, page titles, and the login modal (default `Vellum`) |
-| `DEFAULT_THEME` | Theme for visitors who haven't picked one: `iron-gall`, `void`, `lapis`, or `parchment` |
+| `DEFAULT_THEME` | Theme for visitors who haven't picked one — any of the fifteen (see [Theming](#theming)); unknown names are ignored with a warning |
 | `EXCLUDE_TAGS` | Comma-separated tags hidden from the visitor site's topic sections and tag pills (workflow/status tags like `baby,child,adult`); admin views unaffected |
 | `PUBLIC_LAYOUT` | `blog` gives visitors a classic blog layout instead of the app shell (see [Blog mode](#blog-mode)); default `app` |
 | `SITE_TAGLINE` | Masthead subtitle under the site name (blog mode) |
@@ -389,11 +389,39 @@ like *your* site. Three env-driven hooks cover that, no fork required:
 **Name it.** `SITE_NAME=Night Garden` rebrands every visible surface — the `✦` wordmark in the
 sidebar, the browser tab titles (`Note · Night Garden`), and the sign-in modal.
 
-**Pick the default look.** Vellum ships four themes: `iron-gall` (warm near-black, the default),
-`void` (neutral cool black with a starlight-steel accent — the one theme without gold), `lapis`
-(deep blue-black), and `parchment` (warm paper light).
-Every reader can switch themes from the status bar or command palette and their choice sticks
-in their browser; `DEFAULT_THEME=parchment` sets what first-time visitors see before they choose.
+**Pick the default look.** Vellum ships **fifteen** themes — eleven dark rooms and four lit
+ones. Every one of them defines the whole palette for itself (ground, type, accent, selection,
+focus ring, graph, all thirteen callout hues, all eight syntax colors), so none of them is
+another theme wearing a different background.
+
+![The fifteen themes](docs/screenshots/themes.png)
+
+| Dark | | Light | |
+| --- | --- | --- | --- |
+| `iron-gall` | warm near-black, gold leaf — **the default** | `parchment` | warm paper, gold leaf |
+| `cinnabar` | neutral graphite, vermilion type | `sandstone` | dry desert paper, burnt orange |
+| `sumi` | ink-stick grey, aizome indigo | `solar` | brightest white paper, burnt gold |
+| `void` | true black, cold signal cyan | `linen` | cool daylight, ink blue |
+| `basalt` | cool blue-grey stone, pale sky | | |
+| `nocturne` | blue-black night, periwinkle | | |
+| `lapis` | deep lapis blue-black, brightened gold | | |
+| `verdigris` | green-black, oxidized copper | | |
+| `moss` | olive-black forest floor, lichen | | |
+| `porphyry` | purple-black stone, dusty rose | | |
+| `tallow` | warm brown paper, candle-flame amber | | |
+
+Every reader picks their own from the **theme picker** — the theme control in the status bar
+opens it, and so does *Browse themes…* in Settings → Appearance & language. Each row is a
+miniature of the room — its ground carrying a heading rule, a line of type and an accent chip —
+next to a human name and a one-line description, both localized; the raw id (what `DEFAULT_THEME`
+and the palette take) is in the row's tooltip. It is a grouped, keyboard-driven
+list: `↑↓←→` moves the highlight and applies that theme live to the whole app behind the panel,
+`Enter` keeps it, `Esc` puts back the theme you started with. (The mouse never moves the keyboard
+highlight — only a click picks.) The palette carries both routes: *Browse themes…* opens the
+same panel, and one *Theme: …* command per theme jumps straight to one by name. A
+reader's choice sticks in their own browser; `DEFAULT_THEME=cinnabar` — or Settings → Appearance & language
+→ *Default theme* — sets what first-time visitors see before they choose. An unknown
+`DEFAULT_THEME` is ignored with a line on stderr at startup rather than silently.
 
 **Restyle it.** Drop a `custom.css` into your data directory (`VELLUM_DATA`, default `./data/`)
 and Vellum serves it at `/api/custom.css` and loads it after its own stylesheets — for every
@@ -418,7 +446,9 @@ for one):
 | ----- | ------ |
 | `--bg` / `--bg-raised` / `--bg-hover` | Page background / sidebar & panels / hover rows |
 | `--text` / `--text-muted` / `--text-faint` | Body text / secondary text / hints & counts |
-| `--accent` / `--accent-soft` | Gold-leaf brand color (links, wikilinks, active marks) / its translucent wash |
+| `--accent` / `--accent-soft` | Brand color (links, wikilinks, active marks) / its translucent wash |
+| `--selection-bg` / `--focus-ring` | Text-selection wash / the 2px `:focus-visible` ring |
+| `--graph-node` / `--graph-edge` / `--graph-vignette` | Graph disc color / idle edge stroke / the canvas's edge wash |
 | `--border` | The 1px hairlines everywhere |
 | `--danger` | Destructive actions, broken-link tint |
 | `--font-ui` / `--font-serif` / `--font-mono` | UI chrome / prose & headings / code |
@@ -659,8 +689,9 @@ font sizes), and `node scripts/shoot-sync.mjs <url> <password> <outdir>` capture
 sync section plus the status badge's detail panel. Both take `THEME=parchment` and
 `LANGSET=ar` to check a theme or the right-to-left mirror.
 `node scripts/check-contrast.mjs` is the accessibility gate for `client/styles/tokens.css`:
-every theme must keep body text ≥ 4.5:1 and secondary text ≥ 3:1 — run it after touching
-theme tokens.
+every theme must keep body text ≥ 4.5:1, secondary text ≥ 3:1, and the accent ≥ 4.5:1 against
+the page — the accent pair is read as text twice over (wikilinks and tag pills in the prose, and
+the lit mode pill, which is the same two colors swapped). Run it after touching theme tokens.
 
 ## Features
 
@@ -674,7 +705,7 @@ theme tokens.
 - **Slash commands** — type `/` at the start of a line for a fuzzy menu of inserts: callout, code fence (with language search), table skeleton, task list, math block, divider, today's date, daily-note link
 - **Callout & fence autocomplete** — `> [!` suggests every callout type with its icon and color; ` ``` ` suggests languages as you type
 - **Hover previews** — rest on a `[[wikilink]]` and a floating card shows the target note's rendered opening (`[[Note#Heading]]` previews from that heading); footnote refs preview their definition
-- **Heading folding** — a chevron appears beside each heading on hover; fold a section down to a "N folded lines" chip (click to reopen)
+- **Heading folding** — a chevron sits beside every heading (visible at rest, not on hover — a control nobody can see is a control nobody finds, and there is no hover on a phone); click it, or `Ctrl/Cmd Shift [` / `]`, to fold a section down to a "N folded lines" chip. `Ctrl/Cmd Alt [` / `]` folds or opens everything
 - **List/quote continuation** — `Enter` continues `-` lists, `- [ ]` tasks, numbered lists, and `>` quotes; `Enter` on an empty item exits. `Ctrl/Cmd ↑/↓` moves the current line. Pasting a URL over selected text makes a markdown link
 - **Folder delete, Obsidian-safe** — right-click a folder in the sidebar: "Delete folder" *moves* the whole subtree to the vault's `.trash/`, so it is recoverable from disk (the dialog names the folder and counts the notes first); a quieter "Delete permanently" beside it erases instead, behind its own confirmation
 - **Vim mode**, autosave (600 ms debounce + `Ctrl/Cmd S`), and a keyboard-first surface
@@ -697,20 +728,23 @@ theme tokens.
 - **Graph view** — hand-rolled canvas force simulation; drag nodes, hover to highlight neighbors, click to open
 - **Full-text search** — prefix + fuzzy (MiniSearch), highlighted snippets with markdown syntax stripped, instant
 - **Tags** — `#inline` and frontmatter `tags:`, counted and clickable in the sidebar
+- **Attachments are in the tree** — your vault is not only `.md`, and the sidebar says so: images, PDFs, audio, video and everything else sit under their folder beneath the notes, each with a type glyph, and the footer counts both ("1,388 notes · 1,176 files"). Clicking an image opens a lightbox — natural size capped to the viewport, filename, pixel dimensions and file size, `←`/`→` through the rest of that folder ("3 / 47"), `Esc` or a click outside to leave. PDFs open in a browser tab, audio and video get an inline player, anything else offers a download. The paperclip in the sidebar footer hides them all again, and remembers
 - **Daily notes** — `Ctrl/Cmd D` opens (or creates) `daily/YYYY-MM-DD.md`
 - **A shell that gets out of the way** — collapse either pane (`Ctrl/Cmd B`, `Ctrl/Cmd Shift B`) down to a slim reopen handle, or go **zen** (`Ctrl/Cmd Shift Z`): sidebar, panel, tabs and status bar step aside and the prose centers on a wide measure. `Esc` (or the faint ✕) comes back. Every state is remembered across reloads
 - **Sidebar on either side** — "Move sidebar to the right/left" in the palette; the default follows the language direction (left in English, right in Arabic) and your choice sticks
 - **Command palette** — fuzzy over notes and commands, including "Toggle reading view", "Open daily note", "Zen mode", themes, vim
 - **Live vault watching** — edit a file in any other editor and the app updates within ~100 ms (chokidar + SSE)
-- **Four hand-tuned themes** — *iron-gall*, *void*, and *lapis* dark, *parchment* light; gold-leaf accent, zero CDN requests (webfonts are opt-in and self-hosted — see [Typography](#typography))
+- **Fifteen hand-tuned themes** — eleven dark (*iron-gall*, *cinnabar*, *sumi*, *void*, *basalt*, *nocturne*, *lapis*, *verdigris*, *moss*, *porphyry*, *tallow*) and four light (*parchment*, *sandstone*, *solar*, *linen*), no two of them the same room (`scripts/check-contrast.mjs` holds every accent 4.5:1 against its ground **and** 18 ΔE clear of its own body text), browsed from a keyboard-driven picker that previews live; zero CDN requests (webfonts are opt-in and self-hosted — see [Typography](#typography))
 - **A font catalog with real Arabic** — four slots over 27 curated faces, fetched once and served from your own machine; the Arabic face answers per *character*, so mixed Arabic/Latin paragraphs set correctly in either language
 - **Arabic & RTL** — `SITE_LANG=ar` localizes every chrome string and mirrors the entire interface right-to-left (app *and* blog), with Arabic-locale dates; an optional language filter keeps the public blog monolingual on a bilingual vault, and an optional visitor `EN`/`ع` switch lets readers pick for themselves
+- **Modes you cannot sit in by accident** — reading, vim and visitor preview each light a pill in the status bar (accent-filled, clickable to leave, tooltip naming the shortcut), and a mode that takes typing away also states itself *in the workspace*: a one-line strip above the note ("Reading — this note is read-only" + an **Edit** button) plus an accent rule down the column's leading edge. Vim gets the same treatment one level deeper, because "vim is on" is not the trap — "the keys under your fingers are commands right now" is: the pill carries the live sub-mode (**VIM │ NORMAL**, **│ INSERT**, **│ VISUAL**, **│ REPLACE**), vim's own `-- INSERT --` line and `:` / `/` command line sit at the foot of the editor, and in zen — where the whole status bar is at zero height — the strip says it instead. Visitor preview is a strip at the top that pushes the page down — it never covers the layout you opened it to judge — and it never survives a reload
 - **Blog hover previews** — resting on any post link floats a scrollable preview of that note, rendered by the reading renderer: it opens into whichever room the viewport has, fades at whichever edge has more prose past it, and answers the keyboard too (a Tab-focused link gets the same card). The topic nav never wraps, and a ✦ carries long reads back to the top
 
 ## Keymap
 
 | Keys | Action |
 | ---- | ------ |
+| `Ctrl/Cmd /` | Keyboard shortcuts — every binding, grouped and searchable |
 | `Ctrl/Cmd P` | Command palette (open note, run command) |
 | `Ctrl/Cmd K` | Search — focuses the sidebar search in the app; opens a centered search overlay on the public blog |
 | `Ctrl/Cmd E` | Toggle reading view ⇄ editor |
@@ -725,7 +759,9 @@ theme tokens.
 | `/` at line start | Slash menu (callout, code fence, table, …) |
 | Click | Follow a rendered wikilink (create it if unresolved) |
 | `Ctrl/Cmd`-click | Follow a wikilink on the line you're editing |
-| `↑` `↓` `Enter` `Esc` | Navigate / confirm / dismiss the palette |
+| `↑` `↓` `Enter` `Esc` | Navigate / confirm / dismiss the palette (`Enter` always runs the keyboard's row, never whatever the mouse happens to rest on) |
+| `Esc` | Out of visitor preview, out of zen, and back to the note from `Ctrl/Cmd K` |
+| `←` `→` `Esc` | Previous / next file in the attachment viewer, and out of it |
 
 In vim mode, `Ctrl D` and `Ctrl B` inside the editor keep their half-page scroll and page-up, and
 `Esc` stays vim's mode key — use `Cmd`, the palette, or zen's ✕ instead. On macOS, `Cmd Shift Z`

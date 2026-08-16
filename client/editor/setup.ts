@@ -39,6 +39,7 @@ import { wikilinkAutocomplete } from "./autocomplete.ts";
 import { imageUploads } from "./uploads.ts";
 import { hoverPreviews } from "./hoverPreview.ts";
 import { headingFolds } from "./folding.ts";
+import { attachVimStatus, detachVimStatus } from "./vimStatus.ts";
 import { t } from "../i18n.ts";
 
 export interface EditorSetupOptions {
@@ -62,7 +63,15 @@ let vimExt: VimExtension | null = null;
 async function loadVim(): Promise<VimExtension> {
   if (!vimExt) {
     const { vim } = await import("@replit/codemirror-vim");
-    vimExt = vim();
+    // `status: true` is not decoration. It mounts vim's own panel at the foot
+    // of the editor, and that panel is what draws `-- INSERT --` / `-- VISUAL --`
+    // AND hosts the `:` / `/` command line. Without it the extension shipped
+    // with no on-screen state at all: the VIM pill told the reader the
+    // extension was loaded, never that the keys under their fingers were
+    // currently COMMANDS — which is the actual trap, and the one the owner
+    // named ("same with vim mode"). vimStatus.ts forwards the same signal to
+    // the status-bar pill.
+    vimExt = vim({ status: true });
   }
   return vimExt;
 }
@@ -138,10 +147,14 @@ export function buildEditorState(options: EditorSetupOptions): EditorState {
 export function setVim(view: EditorView, on: boolean): void {
   if (!on) {
     view.dispatch({ effects: vimCompartment.reconfigure([]) });
+    detachVimStatus(view);
     return;
   }
   void loadVim().then((ext) => {
     if (!view.dom.isConnected) return; // editor unmounted while loading
     view.dispatch({ effects: vimCompartment.reconfigure(ext) });
+    // The plugin builds its CodeMirror adapter during that dispatch, so the
+    // listener can go on immediately after it.
+    attachVimStatus(view);
   });
 }

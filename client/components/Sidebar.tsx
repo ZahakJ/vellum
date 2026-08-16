@@ -4,17 +4,39 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import type { SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
+import type { AttachmentKind, SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
 import { createFolder, getGraph, getTags, search } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
 import { collectNotes, resolveLink, type NoteRef } from "../editor/links.ts";
 import { countPhrase, localeNum, t, tf, type Lang } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
+import AttachmentViewer, { fileUrl, isViewable } from "./AttachmentViewer.tsx";
 import { confirmModal, confirmModalEx } from "./Confirm.tsx";
 import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
 
 const SEARCH_DEBOUNCE_MS = 200;
+
+// How many rows of one folder are rendered before a "show more" row takes
+// over. A real vault keeps its images in ONE folder — the fixture this was
+// measured against holds 1,158 of them, and a vault's biggest note folder here
+// holds 715 — and mounting that many rows in a single commit is a visible
+// stall on every expand. Chunking costs one extra click on the rare huge
+// folder and nothing at all everywhere else.
+const CHUNK = 300;
+
+// The tree's attachment rows are a FILTER, not a fact of the vault: this
+// remembers whether the reader wants them. Default on — the whole point is
+// that files nobody could see were assumed lost.
+const SHOW_ATTACHMENTS_KEY = "vellum.show-attachments";
+
+function loadShowAttachments(): boolean {
+  try {
+    return localStorage.getItem(SHOW_ATTACHMENTS_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
 
 /** Margin the context menu keeps from every viewport edge. */
 const MENU_EDGE = 8;
@@ -147,10 +169,98 @@ function buildTopics(
   return sections;
 }
 
+/** Notes only — `.md` files, exactly what the server counts when it moves a
+ *  folder to .trash. The tree now also carries attachments, so a plain
+ *  "count every file node" would have made the delete dialog promise to move
+ *  1,214 notes when it meant 800 notes and 414 images. */
 function countNotes(node: TreeNode | null): number {
   if (!node) return 0;
-  if (node.type === "file") return 1;
+  if (node.type === "file") return node.attachment ? 0 : 1;
   return (node.children ?? []).reduce((sum, child) => sum + countNotes(child), 0);
+}
+
+/** Attachments only — the other half of the sidebar footer's count. */
+function countAttachments(node: TreeNode | null): number {
+  if (!node) return 0;
+  if (node.type === "file") return node.attachment ? 1 : 0;
+  return (node.children ?? []).reduce((sum, child) => sum + countAttachments(child), 0);
+}
+
+// ── Attachment type glyphs ──────────────────────────────────────────────────
+// One 14px mark per kind, so a row says what it holds before it is opened.
+
+function IconImage() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <circle cx="8.5" cy="9.5" r="1.6" />
+      <path d="M21 16l-5-5-6 6-2-2-5 5" />
+    </svg>
+  );
+}
+
+function IconPdf() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5" />
+      <path d="M9 13h6M9 16.5h4" />
+    </svg>
+  );
+}
+
+function IconAudio() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10 17V6l9-2v11" />
+      <circle cx="7" cy="17.5" r="3" />
+      <circle cx="16" cy="15.5" r="3" />
+    </svg>
+  );
+}
+
+function IconVideo() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="5" width="14" height="14" rx="2" />
+      <path d="M17 10l4-2.5v9L17 14z" />
+    </svg>
+  );
+}
+
+function IconFile() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5" />
+    </svg>
+  );
+}
+
+function IconClip() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 11.5l-8.8 8.8a5 5 0 0 1-7.1-7.1l9.2-9.2a3.3 3.3 0 0 1 4.7 4.7l-9.2 9.2a1.7 1.7 0 0 1-2.4-2.4l8.3-8.3" />
+    </svg>
+  );
+}
+
+function AttachmentGlyph({ kind }: { kind: AttachmentKind }) {
+  return (
+    <span className="s-tree__glyph">
+      {kind === "image" ? (
+        <IconImage />
+      ) : kind === "pdf" ? (
+        <IconPdf />
+      ) : kind === "audio" ? (
+        <IconAudio />
+      ) : kind === "video" ? (
+        <IconVideo />
+      ) : (
+        <IconFile />
+      )}
+    </span>
+  );
 }
 
 function IconNewNote() {
@@ -196,6 +306,10 @@ export default function Sidebar() {
   const [tagsCollapsed, setTagsCollapsed] = useState(loadTagsCollapsed);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [showAttachments, setShowAttachments] = useState(loadShowAttachments);
+  // The open lightbox: the viewable attachments of ONE folder plus the
+  // position inside it, so ← / → walk that folder and nothing else.
+  const [viewer, setViewer] = useState<{ items: TreeNode[]; index: number } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   // Set when a reveal had to happen first; the effect below focuses once the
   // pane is actually on screen (see revealSidebar).
@@ -418,6 +532,60 @@ export default function Sidebar() {
   }, []);
 
   const noteCount = useMemo(() => countNotes(tree), [tree]);
+  const attachmentCount = useMemo(() => countAttachments(tree), [tree]);
+
+  const setAttachmentsShown = useCallback((next: boolean) => {
+    setShowAttachments(next);
+    try {
+      localStorage.setItem(SHOW_ATTACHMENTS_KEY, String(next));
+    } catch {
+      // storage unavailable — the filter still works for this session
+    }
+  }, []);
+
+  // Identity changes with the flag — which costs nothing: every row re-renders
+  // on a toggle anyway, since the filter itself is one of their props.
+  const toggleAttachments = useCallback(
+    () => setAttachmentsShown(!showAttachments),
+    [setAttachmentsShown, showAttachments],
+  );
+
+  const showAllAttachments = useCallback(
+    () => setAttachmentsShown(true),
+    [setAttachmentsShown],
+  );
+
+  /** A click on an attachment row. PDFs go to a browser tab, which renders
+   *  them properly; everything else opens in the viewer, carrying its folder
+   *  with it so the arrow keys have somewhere to go. */
+  const openAttachment = useCallback((node: TreeNode, siblings: TreeNode[]) => {
+    if (node.attachment?.kind === "pdf") {
+      window.open(fileUrl(node.path), "_blank", "noopener,noreferrer");
+      return;
+    }
+    const items = siblings.filter(isViewable);
+    const index = Math.max(0, items.findIndex((n) => n.path === node.path));
+    if (items.length > 0) setViewer({ items, index });
+  }, []);
+
+  // The tree is replaced wholesale on every vault event; a viewer left open on
+  // a file that has since been deleted would keep showing a stale frame.
+  useEffect(() => {
+    setViewer((cur) => {
+      if (!cur) return cur;
+      const live = new Set<string>();
+      const walk = (node: TreeNode): void => {
+        if (node.type === "file") live.add(node.path);
+        for (const child of node.children ?? []) walk(child);
+      };
+      if (tree) walk(tree);
+      const items = cur.items.filter((n) => live.has(n.path));
+      if (items.length === 0) return null;
+      const at = cur.items[cur.index];
+      const index = Math.max(0, items.findIndex((n) => n.path === at?.path));
+      return { items, index };
+    });
+  }, [tree]);
 
   // Visitor collection: flat, alphabetical (collectNotes sorts by title),
   // with the home note pinned first. Also reused for the admin's
@@ -615,20 +783,20 @@ export default function Sidebar() {
             if (tree && e.target === e.currentTarget) openMenu(e, tree);
           }}
         >
-          {tree?.children?.map((child) => (
-            <TreeRow
-              key={child.path}
-              node={child}
-              depth={0}
-              renaming={renaming}
-              lang={lang}
-              onOpen={openNote}
-              onStartRename={startRename}
-              onCommitRename={commitRename}
-              onCancelRename={cancelRename}
-              onMenu={openMenu}
-            />
-          ))}
+          <TreeChildren
+            nodes={tree?.children ?? []}
+            depth={0}
+            renaming={renaming}
+            lang={lang}
+            showAttachments={showAttachments}
+            onOpen={openNote}
+            onStartRename={startRename}
+            onCommitRename={commitRename}
+            onCancelRename={cancelRename}
+            onMenu={openMenu}
+            onAttachment={openAttachment}
+            onShowAttachments={showAllAttachments}
+          />
         </nav>
       )}
 
@@ -689,7 +857,34 @@ export default function Sidebar() {
         </div>
       )}
 
-      <footer className="s-sidebar-foot">{countPhrase(noteCount, "notes")}</footer>
+      {/* The footer counts what is actually in the vault — notes AND the files
+          beside them — and carries the filter that decides whether the second
+          number is on screen. A hidden filter that removes a thousand rows is
+          the bug this round is about, so the OFF state is drawn, not implied:
+          the clip goes grey and the count is struck through. */}
+      <footer
+        className={`s-sidebar-foot${admin && attachmentCount > 0 ? " s-sidebar-foot--split" : ""}`}
+      >
+        <span>{countPhrase(noteCount, "notes")}</span>
+        {admin && attachmentCount > 0 && (
+          <button
+            type="button"
+            className={`s-attfilter s-attfilter--${showAttachments ? "on" : "off"}`}
+            onClick={toggleAttachments}
+            aria-pressed={showAttachments}
+            title={showAttachments ? t("hideAttachments") : t("showAttachments")}
+          >
+            <span className="s-attfilter__clip">
+              <IconClip />
+            </span>
+            <span className="s-attfilter__count">
+              {showAttachments
+                ? countPhrase(attachmentCount, "files")
+                : tf("attachmentsHidden", { count: countPhrase(attachmentCount, "files") })}
+            </span>
+          </button>
+        )}
+      </footer>
 
       {menu && (
         <div
@@ -722,10 +917,11 @@ export default function Sidebar() {
               </button>
             </>
           )}
-          {/* Files only: /api/rename is a note route ("Not a markdown path"
-              on a folder), so offering it on a folder row was a menu item
-              whose only outcome was a toast. */}
-          {menu.node.type === "file" && (
+          {/* NOTES only: /api/rename and DELETE /api/note are markdown
+              routes ("Not a markdown path" on anything else), so offering
+              either on a folder row — or now on an attachment row — is a menu
+              item whose only outcome is a toast. */}
+          {menu.node.type === "file" && !menu.node.attachment && (
             <button
               type="button"
               className="s-menu__item"
@@ -737,7 +933,7 @@ export default function Sidebar() {
               {t("rename")}
             </button>
           )}
-          {menu.node.type === "file" && (
+          {menu.node.type === "file" && !menu.node.attachment && (
             <button
               type="button"
               className="s-menu__item s-menu__item--danger"
@@ -747,6 +943,21 @@ export default function Sidebar() {
               }}
             >
               {t("delete")}
+            </button>
+          )}
+          {/* A view filter among the mutations, and deliberately so: the
+              reader who lost their files looks for them by right-clicking the
+              folder that should hold them. */}
+          {attachmentCount > 0 && (
+            <button
+              type="button"
+              className="s-menu__item"
+              onClick={() => {
+                setMenu(null);
+                toggleAttachments();
+              }}
+            >
+              {showAttachments ? t("hideAttachments") : t("showAttachments")}
             </button>
           )}
           {/* Never on the root row: the vault itself is not deletable (the
@@ -764,6 +975,15 @@ export default function Sidebar() {
             </button>
           )}
         </div>
+      )}
+
+      {viewer && (
+        <AttachmentViewer
+          items={viewer.items}
+          index={viewer.index}
+          onIndex={(index) => setViewer((cur) => (cur ? { ...cur, index } : cur))}
+          onClose={() => setViewer(null)}
+        />
       )}
     </aside>
   );
@@ -866,11 +1086,73 @@ interface TreeRowProps {
    *  live language change busts memo() on every row and re-renders the
    *  t() tooltips, without paying for a store subscription per row. */
   lang: Lang;
+  /** False hides every attachment row (the sidebar footer's filter). */
+  showAttachments: boolean;
+  /** The rows rendered beside this one, filter applied — what the viewer
+   *  walks with ← / →. Stable per parent render (useMemo in TreeChildren), so
+   *  it does not bust memo() on rows that did not change. */
+  siblings: TreeNode[];
   onOpen(path: string): void;
   onStartRename(path: string): void;
   onCommitRename(node: TreeNode, name: string): void;
   onCancelRename(): void;
   onMenu(e: ReactMouseEvent, node: TreeNode): void;
+  onAttachment(node: TreeNode, siblings: TreeNode[]): void;
+  /** Turns the filter back on, from the row that says what it is hiding. */
+  onShowAttachments(): void;
+}
+
+type TreeChildrenProps = Omit<TreeRowProps, "node" | "siblings"> & { nodes: TreeNode[] };
+
+/** One level of the tree: the attachment filter, then the chunk cap, then the
+ *  rows. Both live here rather than in TreeRow so a folder's children are
+ *  filtered ONCE per render and every row of that folder shares one `siblings`
+ *  array identity. */
+function TreeChildren({ nodes, ...rest }: TreeChildrenProps) {
+  const visible = useMemo(
+    () => (rest.showAttachments ? nodes : nodes.filter((n) => !n.attachment)),
+    [nodes, rest.showAttachments],
+  );
+  const [limit, setLimit] = useState(CHUNK);
+  // A folder that shrank (delete, filter flip) must not keep a raised cap.
+  const shown = visible.length <= limit ? visible : visible.slice(0, limit);
+  const remaining = visible.length - shown.length;
+  const hidden = nodes.length - visible.length;
+
+  return (
+    <>
+      {shown.map((child) => (
+        <TreeRow key={child.path} {...rest} node={child} siblings={visible} />
+      ))}
+      {/* The bug this round answers was a folder that opened onto NOTHING.
+          With attachments hidden, an all-attachment folder would do exactly
+          that again — so it says what it is holding back, indented where
+          those rows would be, and the row itself is the way to see them. */}
+      {visible.length === 0 && hidden > 0 && (
+        <button
+          type="button"
+          className="s-tree__hidden"
+          style={{ paddingInlineStart: `${rest.depth * 12 + 8}px` }}
+          onClick={rest.onShowAttachments}
+          title={t("showAttachments")}
+        >
+          <span className="s-tree__glyph">
+            <IconClip />
+          </span>
+          {tf("attachmentsHidden", { count: countPhrase(hidden, "files") })}
+        </button>
+      )}
+      {remaining > 0 && (
+        <button
+          type="button"
+          className="s-tree__more"
+          onClick={() => setLimit((n) => n + CHUNK)}
+        >
+          {tf("showMoreRows", { count: localeNum(remaining) })}
+        </button>
+      )}
+    </>
+  );
 }
 
 // Memoized: with stable callbacks from Sidebar, a folder toggle re-renders
@@ -878,15 +1160,21 @@ interface TreeRowProps {
 // active flag flipped — not all 1.4k rows.
 const TreeRow = memo(function TreeRow(props: TreeRowProps) {
   const { node, depth, renaming } = props;
+  // Everything a child level needs: this row's own identity drops out, the
+  // rest (callbacks, language, the attachment filter) travels down unchanged.
+  const { node: _node, siblings: _siblings, ...childProps } = props;
   const isActive = useStore((s) => s.openPath === node.path);
   const isPublished = useStore(
     (s) => node.type === "file" && (s.publishedPaths?.has(node.path) ?? false),
   );
   const isFolder = node.type === "folder";
+  const attachment = node.attachment;
   const [isOpen, setIsOpen] = useState(
     () => isFolder && (expandedMap.get(node.path) ?? defaultOpen(depth)),
   );
-  const label = isFolder ? node.name : node.name.replace(/\.md$/, "");
+  // Attachments keep their extension — it is half of what the name says —
+  // while a note sheds the ".md" it always has.
+  const label = isFolder || attachment ? node.name : node.name.replace(/\.md$/, "");
 
   const toggle = () => {
     const next = !isOpen;
@@ -898,6 +1186,7 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
   const classes = [
     "s-tree__item",
     isFolder ? "s-tree__item--folder" : "s-tree__item--file",
+    attachment ? "s-tree__item--att" : "",
     isActive ? "s-tree__item--active" : "",
   ]
     .filter(Boolean)
@@ -908,20 +1197,32 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
       <div
         className={classes}
         style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
-        onClick={() => (isFolder ? toggle() : props.onOpen(node.path))}
+        onClick={() =>
+          isFolder
+            ? toggle()
+            : attachment
+              ? props.onAttachment(node, props.siblings)
+              : props.onOpen(node.path)
+        }
         onDoubleClick={(e) => {
           e.stopPropagation();
-          props.onStartRename(node.path);
+          // Same rule as the menu: /api/rename is a note route.
+          if (!attachment) props.onStartRename(node.path);
         }}
         onContextMenu={(e) => props.onMenu(e, node)}
         role="treeitem"
         aria-expanded={isFolder ? isOpen : undefined}
+        // Attachment names are long and the pane is narrow ("Pasted image
+        // 20230906180811-10.png" is 38 characters); the tooltip is the only
+        // place the whole one fits. Note rows keep their bare label.
+        title={attachment ? node.name : undefined}
       >
         {isFolder && (
           <span className={`s-tree__chevron${isOpen ? " s-tree__chevron--open" : ""}`}>
             ›
           </span>
         )}
+        {attachment && <AttachmentGlyph kind={attachment.kind} />}
         {renaming === node.path ? (
           <RenameInput
             initial={node.name}
@@ -938,12 +1239,15 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
             )}
           </span>
         )}
+        {/* The glyph covers the five kinds; the badge names the exact type for
+            the one that has no glyph of its own. */}
+        {attachment?.kind === "other" && attachment.ext && (
+          <span className="s-tree__ext">{attachment.ext}</span>
+        )}
       </div>
       {isFolder && isOpen && (
         <div className="s-tree__children" role="group">
-          {node.children?.map((child) => (
-            <TreeRow key={child.path} {...props} node={child} depth={depth + 1} />
-          ))}
+          <TreeChildren {...childProps} nodes={node.children ?? []} depth={depth + 1} />
         </div>
       )}
     </div>

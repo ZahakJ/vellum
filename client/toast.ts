@@ -10,12 +10,17 @@ export function dismissToasts(): void {
   for (const el of document.querySelectorAll(".s-toast")) el.remove();
 }
 
-export function toast(msg: string): void {
+/** `error` paints the leading rule in --danger (app.css's `.s-toast--error`,
+ *  which existed and was never once applied); the default accent rule is for
+ *  confirmations and for the calm "this is the expected answer" messages —
+ *  a 404 while previewing as a visitor is not a fault, and dressing it as one
+ *  is what made the owner's first use of preview report a failure. */
+export function toast(msg: string, tone: "info" | "error" = "info"): void {
   // Replace any lingering toast so messages never stack unreadably.
   dismissToasts();
 
   const el = document.createElement("div");
-  el.className = "s-toast";
+  el.className = tone === "error" ? "s-toast s-toast--error" : "s-toast";
   el.setAttribute("role", "status");
   el.textContent = msg;
   document.body.appendChild(el);

@@ -14,12 +14,14 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type {
+  AboutInfo,
   EffectiveSettings,
   FontSlotsEffective,
   HomeSettings,
   SettingsData,
   SettingsResponse,
 } from "../shared/types.ts";
+import { THEMES as THEME_IDS } from "../shared/themes.ts";
 import { envHomeNote } from "./auth.ts";
 import { commentsEnabled } from "./comments.ts";
 // Backup & sync: the gitSync validators and the write-only credential store
@@ -47,7 +49,8 @@ import {
   tagline,
 } from "./site.ts";
 import { catalogList, cleanFontSlots, readFontSlots, slotsAreSystem } from "./fonts.ts";
-import { normalizeRel, safeAbs, VaultError } from "./vault.ts";
+import { listImageAttachments, publishedCounts, tags } from "./indexer.ts";
+import { getVaultRoot, normalizeRel, safeAbs, VaultError } from "./vault.ts";
 
 const SETTINGS_FILE = "settings.json";
 const VALUE_MAX = 500; // same budget as a frontmatter banner value
@@ -60,8 +63,11 @@ const LOCALE_MAX = 35; // BCP47 tags are short; RFC 5646 recommends ≤ 35
 const TAG_MAX = 50;
 const TAGS_MAX = 200;
 
-/** The four built-in themes (mirrors client/state.ts THEMES). */
-const THEMES = new Set(["iron-gall", "void", "lapis", "parchment"]);
+/** The built-in themes. NOT a copy of the client's list — the same list:
+ *  `shared/themes.ts` is the single definition both sides validate against,
+ *  because at fifteen ids a hand-kept mirror means the panel offers a theme
+ *  the PATCH answers 400 to. */
+const THEMES = new Set<string>(THEME_IDS);
 
 /** Vault-image extensions a favicon/logo may carry (what /api/upload can
  *  produce, plus .ico for hand-placed favicons). */
@@ -277,7 +283,37 @@ export function effectiveSettings(): EffectiveSettings {
 /** GET/PATCH /api/settings payload: stored keys + the effective merge (plus
  *  the typography catalog the panel's selects are built from). */
 export function settingsResponse(): SettingsResponse {
-  return { ...getSettings(), effective: effectiveSettings(), fontCatalog: catalogList() };
+  return { ...getSettings(), effective: effectiveSettings(), fontCatalog: catalogList(), about: aboutInfo() };
+}
+
+/** package.json's version, read once. The file sits next to server/ in every
+ *  layout this ships in (clone-and-run, no bundling on the server side). */
+const VERSION = ((): string => {
+  try {
+    const raw = readFileSync(new URL("../package.json", import.meta.url), "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    const value = (parsed as { version?: unknown }).version;
+    return typeof value === "string" ? value : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+})();
+
+/** The instance's own facts for the settings panel's About tab. Admin-only by
+ *  construction — it rides GET /api/settings, which is 404 to visitors — which
+ *  is why it is allowed to name absolute paths on the operator's disk. */
+export function aboutInfo(): AboutInfo {
+  const counts = publishedCounts();
+  return {
+    version: VERSION,
+    node: process.version,
+    vaultPath: getVaultRoot(),
+    dataPath: dataDir(),
+    notes: counts.total,
+    published: counts.notes,
+    attachments: listImageAttachments().length,
+    tags: tags().length,
+  };
 }
 
 /** Vault-relative attachment paths named by settings (home banner, logo,
@@ -339,7 +375,13 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
   tagline: stringKey("tagline", (v) => cleanValue(v, "tagline", TAGLINE_MAX)),
   footer: stringKey("footer", (v) => cleanValue(v, "footer", FOOTER_MAX)),
   defaultTheme: stringKey("defaultTheme", (v) => {
-    const clean = cleanValue(v, "defaultTheme");
+    // Lowercased like `language` and `publicLayout`, and for a sharper reason
+    // than symmetry: `DEFAULT_THEME` is lowercased by readEnvTheme() before it
+    // is validated, so `DEFAULT_THEME=SOLAR` started the instance on solar
+    // while `PATCH {"defaultTheme":"SOLAR"}` was a 400 — the same value
+    // accepted through one door and refused at the other. Theme ids are a
+    // closed lowercase enum, so there is one canonical form to coerce to.
+    const clean = cleanValue(v, "defaultTheme")?.toLowerCase() ?? null;
     if (clean === null) return null;
     if (!THEMES.has(clean)) {
       throw new VaultError(400, `Settings key "defaultTheme" must be one of: ${[...THEMES].join(", ")}`);

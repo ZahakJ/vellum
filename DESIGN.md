@@ -44,10 +44,21 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 - Tree: 13px UI font, 26px row height, rows full-width hover --bg-hover rounded 4px, 8px left pad
   per depth. Folders: chevron (▸ rotates 90° when open, 150ms) + name; files: no icon clutter —
   just the name minus `.md`; active note row: --accent-soft bg + --accent 2px left bar. Smooth.
+- Attachments (non-`.md` files) sit under a folder's notes, dimmer (--text-faint, hover
+  --text-muted), with a 14px type glyph in the chevron's slot and their extension kept in the
+  label; notes keep the no-icon rule above. The footer counts them beside the notes and carries
+  the paperclip that hides them — and a folder the filter empties says "N files hidden" rather
+  than opening onto nothing.
 - Tags section pinned under tree: header "Tags" 11px uppercase --text-faint letterspaced; pills:
   12px, 3px 8px, --bg-hover bg, rounded-full, `#` in --accent, count in --text-faint; hover fills
   --accent-soft.
-- Sidebar footer: "N notes" 11px --text-faint.
+- Sidebar footer: "N notes" 11px --text-faint, with the attachment count + paperclip toggle at
+  the inline end (admin, when the vault has any).
+- Attachment viewer: full-viewport scrim rgba(0,0,0,.72) + 4px blur (the ‹ › handles are painted
+  for that scrim — accent-tinted ground, lit rim, --text glyph — not for the page behind them), the file at natural size
+  capped to `calc(100vh - 120px)` (never upscaled), a pill caption bar under it (name serif,
+  then `PNG · 1,045 × 657 · 92 KB`, then position, then open-in-tab / download / close), and
+  round ‹ › handles on the logical edges. Esc, click-out, ← / → with wrapping.
 
 ## Tab bar
 
@@ -63,6 +74,9 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 - Headings (live preview rendered): h1 1.9em serif + hairline bottom border --border padding 0.2em;
   h2 1.5em; h3 1.25em; all --text with h1 slightly gold-tinted (color-mix 15% accent). The `#`
   marks when cursor is on the line render --text-faint.
+- Heading fold chevron: in the left padding of every heading line, VISIBLE at rest (--text-faint
+  at full strength), --text-muted on line hover, --accent on itself. Never a hover-reveal — same
+  rule as the reopen handle, and there is no hover on a phone.
 - Blockquote: 3px gold left bar + --text-muted italic. Lists: gold `•`. Checkboxes: 15px rounded
   square, gold fill + white ✓ when checked, text of done items --text-faint strikethrough.
 - Wikilinks: --accent, no underline, hover underline; broken links (unresolvable): dashed
@@ -81,8 +95,10 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 ## Status bar
 
 - 28px, --bg-raised, top border, 12px --text-muted. Left: breadcrumb path of open note
-  (folder › note). Right segments separated by dots: "N words · M chars", vim badge (gold when on),
-  theme toggle (☾/☀ icon button), graph toggle. All hover --text.
+  (folder › note), which keeps a min-width floor down to 900px — identity outranks a character
+  count at every width. Right segments in GROUPS, each marked once by a hairline (never dots
+  between some neighbours and not others): the counts, the mode pills, admin tools (gear · eye),
+  the pane toggles, the view controls (☾/☀ · graph), the session control. All hover --text.
 
 ## Command palette
 
@@ -105,8 +121,16 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 - All interactive elements: 150ms ease transitions on color/bg/transform. `:focus-visible`: 2px
   --accent ring, radius-matched. Custom scrollbars: 8px, thumb --border hover --text-faint,
   transparent track. ::selection --accent-soft. No layout shift on hover anywhere.
-- Both themes must pass: contrast ≥ 4.5:1 body text, ≥ 3:1 muted; gold accent adjusted per theme
-  (#c9a227 dark / #8a6d1a light).
+- **All fifteen** themes must pass: contrast ≥ 4.5:1 body text, ≥ 3:1 muted, accent ≥ 4.5:1 on its
+  own ground **and ≥ 18 ΔE from its own body text** (`check-contrast.mjs` walks every block in
+  tokens.css). That last one is not a contrast ratio and cannot be: a theme whose accent is a
+  shade of its own type — sumi shipped one — has no accent channel at all, and every argument for
+  the lit mode pill collapses with it. "No two themes share a hex" is likewise satisfiable and
+  meaningless; the test is whether two swatches are separable at a glance. The accent is per theme, and only iron-gall/lapis/parchment
+  are gold — a theme is a room, not a tint: it defines its own ground, type, accent, selection,
+  focus ring, graph colors, thirteen callout hues and eight syntax colors, solved against its own
+  `--bg`. Readers browse them in the theme picker (grouped dark/light, arrow keys preview live,
+  Enter keeps, Esc restores); nothing in the product cycles blindly through fifteen looks.
 
 ## Hard rules
 

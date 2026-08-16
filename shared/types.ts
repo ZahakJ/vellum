@@ -4,7 +4,28 @@ export interface TreeNode {
   name: string;          // file or folder basename, e.g. "Ideas.md" or "projects"
   path: string;          // vault-relative POSIX path, e.g. "projects/Ideas.md"; "" for root
   type: "file" | "folder";
-  children?: TreeNode[]; // folders only, sorted: folders first, then files, alpha
+  children?: TreeNode[]; // folders only, sorted: folders, then notes, then attachments, alpha within each
+  /** Present on non-markdown FILE nodes only — the ADMIN tree lists a vault's
+   *  attachments (images, PDFs, audio, video, anything else) beside its notes,
+   *  because a folder of 1,158 images that expands to nothing reads as "my
+   *  files are gone". A node WITHOUT this field is a note (`.md`); every
+   *  consumer that wants notes only filters on it (or, as `collectNotes` does,
+   *  on the `.md` suffix of `path`). The visitor tree never carries it: a
+   *  visitor's tree is the flat published-note collection and nothing else. */
+  attachment?: AttachmentInfo;
+}
+
+/** How an attachment is opened: `image` in the in-app viewer, `audio`/`video`
+ *  with an inline player, `pdf` in a new tab (browsers render them), anything
+ *  else offered as a download. */
+export type AttachmentKind = "image" | "pdf" | "audio" | "video" | "other";
+
+export interface AttachmentInfo {
+  kind: AttachmentKind;
+  /** Lowercase extension without the dot ("png"); "" when the name has none. */
+  ext: string;
+  /** Size in bytes (the viewer prints it; the tree does not). */
+  size: number;
 }
 
 export interface NoteData {
@@ -116,7 +137,8 @@ export interface SettingsData {
   /** Footer template, {year}/{siteName} substituted (overrides SITE_FOOTER). ≤ 200 chars. */
   footer?: string;
   /** Theme for visitors without a stored choice (overrides DEFAULT_THEME).
-   *  One of: iron-gall, void, lapis, parchment. */
+   *  One of the fifteen ids in `shared/themes.ts` — the list both the client's
+   *  picker and the server's validator read, so they cannot drift. */
   defaultTheme?: string;
   /** Visitor-facing layout (overrides PUBLIC_LAYOUT). */
   publicLayout?: "app" | "blog";
@@ -166,6 +188,24 @@ export interface SettingsResponse extends SettingsData {
    *  per build; travels with the settings payload so the panel needs no
    *  second request. */
   fontCatalog?: FontCatalogEntry[];
+  /** What this instance IS, for the settings panel's About tab. Admin-only by
+   *  construction: /api/settings is 404 to visitors. */
+  about?: AboutInfo;
+}
+
+/** The instance's own facts — version, where it keeps things, how much is in
+ *  it. Every one of these was previously answerable only from the terminal
+ *  that started the server, which is the wrong place for the person editing
+ *  the site from a browser. Paths are ABSOLUTE and admin-only. */
+export interface AboutInfo {
+  version: string;      // package.json version
+  node: string;         // process.version, e.g. "v22.11.0"
+  vaultPath: string;    // resolved vault root
+  dataPath: string;     // VELLUM_DATA (settings.json, fonts, credentials)
+  notes: number;        // indexed .md files
+  published: number;    // notes with publish: true
+  attachments: number;  // indexed image attachments
+  tags: number;         // distinct tags
 }
 
 export interface EffectiveSettings {

@@ -64,17 +64,25 @@ export function readThemeColors(): ThemeColors {
     cs.getPropertyValue(name).trim() || fallback;
   const border = token("--border", "#333");
   const muted = token("--text-muted", "#999");
-  const dark =
-    document.documentElement.getAttribute("data-theme") !== "parchment";
+  // Ask the THEME whether it is a dark room, not the attribute: there are
+  // eleven dark themes and four light ones, so `!== "parchment"` painted every
+  // light theme but one with a dark theme's edges. Every block in tokens.css
+  // declares its own color-scheme.
+  const dark = cs.getPropertyValue("color-scheme").trim() !== "light";
   return {
     text: token("--text", "#ddd"),
     muted,
     faint: token("--text-faint", "#666"),
-    accent: token("--accent", "#c9a227"),
+    // The constellation's disc color is its own token (tokens.css), defaulting
+    // to the theme accent — an accent tuned for 14px type is not always the
+    // right ink for 1,400 overlapping discs.
+    accent: token("--graph-node", "") || token("--accent", "#c9a227"),
     border,
     bg: token("--bg", "#16130e"),
     fontUI: token("--font-ui", "system-ui, sans-serif"),
-    idleEdge: dark ? mixColors(border, muted, 0.35) : mixColors(border, muted, 0.3),
+    idleEdge:
+      token("--graph-edge", "") ||
+      (dark ? mixColors(border, muted, 0.35) : mixColors(border, muted, 0.3)),
     idleEdgeAlpha: dark ? 0.6 : 0.62,
   };
 }

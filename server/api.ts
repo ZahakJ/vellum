@@ -301,6 +301,14 @@ function publishedTree(): TreeNode {
   return { name: path.basename(getVaultRoot()), path: "", type: "folder", children };
 }
 
+// The admin tree carries the vault's ATTACHMENTS as well as its notes (each
+// non-markdown file gets a TreeNode.attachment marker) — a Media/ folder that
+// expanded to nothing was read by a real owner as "my files are missing".
+// The visitor tree does not, and cannot: publishedTree() is built from
+// publishedNotes() alone, so no filename outside the published set is ever
+// named to a visitor (or to an admin previewing as one), whatever the sidebar
+// is showing at the time. Attachment BYTES stay gated by /api/file's
+// allowlist check either way.
 api.get("/tree", async (c) => {
   if (isPublishLimited(c)) return c.json(publishedTree());
   return c.json(await buildTree());

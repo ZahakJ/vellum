@@ -41,6 +41,26 @@ export function withPreview(init?: RequestInit): RequestInit | undefined {
   return { ...init, headers };
 }
 
+/** An HTTP error that kept its status. Callers need it because not every
+ *  non-2xx is a failure worth a red toast: a 404 from `/api/note` while
+ *  previewing as a visitor is the server answering CORRECTLY that the note is
+ *  not published, and reporting that as "Failed to open <path>" made the very
+ *  first use of preview announce a fault that did not exist. */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/** True when `err` is a 404 raised while the session was previewing as a
+ *  visitor — i.e. "not published", not "broken". */
+export function isNotPublishedError(err: unknown): boolean {
+  return previewOn && err instanceof ApiError && err.status === 404;
+}
+
 async function request<T>(url: string, init?: RequestInit, asAdmin = false): Promise<T> {
   // asAdmin: skip the preview header — for admin actions offered INSIDE the
   // visitor preview (the dashboard's "Change banner…"), which must reach the
@@ -60,7 +80,7 @@ async function request<T>(url: string, init?: RequestInit, asAdmin = false): Pro
       typeof (body as { error: unknown }).error === "string"
         ? (body as { error: string }).error
         : `HTTP ${res.status}`;
-    throw new Error(message);
+    throw new ApiError(message, res.status);
   }
   return body as T;
 }

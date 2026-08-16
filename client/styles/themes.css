@@ -1,0 +1,385 @@
+/* Vellum — the theme library's own stylesheet.
+   Linked after app.css (see client/index.html), and it holds three things:
+
+     1. the rules app.css states in terms of --accent that a theme has to be
+        able to retune for itself (selection wash, focus ring, graph vignette);
+     2. the swatch machinery — one --sw-bg/--sw-text/--sw-accent trio per
+        theme, shared by the palette's theme dots and the picker's three-dot
+        previews, so a preview of a theme is painted in THAT theme's colors
+        and not in the one currently on screen;
+     3. the theme picker panel itself (client/components/ThemePicker.tsx).
+
+   Adding a theme touches this file exactly once: one --sw-* rule. Everything
+   else is generic. */
+
+/* ── What a theme may retune ─────────────────────────────────────────────── */
+
+/* Selection: --accent-soft at 14% is a smudge on paper and a whisper on a
+   near-black ground; --selection-bg is the same wash tuned per theme. */
+::selection {
+  background: var(--selection-bg, var(--accent-soft));
+  color: var(--text);
+}
+
+/* Focus ring: sumi's accent is a near-white grey, so "outline: var(--accent)"
+   would put an almost invisible ring on a light-grey control. Per theme. */
+:focus-visible {
+  outline-color: var(--focus-ring, var(--accent));
+}
+
+/* The graph vignette. Two selectors so this wins over app.css's
+   [data-theme="parchment"] rule at equal specificity but later in the
+   cascade — a black wash greys out every light theme instead of framing it,
+   and each theme's --graph-vignette is its own ground driven dark. */
+.s-graph::after,
+[data-theme] .s-graph::after {
+  background: radial-gradient(120% 95% at 50% 42%, transparent 40%, var(--graph-vignette) 100%);
+}
+
+/* ── Swatches ────────────────────────────────────────────────────────────── */
+
+/* Each theme's identity trio, held constant across themes (tokens.css defines
+   the --swatch-* values). Two hooks, one rule: [data-theme-dot] is the
+   command palette's single dot, [data-theme-swatch] the picker's three. */
+
+[data-theme-swatch="iron-gall"],
+[data-theme-dot="iron-gall"] {
+  --sw-bg: var(--swatch-iron-gall-bg);
+  --sw-text: var(--swatch-iron-gall-text);
+  --sw-accent: var(--swatch-iron-gall-accent);
+}
+
+[data-theme-swatch="cinnabar"],
+[data-theme-dot="cinnabar"] {
+  --sw-bg: var(--swatch-cinnabar-bg);
+  --sw-text: var(--swatch-cinnabar-text);
+  --sw-accent: var(--swatch-cinnabar-accent);
+}
+
+[data-theme-swatch="sumi"],
+[data-theme-dot="sumi"] {
+  --sw-bg: var(--swatch-sumi-bg);
+  --sw-text: var(--swatch-sumi-text);
+  --sw-accent: var(--swatch-sumi-accent);
+}
+
+[data-theme-swatch="void"],
+[data-theme-dot="void"] {
+  --sw-bg: var(--swatch-void-bg);
+  --sw-text: var(--swatch-void-text);
+  --sw-accent: var(--swatch-void-accent);
+}
+
+[data-theme-swatch="basalt"],
+[data-theme-dot="basalt"] {
+  --sw-bg: var(--swatch-basalt-bg);
+  --sw-text: var(--swatch-basalt-text);
+  --sw-accent: var(--swatch-basalt-accent);
+}
+
+[data-theme-swatch="nocturne"],
+[data-theme-dot="nocturne"] {
+  --sw-bg: var(--swatch-nocturne-bg);
+  --sw-text: var(--swatch-nocturne-text);
+  --sw-accent: var(--swatch-nocturne-accent);
+}
+
+[data-theme-swatch="lapis"],
+[data-theme-dot="lapis"] {
+  --sw-bg: var(--swatch-lapis-bg);
+  --sw-text: var(--swatch-lapis-text);
+  --sw-accent: var(--swatch-lapis-accent);
+}
+
+[data-theme-swatch="verdigris"],
+[data-theme-dot="verdigris"] {
+  --sw-bg: var(--swatch-verdigris-bg);
+  --sw-text: var(--swatch-verdigris-text);
+  --sw-accent: var(--swatch-verdigris-accent);
+}
+
+[data-theme-swatch="moss"],
+[data-theme-dot="moss"] {
+  --sw-bg: var(--swatch-moss-bg);
+  --sw-text: var(--swatch-moss-text);
+  --sw-accent: var(--swatch-moss-accent);
+}
+
+[data-theme-swatch="porphyry"],
+[data-theme-dot="porphyry"] {
+  --sw-bg: var(--swatch-porphyry-bg);
+  --sw-text: var(--swatch-porphyry-text);
+  --sw-accent: var(--swatch-porphyry-accent);
+}
+
+[data-theme-swatch="tallow"],
+[data-theme-dot="tallow"] {
+  --sw-bg: var(--swatch-tallow-bg);
+  --sw-text: var(--swatch-tallow-text);
+  --sw-accent: var(--swatch-tallow-accent);
+}
+
+[data-theme-swatch="parchment"],
+[data-theme-dot="parchment"] {
+  --sw-bg: var(--swatch-parchment-bg);
+  --sw-text: var(--swatch-parchment-text);
+  --sw-accent: var(--swatch-parchment-accent);
+}
+
+[data-theme-swatch="sandstone"],
+[data-theme-dot="sandstone"] {
+  --sw-bg: var(--swatch-sandstone-bg);
+  --sw-text: var(--swatch-sandstone-text);
+  --sw-accent: var(--swatch-sandstone-accent);
+}
+
+[data-theme-swatch="solar"],
+[data-theme-dot="solar"] {
+  --sw-bg: var(--swatch-solar-bg);
+  --sw-text: var(--swatch-solar-text);
+  --sw-accent: var(--swatch-solar-accent);
+}
+
+[data-theme-swatch="linen"],
+[data-theme-dot="linen"] {
+  --sw-bg: var(--swatch-linen-bg);
+  --sw-text: var(--swatch-linen-text);
+  --sw-accent: var(--swatch-linen-accent);
+}
+
+/* The palette's theme dot, now generic: app.css named the four themes it knew
+   one rule at a time (specificity 0,2,0), so this matches the same shape and
+   wins on order — a fifteenth theme needs no rule of its own. */
+.s-palette-dot[data-theme-dot] {
+  background: var(--sw-bg);
+  border-color: var(--sw-accent);
+}
+
+/* ── Theme picker ────────────────────────────────────────────────────────── */
+
+/* No scrim, and no blur. Every other overlay dims the app because the app is
+   not what the reader is looking at; this one exists so they can look at it.
+   The arrow keys repaint the whole shell live, so a 40%-black wash over it is
+   dimming the very thing being judged — and when the picker is opened from the
+   settings panel (which carries its own .s-palette-overlay) the two washes and
+   the two blurs stack, and the preview is a guess. The panel's own shadow and
+   hairline are what separate it from the page. */
+.s-tpick-overlay {
+  align-items: center;
+  padding-top: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+/* Opened from the settings panel, the picker is the surface in front — and the
+   panel behind it is 940px of chrome sitting between the reader and the theme
+   they are previewing. It steps back (it does not unmount: Esc must return to
+   it exactly as it was) so the shell shows through. */
+body:has(.s-tpick-host) .s-smodal-overlay {
+  opacity: 0.1;
+  transition: opacity 140ms ease;
+}
+
+.s-tpick {
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(680px, calc(100vh - 64px));
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.s-tpick__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.s-tpick__title {
+  font-family: var(--font-serif);
+  font-size: 0.968rem;
+  color: var(--text);
+}
+
+/* The keymap lives in the header, not in a tooltip: a picker that previews on
+   arrow and reverts on Esc has to SAY so, or the reader daren't move. */
+.s-tpick__hint {
+  flex: 1;
+  font-size: 0.71rem;
+  color: var(--text-faint);
+}
+
+.s-tpick__list {
+  overflow-y: auto;
+  padding: 6px 10px 12px;
+  outline: none;
+}
+
+.s-tpick__group + .s-tpick__group {
+  margin-top: 10px;
+}
+
+.s-tpick__grouphead {
+  font-size: 0.645rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-faint);
+  padding: 10px 6px 6px;
+}
+
+.s-tpick__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.s-tpick__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  text-align: start;
+  color: var(--text-muted);
+  font-size: 0.839rem;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.s-tpick__item:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* The KEYBOARD highlight — the one the preview follows and Enter commits. It
+   is louder than hover on purpose: the two must never be confusable. */
+.s-tpick__item--on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.s-tpick__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.s-tpick__current {
+  flex: none;
+  font-size: 0.645rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--accent);
+}
+
+/* A miniature of the room. Three 10px dots previewed the TOKENS, and at that
+   size sumi, void and basalt were the same swatch three times (dark dot,
+   white dot, pale dot) — which is most of why the picker could not answer
+   "what does this one look like". The card gives the ground a heading rule,
+   a line of type and an accent chip, so the reader sees the relationship
+   between the three colors rather than the three colors. Still painted from
+   the CONSTANT --swatch-* tokens: a preview drawn in the theme currently on
+   screen is not a preview. */
+.s-tpick__card {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 58px;
+  height: 40px;
+  padding: 6px 7px;
+  border-radius: 4px;
+  background: var(--sw-bg);
+  box-shadow: inset 0 0 0 1px rgba(128, 128, 128, 0.35);
+  overflow: hidden;
+}
+
+.s-tpick__card-rule {
+  width: 62%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--sw-accent);
+}
+
+.s-tpick__card-line {
+  width: 100%;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--sw-text);
+  opacity: 0.55;
+}
+
+.s-tpick__card-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.s-tpick__card-foot .s-tpick__card-line {
+  opacity: 0.38;
+}
+
+.s-tpick__card-line--short {
+  width: 60%;
+}
+
+.s-tpick__card-chip {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--sw-accent);
+}
+
+/* Name over description: a room needs a word for what it IS, not only a
+   pigment noun most readers cannot decode in either language. */
+.s-tpick__meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.s-tpick__nameline {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.s-tpick__desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.742rem;
+  color: var(--text-faint);
+}
+
+.s-tpick__item--on .s-tpick__desc {
+  color: var(--text-muted);
+}
+
+/* Phones: one column, and the panel takes the width it is given. */
+@media (max-width: 640px) {
+  .s-tpick__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .s-tpick__head {
+    flex-wrap: wrap;
+  }
+}

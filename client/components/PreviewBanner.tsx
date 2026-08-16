@@ -1,7 +1,16 @@
-// Slim floating banner shown while an admin previews the public site.
-// Rendered above BOTH visitor shells (blog and app view); fixed bottom-center
-// so it never collides with the blog masthead or sticky nav. Exit hands the
-// session back to the full admin app on the same note.
+// The strip an admin sees while previewing the public site.
+//
+// It is a STRIP AT THE TOP that takes up layout space, not a floating pill.
+// Preview exists so the owner can judge his own site, and a bar hovering over
+// the layout — top or bottom — hides the very thing being judged: a sticky
+// masthead behind it, a footer or a comment box under it. So in the app shell
+// it is a grid row above the panes, and in the blog shell it is the first
+// element in the flow, sticky at the top with the blog nav parked beneath it
+// (app.css offsets .s-blog-nav while the strip is up).
+//
+// Exit hands the session back to the full admin app on the same note; Esc
+// does the same (App owns that key), and a reload does it too — preview is
+// never persisted.
 
 import { t } from "../i18n.ts";
 import { useStore } from "../state.ts";
@@ -11,8 +20,8 @@ export default function PreviewBanner() {
   useStore((s) => s.language); // re-render the chrome strings on language change
   if (!preview) return null;
   return (
-    <div className="s-preview-banner" role="status">
-      <span className="s-preview-banner__icon" aria-hidden="true">
+    <div className="s-preview-strip" role="status">
+      <span className="s-preview-strip__icon" aria-hidden="true">
         <svg
           viewBox="0 0 24 24"
           width="14"
@@ -27,13 +36,16 @@ export default function PreviewBanner() {
           <circle cx="12" cy="12" r="3" />
         </svg>
       </span>
-      <span className="s-preview-banner__text">{t("previewingPublicSite")}</span>
+      <span className="s-preview-strip__text">{t("previewingPublicSite")}</span>
+      <span className="s-preview-strip__hint">{t("previewStripHint")}</span>
       <button
         type="button"
-        className="s-preview-banner__exit"
+        className="s-preview-strip__exit"
         onClick={() => void useStore.getState().setPreviewVisitor(false)}
+        title={t("exitPreviewTitle")}
       >
         {t("exitPreview")}
+        <kbd className="s-kbd s-preview-strip__kbd">Esc</kbd>
       </button>
     </div>
   );

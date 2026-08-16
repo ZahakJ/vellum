@@ -17,8 +17,9 @@ import ModerationPanel from "./components/ModerationPanel.tsx";
 import PreviewBanner from "./components/PreviewBanner.tsx";
 import ReadingView from "./reading/ReadingView.tsx";
 import SettingsModal from "./components/SettingsModal.tsx";
+import ShortcutsHelp from "./components/ShortcutsHelp.tsx";
 import Sidebar from "./components/Sidebar.tsx";
-import StatusBar from "./components/StatusBar.tsx";
+import StatusBar, { vimSubCopy } from "./components/StatusBar.tsx";
 import Tabs from "./components/Tabs.tsx";
 import { openDailyNote } from "./daily.ts";
 import { t, tf } from "./i18n.ts";
@@ -46,11 +47,14 @@ export default function App() {
   const view = useStore((s) => s.view);
   const openPath = useStore((s) => s.openPath);
   const readingMode = useStore((s) => s.readingMode);
+  const vimMode = useStore((s) => s.vimMode);
+  const vimSubMode = useStore((s) => s.vimSubMode);
   const paletteOpen = useStore((s) => s.paletteOpen);
   const loginOpen = useStore((s) => s.loginOpen);
   const bannerModalOpen = useStore((s) => s.bannerModalOpen);
   const moderationOpen = useStore((s) => s.moderationOpen);
   const settingsOpen = useStore((s) => s.settingsOpen);
+  const previewVisitor = useStore((s) => s.previewVisitor);
   const reloadTick = useStore((s) => s.reloadTick);
   const admin = useStore((s) => s.admin);
   const authReady = useStore((s) => s.authReady);
@@ -62,6 +66,9 @@ export default function App() {
   const locked = useStore((s) => !s.admin && !s.publicReads);
   const lang = useStore((s) => s.language); // re-render the chrome strings on language change
   const lastSaveRef = useRef(0);
+  /** Where the caret was when Ctrl/Cmd+K threw focus into the search box —
+   *  Esc puts it back there (see returnToNote in the keyboard effect). */
+  const quickReturnRef = useRef<HTMLElement | null>(null);
   /** Zen's ✕ has been sitting still long enough to fade out. */
   const [zenIdle, setZenIdle] = useState(false);
 
@@ -200,30 +207,86 @@ export default function App() {
     const inEditor = (target: EventTarget | null): boolean =>
       target instanceof Element && target.closest(".cm-editor") !== null;
 
+    /** Something modal is on screen and owns the keyboard. The DOM half covers
+     *  the layers that are not store flags — the confirm dialog, the theme
+     *  picker and the attachment viewer — all of which close on Esc
+     *  themselves, and none of which may have Esc taken out from under them by
+     *  zen or by leaving preview. */
+    const modalUp = (store: ReturnType<typeof useStore.getState>): boolean =>
+      store.loginOpen ||
+      store.bannerModalOpen ||
+      store.moderationOpen ||
+      store.settingsOpen ||
+      document.querySelector(".s-confirm-overlay, .s-tpick-overlay, .s-att-view") !== null;
+
+    /** Put the caret back where the reader left it — the note they came from.
+     *  Ctrl/Cmd+K throws focus into a search box on the other side of the
+     *  screen; Esc has to be a way BACK, not just a way out, or the next
+     *  keystroke lands in a field nobody is looking at. */
+    const returnToNote = (preferred: HTMLElement | null): void => {
+      if (preferred?.isConnected) {
+        preferred.focus();
+        return;
+      }
+      const editor = document.querySelector<HTMLElement>(".s-view .cm-content");
+      if (editor) {
+        editor.focus();
+        return;
+      }
+      // Reading view has nothing focusable — at least take the keyboard out
+      // of the search field so typing does not disappear into it.
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
       const store = useStore.getState();
-      // Esc leaves zen. It never fires out from under something that owns Esc
-      // itself: a modal or the palette (which close on it), a text field
-      // (the sidebar search clears on it), or vim (mode key — sacred).
-      if (e.key === "Escape" && store.zen) {
-        if (
-          store.paletteOpen ||
-          store.loginOpen ||
-          store.bannerModalOpen ||
-          store.moderationOpen ||
-          store.settingsOpen ||
-          document.querySelector(".s-confirm-overlay") !== null
-        ) {
+      if (e.key === "Escape") {
+        // 1. The shortcuts overlay closes first (it is the topmost layer).
+        if (store.shortcutsOpen) {
+          e.preventDefault();
+          store.setShortcutsOpen(false);
           return;
         }
-        if (store.vimMode && inEditor(e.target)) return;
+        // 2. Ctrl/Cmd+K parked the caret in the sidebar search: Esc returns it
+        //    to the note. (The Sidebar's own Esc still clears the query — this
+        //    runs in the capture phase and moves focus, nothing else.)
+        const inSearch =
+          e.target instanceof Element && e.target.closest(".s-search") !== null;
+        if (inSearch) {
+          const back = quickReturnRef.current;
+          quickReturnRef.current = null;
+          window.setTimeout(() => returnToNote(back), 0);
+          return;
+        }
+        if (store.paletteOpen || modalUp(store)) return;
         if (e.target instanceof Element && e.target.closest("input, textarea")) return;
-        e.preventDefault();
-        store.setZen(false);
+        // 3. Preview is a mode that took the editor away — Esc gives it back.
+        if (store.previewVisitor) {
+          e.preventDefault();
+          void store.setPreviewVisitor(false);
+          return;
+        }
+        // 4. Esc leaves zen — never out from under vim, where Esc is sacred.
+        if (store.zen) {
+          if (store.vimMode && inEditor(e.target)) return;
+          e.preventDefault();
+          store.setZen(false);
+        }
         return;
       }
       if (!(e.metaKey || e.ctrlKey)) return;
       const key = e.key.toLowerCase();
+      // Ctrl/Cmd+/ — the list of every binding, including this one. Handled
+      // ahead of the modal guard so it opens (and closes) from anywhere.
+      if (key === "/" || key === "?") {
+        e.preventDefault();
+        if (!modalUp(store)) {
+          store.setPaletteOpen(false);
+          store.setShortcutsOpen(!store.shortcutsOpen);
+        }
+        return;
+      }
       // Ctrl/Cmd+P, +K and +B are ALWAYS ours — swallow them before any early
       // return so the browser's print dialog / address-bar search / bookmarks
       // bar can never fire, modal open or not, and regardless of what CM does
@@ -233,15 +296,7 @@ export default function App() {
       // A modal dialog owns the keyboard: app-level shortcuts firing behind
       // the login/banner/moderation/confirm overlays would steal focus (e.g.
       // Ctrl+K focusing the sidebar search under the modal) or stack modals.
-      if (
-        store.loginOpen ||
-        store.bannerModalOpen ||
-        store.moderationOpen ||
-        store.settingsOpen ||
-        document.querySelector(".s-confirm-overlay") !== null
-      ) {
-        return;
-      }
+      if (modalUp(store) || store.shortcutsOpen) return;
       if (key === "p" && e.shiftKey) {
         // Ctrl/Cmd+Shift+P: publish toggle (admin, note open) — never the palette.
         if (store.admin && store.openPath) void store.togglePublish(store.openPath);
@@ -254,6 +309,13 @@ export default function App() {
         // instead of fighting it for focus.
         e.preventDefault();
         if (store.paletteOpen) store.setPaletteOpen(false);
+        // Remember the note we are leaving so Esc can hand it back. A second
+        // press while the search box already has focus must not overwrite it
+        // with the search box itself.
+        const from = document.activeElement;
+        if (from instanceof HTMLElement && from.closest(".s-search") === null) {
+          quickReturnRef.current = from;
+        }
         window.dispatchEvent(new Event("vellum:quicksearch"));
       } else if (key === "g") {
         e.preventDefault();
@@ -318,12 +380,30 @@ export default function App() {
   if (blogVisitor) {
     return (
       <>
-        <BlogShell />
+        {/* First in the flow: the strip pushes the whole site down rather than
+            covering its masthead — preview exists to JUDGE that masthead. */}
         <PreviewBanner />
+        <BlogShell />
+        <ShortcutsHelp />
         <ConfirmHost />
       </>
     );
   }
+
+  // A mode that removes the ability to type has to be visible in the
+  // WORKSPACE, not only in the status bar: the reader's eyes are on the note.
+  const readingLocked = admin && !previewVisitor && readingMode && view === "editor" && !!openPath;
+
+  // Zen takes the status bar (and with it the whole mode cluster) to zero
+  // height, so in zen the strip is the ONLY place a mode can live. Reading
+  // already survived into zen; vim did not, and ZEN + VIM was a modal editor
+  // with nothing on screen saying whether the next keystroke would type or
+  // delete a line. Outside zen the pill carries this, so the strip stays out
+  // of the way — and the two are mutually exclusive by construction
+  // (reading unmounts the editor, so there is no vim to report).
+  const vimLocked =
+    admin && !previewVisitor && !readingMode && vimMode && zen && view === "editor" && !!openPath;
+  const vimStrip = vimLocked ? vimSubCopy(vimSubMode) : null;
 
   const shellClass = [
     "s-app",
@@ -332,12 +412,19 @@ export default function App() {
     flipped ? "s-app--flip" : "",
     sidebarCollapsed ? "s-app--nosidebar" : "",
     zen ? "s-app--zen" : "",
+    previewVisitor ? "s-app--preview" : "",
+    readingLocked ? "s-app--reading" : "",
+    // Zen's ✕ steps below whichever strip is up; one class covers both so the
+    // offset rule does not have to enumerate the modes.
+    readingLocked || vimLocked ? "s-app--modebar" : "",
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
     <div className={shellClass}>
+      {/* Grid row above every pane (grid-area: notice) — never an overlay. */}
+      <PreviewBanner />
       <Sidebar />
       {/* Mobile drawer chrome: backdrop dismisses; the toggle floats over the
           main column. Both are display:none above the narrow breakpoint. */}
@@ -375,6 +462,36 @@ export default function App() {
           </svg>
         </button>
         <Tabs />
+        {/* One line, part of the layout (it pushes the note down, it does not
+            float over it), saying what the mode is and how to leave it. The
+            accent rule down the column's inline-start edge is its companion:
+            app.css draws it from .s-app--reading. */}
+        {readingLocked && (
+          <div className="s-modebar" role="status">
+            <span className="s-modebar__dot" aria-hidden="true" />
+            <span className="s-modebar__text">{t("readingStrip")}</span>
+            <button
+              type="button"
+              className="s-modebar__action"
+              onClick={() => useStore.getState().setReadingMode(false)}
+            >
+              {t("readingStripAction")}
+            </button>
+          </div>
+        )}
+        {vimStrip && (
+          <div className="s-modebar s-modebar--vim" role="status">
+            <span className="s-modebar__dot" aria-hidden="true" />
+            <span className="s-modebar__text">{t(vimStrip.strip)}</span>
+            <button
+              type="button"
+              className="s-modebar__action"
+              onClick={() => useStore.getState().toggleVim()}
+            >
+              {t("vimStripAction")}
+            </button>
+          </div>
+        )}
         <section className="s-view">
           {view === "graph" ? (
             <GraphView />
@@ -412,6 +529,9 @@ export default function App() {
                 </span>
                 <span className="s-empty__key">
                   <kbd>Ctrl K</kbd> {t("keySearch")}
+                </span>
+                <span className="s-empty__key">
+                  <kbd>Ctrl /</kbd> {t("keyShortcuts")}
                 </span>
                 {admin && (
                   <>
@@ -453,7 +573,7 @@ export default function App() {
           </button>
         </div>
       )}
-      <PreviewBanner />
+      <ShortcutsHelp />
       {paletteOpen && <CommandPalette />}
       {loginOpen && <LoginModal />}
       {bannerModalOpen && admin && <BannerModal />}
