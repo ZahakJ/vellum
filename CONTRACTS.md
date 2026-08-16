@@ -472,3 +472,54 @@ faces appended.** Font fallback is per character, and Segoe UI (Windows) and Ari
 carry full Arabic coverage — at the end of the stack the named naskh faces were dead entries on
 both platforms. Same key as the Arabic type-metric compensation at the bottom of `tokens.css`:
 this is a language decision, not a direction one.
+
+## Tests (`npm test`) — the release gate
+
+`node --test` over `tests/*.test.ts`. No new dependencies, no test framework, no fixtures on disk
+beyond the temp vaults the tests build themselves. The whole suite runs in well under a second, so
+there is no reason to skip it.
+
+**Nothing ships until all of these are green:**
+
+```
+npm run typecheck
+npm run check-i18n
+npm test
+node scripts/check-contrast.mjs
+```
+
+(plus whatever visual gates the repo carries at the time — `check-caret`, `check-sections`,
+`check-excerpt`, `shoot-hover` — which cover what a screenshot has to prove and the tests cannot.)
+
+What the suite covers, and why each file exists:
+
+- `tests/frontmatter.test.ts` — the byte-level contract of `setFrontmatterLine()`. Mostly a
+  property test: for generated notes (CRLF/LF, quoted values, malformed YAML, bodies containing
+  their own `---` rules and `publish:` lines) the edit changes ONE line and every other byte
+  survives, the edit is idempotent, and removing the key restores the rest. Also pins server/client
+  agreement on what "published" means.
+- `tests/links.test.ts` — wikilink parsing plus resolution on BOTH sides (`server/indexer.ts` and
+  `client/editor/links.ts`), including duplicate basenames, folder-named files, path-form targets,
+  Arabic and punctuated titles, and visitor scoping. The parity block is the point: the editor and
+  the graph must land on the same note.
+- `tests/anchors.test.ts` — `[[Note#Anchor]]` against both anchor resolvers (editor by heading
+  TEXT, reading view by SLUG), plus `Slugger` collisions and unicode.
+- `tests/sections.test.ts` — the partition invariant: cutting a note at its heading line numbers
+  and concatenating the pieces returns the original bytes. Property-tested. Fences full of `###`,
+  frontmatter, nesting and CRLF included. Any section extract/move/fold feature must keep this.
+- `tests/excerpt.test.ts` — excerpts and search snippets through `posts()`/`search()`: no raw
+  markdown, no de-hashed tag words in the prose, no template furniture as an opening paragraph,
+  word-boundary truncation, HTML escaped before `<mark>`.
+- `tests/paths.test.ts` — traversal, dotfiles/`.trash`/`.obsidian`, encoded separators, NUL bytes,
+  unicode normalisation and symlinks.
+- `tests/settings.test.ts` — the PATCH allowlist as a security boundary: unknown keys, prototype
+  keys, per-key validators, the enum keys, and "a patch that fails anywhere lands nothing". It also
+  cross-checks that `server/settings.ts` THEMES still equals `client/state.ts` THEMES — the drift
+  that makes the admin panel offer a theme the API answers 400 for.
+- `tests/numerals.test.ts` — one numeral system per instance, checked on a DATE and a COUNT
+  together (the `٩ يناير ٢٠٢٦ · 3 دقائق قراءة` regression), the separator/digit confusion rule, the
+  calendar tripwire, and tag-label encoding/isolation/direction.
+
+**Tests named `KNOWN BUG:` assert current, wrong-ish behavior on purpose** — they are the written
+record of a defect nobody has decided to fix yet, and they keep the suite honest instead of green
+by omission. Fixing the bug means rewriting that test, which is the intended workflow.
