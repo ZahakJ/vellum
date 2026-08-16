@@ -23,11 +23,17 @@ import { languageFilterMode, languageToggleEnabled, siteLanguage } from "./site.
 export const LANG_HEADER = "X-Vellum-Lang";
 
 /** Surfaces that accept `?lang=` instead, because they cannot send a header:
- *  EventSource (SSE) has no header API at all, and a feed reader fetching
- *  /feed.xml is not our client. Exactly the shape of the `?preview=visitor`
- *  carve-out for /api/events, and equally narrow — a query param honored on
- *  every route would let any <img src> or crawler pick a scope. */
-const QUERY_PATHS = new Set(["/api/events", "/feed.xml"]);
+ *  EventSource (SSE) has no header API at all, and neither a feed reader
+ *  fetching /feed.xml nor a crawler fetching /sitemap.xml is our client.
+ *  Exactly the shape of the `?preview=visitor` carve-out for /api/events, and
+ *  equally narrow — a query param honored on every route would let any
+ *  <img src> or crawler pick a scope.
+ *
+ *  On the two crawler paths the param is the ONLY way to ask for one side of a
+ *  bilingual site, which is why the sitemap joins the feed here: they answer
+ *  the same question ("what exists"), and one of them being answerable per
+ *  language while the other is not would make the pair disagree. */
+const QUERY_PATHS = new Set(["/api/events", "/feed.xml", "/sitemap.xml"]);
 
 /** The reader's active language as CLAIMED by the request, or null.
  *

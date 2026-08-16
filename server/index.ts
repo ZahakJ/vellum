@@ -10,7 +10,7 @@ import type { Context } from "hono";
 import { api, contentTypeFor } from "./api.ts";
 import { staticAssets } from "./assets.ts";
 import { ConfigError, canRead, initAuth, isPublishLimited } from "./auth.ts";
-import { injectHead, renderFeed, requestOrigin } from "./blog.ts";
+import { injectHead, renderFeed, renderRobots, renderSitemap, requestOrigin } from "./blog.ts";
 import { compressDynamic } from "./compress.ts";
 import { startGitSyncTimer } from "./gitSync.ts";
 import { languageScope } from "./language.ts";
@@ -161,6 +161,32 @@ app.get("/feed.xml", (c) => {
     // a session and a full feed with one, off one URL — and now one feed per
     // ?lang= as well, which is a query dimension caches already key on.
     "Vary": "Cookie, X-Vellum-Preview, X-Vellum-Lang",
+  });
+});
+
+// Sitemap of published notes. Same shape, same gate and same scoping as
+// /feed.xml above — this is the other half of the crawler's answer to "what
+// exists here", and both are visitor surfaces whatever session fetches them.
+// Without this route the path fell through to the SPA catch-all, which
+// answered a crawler's /sitemap.xml with a 200 and a page of HTML.
+app.get("/sitemap.xml", (c) => {
+  if (!canRead(c)) return c.json({ error: "Sign in required" }, 401);
+  return c.body(renderSitemap(requestOrigin(c), languageScope(c, true)), 200, {
+    "Content-Type": "application/xml; charset=utf-8",
+    "Cache-Control": "no-cache",
+    "Vary": "Cookie, X-Vellum-Preview, X-Vellum-Lang",
+  });
+});
+
+// robots.txt. NOT gated with a 401 — see renderRobots: on this one path a 4xx
+// means "no rules, crawl freely" (RFC 9309 §2.3.1.3), so a locked instance
+// answers 200 with `Disallow: /` instead. The body still says nothing a
+// stranger could not already learn by fetching "/".
+app.get("/robots.txt", (c) => {
+  return c.body(renderRobots(requestOrigin(c), canRead(c)), 200, {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "no-cache",
+    "Vary": "Cookie, X-Vellum-Preview",
   });
 });
 
