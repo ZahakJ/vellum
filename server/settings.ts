@@ -48,6 +48,7 @@ import {
   siteName,
   tagline,
 } from "./site.ts";
+import { customDir } from "./customFonts.ts";
 import { catalogList, cleanFontSlots, readFontSlots, slotsAreSystem } from "./fonts.ts";
 import { listImageAttachments, publishedCounts, tags } from "./indexer.ts";
 import { getVaultRoot, normalizeRel, safeAbs, VaultError } from "./vault.ts";
@@ -309,6 +310,8 @@ export function aboutInfo(): AboutInfo {
     node: process.version,
     vaultPath: getVaultRoot(),
     dataPath: dataDir(),
+    settingsPath: settingsPath(),
+    customFontsPath: customDir(),
     notes: counts.total,
     published: counts.notes,
     attachments: listImageAttachments().length,

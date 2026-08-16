@@ -90,6 +90,9 @@ export default function BacklinksPanel() {
     <>
       <aside
         className={`s-panel${collapsed ? " s-panel--collapsed" : ""}`}
+        // Named by what it holds, not by the edge it happens to sit on — the
+        // same rule the toggles and the palette follow.
+        aria-label={t("paneOutline")}
         aria-hidden={collapsed || zen}
       >
         <TocPanel />
@@ -102,7 +105,7 @@ export default function BacklinksPanel() {
             className="s-panel-toggle s-iconbtn"
             onClick={() => setCollapsed(true)}
             aria-expanded={!collapsed}
-            title={t("hideBacklinks")}
+            title={t("hidePaneOutline")}
             tabIndex={collapsed || zen ? -1 : 0}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -154,8 +157,8 @@ export default function BacklinksPanel() {
           type="button"
           className="s-reopen s-reopen--panel"
           onClick={() => setCollapsed(false)}
-          title={t("showBacklinks")}
-          aria-label={t("showBacklinks")}
+          title={t("showPaneOutline")}
+          aria-label={t("showPaneOutline")}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M15 6l-6 6 6 6" />

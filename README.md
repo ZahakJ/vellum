@@ -107,23 +107,41 @@ All `.env` keys (npm scripts load the file automatically via `node --env-file-if
 
 Most of the site-identity keys above can also be changed **at runtime, from the app** — no
 `.env` edit, no restart. As admin, open **Site settings** (the gear in the status bar, or the
-command palette): a panel with five groups —
+command palette): a panel with six tabs, each opening with its name and one sentence saying what
+it decides —
 
-- **Identity** — site name, tagline, footer line, a **logo** image (replaces the text wordmark
-  in the sidebar and the blog masthead), and a **favicon** (served at `/favicon.ico` with its
-  real content type and injected into every page's `<link rel="icon">`).
-- **Home page** — what visitors see at `/`: classic `note` mode with a chosen home note, or the
-  `dashboard` magazine layout, plus an optional hero banner.
-- **Site behavior** — default theme, public layout (`app`/`blog`), **language** (English /
-  العربية) with its language filter and the optional **visitor switch**, date locale, excluded
-  tags, and the comments toggle.
+- **Site identity** — site name, tagline, footer line, a **logo** image (replaces the text
+  wordmark in the sidebar and the blog masthead), and a **favicon** (served at `/favicon.ico`
+  with its real content type and injected into every page's `<link rel="icon">`).
+- **Appearance & language** — the default theme visitors arrive on, **your own** theme (this
+  browser only, with *Browse themes…*), the **language** (English / العربية), which edge the
+  **notes sidebar** sits on (*Auto* follows the language — Arabic carries it to the right — or
+  pin it to a screen edge for good), the date locale, the language filter and the optional
+  **visitor switch**.
+- **Publishing & comments** — public layout (`app`/`blog`), excluded tags, the comments and
+  share-button toggles, and the home page visitors land on at `/`: classic `note` mode with a
+  chosen home note, or the `dashboard` magazine layout, plus an optional hero banner.
 - **Typography** — four font slots (text / interface / code / Arabic script) over a curated,
-  self-hosted catalog, with a live specimen. See [Typography](#typography).
+  self-hosted catalog *or* faces you upload yourself, with a live specimen that stays on screen
+  while you choose. See [Typography](#typography).
 - **Backup & sync** — commit the vault and push it to a private git remote you own, manually or
   on a timer. Off until you turn it on. See [Backup & sync](#backup--sync).
+- **About** — the version, the vault's counts, and the absolute paths named below.
 
 Image fields reuse the banner machinery: pick from the vault's attachments or upload right
 there (drag & drop; bytes are sniffed; lands in `ATTACHMENTS_DIR`).
+
+**Every control in the panel is drawn by Vellum**, not by your operating system. Lists are a
+themed popover anchored to their trigger and kept inside the panel — height capped to the room
+available, flipping above the trigger when there is none, arrow keys and type-ahead, `Enter` to
+commit, `Esc` to put the value back; switches are switches; three-way rows (*inherit* / on / off)
+show all three states at once; numbers carry their unit inside the field. A native `<select>`
+opens an OS-drawn window that no theme can reach and no panel can contain, which is exactly what
+a twenty-seven-face font list must never do.
+
+**Where it all lives** is answered in the panel itself: the **About** tab prints the absolute
+paths of the vault, the instance data directory, `settings.json` and the uploaded-fonts folder,
+beside the version and the vault's counts.
 
 Everything is stored in `VELLUM_DATA/settings.json` (written atomically — a crash can't tear
 it). **Precedence:** a value saved there overrides its env counterpart; clearing a field in
@@ -301,11 +319,18 @@ prev/next, Marginalia) — comes from a single dictionary in `client/i18n.ts`. C
 properly in Arabic (`حاشية واحدة`, `حاشيتان`, `3 حواشٍ`, `40 حاشية`), not by bolting an "s" on.
 
 **It mirrors the interface.** The document becomes `<html dir="rtl" lang="ar">` and the layout
-follows: the sidebar moves to the right and the backlinks/outline panel to the left (that is the
-*default* — "Move sidebar to the left/right" in the palette overrides it, and the choice, being a
-window preference rather than a language one, survives a language change), tree
+follows: the notes sidebar moves to the right and the outline/backlinks panel to the left — and
+it keeps following, because the side is a **three-state** preference. *Follow the language* is
+the default and is re-evaluated every time the language changes; *pin to the left edge* and *pin
+to the right edge* name a screen edge in both languages and outrank the direction for good. All
+three sit in the palette and as a segmented control in **Site settings → Appearance & language**,
+directly under the row that moves it — where *Auto* also names the edge it has landed on, so the
+default state is never a silent one. (The third state is how you get back to automatic.) Tree
 indentation and chevrons flip, the active-note accent bar moves to the other edge, the status
-bar and blog nav reverse, and "older/newer" arrows point the way you actually read. This is
+bar and blog nav reverse, and "older/newer" arrows point the way you actually read. Because the
+panes swap ends, nothing in the interface calls either of them "the left one": the toggles, the
+palette and the shortcut sheet say **Notes sidebar** and **Outline & backlinks**, in both
+languages, with the keystroke in the tooltip. This is
 built on CSS logical properties (`margin-inline-*`, `inset-inline-*`, `text-align: start`), so
 it is the same stylesheet in both directions — `[dir="rtl"]` overrides exist only where no
 logical property can express the idea, such as flipping an arrow glyph or a gradient's angle.
@@ -483,7 +508,7 @@ If you keep body text ≥ 4.5:1 contrast against `--bg`, the whole app stays rea
 ### Typography
 
 The catalog is the no-CSS version of the escape hatch above — and its point is **Arabic**.
-Open **Site settings → Typography** and you get four selects:
+Open **Site settings → Typography** and you get four pickers:
 
 | Slot | Drives | Offers |
 | --- | --- | --- |
@@ -493,9 +518,20 @@ Open **Site settings → Typography** and you get four selects:
 | **Arabic face** | the Arabic letters in **all three** of the above | Amiri, Scheherazade New, Noto Naskh Arabic, Markazi Text, Lateef, Aref Ruqaa · Noto Kufi Arabic, Noto Sans Arabic, IBM Plex Sans Arabic, Cairo, Tajawal, Reem Kufi, Almarai |
 
 Every slot also takes **system**, the default: the built-in stacks, nothing downloaded, nothing
-served. A full-width live specimen sits directly under the selects — a Latin sentence and a mixed
-Arabic one per slot, both starting at the same edge so the two faces can actually be compared,
-updating **before** you save — and **Reset fonts** puts all four back to `system`.
+served — and every slot also offers **your own uploads** (below). **Reset fonts** puts all four
+back to `system`.
+
+**The picker draws every option in the face it names.** A list of family names set in the
+interface font is a list of trademarks: nobody chooses between Literata and Source Serif by
+reading the words. So each row renders in its own typeface, Arabic faces carry an Arabic sample,
+and the rows are grouped (serif / sans / monospace / naskh / modern & kufi / *your fonts*) with a
+filter field over them. The faces are fetched a **group at a time**, as that group first appears,
+so opening the Code picker never downloads the Arabic ones.
+
+**The specimen stays on screen while you choose.** A live sample block — one mixed line per slot,
+Latin and Arabic in the same run, so per-character selection is visible at a glance — is pinned to
+the top of the tab and updates *before* you save, including the size dial below. Choosing type is
+a compare-and-adjust loop; a preview the picker covers up previews nothing.
 
 **Self-hosting is the whole design.** When you save, the *server* fetches the chosen families
 once from Google Fonts (a `woff2` request, so you get `woff2` back), parses the `@font-face`
@@ -536,11 +572,70 @@ The composites finally fall back to `var(--font-*-system)`, so any codepoint nei
 still lands on the stack the instance would have used — including the Arabic-first reorder and
 the Arabic type-metric compensation that `:root[lang="ar"]` applies.
 
-**Escape hatch, unchanged.** The catalog is a convenience, not a fence: anything not listed —
-a licensed face, a variable font, a script the catalog does not cover — still goes into
-`VELLUM_DATA/fonts/` and gets named from `custom.css` exactly as shown above. That link is
-injected *after* the generated stylesheet, so a `custom.css` rule on `:root` wins over both the
-catalog and the defaults.
+#### Your own fonts
+
+A catalog of twenty-seven Google families cannot be the whole answer for typography, and for
+Arabic it is not even close: the face a serious instance wants is usually one its owner licensed,
+and it is on nobody's CDN. So **Site settings → Typography → Your own fonts** takes an upload.
+
+| | |
+| --- | --- |
+| **Formats** | `.woff2`, `.woff`, `.ttf`, `.otf` |
+| **Size** | 5 MB per file |
+| **Stored in** | `VELLUM_DATA/fonts/custom/` — outside the vault, and `VELLUM_DATA` is gitignored, so an uploaded face never lands in your notes repo or in a backup push |
+| **Served from** | `GET /api/fonts/custom/<file>` on this instance — same terms as the catalog cache: self-hosted, no external host, immutable caching |
+| **Offered in** | all four slots, under **Your fonts** |
+
+The **format is decided by the file's magic bytes** (`wOF2`, `wOFF`, `0x00010000`, `true`,
+`OTTO`) — never by the extension and never by the upload's content type, both of which are
+attacker-controlled text. A PNG renamed `.woff2` is a `400`, which matters because the file is
+about to be served back with a font MIME type. The header is then read for **structure**: a
+plausible table count and a table directory that fits inside the file it came in. That check
+costs nothing and turns a file that could never render — magic bytes followed by five million
+zeroes — into a `400` at upload time instead of a face that silently never draws.
+
+Anything the server *decompresses* out of an uploaded file is **bounded before it is read**. A
+`name` table sits behind one brotli pass in WOFF2 and behind per-table zlib in WOFF1, and both
+of those are decompression bombs unless the output is capped: an 800-byte file whose stream holds
+900 MB of zeroes will otherwise allocate all 900 MB, synchronously, from a request. Each call is
+now held to the length the file's own directory claims, itself clamped to a hard 32 MB ceiling.
+A file that breaks the bound is not an error — it simply falls back to the filename-derived
+family, which is what an unreadable font has always done.
+
+The stored filename is a slug this server builds (lowercase ASCII, collision-suffixed), so nothing
+you type reaches a path, a route parameter or a `url()`. When your filename leaves nothing — which
+is what `خط-عربي.otf` does to an ASCII slug — the **font's own family name is used instead**, so
+that file is stored as `amiri.otf` rather than as `font.otf`, `font-2.otf`, `font-3.otf`. The
+**family name** itself comes from the font's `name` table where the file allows it, falling back
+to the filename, so your picker says *Kitab* rather than *upload-3*.
+
+Concurrent uploads are safe: filename allocation and the sidecar index are serialized, and the
+index is written through a per-writer temporary file. (Four parallel uploads of four different
+faces used to leave two files on disk, one of them labelled with another font's family, and three
+`500`s — while the bytes were on disk all along.)
+
+Uploaded faces are emitted into `/api/site-fonts.css` as ordinary self-hosted `@font-face`
+blocks, and they take the **same per-slot `unicode-range` discipline** as the catalog: in the
+Arabic slot a custom face is narrowed to the Arabic blocks, and a custom face in a Latin slot
+standing beside an Arabic one has those blocks carved out of it. The two sets stay disjoint, so
+per-character matching works with your own type exactly as it does with ours.
+
+Uploads are admin-only (`POST /api/fonts/upload`; an admin previewing the public site is refused
+like any other visitor), and **removing** a face is guarded twice: a font a slot still names shows
+which slot instead of a delete button, and the server refuses the delete with a `409` regardless.
+
+**Arabic size match.** The catalog's Arabic entries carry a *measured* `size-adjust`; an uploaded
+face cannot. So when an Arabic face is chosen the tab grows one more control — a percentage with
+its unit in the field — which overrides the compensation for whatever is in the Arabic slot,
+catalog or upload. It is set by eye against the specimen two rows above it, which is the only way
+this number is ever really set. Stored as `settings.fonts.arabicSizeAdjust` (50–300, absent =
+the catalog's own value, or none).
+
+**Escape hatch, unchanged.** For anything neither the catalog nor the uploader covers — a
+variable font you want to drive with a custom axis, a script-specific stack, a face you would
+rather wire by hand — drop the file in `VELLUM_DATA/fonts/` and name it from `custom.css` exactly
+as shown above. That link is injected *after* the generated stylesheet, so a `custom.css` rule on
+`:root` wins over the catalog, the uploads and the defaults alike.
 
 ### Backup & sync
 
@@ -730,8 +825,8 @@ the lit mode pill, which is the same two colors swapped). Run it after touching 
 - **Tags** — `#inline` and frontmatter `tags:`, counted and clickable in the sidebar
 - **Attachments are in the tree** — your vault is not only `.md`, and the sidebar says so: images, PDFs, audio, video and everything else sit under their folder beneath the notes, each with a type glyph, and the footer counts both ("1,388 notes · 1,176 files"). Clicking an image opens a lightbox — natural size capped to the viewport, filename, pixel dimensions and file size, `←`/`→` through the rest of that folder ("3 / 47"), `Esc` or a click outside to leave. PDFs open in a browser tab, audio and video get an inline player, anything else offers a download. The paperclip in the sidebar footer hides them all again, and remembers
 - **Daily notes** — `Ctrl/Cmd D` opens (or creates) `daily/YYYY-MM-DD.md`
-- **A shell that gets out of the way** — collapse either pane (`Ctrl/Cmd B`, `Ctrl/Cmd Shift B`) down to a slim reopen handle, or go **zen** (`Ctrl/Cmd Shift Z`): sidebar, panel, tabs and status bar step aside and the prose centers on a wide measure. `Esc` (or the faint ✕) comes back. Every state is remembered across reloads
-- **Sidebar on either side** — "Move sidebar to the right/left" in the palette; the default follows the language direction (left in English, right in Arabic) and your choice sticks
+- **A shell that gets out of the way** — collapse either pane (`Ctrl/Cmd B`, `Ctrl/Cmd Shift B`) down to a slim reopen handle, or go **zen** (`Ctrl/Cmd Shift Z`): sidebar, panel, tabs and status bar step aside and the prose centers on a wide measure. `Esc` (or the faint ✕) comes back. Every state is remembered across reloads — and **folding a pane never moves the note**: the column stays optically centred in the window whichever panes are open, with deliberate air beside a closed pane's reopen handle
+- **Notes sidebar on either side** — three states, in the palette and in Settings → Appearance & language: *follow the language* (the default — left in English, right in Arabic, re-evaluated whenever the language changes) or pin it to the left or right screen edge for good
 - **Command palette** — fuzzy over notes and commands, including "Toggle reading view", "Open daily note", "Zen mode", themes, vim
 - **Live vault watching** — edit a file in any other editor and the app updates within ~100 ms (chokidar + SSE)
 - **Fifteen hand-tuned themes** — eleven dark (*iron-gall*, *cinnabar*, *sumi*, *void*, *basalt*, *nocturne*, *lapis*, *verdigris*, *moss*, *porphyry*, *tallow*) and four light (*parchment*, *sandstone*, *solar*, *linen*), no two of them the same room (`scripts/check-contrast.mjs` holds every accent 4.5:1 against its ground **and** 18 ΔE clear of its own body text), browsed from a keyboard-driven picker that previews live; zero CDN requests (webfonts are opt-in and self-hosted — see [Typography](#typography))
@@ -751,8 +846,8 @@ the lit mode pill, which is the same two colors swapped). Run it after touching 
 | `Ctrl/Cmd D` | Open today's daily note |
 | `Ctrl/Cmd N` | New note |
 | `Ctrl/Cmd G` | Toggle graph view |
-| `Ctrl/Cmd B` | Collapse / reopen the sidebar |
-| `Ctrl/Cmd Shift B` | Collapse / reopen the backlinks panel |
+| `Ctrl/Cmd B` | Collapse / reopen the **Notes sidebar** |
+| `Ctrl/Cmd Shift B` | Collapse / reopen **Outline & backlinks** |
 | `Ctrl/Cmd Shift Z` | Zen mode — all chrome steps aside (`Esc` returns) |
 | `Ctrl/Cmd S` | Save now (autosave runs regardless) |
 | `Ctrl/Cmd ↑` / `↓` | Move the current line up / down |

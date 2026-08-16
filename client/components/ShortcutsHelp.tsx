@@ -144,7 +144,7 @@ const GROUPS: Group[] = [
     title: "scGroupPanels",
     items: [
       {
-        label: "cmdToggleSidebar",
+        label: "cmdTogglePaneNotes",
         keys: ["Ctrl/Cmd", "B"],
         run: () => {
           const s = useStore.getState();
@@ -152,7 +152,7 @@ const GROUPS: Group[] = [
         },
       },
       {
-        label: "cmdTogglePanel",
+        label: "cmdTogglePaneOutline",
         keys: ["Ctrl/Cmd", "Shift", "B"],
         run: () => {
           const s = useStore.getState();

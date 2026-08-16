@@ -165,25 +165,34 @@ const COMMANDS: Command[] = [
     hint: () => t("cmdZenHint"),
     available: () => true,
   },
+  // Panes are named by WHAT THEY ARE, never by the edge they happen to be on:
+  // in Arabic the notes sidebar sits right and the outline panel left, so
+  // "toggle left panel" would name the wrong pane half the time.
   {
     id: "toggle-sidebar",
-    label: () => t("cmdToggleSidebar"),
+    label: () => t("cmdTogglePaneNotes"),
     hint: () => "Ctrl/Cmd B",
     available: () => true,
   },
   {
     id: "toggle-panel",
-    label: () => t("cmdTogglePanel"),
+    label: () => t("cmdTogglePaneOutline"),
     hint: () => "Ctrl/Cmd Shift B",
     available: () => true,
   },
-  {
-    // One command, two labels: it always names the edge you are NOT on.
-    id: "sidebar-side",
-    label: () => t(useStore.getState().sidebarSide === "left" ? "cmdSidebarRight" : "cmdSidebarLeft"),
-    hint: () => t("cmdLayoutHint"),
+  // Three commands, not one toggle. The old single command named the edge you
+  // were NOT on, which made the third state — "follow the language" — both
+  // unreachable and invisible: the first use of it pinned the side forever.
+  // The hint says which one is in force, because a list of three options with
+  // no marked answer is a list of three questions.
+  ...(["auto", "left", "right"] as const).map<Command>((pref) => ({
+    id: `sidebar-side-${pref}`,
+    label: () =>
+      t(pref === "auto" ? "cmdPaneSideAuto" : pref === "left" ? "cmdPaneSideLeft" : "cmdPaneSideRight"),
+    hint: () =>
+      useStore.getState().sidebarSidePref === pref ? t("cmdLayoutCurrentHint") : t("cmdLayoutHint"),
     available: () => true,
-  },
+  })),
   {
     id: "shortcuts",
     label: () => t("shortcutsTitle"),
@@ -515,8 +524,14 @@ export default function CommandPalette() {
         case "toggle-panel":
           store.setPanelCollapsed(!store.panelCollapsed);
           break;
-        case "sidebar-side":
-          store.setSidebarSide(store.sidebarSide === "left" ? "right" : "left");
+        case "sidebar-side-auto":
+          store.setSidebarSidePref("auto");
+          break;
+        case "sidebar-side-left":
+          store.setSidebarSidePref("left");
+          break;
+        case "sidebar-side-right":
+          store.setSidebarSidePref("right");
           break;
         case "delete-current":
           if (store.openPath) {
@@ -682,6 +697,19 @@ export default function CommandPalette() {
           ref={inputRef}
           className="s-palette-input"
           type="text"
+          // The field holds note-derived text — a title being searched for, a
+          // vault path being edited — so its DIRECTION is the value's, not the
+          // chrome's. In an Arabic shell the rename prompt opened pre-filled
+          // with "1 - Source Material/Research Page.md" and DREW it as
+          // "Source Material/Research Page.md - 1": the leading digits are
+          // bidi-weak, so the RTL paragraph swept them to the far end. That is
+          // the string the reader is about to rename a file to.
+          // While the field is EMPTY it carries no direction of its own and
+          // inherits the shell's, so the Arabic placeholder still sets
+          // right-aligned: `dir="auto"` reads the VALUE, and an empty one
+          // resolves to ltr, which left-aligned «اكتب أمرًا أو ابحث في
+          // الملاحظات…» inside an RTL panel.
+          dir={query === "" ? undefined : "auto"}
           value={query}
           placeholder={
             isPrompt
@@ -745,7 +773,14 @@ export default function CommandPalette() {
                         </span>
                         {item.command.hint && (
                           <span className="s-palette-item-hint">
-                            {item.command.hint()}
+                            {/* Hints are a mixed bag — localized words
+                                ("appearance" / «المظهر»), keystrokes
+                                ("Ctrl/Cmd Shift B") and a real vault path
+                                (the daily note's). The last two are Latin
+                                runs with weak leading characters, so each
+                                hint isolates itself rather than reordering
+                                against the Arabic row around it. */}
+                            <bdi>{item.command.hint()}</bdi>
                           </span>
                         )}
                       </>

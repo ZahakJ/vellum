@@ -611,7 +611,9 @@ export default function Sidebar() {
   }, [admin, flatNotes, noteTags]);
 
   return (
-    <aside className="s-sidebar">
+    // Named by what it holds ("Notes sidebar"), never by the edge it is on:
+    // that edge is right in Arabic and left in English.
+    <aside className="s-sidebar" aria-label={t("paneNotes")}>
       <header className="s-sidebar-header">
         {admin ? (
           // The wordmark doubles as the preview toggle: one click shows the

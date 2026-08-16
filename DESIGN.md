@@ -95,8 +95,10 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 ## Status bar
 
 - 28px, --bg-raised, top border, 12px --text-muted. Left: breadcrumb path of open note
-  (folder › note), which keeps a min-width floor down to 900px — identity outranks a character
-  count at every width. Right segments in GROUPS, each marked once by a hairline (never dots
+  (folder › note), which keeps a min-width floor down to 900px AND a max-width ceiling — identity
+  outranks a character count at every width, and a trail with no ceiling is the one item flexbox
+  can take every shortfall out of. When it must give, the FOLDERS give: the ancestors are one
+  ellipsizing run and the note's own name is the last thing standing. Right segments in GROUPS, each marked once by a hairline (never dots
   between some neighbours and not others): the counts, the mode pills, admin tools (gear · eye),
   the pane toggles, the view controls (☾/☀ · graph), the session control. All hover --text.
 

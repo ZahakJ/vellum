@@ -227,16 +227,33 @@ const DICT = {
   signOut: { en: "Sign out", ar: "تسجيل الخروج" },
   signOutTitle: { en: "Sign out — back to the visitor view", ar: "تسجيل الخروج — العودة إلى واجهة الزائر" },
 
+  // ── The two panes, named by WHAT THEY ARE ───────────────────────────────
+  // Never by the edge they sit on. In Arabic the notes sidebar is on the
+  // right and the outline panel on the left, so "the left bar" names a
+  // different pane in each language — which is exactly how a reader came to
+  // ask why "the left bar cannot be folded". Both tooltips carry their
+  // keystroke, in both languages.
+  paneNotes: { en: "Notes sidebar", ar: "لوحة الملاحظات" },
+  paneOutline: { en: "Outline & backlinks", ar: "المحتويات والروابط الراجعة" },
+  showPaneNotes: {
+    en: "Show Notes sidebar (Ctrl/Cmd+B)",
+    ar: "إظهار لوحة الملاحظات (Ctrl/Cmd+B)",
+  },
+  hidePaneNotes: {
+    en: "Hide Notes sidebar (Ctrl/Cmd+B)",
+    ar: "إخفاء لوحة الملاحظات (Ctrl/Cmd+B)",
+  },
+  showPaneOutline: {
+    en: "Show Outline & backlinks (Ctrl/Cmd+Shift+B)",
+    ar: "إظهار المحتويات والروابط الراجعة (Ctrl/Cmd+Shift+B)",
+  },
+  hidePaneOutline: {
+    en: "Hide Outline & backlinks (Ctrl/Cmd+Shift+B)",
+    ar: "إخفاء المحتويات والروابط الراجعة (Ctrl/Cmd+Shift+B)",
+  },
+
   // ── Right panel ─────────────────────────────────────────────────────────
   backlinks: { en: "Backlinks", ar: "روابط راجعة" },
-  showBacklinks: {
-    en: "Show backlinks (Ctrl/Cmd+Shift+B)",
-    ar: "إظهار الروابط الراجعة (Ctrl/Cmd+Shift+B)",
-  },
-  hideBacklinks: {
-    en: "Hide backlinks (Ctrl/Cmd+Shift+B)",
-    ar: "إخفاء الروابط الراجعة (Ctrl/Cmd+Shift+B)",
-  },
   noNoteOpenDot: { en: "No note open.", ar: "لا توجد ملاحظة مفتوحة." },
   noBacklinks: {
     en: "No backlinks yet — link to this note with [[…]]",
@@ -267,14 +284,29 @@ const DICT = {
   cmdAppearanceHint: { en: "appearance", ar: "المظهر" },
   cmdToggleVim: { en: "Toggle vim", ar: "تبديل vim" },
   cmdEditorHint: { en: "editor", ar: "المحرر" },
-  // The sidebar-side command names a PHYSICAL edge, in both languages: an
-  // Arabic reader moving the sidebar left is asking for the left of the
-  // screen, not for "the trailing side".
-  cmdSidebarRight: { en: "Move sidebar to the right", ar: "نقل الشريط الجانبي إلى اليمين" },
-  cmdSidebarLeft: { en: "Move sidebar to the left", ar: "نقل الشريط الجانبي إلى اليسار" },
+  // The side commands name a PHYSICAL edge, in both languages: an Arabic
+  // reader moving the notes sidebar left is asking for the left of the
+  // screen, not for "the trailing side". "Auto" is the third state and the
+  // default — it follows the reading direction and keeps following it.
+  cmdPaneSideAuto: {
+    en: "Notes sidebar: follow the language",
+    ar: "لوحة الملاحظات: تتبع لغة الواجهة",
+  },
+  cmdPaneSideLeft: {
+    en: "Notes sidebar: pin to the left edge",
+    ar: "لوحة الملاحظات: تثبيت على الحافة اليسرى",
+  },
+  cmdPaneSideRight: {
+    en: "Notes sidebar: pin to the right edge",
+    ar: "لوحة الملاحظات: تثبيت على الحافة اليمنى",
+  },
   cmdLayoutHint: { en: "layout", ar: "التخطيط" },
-  cmdToggleSidebar: { en: "Toggle sidebar", ar: "طي الشريط الجانبي" },
-  cmdTogglePanel: { en: "Toggle backlinks panel", ar: "طي لوحة الروابط الراجعة" },
+  cmdLayoutCurrentHint: { en: "layout · in force", ar: "التخطيط · الحالي" },
+  cmdTogglePaneNotes: { en: "Toggle Notes sidebar", ar: "طي لوحة الملاحظات" },
+  cmdTogglePaneOutline: {
+    en: "Toggle Outline & backlinks",
+    ar: "طي المحتويات والروابط الراجعة",
+  },
   cmdZen: { en: "Zen mode", ar: "وضع التركيز" },
   cmdZenHint: { en: "chrome steps aside", ar: "تنحسر الواجهة" },
   cmdPublishNote: { en: "Publish note", ar: "نشر الملاحظة" },
@@ -425,6 +457,15 @@ const DICT = {
   aboutRuntime: { en: "Runtime", ar: "بيئة التشغيل" },
   aboutVault: { en: "Vault", ar: "الخزانة" },
   aboutData: { en: "Instance data", ar: "بيانات النسخة" },
+  // Where the panel's own answers are kept. This used to be a bare
+  // "— settings.json" in the panel's TITLE, which named a file without saying
+  // where it was and put an implementation detail in a heading.
+  aboutSettingsFile: { en: "Settings file", ar: "ملف الإعدادات" },
+  aboutFontsDir: { en: "Uploaded fonts", ar: "الخطوط المرفوعة" },
+  aboutSettingsNote: {
+    en: "Everything in this panel is stored in that one file. Delete it and the instance falls back to the environment defaults it was started with.",
+    ar: "كل ما في هذه اللوحة يُحفظ في ذلك الملف وحده. إن حذفته عادت النسخة إلى الإعدادات البيئية التي بدأت بها.",
+  },
   aboutContents: { en: "Contents", ar: "المحتويات" },
   aboutNotes: { en: "notes", ar: "ملاحظات" },
   aboutPublished: { en: "published", ar: "منشورة" },
@@ -463,6 +504,17 @@ const DICT = {
   hintPublicLayout: { en: "visitor-facing shell", ar: "واجهة الزوار" },
   rowLanguage: { en: "Language", ar: "اللغة" },
   hintLanguage: { en: "site chrome language & direction", ar: "لغة واجهة الموقع واتجاهها" },
+  // The notes sidebar's edge. The segment labels name a PHYSICAL edge in both
+  // languages, exactly as the palette commands do — an Arabic reader pinning
+  // the pane left means the left of the screen, not "the trailing side".
+  rowSidebarSide: { en: "Notes sidebar", ar: "لوحة الملاحظات" },
+  hintSidebarSide: {
+    en: "which edge the tree sits on — Auto follows the language",
+    ar: "الحافة التي تجلس عليها الشجرة — «تلقائي» يتبع اللغة",
+  },
+  sideAuto: { en: "Auto", ar: "تلقائي" },
+  sideLeft: { en: "Left", ar: "يسار" },
+  sideRight: { en: "Right", ar: "يمين" },
   rowLanguageFilter: { en: "Language filter", ar: "تصفية حسب اللغة" },
   hintLanguageFilter: {
     en: "public blog shows only notes in the site language",
@@ -547,9 +599,8 @@ const DICT = {
   // Lowercase like its six neighbours: the empty state sets these as a caption
   // row, and t("shortcutsTitle") arrived title-cased in the middle of them.
   keyShortcuts: { en: "keyboard shortcuts", ar: "اختصارات لوحة المفاتيح" },
-  openSidebar: { en: "Open sidebar", ar: "فتح الشريط الجانبي" },
-  closeSidebar: { en: "Close sidebar", ar: "إغلاق الشريط الجانبي" },
-  showSidebar: { en: "Show sidebar (Ctrl/Cmd+B)", ar: "إظهار الشريط الجانبي (Ctrl/Cmd+B)" },
+  openSidebar: { en: "Open Notes sidebar", ar: "فتح لوحة الملاحظات" },
+  closeSidebar: { en: "Close Notes sidebar", ar: "إغلاق لوحة الملاحظات" },
   exitZen: { en: "Exit zen mode (Esc)", ar: "إنهاء وضع التركيز (Esc)" },
   // The one keystroke zen advertises on screen — the ✕ beside it is the mouse
   // route, this is the one that works when the chrome has faded.
@@ -727,8 +778,8 @@ const DICT = {
   groupTheme: { en: "Theme", ar: "السمة" },
   groupLanguage: { en: "Language & direction", ar: "اللغة والاتجاه" },
   typographyNote: {
-    en: "Chosen faces are fetched once when you save, then served from your own machine — visitors never contact an external font host. Anything not listed here can still be dropped into VELLUM_DATA/fonts and named from custom.css.",
-    ar: "تُجلب الخطوط المختارة مرة واحدة عند الحفظ، ثم تُقدَّم من جهازك — لا يتصل الزوار بأي مضيف خطوط خارجي. وما ليس في هذه القائمة يمكن وضعه في ⁨VELLUM_DATA/fonts⁩ واستدعاؤه من ⁨custom.css⁩.",
+    en: "Catalog faces are fetched once when you save, then served from your own machine — visitors never contact an external font host. A face that is not in the catalog can be uploaded below and is offered in every slot.",
+    ar: "تُجلب خطوط الكتالوج مرة واحدة عند الحفظ، ثم تُقدَّم من جهازك — لا يتصل الزوار بأي مضيف خطوط خارجي. وما ليس في الكتالوج يمكن رفعه أدناه ليُتاح في كل الخانات.",
   },
   rowFontProse: { en: "Reading text", ar: "نص القراءة" },
   hintFontProse: { en: "reading column, editor prose", ar: "عمود القراءة ونص المحرر" },
@@ -769,6 +820,80 @@ const DICT = {
     ar: "تعذر جلب الخطوط — لم تتغير الإعدادات",
   },
   fontFetching: { en: "Fetching fonts…", ar: "جارٍ جلب الخطوط…" },
+  // The picker: a filter over twenty-seven catalog families plus whatever the
+  // operator has uploaded.
+  fontFilter: { en: "Filter fonts…", ar: "تصفية الخطوط…" },
+  fontGroupCustom: { en: "Your fonts", ar: "خطوطك" },
+
+  // ── Uploaded faces (VELLUM_DATA/fonts/custom) ───────────────────────────
+  // The catalog answers "one of ours"; this answers "the one I own", which is
+  // the only possible answer for a licensed Arabic face.
+  fontCustomHead: { en: "Your own fonts", ar: "خطوطك الخاصة" },
+  fontCustomNote: {
+    en: "Upload a face you own and it appears under “Your fonts” in every slot above — reading text, interface, code and Arabic. Files are kept in your instance data directory (named in About) and served from this machine, like the catalog.",
+    ar: "ارفع خطًا تملكه ليظهر تحت «خطوطك» في كل خانة أعلاه — نص القراءة والواجهة والشيفرة والعربية. تُحفظ الملفات في مجلد بيانات النسخة (المذكور في «حول») وتُقدَّم من هذا الجهاز، كما في الكتالوج.",
+  },
+  dropFont: { en: "Drop a font file, or click to choose", ar: "أفلت ملف خط، أو انقر للاختيار" },
+  dropFontHint: {
+    en: "woff2, woff, ttf or otf — up to {max} MB",
+    ar: "‎woff2 أو woff أو ttf أو otf — حتى {max} ميغابايت",
+  },
+  noCustomFonts: { en: "No fonts uploaded yet.", ar: "لم تُرفع أي خطوط بعد." },
+  fontSizeKb: { en: "{count} KB", ar: "{count} ك.ب" },
+  // A face a slot still names has no delete button at all; the row says which
+  // slot is holding it, so the way out is obvious.
+  fontInUse: { en: "in use — {slots}", ar: "قيد الاستخدام — {slots}" },
+  fontAdded: { en: "Added {name}", ar: "أُضيف {name}" },
+  fontUploadFailed: { en: "The font could not be uploaded", ar: "تعذر رفع الخط" },
+  // ── What the SERVER refused, said here ──────────────────────────────────
+  // The upload routes answer `{ error, code }`; `error` is English prose for a
+  // log and `code` is what these translate. Before them, the commonest failure
+  // of the whole feature — picking the wrong file — printed the server's
+  // English sentence into a fully Arabic panel, and `fontUploadFailed` was
+  // dead code. It is still the fallback for a code nothing here names.
+  errFontUnrecognized: {
+    en: "That is not a font file. Choose a woff2, woff, ttf or otf.",
+    ar: "هذا ليس ملف خط. اختر ملفًا بصيغة woff2 أو woff أو ttf أو otf.",
+  },
+  errFontDamaged: {
+    en: "That font file is damaged and no browser could render it.",
+    ar: "ملف الخط تالف ولن يتمكن أي متصفح من عرضه.",
+  },
+  errFontTooLarge: {
+    en: "That font file is larger than {max} MB.",
+    ar: "حجم ملف الخط أكبر من {max} ميغابايت.",
+  },
+  errFontNoFile: { en: "No file was received.", ar: "لم يُستلم أي ملف." },
+  errFontNotFound: { en: "That font is no longer on this instance.", ar: "لم يعد هذا الخط موجودًا في هذه النسخة." },
+  errFontBadName: { en: "That font file name is not one this instance created.", ar: "اسم ملف الخط هذا ليس مما أنشأته هذه النسخة." },
+  errFontNoFreeName: {
+    en: "Too many fonts share that name. Rename the file and try again.",
+    ar: "خطوط كثيرة تحمل هذا الاسم. غيّر اسم الملف وأعد المحاولة.",
+  },
+  errFontInUse: {
+    en: "That face is still in use. Choose another one in the slots above first.",
+    ar: "هذا الخط ما زال قيد الاستخدام. اختر خطًا آخر في الخانات أعلاه أولًا.",
+  },
+  fontDeleteTitle: { en: "Remove “{name}”?", ar: "إزالة «{name}»؟" },
+  fontDeleteBody: {
+    en: "The file is deleted from this instance. Your notes are untouched, and you can upload it again.",
+    ar: "سيُحذف الملف من هذه النسخة. لن تُمس ملاحظاتك، ويمكنك رفعه مجددًا.",
+  },
+  fontRemoved: { en: "Font removed", ar: "أُزيل الخط" },
+  fontRemoveFailed: { en: "The font could not be removed", ar: "تعذرت إزالة الخط" },
+
+  // The optical dial: the only number in the panel a reader arrives at by eye,
+  // set against the specimen block two rows above it.
+  rowSizeAdjust: { en: "Arabic size match", ar: "مطابقة حجم العربي" },
+  hintSizeAdjust: {
+    en: "scales the Arabic face against the Latin one",
+    ar: "يضبط حجم الخط العربي مقابل اللاتيني",
+  },
+  sizeAdjustAuto: { en: "auto", ar: "تلقائي" },
+  errSizeAdjust: {
+    en: "Must be between {min} and {max} percent",
+    ar: "يجب أن يكون بين {min} و{max} بالمئة",
+  },
 
   // ── Backup & sync (git) ─────────────────────────────────────────────────
   groupSync: { en: "Backup & sync", ar: "النسخ الاحتياطي والمزامنة" },
@@ -904,6 +1029,14 @@ const DICT = {
   // An empty field that inherits an env default and a field holding a muted
   // value looked identical. The badge says which one this is, so the
   // convention no longer has to be explained in a note at the top.
+  // The middle state of a three-way row: not on, not off, TAKE THE ENV
+  // DEFAULT. A checkbox cannot express it, which is why these rows are
+  // segmented controls; the segment carries the value in force as its note.
+  inheritSegment: { en: "Inherit", ar: "موروث" },
+  // The generic filter field inside a select popover (the font picker names
+  // its own).
+  filterPlaceholder: { en: "Filter…", ar: "تصفية…" },
+  remove: { en: "Remove", ar: "إزالة" },
   inheritedBadge: { en: "inherited", ar: "موروث" },
 
   // ── Mode indicators ─────────────────────────────────────────────────────
@@ -988,7 +1121,6 @@ const DICT = {
   exitPreviewTitle: { en: "Exit preview (Esc)", ar: "إنهاء المعاينة (Esc)" },
 
   // ── Status-bar panel toggles ────────────────────────────────────────────
-  hideSidebar: { en: "Hide sidebar (Ctrl/Cmd+B)", ar: "إخفاء الشريط الجانبي (Ctrl/Cmd+B)" },
   enterZen: { en: "Zen mode (Ctrl/Cmd+Shift+Z)", ar: "وضع التركيز (Ctrl/Cmd+Shift+Z)" },
 
   // ── Keyboard shortcuts overlay (Ctrl/Cmd+/) ─────────────────────────────

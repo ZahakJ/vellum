@@ -34,12 +34,22 @@ const SIDEBAR_COLLAPSED_KEY = "vellum.sidebarCollapsed";
 const PANEL_COLLAPSED_KEY = "vellum.panelCollapsed";
 const ZEN_KEY = "vellum.zen";
 
-/** Which physical edge the sidebar sits on. Stored as a PHYSICAL side, not a
- *  logical one: it is a window-layout preference ("panes on the left"), and it
- *  must survive a language change rather than silently swap with the text
- *  direction. The default follows the direction; the choice, once made, does
- *  not. */
+/** Which physical edge the notes sidebar sits on, once everything is settled.
+ *  PHYSICAL, not logical: a reader who asks for "the left" means the left of
+ *  the screen in either language. */
 export type SidebarSide = "left" | "right";
+
+/** The stored PREFERENCE behind that side, and it is three-state on purpose.
+ *  `"auto"` is the default and is re-evaluated on every language change —
+ *  right in Arabic, left in English — because the leading edge is a property
+ *  of the direction, not a thing the reader should have to re-pick. `"left"` /
+ *  `"right"` are explicit pins that outrank the language forever.
+ *
+ *  Two-state was the bug: the side followed the language only while NOTHING
+ *  was stored, so the first use of the palette command pinned it for good and
+ *  a later switch to Arabic no longer moved it — with no way back other than
+ *  clearing localStorage. */
+export type SidebarSidePref = "auto" | "left" | "right";
 
 /** Every built-in theme, and its identity, live in `client/themes.ts` — the
  *  list outgrew the store when it reached fifteen, and three surfaces outside
@@ -82,10 +92,17 @@ export interface State {
   setSidebarOpen(b: boolean): void;
 
   // ------------------------------------------------------------- shell layout
-  /** Physical edge the sidebar sits on (persisted; default follows the
-   *  language direction — ar → right, en → left). */
+  /** The reader's stored choice: "auto" (the default — follow the language),
+   *  or an explicit "left"/"right" pin. Persisted as "vellum.sidebarSide". */
+  sidebarSidePref: SidebarSidePref;
+  /** The edge the sidebar is on RIGHT NOW: the pref with "auto" resolved
+   *  against the active language. Derived — never persisted, never set
+   *  directly; `setSidebarSidePref` and `loadMe` are its only writers. */
   sidebarSide: SidebarSide;
-  setSidebarSide(side: SidebarSide): void;
+  /** Set the three-state preference. This is the action a Settings →
+   *  Appearance segmented control (auto / left / right) calls; the palette's
+   *  three commands call it too. */
+  setSidebarSidePref(pref: SidebarSidePref): void;
   /** Sidebar collapsed to its slim reopen handle (Ctrl/Cmd+B; persisted). */
   sidebarCollapsed: boolean;
   setSidebarCollapsed(b: boolean): void;
@@ -331,18 +348,33 @@ export function hasPanelPreference(): boolean {
   return readFlag(PANEL_COLLAPSED_KEY) !== null;
 }
 
-function readSidebarSide(): SidebarSide | null {
+/** The stored preference. A value written by an OLDER build is a bare
+ *  "left"/"right" with no "auto" in the vocabulary — it was an explicit act
+ *  then and it stays an explicit pin now, which is the migration: nothing is
+ *  rewritten, the same two strings simply keep meaning what they meant.
+ *  Anything else (absent, corrupt, a value from the future) is "auto". */
+function readSidebarSidePref(): SidebarSidePref {
   try {
     const raw = localStorage.getItem(SIDE_KEY);
-    return raw === "left" || raw === "right" ? raw : null;
+    return raw === "left" || raw === "right" || raw === "auto" ? raw : "auto";
   } catch {
-    return null;
+    return "auto";
   }
 }
 
-/** The side a fresh install lands on: the direction's leading edge. */
-function defaultSide(lang: Lang): SidebarSide {
+/** The edge "auto" means in this language: the direction's leading one.
+ *  Exported because the Settings → Appearance row has to name the edge *Auto*
+ *  would land on, which is NOT the same as `sidebarSide`: with the pane pinned
+ *  left on an Arabic instance the resolved side is "left" while choosing Auto
+ *  would move it right, so a note reading off the resolved value describes the
+ *  pin rather than the option it sits on. */
+export function defaultSide(lang: Lang): SidebarSide {
   return lang === "ar" ? "right" : "left";
+}
+
+/** Resolve the three-state preference against the language in force. */
+function effectiveSide(pref: SidebarSidePref, lang: Lang): SidebarSide {
+  return pref === "auto" ? defaultSide(lang) : pref;
 }
 
 function readReading(): boolean {
@@ -504,9 +536,10 @@ export const useStore = create<State>()((set, get) => {
     readingMode: readReading(),
     paletteOpen: false,
     sidebarOpen: false,
-    // The side is settled again in loadMe() once the instance language is
-    // known — but only while the reader has expressed no preference.
-    sidebarSide: readSidebarSide() ?? defaultSide("en"),
+    // Both are settled again in loadMe() once the instance language is known;
+    // until then "auto" resolves against the boot default (en → left).
+    sidebarSidePref: readSidebarSidePref(),
+    sidebarSide: effectiveSide(readSidebarSidePref(), "en"),
     sidebarCollapsed: readFlag(SIDEBAR_COLLAPSED_KEY) ?? false,
     // No stored choice → the panel starts wherever the viewport wants it
     // (BacklinksPanel's media query), which is collapsed on narrow screens.
@@ -533,7 +566,9 @@ export const useStore = create<State>()((set, get) => {
       // on the instance's blogLocale (CONTRACTS: one numbering system per
       // instance, chosen by the date locale).
       applyLanguage(lang, get().blogLocale);
-      set({ language: lang });
+      // Same rule as loadMe: an "auto" side follows the direction LIVE, so a
+      // visitor flipping the EN/ع switch moves the notes sidebar with it.
+      set({ language: lang, sidebarSide: effectiveSide(get().sidebarSidePref, lang) });
     },
     loginOpen: false,
     moderationOpen: false,
@@ -591,11 +626,11 @@ export const useStore = create<State>()((set, get) => {
         const language: Lang = (languageToggle ? readVisitorLang() : null) ?? siteLang;
         const locale = me.blogLocale?.trim() || "en";
         applyLanguage(language, locale); // before set(): re-renders already see t() in the new language
-        // The sidebar's default edge is the direction's leading one, so an
-        // Arabic instance opens with the sidebar on the right. Only the
-        // DEFAULT follows the language: a stored choice is a window-layout
-        // preference and outranks it (same shape as DEFAULT_THEME below).
-        if (readSidebarSide() === null) set({ sidebarSide: defaultSide(language) });
+        // "auto" is re-evaluated on EVERY language change, not only on a
+        // fresh install: switching the instance to Arabic moves the notes
+        // sidebar to the right edge, switching back moves it home. An
+        // explicit "left"/"right" pin outranks the language and never moves.
+        set({ sidebarSide: effectiveSide(get().sidebarSidePref, language) });
         set({
           languageToggle,
           admin: me.admin,
@@ -877,9 +912,12 @@ export const useStore = create<State>()((set, get) => {
     setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
     setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
 
-    setSidebarSide: (sidebarSide) => {
-      persistFlagValue(SIDE_KEY, sidebarSide);
-      set({ sidebarSide });
+    setSidebarSidePref: (sidebarSidePref) => {
+      persistFlagValue(SIDE_KEY, sidebarSidePref);
+      // Resolve immediately against the language in force — "auto" has to
+      // land the sidebar somewhere the moment it is chosen, not on the next
+      // /api/me.
+      set({ sidebarSidePref, sidebarSide: effectiveSide(sidebarSidePref, get().language) });
     },
 
     setSidebarCollapsed: (sidebarCollapsed) => {

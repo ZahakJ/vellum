@@ -1,0 +1,590 @@
+/* Vellum — the control set.
+   Linked after app.css and themes.css, before settings.css (client/index.html):
+   these are the primitives the settings surface is drawn with, so the settings
+   sheet must be able to adjust them and never the other way round.
+
+   ONE rule governs the file: nothing here renders operating-system chrome.
+   Native <select> and <input type="checkbox"> draw the OS's own widget — a
+   blue-grey pill on macOS, a flat box on Windows, a third thing on GTK — which
+   inside a candlelit manuscript room reads as somebody else's website leaking
+   through. Every control below is built from --bg / --border / --accent and
+   changes with the theme like everything else in the product.
+
+   Everything is logical-property clean (padding-inline, inset-inline,
+   border-inline-start): the whole set mirrors under dir="rtl" with no [dir]
+   rule of its own. The popover is the one place with physical coordinates,
+   and they are COMPUTED per open from the trigger's own rect. */
+
+/* ── Shared skin ──────────────────────────────────────────────────────────── */
+
+/* The common ground: one field height, one radius, one border, one focus ring.
+   Rows in a form line up because their controls are the same object. */
+.s-ctl {
+  font: inherit;
+  font-size: 0.893rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-height: 32px;
+  padding: 6px 11px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease,
+    color 0.15s ease;
+}
+
+.s-ctl:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ONE disabled face for every shape. This is the whole reason the set exists
+   as a set: a native disabled <select> is dimmed by the browser and a native
+   disabled <input> is not, so "Backup is off" used to be drawn two different
+   ways in one column. */
+.s-ctl:disabled,
+.s-ctl-num--off .s-ctl {
+  opacity: 1;
+  color: var(--text-muted);
+  -webkit-text-fill-color: var(--text-muted); /* WebKit ignores `color` here */
+  background: var(--bg-raised);
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  cursor: not-allowed;
+}
+
+/* ── Text field ───────────────────────────────────────────────────────────── */
+
+.s-ctl-input {
+  width: 100%;
+  min-width: 0;
+  outline: none;
+}
+
+/* A FIELD'S `dir` FIXES ITS ORDER; IT MUST NOT ALSO FIX ITS ALIGNMENT.
+   This is the same trap Select.tsx solves with `<bdi>` for the popover rows —
+   "two things being compared have to start at the same place" — and the plain
+   inputs in the same panel never got the same treatment.
+
+   Machine text (a URL, a branch, a vault path, a BCP-47 tag) is `dir="ltr"`
+   and must stay so: `git@host:path` reordered by an RTL paragraph is a
+   different string. But `text-align: start` then resolves against the FIELD's
+   direction rather than the PANEL's, so in an Arabic panel the logo path and
+   the favicon path sat flush LEFT while the site name and tagline directly
+   above them sat flush RIGHT — a ~400px jump between adjacent rows of one
+   form, and the date-locale field's two letters ended up at the far end from
+   where the reader's eye starts. Measured across all six tabs in Arabic:
+   seven fields aligned to the opposite edge of the column from their
+   neighbours. That is the owner's "weird margin/padding issues in settings in
+   Arabic mode".
+
+   So a field whose direction disagrees with its surroundings keeps its own
+   internal order and is flushed to the SURROUNDINGS' start edge — exactly
+   what an inline isolate does in flowing text. `.s-ctl-num__input` is the one
+   exception and it is deliberate: its whole field is an LTR island with the
+   unit glyph pinned at the field's inline end, so aligning the digits to the
+   panel's start would park "142" on top of the "%". */
+[dir="rtl"] .s-ctl-input[dir="ltr"]:not(.s-ctl-num__input),
+[dir="rtl"] .s-ctl-input[dir="auto"] {
+  text-align: right;
+}
+
+[dir="ltr"] .s-ctl-input[dir="rtl"]:not(.s-ctl-num__input),
+[dir="ltr"] .s-ctl-input[dir="auto"] {
+  text-align: left;
+}
+
+.s-ctl-input::placeholder {
+  color: var(--text-faint);
+}
+
+.s-ctl-input:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.s-ctl-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.s-ctl-input--invalid,
+.s-ctl-input--invalid:focus {
+  border-color: var(--danger);
+}
+
+/* ── Select trigger ───────────────────────────────────────────────────────── */
+
+.s-ctl-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: start;
+  cursor: pointer;
+}
+
+.s-ctl-select:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--bg);
+}
+
+.s-ctl-select--open {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.s-ctl-select__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-ctl-select__note {
+  flex: none;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+/* Geometry, not a glyph: an SVG chevron needs no bidi thought (it points
+   down in both directions) and it never changes size with the type scale. */
+.s-ctl-select__chev {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--text-faint);
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.s-ctl-select:hover:not(:disabled) .s-ctl-select__chev,
+.s-ctl-select--open .s-ctl-select__chev {
+  color: var(--accent);
+}
+
+.s-ctl-select--open .s-ctl-select__chev {
+  transform: rotate(180deg);
+}
+
+/* The font picker's trigger carries two lines (the family name and a sample
+   set in it), so it sizes to its content instead of to the field height. */
+.s-ctl-select--face {
+  min-height: 42px;
+}
+
+/* ── The popover ──────────────────────────────────────────────────────────── */
+
+/* Fixed, on <body>, with top/left/width/max-height computed per open from the
+   trigger's rect (Select.tsx): the panel is `overflow: hidden` and its body is
+   a scroller, so an in-flow popover would be clipped by one and dragged by the
+   other. z-index sits above the settings panel (60) and the theme picker. */
+.s-ctl-pop {
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  animation: s-ctl-pop-in 0.12s ease;
+}
+
+@keyframes s-ctl-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.s-ctl-pop--up {
+  animation-name: s-ctl-pop-in-up;
+}
+
+@keyframes s-ctl-pop-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* The filter field is sticky over a scrolling list, so the list has to be
+   seen to PASS UNDER it rather than to be sliced by it: without a fade, a
+   scrolled option was cut through the middle of its glyphs against the
+   field's bottom edge (measured at y≈518 in the English Arabic-face menu) and
+   read as a rendering fault. The mask is on the scroller below; this keeps the
+   hairline that says "the field is a lid, not a row". */
+.s-ctl-pop__filter {
+  flex: none;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.s-ctl-pop__field {
+  font-size: 0.857rem;
+}
+
+/* The list is the only scroller, so the filter field stays put while
+   twenty-seven faces move under it.
+
+   A HARD EDGE ON A SCROLLER READS AS A BUG, NOT AS "MORE ABOVE". The rows
+   arriving at either end were guillotined mid-glyph — flat-cut ascenders under
+   the filter field, flat-cut descenders at the foot — which in Arabic, where
+   the tashkeel sit well above and below the baseline, produced a line of
+   disconnected marks. An 18px alpha mask at each end fades them out instead,
+   and the mask is only applied where there is something to fade
+   (`--top`/`--bottom` are flipped by the scroll handler below), so a list
+   short enough to fit keeps its full contrast at both ends. The mask itself
+   is `.s-scrollfade` in app.css — the settings panel's body wears the same
+   one, because it is the same defect at a larger scale. */
+.s-ctl-pop__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px;
+  outline: none;
+}
+
+.s-ctl-pop__grouplabel {
+  padding: 8px 8px 4px;
+  font-size: 0.643rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+}
+
+.s-ctl-pop__group + .s-ctl-pop__group .s-ctl-pop__grouplabel {
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.s-ctl-pop__opt {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 9px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  position: relative;
+  /* The tick sits in the inline-end margin; reserve it on every row so the
+     labels do not shift by 14px when the selection moves. */
+  padding-inline-end: 26px;
+}
+
+/* The highlight is the same object the tree's active row and the palette's
+   selected row are: an accent wash with a gold bar on the leading edge. */
+.s-ctl-pop__opt--on {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+.s-ctl-pop__optmain {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.s-ctl-pop__optlabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.893rem;
+  color: var(--text);
+}
+
+.s-ctl-pop__optnote {
+  flex: none;
+  font-size: 0.714rem;
+  color: var(--text-faint);
+}
+
+/* The specimen line under a font option. Roomy: a naskh face has tall
+   ascenders and deep descenders and its tashkeel must not collide with the
+   family name above it. */
+.s-ctl-pop__optsample {
+  display: block;
+  font-size: 1.02rem;
+  line-height: 1.65;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-ctl-pop__check {
+  position: absolute;
+  inset-inline-end: 8px;
+  top: 7px;
+  font-size: 0.786rem;
+  color: var(--accent);
+}
+
+.s-ctl-pop__empty {
+  padding: 14px 10px;
+  font-size: 0.821rem;
+  color: var(--text-faint);
+}
+
+/* ── The specimen grid (font picker only) ─────────────────────────────────── */
+
+/* A FONT LIST IS JUDGED BY THE SPECIMENS, SO SHOW MORE THAN THREE OF THEM.
+   These rows have to be two lines tall — the specimen IS the option — so a
+   twenty-seven family catalog against a 340px popover was judged three and a
+   half faces at a time, and the filter only mitigated that for a reader who
+   already knew the name they wanted, which is not what a picker is for. Two
+   columns of cards put about a dozen on screen at once.
+
+   The card is SPECIMEN-LED: the family name becomes a small overline and the
+   sample takes the type size, because the question the reader is answering is
+   "what does this look like", and the name only tells them what to call the
+   answer. The two lines are still one option — same highlight, same tick,
+   same keyboard. */
+.s-ctl-pop--grid .s-ctl-pop__opts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 2px;
+  align-items: stretch;
+}
+
+.s-ctl-pop--grid .s-ctl-pop__opt {
+  gap: 2px;
+  padding-block: 7px;
+}
+
+.s-ctl-pop--grid .s-ctl-pop__optlabel {
+  font-size: 0.714rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.s-ctl-pop--grid .s-ctl-pop__opt--on .s-ctl-pop__optlabel {
+  color: var(--text);
+}
+
+.s-ctl-pop--grid .s-ctl-pop__optsample {
+  font-size: 1.08rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+/* The "no webfont" row is alone in its group and has no specimen, so it keeps
+   the full measure rather than sitting as a half-width card beside nothing. */
+.s-ctl-pop--grid .s-ctl-pop__opts:has(> :only-child) {
+  grid-template-columns: 1fr;
+}
+
+/* ── Toggle ───────────────────────────────────────────────────────────────── */
+
+.s-ctl-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding-inline: 8px 12px;
+  align-self: flex-start;
+}
+
+.s-ctl-toggle:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.s-ctl-toggle__track {
+  flex: none;
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px var(--border);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.s-ctl-toggle__knob {
+  position: absolute;
+  top: 3px;
+  inset-inline-start: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  /* Logical inset + a physical translate would fight under RTL, so the knob
+     travels by animating its own inline offset instead. */
+  transition: inset-inline-start 0.15s ease, background 0.15s ease;
+}
+
+.s-ctl-toggle--on .s-ctl-toggle__track {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.s-ctl-toggle--on .s-ctl-toggle__knob {
+  inset-inline-start: 17px;
+  background: var(--accent);
+}
+
+/* A disabled switch keeps its POSITION — a reader must still be able to read
+   what is configured while the master switch above it is off — and loses its
+   colour. Left lit, an inert "Pull first · on" was the brightest thing in a
+   column of greyed rows, which is the same misreading (a configured, running
+   backup) that the row dimming exists to prevent. */
+.s-ctl-toggle:disabled .s-ctl-toggle__track {
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.s-ctl-toggle:disabled .s-ctl-toggle__knob {
+  background: var(--text-faint);
+}
+
+/* "Inherit | on | off" in one row: the dictionary's on/off are lowercase (they
+   were <option> text), and a segmented control is a row of buttons. FIRST
+   LETTER only — `capitalize` is per word and turned "SSH keys (this machine)"
+   into title case. `::first-letter` needs a block box, hence the display.
+   Arabic has no case, so both are inert there. */
+.s-ctl-toggle__label {
+  display: block;
+  font-size: 0.857rem;
+  color: var(--text-muted);
+}
+
+.s-ctl-toggle__label::first-letter {
+  text-transform: uppercase;
+}
+
+.s-ctl-toggle--on .s-ctl-toggle__label {
+  color: var(--text);
+}
+
+/* ── Segmented control ────────────────────────────────────────────────────── */
+
+.s-ctl-seg {
+  display: inline-flex;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--bg);
+}
+
+.s-ctl-seg__btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  min-height: 26px;
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.s-ctl-seg__btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.s-ctl-seg__btn--on,
+.s-ctl-seg__btn--on:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--text);
+}
+
+.s-ctl-seg__btn:disabled {
+  background: transparent;
+  border-color: transparent;
+}
+
+.s-ctl-seg__btn--on:disabled {
+  background: var(--bg-raised);
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.s-ctl-seg__label {
+  display: block;
+  font-size: 0.857rem;
+}
+
+.s-ctl-seg__label::first-letter {
+  text-transform: uppercase;
+}
+
+.s-ctl-seg__note {
+  font-size: 0.679rem;
+  color: var(--text-faint);
+}
+
+/* ── Number + unit ────────────────────────────────────────────────────────── */
+
+.s-ctl-num {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 6px;
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+.s-ctl-num__step {
+  flex: none;
+  width: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.s-ctl-num__step:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+/* The field and its unit are ONE object: the unit sits inside the frame, so
+   "142 %" reads as a value rather than as a number with a footnote. */
+.s-ctl-num__field {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.s-ctl-num__input {
+  width: 96px;
+  padding-inline-end: 42px;
+}
+
+.s-ctl-num__unit {
+  position: absolute;
+  inset-inline-end: 10px;
+  font-size: 0.786rem;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.s-ctl-num--invalid .s-ctl-num__input {
+  border-color: var(--danger);
+}
+
+/* ── Narrow ───────────────────────────────────────────────────────────────── */
+
+@media (max-width: 560px) {
+  .s-ctl-seg {
+    flex-wrap: wrap;
+  }
+
+  .s-ctl-num__input {
+    width: 84px;
+  }
+}

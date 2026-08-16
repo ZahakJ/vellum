@@ -202,6 +202,12 @@ export interface AboutInfo {
   node: string;         // process.version, e.g. "v22.11.0"
   vaultPath: string;    // resolved vault root
   dataPath: string;     // VELLUM_DATA (settings.json, fonts, credentials)
+  /** The settings FILE itself. The panel used to say "— settings.json" in its
+   *  own title, which named a file without saying where it was; the answer
+   *  belongs in About, next to the other absolute paths. */
+  settingsPath: string;
+  /** VELLUM_DATA/fonts/custom — where uploaded faces land. */
+  customFontsPath: string;
   notes: number;        // indexed .md files
   published: number;    // notes with publish: true
   attachments: number;  // indexed image attachments
@@ -299,10 +305,38 @@ export interface FontSlotSettings {
   ui?: string;
   mono?: string;
   arabic?: string;
+  /** Optical size compensation for the Arabic half, in percent (50–300), or
+   *  null for "the catalog's measured value, or none". The catalog faces were
+   *  measured against Lora; an UPLOADED face cannot be, so the operator gets
+   *  the dial — in the one place where both scripts are on screen together. */
+  arabicSizeAdjust?: number | null;
 }
 
 /** The resolved slots (every slot present; "system" when unset). */
-export type FontSlotsEffective = Required<FontSlotSettings>;
+export interface FontSlotsEffective {
+  prose: string;
+  ui: string;
+  mono: string;
+  arabic: string;
+  arabicSizeAdjust?: number | null;
+}
+
+/** An uploaded face under VELLUM_DATA/fonts/custom — offered in every slot
+ *  under "Your fonts", served from this instance like the catalog cache. */
+export type FontFormat = "woff2" | "woff" | "ttf" | "otf";
+
+export interface CustomFontInfo {
+  /** The value settings.fonts holds: "custom:<file>". */
+  id: string;
+  /** Basename on disk (generated slug + sniffed extension). */
+  file: string;
+  /** From the font's own `name` table when it could be read, else the stem. */
+  family: string;
+  format: FontFormat;
+  size: number;
+  /** ISO timestamp. */
+  uploaded: string;
+}
 
 export interface PublishedCounts {
   notes: number;  // notes with frontmatter publish: true

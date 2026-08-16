@@ -183,26 +183,38 @@ export default function StatusBar() {
   return (
     <footer className="s-statusbar">
       {crumbs.length > 0 ? (
+        // Two flex children, not one segment per folder, and that is what
+        // keeps a squeezed trail readable. Every segment used to shrink
+        // equally, so the bar's one job — naming the open note — was the
+        // first casualty: `1 - Source Material › Wiki › Nobel Prize in
+        // Physiology or Medicine` truncated to `… › Wiki › Nobel Pri…`, two
+        // folders intact and the note's name cut. Giving the LEAF a low
+        // shrink factor fixed the priority but left the elided ancestors
+        // behind as bare `› ›` chevrons, because a separator between two
+        // collapsed spans is still a separator. So the ancestors and their
+        // separators are ONE ellipsizing run: it thins to `1 - Sourc…`, then
+        // to `…`, then to nothing at all, and the note name is the last
+        // thing standing.
         <span className="s-statusbar__crumbs" title={openPath ?? undefined}>
-          {crumbs.map((part, i) => (
-            <Fragment key={`${i}:${part}`}>
-              {i > 0 && (
-                <span className="s-statusbar__crumb-sep" aria-hidden="true">
-                  ›
-                </span>
-              )}
-              <span
-                className={`s-statusbar__crumb${
-                  i === crumbs.length - 1 ? " s-statusbar__crumb--leaf" : ""
-                }`}
-                // Per segment, not per crumb trail: a folder/note name picks
-                // its own direction while the trail keeps the chrome's order.
-                dir="auto"
-              >
-                {part}
-              </span>
-            </Fragment>
-          ))}
+          {crumbs.length > 1 && (
+            <span className="s-statusbar__crumbpath">
+              {crumbs.slice(0, -1).map((part, i) => (
+                <Fragment key={`${i}:${part}`}>
+                  {/* Per segment, not per trail: a folder name picks its own
+                      direction while the trail keeps the chrome's order. */}
+                  <span className="s-statusbar__crumb" dir="auto">
+                    {part}
+                  </span>
+                  <span className="s-statusbar__crumb-sep" aria-hidden="true">
+                    ›
+                  </span>
+                </Fragment>
+              ))}
+            </span>
+          )}
+          <span className="s-statusbar__crumb s-statusbar__crumb--leaf" dir="auto">
+            {crumbs[crumbs.length - 1]}
+          </span>
         </span>
       ) : (
         <span className="s-statusbar__crumbs s-statusbar__crumb">{t("noNoteOpen")}</span>
@@ -355,8 +367,8 @@ export default function StatusBar() {
           type="button"
           className={`s-statusbar__btn s-statusbar__icon${sidebarCollapsed ? "" : " s-statusbar__btn--on"}`}
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          title={t(sidebarCollapsed ? "showSidebar" : "hideSidebar")}
-          aria-label={t(sidebarCollapsed ? "showSidebar" : "hideSidebar")}
+          title={t(sidebarCollapsed ? "showPaneNotes" : "hidePaneNotes")}
+          aria-label={t(sidebarCollapsed ? "showPaneNotes" : "hidePaneNotes")}
           aria-pressed={!sidebarCollapsed}
         >
           <PaneIcon kind="sidebar" />
@@ -365,8 +377,8 @@ export default function StatusBar() {
           type="button"
           className={`s-statusbar__btn s-statusbar__icon${panelCollapsed ? "" : " s-statusbar__btn--on"}`}
           onClick={() => setPanelCollapsed(!panelCollapsed)}
-          title={t(panelCollapsed ? "showBacklinks" : "hideBacklinks")}
-          aria-label={t(panelCollapsed ? "showBacklinks" : "hideBacklinks")}
+          title={t(panelCollapsed ? "showPaneOutline" : "hidePaneOutline")}
+          aria-label={t(panelCollapsed ? "showPaneOutline" : "hidePaneOutline")}
           aria-pressed={!panelCollapsed}
         >
           <PaneIcon kind="panel" />
