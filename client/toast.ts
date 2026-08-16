@@ -17,8 +17,14 @@ export function toast(msg: string): void {
   const el = document.createElement("div");
   el.className = "s-toast";
   el.setAttribute("role", "status");
-  el.textContent = msg;
+  // The live region has to be in the document BEFORE it has content: a
+  // role="status" node that arrives already full is, to most screen readers,
+  // just a new element — nothing changed inside a region they were watching,
+  // so nothing is announced. Insert it empty, fill it on the next frame.
   document.body.appendChild(el);
+  requestAnimationFrame(() => {
+    el.textContent = msg;
+  });
 
   window.setTimeout(() => {
     el.classList.add("s-toast--leaving"); // matches app.css's fade-out class

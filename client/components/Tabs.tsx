@@ -1,6 +1,14 @@
 // Tabs row: one tab per open note. Click switches, middle-click or the ×
 // button closes, and unsaved notes show a dirty dot.
+//
+// Keyboard: the bar is ONE tab stop (roving tabindex — the active tab is the
+// one Tab reaches), arrows walk it, Home/End jump to the ends, and Delete
+// closes the focused tab. Activation follows the arrows, the way browser tab
+// bars behave: a reader arrowing along the bar is reading, not hunting.
 
+import { useRef } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { claimFocus } from "../a11y.ts";
 import { t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { stripBidiControls } from "../../shared/bidi.ts";
@@ -21,6 +29,7 @@ export default function Tabs() {
   const closeTab = useStore((s) => s.closeTab);
   const admin = useStore((s) => s.admin);
   useStore((s) => s.language); // re-render the chrome strings on language change
+  const barRef = useRef<HTMLDivElement | null>(null);
 
   // Visitors get a clean publish-site chrome: no tab bar until a second
   // note is actually open.
@@ -28,18 +37,54 @@ export default function Tabs() {
 
   if (openTabs.length === 0) return <div className="s-tabs s-tabs--empty" />;
 
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>, path: string): void => {
+    const at = openTabs.indexOf(path);
+    // Physical arrows, logical order: in an RTL bar the tab to the reader's
+    // right is the PREVIOUS one, so the keys have to be swapped there or
+    // "next" walks backwards on an Arabic instance.
+    const rtl = barRef.current
+      ? getComputedStyle(barRef.current).direction === "rtl"
+      : false;
+    let to: number | null = null;
+    if (e.key === "ArrowRight") to = at + (rtl ? -1 : 1);
+    else if (e.key === "ArrowLeft") to = at + (rtl ? 1 : -1);
+    else if (e.key === "Home") to = 0;
+    else if (e.key === "End") to = openTabs.length - 1;
+    else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      closeTab(path);
+      return;
+    } else return;
+    e.preventDefault();
+    const next = openTabs[(to + openTabs.length) % openTabs.length];
+    if (next === undefined) return;
+    // Selection follows the arrows here, which means every keystroke opens a
+    // note — and a note, once loaded, focuses the editor. Claim the focus for
+    // the bar first or the second arrow press lands the caret in the prose.
+    claimFocus();
+    openNote(next);
+    // The newly active tab is the one carrying tabIndex 0 after the commit.
+    requestAnimationFrame(() =>
+      barRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus(),
+    );
+  };
+
   return (
-    <div className="s-tabs" role="tablist">
+    <div className="s-tabs" role="tablist" aria-label={t("openTabsAria")} ref={barRef}>
       {openTabs.map((path) => {
         const isActive = path === openPath;
+        const isDirty = Boolean(dirty[path]);
         return (
+          // The row is chrome, not a control: the tab and its close button are
+          // two separate widgets, and nesting one inside the other would make
+          // the × unreachable from the keyboard (a focusable thing inside a
+          // role="tab" is a nested-interactive violation, and the CSS had it
+          // at opacity 0 anyway).
           <div
             key={path}
-            role="tab"
-            aria-selected={isActive}
+            role="presentation"
             title={path}
-            className={`s-tab${isActive ? " s-tab--active" : ""}${dirty[path] ? " s-tab--dirty" : ""}`}
-            onClick={() => openNote(path)}
+            className={`s-tab${isActive ? " s-tab--active" : ""}${isDirty ? " s-tab--dirty" : ""}`}
             onAuxClick={(e) => {
               if (e.button === 1) {
                 e.preventDefault();
@@ -51,13 +96,33 @@ export default function Tabs() {
               if (e.button === 1) e.preventDefault();
             }}
           >
-            {/* Note-derived text inside chrome: direction per title. */}
-            <span className="s-tab-title" dir="auto">{titleOf(path)}</span>
-            {dirty[path] && <span className="s-tab-dirty" aria-label={t("unsaved")} />}
+            <button
+              type="button"
+              role="tab"
+              className="s-tab__main"
+              aria-selected={isActive}
+              // Roving tabindex: exactly one tab stop for the whole bar.
+              tabIndex={isActive ? 0 : -1}
+              onClick={() => openNote(path)}
+              onKeyDown={(e) => onKeyDown(e, path)}
+            >
+              {/* Note-derived text inside chrome: direction per title. */}
+              <span className="s-tab-title" dir="auto">{titleOf(path)}</span>
+              {isDirty && (
+                // The dot is the only mark that says "not saved". A bare
+                // aria-label on an empty <span> is not reliably exposed, so
+                // the words live in real text and the dot is decoration.
+                <>
+                  <span className="s-tab-dirty" aria-hidden="true" />
+                  <span className="s-sr-only">{t("unsaved")}</span>
+                </>
+              )}
+            </button>
             <button
               type="button"
               className="s-tab-close"
               aria-label={tf("closeTab", { title: titleOf(path) })}
+              tabIndex={isActive ? 0 : -1}
               onClick={(e) => {
                 e.stopPropagation();
                 closeTab(path);

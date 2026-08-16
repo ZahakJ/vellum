@@ -339,6 +339,11 @@ export default function BlogShell() {
 
   return (
     <div className="s-blog" ref={attachScroll}>
+      {/* First tab stop: past the masthead and the topic nav, into the piece
+          the reader came for. */}
+      <a className="s-skip" href="#s-blog-main">
+        {t("skipToContent")}
+      </a>
       {!dashboardHome && (
         <header className="s-blog-mast">
           {!logo && (
@@ -361,7 +366,12 @@ export default function BlogShell() {
         </header>
       )}
 
-      <nav className={`s-blog-nav${menuOpen ? " s-blog-nav--open" : ""}`}>
+      {/* Two navs on this page (this one and the article's prev/next), so
+          both have to say which is which. */}
+      <nav
+        className={`s-blog-nav${menuOpen ? " s-blog-nav--open" : ""}`}
+        aria-label={t("siteNav")}
+      >
         <div className="s-blog-nav__inner">
           <button
             type="button"
@@ -399,7 +409,8 @@ export default function BlogShell() {
         </div>
       </nav>
 
-      <main className="s-blog-main">
+      {/* tabIndex -1 so the skip link above can actually land focus here. */}
+      <main className="s-blog-main" id="s-blog-main" tabIndex={-1}>
         {locked ? (
           <div className="s-blog-page s-blog-locked">
             <div className="s-blog-locked__glyph" aria-hidden="true">

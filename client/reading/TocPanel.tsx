@@ -63,7 +63,7 @@ export default function TocPanel() {
         <span className="s-panel-title">{t("outline")}</span>
         <span className="s-panel-count">{localeNum(headings.length)}</span>
       </header>
-      <nav className="s-toc__list">
+      <nav className="s-toc__list" aria-label={t("outline")}>
         {headings.map((h) => (
           <button
             key={`${h.slug}:${h.line}`}
@@ -71,6 +71,9 @@ export default function TocPanel() {
             className={`s-toc__item s-toc__item--l${h.level}${
               active === h.slug ? " s-toc__item--active" : ""
             }`}
+            // "You are here" was gold text and nothing else; aria-current is
+            // the same fact in a form a screen reader can read.
+            aria-current={active === h.slug ? "location" : undefined}
             title={h.text}
             onClick={() =>
               window.dispatchEvent(

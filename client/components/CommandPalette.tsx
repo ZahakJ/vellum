@@ -6,11 +6,12 @@ import {
   useState,
 } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import { useDialog } from "../a11y.ts";
 import { THEMES, useStore } from "../state.ts";
 import type { Theme } from "../state.ts";
 import { search } from "../api.ts";
 import { dailyNotePath, openDailyNote } from "../daily.ts";
-import { t, tf, type I18nKey } from "../i18n.ts";
+import { localeNum, t, tf, type I18nKey } from "../i18n.ts";
 import { confirmModal } from "./Confirm.tsx";
 import { toast } from "../toast.ts";
 import type { SearchHit } from "../../shared/types.ts";
@@ -317,6 +318,7 @@ export default function CommandPalette() {
   const [inFlight, setInFlight] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   /** Token of the most recently dispatched query; a response only lands if it
    *  still carries the current token. */
   const seqRef = useRef(0);
@@ -419,6 +421,12 @@ export default function CommandPalette() {
   }, [selected, items]);
 
   const close = useCallback(() => setPaletteOpen(false), [setPaletteOpen]);
+
+  // Tab is trapped inside the panel, and closing hands focus back to whatever
+  // opened the palette — a reader who pressed Ctrl+P from the middle of a
+  // note lands back in the note, not on <body>. The palette focuses its own
+  // input (see the reset effect above), hence manualFocus.
+  useDialog(panelRef, { active: paletteOpen, manualFocus: true });
 
   const runCommand = useCallback(
     (command: Command) => {
@@ -606,18 +614,33 @@ export default function CommandPalette() {
   return (
     <div className="s-palette-overlay" onMouseDown={close}>
       <div
+        ref={panelRef}
         className="s-palette"
         role="dialog"
+        aria-modal="true"
         aria-label={t("keyPalette")}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {isPrompt && mode.command && (
           <div className="s-palette-prompt-label">{mode.command.label()}</div>
         )}
+        {/* The palette IS a combobox: a text field whose arrow keys drive a
+            list of options that live somewhere else in the DOM. Said out
+            loud, that is exactly the role/aria-controls/aria-activedescendant
+            trio — without it a screen reader announces the typing and nothing
+            about what is selected underneath. */}
         <input
           ref={inputRef}
           className="s-palette-input"
           type="text"
+          role={isPrompt ? undefined : "combobox"}
+          aria-expanded={isPrompt ? undefined : items.length > 0}
+          aria-controls={isPrompt ? undefined : "s-palette-list"}
+          aria-autocomplete={isPrompt ? undefined : "list"}
+          aria-activedescendant={
+            !isPrompt && items[selected] ? `s-palette-opt-${selected}` : undefined
+          }
+          aria-label={isPrompt ? mode.command?.label() : t("keyPalette")}
           value={query}
           placeholder={
             isPrompt
@@ -634,7 +657,19 @@ export default function CommandPalette() {
           autoComplete="off"
         />
         {!isPrompt && (
-          <div className="s-palette-list" ref={listRef}>
+          <>
+            <p className="s-sr-only" role="status">
+              {items.length === 0
+                ? t("noResultsAria")
+                : tf("resultCount", { count: localeNum(items.length) })}
+            </p>
+          <div
+            className="s-palette-list"
+            id="s-palette-list"
+            role="listbox"
+            aria-label={t("paletteResultsAria")}
+            ref={listRef}
+          >
             {items.map((item, i) => {
               const active = i === selected;
               const cls = `s-palette-item${active ? " s-palette-item--active" : ""}`;
@@ -646,13 +681,20 @@ export default function CommandPalette() {
                     : `note:${item.hit.path}`;
               const heading =
                 items[i - 1]?.kind !== item.kind ? (
-                  <div className="s-palette-section">{t(SECTION_KEY[item.kind])}</div>
+                  <div className="s-palette-section" role="presentation">
+                    {t(SECTION_KEY[item.kind])}
+                  </div>
                 ) : null;
               return (
-                <div key={key}>
+                // A listbox may only own options (and groups), so the grouping
+                // wrappers and the section captions step out of the tree.
+                <div key={key} role="presentation">
                   {heading}
                   <div
                     className={cls}
+                    id={`s-palette-opt-${i}`}
+                    role="option"
+                    aria-selected={active}
                     onMouseEnter={() => setSelected(i)}
                     onClick={() => execute(item)}
                   >
@@ -716,9 +758,12 @@ export default function CommandPalette() {
               );
             })}
             {items.length === 0 && (
-              <div className="s-palette-empty">{t("paletteNoMatches")}</div>
+              <div className="s-palette-empty" role="presentation">
+                {t("paletteNoMatches")}
+              </div>
             )}
           </div>
+          </>
         )}
       </div>
     </div>

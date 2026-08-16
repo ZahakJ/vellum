@@ -11,7 +11,8 @@
     "serve": "node --env-file-if-exists=.env server/index.ts",
     "hash-password": "node scripts/hash-password.ts",
     "typecheck": "tsc --noEmit",
-    "check-i18n": "node scripts/check-i18n.mjs"
+    "check-i18n": "node scripts/check-i18n.mjs",
+    "check-a11y": "node scripts/check-a11y.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",

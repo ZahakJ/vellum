@@ -189,7 +189,9 @@ export default function BlogArticle({
   const older = index >= 0 && index < posts!.length - 1 ? posts![index + 1] : null;
 
   return (
-    <div className="s-blog-page s-blog-article">
+    // <article>, not <div>: the piece is the page's one self-contained thing,
+    // and the element is what lets a screen reader jump straight to it.
+    <article className="s-blog-page s-blog-article">
       <header
         className={`s-blog-article__head${isRtlText(title) ? " s-blog-article__head--rtl" : ""}`}
       >
@@ -337,6 +339,6 @@ export default function BlogArticle({
 
         <Marginalia path={path} />
       </footer>
-    </div>
+    </article>
   );
 }

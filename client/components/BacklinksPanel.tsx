@@ -90,6 +90,7 @@ export default function BacklinksPanel() {
     <>
       <aside
         className={`s-panel${collapsed ? " s-panel--collapsed" : ""}`}
+        aria-label={t("backlinksPanelAria")}
         aria-hidden={collapsed || zen}
       >
         <TocPanel />

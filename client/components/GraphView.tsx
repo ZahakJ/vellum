@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { prefersReducedMotion } from "../a11y.ts";
 import { getGraph } from "../api.ts";
 import { autoDir, countPhrase, t } from "../i18n.ts";
 import { useStore } from "../state.ts";
@@ -25,6 +26,9 @@ const ALPHA_START = 1;
 const ALPHA_DECAY = 0.995;
 const ALPHA_MIN = 0.015;
 const ALPHA_REHEAT = 0.45;
+/** Simulation steps run per frame when the reader prefers reduced motion —
+ *  enough to reach rest in well under a second without blocking the tab. */
+const SETTLE_STEPS_PER_FRAME = 25;
 const ZOOM_MIN = 0.15;
 const ZOOM_MAX = 4;
 
@@ -455,10 +459,21 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
   let raf = 0;
   function frame() {
     raf = requestAnimationFrame(frame);
+    // A force layout's whole entrance IS motion — eight hundred frames of
+    // drift is exactly what "prefers-reduced-motion" is asking us not to do.
+    // So when the reader has asked for less, those frames are spent settling
+    // the layout instead of showing it: many steps per frame, nothing painted
+    // until it comes to rest, and then the finished graph appears at once.
+    // Interaction (drag, zoom, hover) still repaints immediately — direct
+    // manipulation is the reader's own movement, not ours.
+    const still = prefersReducedMotion();
     if (alpha > ALPHA_MIN && nodes.length > 0) {
-      step();
-      alpha *= ALPHA_DECAY;
-      needsDraw = true;
+      const steps = still ? SETTLE_STEPS_PER_FRAME : 1;
+      for (let i = 0; i < steps && alpha > ALPHA_MIN; i++) {
+        step();
+        alpha *= ALPHA_DECAY;
+      }
+      needsDraw = needsDraw || !still || alpha <= ALPHA_MIN;
     }
     if (needsDraw) {
       draw();
@@ -731,8 +746,21 @@ export default function GraphView() {
   }, []);
 
   return (
-    <div className="s-graph" ref={wrapRef}>
-      <canvas className="s-graph__canvas" ref={canvasRef} />
+    <div className="s-graph" ref={wrapRef} role="region" aria-label={t("graphAria")}>
+      {/* A bitmap is a picture to assistive tech no matter what it depicts, so
+          it is named as one. The graph is a VIEW of the vault, never its only
+          route: everything in it is reachable through the tree, the search and
+          the backlinks panel, all of which are keyboard-complete. */}
+      <canvas
+        className="s-graph__canvas"
+        ref={canvasRef}
+        role="img"
+        aria-label={
+          stats
+            ? `${t("graphAria")} — ${countPhrase(stats.notes, admin ? "notes" : "publishedNotes")}, ${countPhrase(stats.links, "links")}`
+            : t("graphAria")
+        }
+      />
       {stats?.notes === 0 &&
         (admin ? (
           <div className="s-graph__empty">{t("graphEmptyAdmin")}</div>

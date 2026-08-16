@@ -73,9 +73,12 @@ export default function BlogHome({
   return (
     <div className="s-blog-page">
       {introPath && <section className="s-blog-intro" ref={introRef} />}
-      <h2 className="s-blog-heading">
+      {/* h1, not h2: this is the page's own title, and a page whose outline
+          starts at level 2 reads to a screen reader as a fragment of some
+          other document. Styling is entirely on the class, so nothing moves. */}
+      <h1 className="s-blog-heading">
         <span>{t("blogWritings")}</span>
-      </h2>
+      </h1>
       {posts === null ? (
         <p className="s-blog-empty">…</p>
       ) : (
