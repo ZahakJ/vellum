@@ -8,7 +8,7 @@
 
 | | |
 | --- | --- |
-| [Configuration](configuration.md) | Every `.env` key, the runtime Settings panel, every settings key, and which wins |
+| [Configuration](configuration.md) | Every `.env` key, the runtime Settings panel, [where attachments land](configuration.md#attachments), every settings key, and which wins |
 | [Publishing & access](publishing.md) | Public reading vs admin editing, the `publish:` flag, preview as visitor, HTTPS, comments |
 | [Backup & sync](backup-and-sync.md) | Committing the vault to a private git remote, by hand or on a timer |
 | [Development](development.md) | Dev mode, the gate scripts, the screenshot harnesses, contributing a change |

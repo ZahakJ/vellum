@@ -29,9 +29,13 @@
 - **Templates, Obsidian-compatible** — `{{date}}`, `{{time}}`, `{{title}}`, `{{date:FORMAT}}` (plus
   `{{hdate}}` for the Hijri date); insert one at the cursor or start a new note from one, with a
   picker that previews the filled result — see [Templates](templates-and-notes.md#templates)
-- **Paste or drop images** — an image on your clipboard (or dragged from a file manager) uploads
-  into `ATTACHMENTS_DIR` and lands as `![[name.png]]` at the cursor, with an "Uploading…"
-  placeholder holding the spot while it's in flight
+- **Paste or drop attachments** — an image on your clipboard (or any accepted file dragged from a
+  file manager: PDF, audio, video too) uploads and lands as `![[name.png]]` at the cursor, with an
+  "Uploading…" placeholder holding the spot while it's in flight. Files can also be dropped
+  straight onto the sidebar tree — onto a folder row, onto a note row, or onto the tree's own
+  ground. Where they land is a [setting](configuration.md#attachments); a type the server would
+  reject is refused before the upload, not after, and the toast that reports the drop carries an
+  Undo
 - **Slash commands** — type `/` at the start of a line for a fuzzy menu of inserts: callout, code
   fence (with language search), table skeleton, task list, math block, divider, today's date,
   daily-note link

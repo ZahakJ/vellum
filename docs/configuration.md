@@ -41,7 +41,7 @@ summary.
 | `SITE_LANG` | Interface language: `en` (default) or `ar`. `ar` localizes every chrome string and mirrors the whole UI right-to-left (see [Arabic & RTL](arabic-and-rtl.md)) |
 | `BLOG_LOCALE` | BCP47 locale for post dates and the RSS channel language (default: follows `SITE_LANG`) |
 | `LANGUAGE_FILTER` | Which published notes the public site shows, by the language they are written in: `off` (default) · `follow` (each reader gets their own) · `ar` · `en`. Legacy `true`/`false` still parse — see [Language filter](arabic-and-rtl.md#language-filter) |
-| `ATTACHMENTS_DIR` | Vault-relative directory the in-app image upload writes into (default `attachments`), created on demand |
+| `ATTACHMENTS_DIR` | Vault-relative directory in-app uploads write into (default `attachments`), created on demand. The **Attachments** setting can override where uploads go entirely — see [Attachments](#attachments) |
 | `BANNER_FALLBACK` | Blog hero for posts without a `banner:` — `generated` (default; a deterministic abstract gradient from the note title) or `none` |
 | `VELLUM_GIT_SSH_COMMAND` | The one `GIT_*` variable Vellum passes through to the git child process, verbatim, as `GIT_SSH_COMMAND` — see [Backup & sync](backup-and-sync.md#things-worth-knowing) |
 
@@ -78,7 +78,10 @@ it decides.
   and the home page visitors land on at `/`: classic `note` mode with a chosen home note, or the
   `dashboard` magazine layout, plus an optional hero banner. The home rows are read by the `blog`
   and `designed` layouts only, so with `Public layout: app` the panel greys them and says so — an
-  app-layout instance opens the home note at `/`.
+  app-layout instance opens the home note at `/`. This tab also holds the two **folder** settings
+  — where templates live, and **where new attachments are written** (see
+  [Attachments](#attachments)) — because both answer the same question: where does this instance
+  put things in the vault.
 - **Typography** — four font slots (text / interface / code / Arabic script) over a curated,
   self-hosted catalog *or* faces you upload yourself, with a live specimen that stays on screen
   while you choose. See [Typography](typography.md).
@@ -88,7 +91,58 @@ it decides.
   vault, the data directory, `settings.json` and the uploaded-fonts folder.
 
 Image fields reuse the banner machinery: pick from the vault's attachments or upload right
-there (drag & drop; bytes are sniffed; lands in `ATTACHMENTS_DIR`).
+there (drag & drop; bytes are sniffed; lands wherever the [Attachments](#attachments) setting
+points).
+
+### Attachments
+
+**Where new attachments go** is a setting, named the way Obsidian names it (*Default location
+for new attachments*), so a migrating vault behaves the way its owner already expects. It sits
+in **Publishing & comments**, beside the templates folder.
+
+| Mode | An upload lands in |
+| --- | --- |
+| Vault root | the top of the vault |
+| Same folder as the note | beside the note being edited |
+| Subfolder of the note's folder | `<note's folder>/<name>` — e.g. an `assets` next to each note |
+| Specified folder *(default)* | one fixed vault-relative folder — `ATTACHMENTS_DIR`, default `attachments` |
+
+The folder field is validated the way every vault path is: it stays inside the vault, is never
+a dot-folder (those are invisible to the tree, the indexer and the watcher), and is created on
+demand. **Existing attachments are never moved** — the setting decides where the *next* upload
+is written, and embeds resolve by basename regardless of which folder they live in.
+
+Every upload path obeys it: paste or drop in the editor, the file drop on the sidebar tree, and
+the banner/logo/favicon pickers' upload — those last three keep writing images, but into the
+same resolved folder. Fonts (`VELLUM_DATA/fonts`) and `custom.css` keep their own homes.
+
+**Anything the vault can hold, not just images.** `POST /api/upload` accepts images (png, jpeg,
+webp, gif, svg, avif, heic, bmp), **PDF**, audio (mp3, m4a, wav, ogg, opus, flac) and video
+(mp4, mov, webm) — 10 MB each, and the *bytes* are sniffed, so a renamed `.exe` is refused
+whatever its extension claims. Anything outside that list is refused **in the browser, before
+the upload**, in a message that names both what was turned away and what would have been
+welcome.
+
+**Drop files anywhere on the tree.** Drag files from your file manager onto a folder row (or
+onto a note row — they land beside it) and they are attached; the row lights up and says how
+many are coming. The toast afterwards names the folder they actually landed in and carries an
+**Undo** that moves them to `.trash/`. Names that collide are given the first free
+`name-2.ext`, and the toast says so.
+
+**Deleting says what it is really taking.** The vault tree holds markdown only, so a folder left
+holding four images after its note moved out used to describe itself as "0 notes" — and deleting
+it silently broke a published essay. Every delete confirmation now asks the server what is
+inside:
+
+> **Move "Media" to .trash?**
+> 0 notes, 60 attachments — 53 of them referenced by 48 notes. All of it moves to the vault's
+> .trash folder — recoverable from disk.
+
+Referencing notes are named outright while they are few enough to read. Only notes that
+*survive* the delete count as breakage — a note going in the same act is not a broken link.
+Both wikilink embeds (`![[fig.png]]`) and markdown links (`![](assets/fig.png)`) count, plus a
+note's `banner:`. The permanent-delete escalation repeats the same inventory, and deleting a
+single attachment (the × on a row of the banner picker's list) asks the same question.
 
 **Every control in the panel is drawn by Vellum**, not by your operating system. Lists are a
 themed popover anchored to their trigger and kept inside the panel — height capped to the room
@@ -122,6 +176,8 @@ write them. Anything absent falls back to the env default in the table above.
 | `home.mode` | `note` · `dashboard` | `note` |
 | `home.note` | vault-relative note (`.md` / `.tex` / `.latex`) | `HOME_NOTE` |
 | `home.banner` | https URL or vault image | none — a generated gradient seeded from the site name |
+| `attachments.mode` | `vault-root` · `same-folder` · `subfolder` · `specified` | `specified` |
+| `attachments.folder` | vault-relative folder, ≤ 180 chars; read by `subfolder` and `specified` only. No traversal, no absolute path, no dot-folder | `ATTACHMENTS_DIR`, else `attachments` |
 | `templatesFolder` | vault-relative folder | auto-detected (`Templates`, `_templates`, `قوالب`), else none |
 | `defaultTemplate` | vault-relative note applied to every new note | none |
 | `dateCalendar` | `gregorian` · `hijri` · `both` | `gregorian` |

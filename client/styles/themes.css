@@ -217,7 +217,7 @@ body:has(.s-tpick-host) .s-smodal-overlay {
 .s-tpick__list {
   overflow-y: auto;
   padding: 6px 10px 12px;
-  outline: none;
+  outline: none; /* a11y-ok: role=listbox, tabIndex={-1}; the ring shows on the focused `.s-tpick__item` button inside it */
 }
 
 .s-tpick__group + .s-tpick__group {

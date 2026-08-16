@@ -35,7 +35,8 @@ at all: a stranger cannot fix your typo, and blog posts fall back to the generat
 As admin you rarely touch the YAML: the command palette's **Set banner…** (also a quiet button
 on the properties card) opens a modal to paste a URL, pick from the vault's image attachments,
 or upload a file (drag & drop or picker; png/jpeg/webp/gif/svg, 10 MB max, bytes are sniffed —
-the upload lands in `ATTACHMENTS_DIR`). The write is a surgical one-line frontmatter edit —
+the upload lands wherever the [Attachments](configuration.md#attachments) setting points). The
+write is a surgical one-line frontmatter edit —
 the rest of the file is untouched. Posts without a banner get a subtle generated gradient in
 the blog list and article hero (`BANNER_FALLBACK=none` turns that off).
 
@@ -133,9 +134,11 @@ viewport, filename, pixel dimensions and file size, `←`/`→` through the rest
 inline player, anything else offers a download. The paperclip in the sidebar footer hides them all
 again, and remembers.
 
-Paste or drop an image into the editor (or drag one from a file manager) and it uploads into
-`ATTACHMENTS_DIR` and lands as `![[name.png]]` at the cursor, with an "Uploading…" placeholder
-holding the spot while it is in flight.
+Paste or drop an image into the editor (or drag one from a file manager) and it uploads and lands
+as `![[name.png]]` at the cursor, with an "Uploading…" placeholder holding the spot while it is
+in flight. PDFs, audio and video are accepted too, and files can be dropped onto the sidebar tree
+as well as into the document. Where an upload lands is a
+[setting](configuration.md#attachments) with four modes.
 
 ## Deleting, and the trash
 
