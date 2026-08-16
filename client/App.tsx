@@ -8,6 +8,8 @@ import { subscribeEvents } from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import { collectNotes } from "./editor/links.ts";
 import BlogShell from "./blog/BlogShell.tsx";
+import DesignStatus from "./design/DesignStatus.tsx";
+import DesignedSite from "./design/DesignedSite.tsx";
 import BacklinksPanel from "./components/BacklinksPanel.tsx";
 import BannerModal from "./components/BannerModal.tsx";
 import CommandPalette from "./components/CommandPalette.tsx";
@@ -141,10 +143,13 @@ export default function App() {
   // has to be expressed physically, because the preference is physical.
   const flipped = (lang === "ar") === (sidebarSide === "left");
 
-  // Blog mode (PUBLIC_LAYOUT=blog): visitors get the classic blog shell,
-  // which owns its own routes (/, /topic/…, article pages) — the app router
-  // below must then stay uninstalled. Admin sessions keep the full app.
-  const blogVisitor = authReady && !admin && publicLayout === "blog";
+  // Public-shell modes (PUBLIC_LAYOUT=blog / designed): visitors get a public
+  // shell that owns its own routes (/, /topic/…, article pages) — the app
+  // router below must then stay uninstalled. Admin sessions keep the full app.
+  // Both modes behave identically here on purpose: which of the two shells
+  // renders is one line in the branch below, and everything else (no app
+  // router, no app keybindings, the blog shortcut sheet) is the same answer.
+  const blogVisitor = authReady && !admin && publicLayout !== "app";
 
   // Boot: /api/me, then tree + session restore / home note.
   useEffect(() => {
@@ -396,7 +401,7 @@ export default function App() {
       // do not exist on the page. Same predicate as the blogVisitor render
       // branch below, read from the store because this listener never re-binds.
       const blogShell =
-        store.authReady && !store.admin && store.publicLayout === "blog";
+        store.authReady && !store.admin && store.publicLayout !== "app";
       // Ctrl/Cmd+P and +K are ALWAYS ours IN THE APP SHELL — swallowed before
       // any early return so the browser's print dialog / address-bar search
       // can never fire, modal open or not, and regardless of what CM does
@@ -529,7 +534,11 @@ export default function App() {
         {/* First in the flow: the strip pushes the whole site down rather than
             covering its masthead — preview exists to JUDGE that masthead. */}
         <PreviewBanner />
-        <BlogShell />
+        {/* THE one line where the design engine meets the stock blog. The
+            server only sends "designed" when a design is actually renderable,
+            and DesignedSite falls back to this very component — unmodified,
+            no props — for every failure it can see that the server cannot. */}
+        {publicLayout === "designed" ? <DesignedSite /> : <BlogShell />}
         {/* The sheet knows which shell it is in and drops the rows this one
             does not have — six of them named controls the blog never mounts. */}
         <ShortcutsHelp shell="blog" />
@@ -783,6 +792,10 @@ export default function App() {
           </button>
         </div>
       )}
+      {/* Renders nothing unless /api/me told a REAL admin session that the
+          designed site fell back to stock. One line, the reason, one click
+          back — the app-side twin of the notice on the designed page itself. */}
+      <DesignStatus />
       <ShortcutsHelp />
       {paletteOpen && <CommandPalette />}
       {loginOpen && <LoginModal />}

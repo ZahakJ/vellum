@@ -1,0 +1,516 @@
+/* Vellum — the custom theme builder.
+ *
+ * It sits over the app the same way the theme picker does, and for the same
+ * reason: what is behind the panel IS the preview, so the overlay carries no
+ * scrim and no blur. Everything is a token, everything directional is logical.
+ */
+
+/* ── the picker's two new affordances ─────────────────────────────────────
+ * They belong to the theme PICKER, and they are styled here rather than in
+ * styles/themes.css on purpose: this stylesheet is imported by ThemeBuilder,
+ * which ThemePicker imports, so the rules are present exactly when the
+ * controls are — and the theme library's own stylesheet is left alone. */
+
+.s-tpick__new {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.76rem;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.s-tpick__new:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Editing is a separate target from picking — a click on the row still means
+   "wear this", which is what every other row in the panel means. */
+.s-tpick__edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-inline-start: 6px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.s-tpick__edit:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.s-tb-overlay {
+  /* No wash. The room behind this panel is the thing being edited — dimming
+     it would make every contrast judgement a guess, which is the argument
+     styles/themes.css already makes for the picker. */
+  background: none;
+  backdrop-filter: none;
+  align-items: flex-start;
+  padding-block: 6vh;
+}
+
+.s-tb {
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 12vh));
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.s-tb__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.s-tb__title {
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.s-tb__hint {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+}
+
+.s-tb__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.s-tb__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.s-tb__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.s-tb__field--wide {
+  flex: 1 1 100%;
+}
+
+.s-tb__label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.s-tb__input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.86rem;
+  padding: 7px 10px;
+  text-align: start;
+}
+
+.s-tb__input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* ── base picker ───────────────────────────────────────────────────────── */
+
+.s-tb__bases {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+}
+
+.s-tb__base {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+}
+
+.s-tb__base:hover {
+  border-color: var(--text-faint);
+}
+
+.s-tb__base--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Painted from the CONSTANT --swatch-<id>-* trio (styles/themes.css maps them
+   onto --sw-*), so a base is previewed in ITS OWN colours and never in the
+   draft currently on screen. */
+.s-tb__basecard {
+  display: block;
+  height: 34px;
+  border-radius: 4px;
+  background: var(--sw-bg);
+  border: 1px solid color-mix(in oklab, var(--sw-text) 22%, transparent);
+  padding: 7px 6px 0;
+}
+
+.s-tb__baseline {
+  display: block;
+  height: 3px;
+  width: 70%;
+  border-radius: 2px;
+  background: var(--sw-text);
+  opacity: 0.75;
+}
+
+.s-tb__basechip {
+  display: block;
+  margin-top: 5px;
+  height: 5px;
+  width: 34%;
+  border-radius: 3px;
+  background: var(--sw-accent);
+}
+
+.s-tb__basename {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-tb__base--on .s-tb__basename {
+  color: var(--text);
+}
+
+/* ── group segments ────────────────────────────────────────────────────── */
+
+.s-tb__seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.s-tb__segbtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 7px 14px;
+  cursor: pointer;
+}
+
+.s-tb__segbtn--on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ── the gate ──────────────────────────────────────────────────────────── */
+
+.s-tb__gate {
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: color-mix(in oklab, var(--danger) 8%, var(--bg));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.s-tb__gate--ok {
+  border-color: var(--border);
+  background: var(--bg);
+}
+
+.s-tb__gateline {
+  margin: 0;
+  font-size: 0.79rem;
+  color: var(--text);
+}
+
+.s-tb__gate--ok .s-tb__gateline {
+  color: var(--text-muted);
+}
+
+/* ── token tabs + rows ─────────────────────────────────────────────────── */
+
+.s-tb__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.s-tb__tab {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.s-tb__tab:hover {
+  border-color: var(--border);
+}
+
+.s-tb__tab--on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* A group holding a failing token is MARKED, so a warning in a collapsed
+   group is not a warning nobody reads. The dot is --danger at full strength;
+   it is a state, not decoration. */
+.s-tb__tab--warn::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+  margin-inline-start: 6px;
+  vertical-align: middle;
+}
+
+.s-tb__tokens {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.s-tb__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: var(--radius);
+}
+
+.s-tb__row--warn {
+  background: color-mix(in oklab, var(--danger) 10%, transparent);
+}
+
+.s-tb__token {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-tb__swatch {
+  flex: none;
+  width: 34px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.s-tb__hex {
+  flex: none;
+  width: 10ch;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  padding: 5px 7px;
+}
+
+.s-tb__hex--bad {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.s-tb__reset {
+  flex: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.s-tb__reset:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.s-tb__reset:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.s-tb__state {
+  flex: none;
+  width: 8ch;
+  text-align: end;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.s-tb__state--set {
+  color: var(--accent);
+}
+
+/* ── footer ────────────────────────────────────────────────────────────── */
+
+.s-tb__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.s-tb__spacer {
+  flex: 1;
+}
+
+.s-tb__error {
+  color: var(--danger);
+  font-size: 0.78rem;
+}
+
+.s-tb__danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* The file input is the import affordance's plumbing; the button beside it is
+   the affordance. Hidden, never removed: a display:none input still opens. */
+.s-tb__file {
+  display: none;
+}
+
+/* ── the app-shell design notice ───────────────────────────────────────────
+ * Lives here rather than in design.css because it renders in the APP shell,
+ * where design.css is not loaded. */
+
+.s-dsn-status {
+  position: fixed;
+  inset-inline-end: 16px;
+  bottom: 44px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 10px 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.s-dsn-status__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.s-dsn-status__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.s-dsn-status__action {
+  flex: none;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--danger);
+  font: inherit;
+  font-size: 0.76rem;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.s-dsn-status__action:hover:not(:disabled) {
+  background: var(--danger);
+  color: var(--bg);
+}
+
+.s-dsn-status__close {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.s-dsn-status__close:hover {
+  color: var(--text);
+}
+
+@media (max-width: 700px), (pointer: coarse) {
+  .s-tb__base,
+  .s-tb__tab,
+  .s-tb__segbtn,
+  .s-tb__reset {
+    min-height: 44px;
+  }
+
+  .s-tb__reset,
+  .s-tb__segbtn,
+  .s-tb__tab {
+    display: inline-flex;
+    align-items: center;
+  }
+}

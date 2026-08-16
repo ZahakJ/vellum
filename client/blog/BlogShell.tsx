@@ -17,7 +17,7 @@ import { texPreviewSource } from "../reading/texRender.ts";
 import { isTexPath, noteTitleOf } from "../../shared/noteFormat.ts";
 import { notePathToUrl, urlToNoteGuess, urlToNotePath } from "../router.ts";
 import { useStore } from "../state.ts";
-import { counterpartTheme, themeGroup } from "../themes.ts";
+import { choiceGroup, counterpartChoice } from "../themes.ts";
 import BackToTop from "./BackToTop.tsx";
 import BlogArticle from "./BlogArticle.tsx";
 import BlogDashboard from "./BlogDashboard.tsx";
@@ -88,10 +88,11 @@ function ThemeButton() {
       // A ☾/☀ button on a public page means "the same site, lit
       // differently" — with fifteen themes, stepping to the next one in the
       // list means walking a visitor through ten dark rooms to reach daylight.
-      // counterpartTheme() names the pair for each theme instead.
-      onClick={() => useStore.getState().setTheme(counterpartTheme(theme))}
+      // counterpartChoice() names the pair for each theme instead — and it
+      // answers for a custom theme too, by way of the built-in it was built on.
+      onClick={() => useStore.getState().setTheme(counterpartChoice(theme))}
     >
-      {themeGroup(theme) === "light" ? (
+      {choiceGroup(theme) === "light" ? (
         <svg
           viewBox="0 0 24 24"
           width="16"

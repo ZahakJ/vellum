@@ -1,0 +1,466 @@
+/* The composer's own surface. Separate from designer.css on purpose: that
+ * file is what a VISITOR downloads, and none of the chrome below has any
+ * business travelling to a public page.
+ *
+ * The panel is built out of the product's existing primitives — `.s-ctl*` for
+ * every control, `.s-btn` for every button, `.s-iconbtn` for every glyph, the
+ * `.s-scrollfade` boundary the settings body already uses — so it inherits
+ * every theme and both directions without one colour of its own.
+ */
+
+.s-dsnc-host {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.s-dsnc-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(1500px, 100%);
+  height: min(900px, 100vh - 40px);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px);
+  background: var(--bg);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.s-dsnc-panel--loading {
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Head ──────────────────────────────────────────────────────────────── */
+
+.s-dsnc-head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.s-dsnc-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.214rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.s-dsnc-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.s-dsnc-tab {
+  padding: 7px 16px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.929rem;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.s-dsnc-tab:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.s-dsnc-tab--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.s-dsnc-headtools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-inline-start: auto;
+}
+
+/* ── Two columns ───────────────────────────────────────────────────────── */
+
+.s-dsnc-cols {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.s-dsnc-side {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px 26px;
+  border-inline-end: 1px solid var(--border);
+}
+
+.s-dsnc-hint {
+  margin: 0 0 12px;
+  font-family: var(--font-ui);
+  font-size: 0.786rem;
+  color: var(--text-muted);
+}
+
+/* ── Rows ──────────────────────────────────────────────────────────────── */
+
+.s-dsnc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.s-dsnc-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  transition: border-color 150ms ease, opacity 150ms ease;
+}
+
+.s-dsnc-row--open {
+  border-color: var(--accent-soft);
+}
+
+/* A hidden section keeps its full contrast in the LIST — it is a row the
+   reader is deciding about, not de-emphasized bookkeeping. Only the strip
+   down its leading edge says "off", which reads at a glance and costs the
+   label nothing. */
+.s-dsnc-row--off {
+  border-inline-start: 3px solid var(--border);
+}
+
+.s-dsnc-row--dragging {
+  opacity: 0.5;
+}
+
+.s-dsnc-row__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.s-dsnc-grip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--text-faint);
+  cursor: grab;
+}
+
+.s-dsnc-row__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 2px;
+  border: none;
+  background: none;
+  text-align: start;
+  cursor: pointer;
+  color: inherit;
+}
+
+.s-dsnc-row__label {
+  font-family: var(--font-ui);
+  font-size: 0.964rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.s-dsnc-row__desc {
+  font-family: var(--font-ui);
+  font-size: 0.786rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.s-dsnc-row__tools {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.s-dsnc-move:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.s-dsnc-locked {
+  padding-inline: 8px;
+  font-family: var(--font-ui);
+  font-size: 0.786rem;
+  color: var(--text-muted);
+}
+
+.s-dsnc-row__opts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 12px 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Option rows ───────────────────────────────────────────────────────── */
+
+.s-dsnc-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.s-dsnc-opt__label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-ui);
+  font-size: 0.857rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.s-dsnc-opt__hint {
+  font-weight: 400;
+  font-size: 0.786rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.s-dsnc-opt__ctl > * {
+  width: 100%;
+}
+
+.s-dsnc-opt__ctl .s-ctl-toggle {
+  width: auto;
+}
+
+.s-dsnc-area {
+  min-height: 74px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 0.857rem;
+  line-height: 1.5;
+}
+
+.s-dsnc-none {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 0.857rem;
+  color: var(--text-muted);
+}
+
+/* ── Add a section ─────────────────────────────────────────────────────── */
+
+.s-dsnc-addwrap {
+  margin-top: 12px;
+}
+
+.s-dsnc-addbtn {
+  width: 100%;
+}
+
+.s-dsnc-add {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.s-dsnc-addcard {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  text-align: start;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.s-dsnc-addcard:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.s-dsnc-addcard__name {
+  font-family: var(--font-ui);
+  font-size: 0.893rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.s-dsnc-addcard__desc {
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+/* ── Side foot ─────────────────────────────────────────────────────────── */
+
+.s-dsnc-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.s-dsnc-file {
+  display: none;
+}
+
+.s-dsnc-note {
+  margin: 12px 0 0;
+  font-family: var(--font-ui);
+  font-size: 0.786rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* ── Preview stage ─────────────────────────────────────────────────────── */
+
+.s-dsnc-stage {
+  min-width: 0;
+  overflow: auto;
+  padding: 16px;
+  background: var(--bg-hover);
+  /* A checkered-free, calm ground: the frame below carries the site's own
+     background, so the stage only has to be visibly NOT the site. */
+}
+
+.s-dsnc-frame {
+  margin: 0 auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.s-dsnc-noposts {
+  padding: 60px 20px;
+}
+
+/* ── Foot ──────────────────────────────────────────────────────────────── */
+
+.s-dsnc-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.s-dsnc-status {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 0.857rem;
+  color: var(--text-muted);
+}
+
+.s-dsnc-fail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 0.857rem;
+  color: var(--danger);
+}
+
+.s-dsnc-footbtns {
+  display: flex;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+
+/* ── Narrow: the preview stacks under the list ─────────────────────────── */
+
+@media (max-width: 1100px) {
+  .s-dsnc-cols {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .s-dsnc-side {
+    border-inline-end: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 760px) {
+  .s-dsnc-host {
+    padding: 0;
+  }
+
+  .s-dsnc-panel {
+    width: 100%;
+    height: 100vh;
+    border: none;
+    border-radius: 0;
+  }
+
+  .s-dsnc-head {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .s-dsnc-headtools {
+    margin-inline-start: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .s-dsnc-add {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── The designed page, full window (?designer=preview) ────────────────── */
+
+.s-dsn-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg);
+}
+
+/* The admin's failure notice. It sits ABOVE the page rather than over it: a
+   design tool that covers the thing it is reporting on is telling you about a
+   block you then cannot see. */
+.s-dsn-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--danger);
+  background: var(--bg-raised);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.893rem;
+}

@@ -44,7 +44,9 @@ import { confirmModal } from "./Confirm.tsx";
 import { FontPicker, SYSTEM_FONT } from "./FontPicker.tsx";
 import { NumberInput, SegmentedControl, TextInput, Toggle, type Segment } from "./controls/Fields.tsx";
 import { isSelectOpen, Select, type SelectGroup } from "./controls/Select.tsx";
-import { isTheme, THEME_GROUPS, THEME_LABELS, THEMES, type Theme } from "../themes.ts";
+import { choiceBase, choiceLabel, isTheme, THEME_GROUPS, THEME_LABELS, THEMES, type Theme } from "../themes.ts";
+import { customThemeChoice, isCustomThemeId } from "../../shared/customTheme.ts";
+import { getCustomThemes } from "../design/customThemes.ts";
 import {
   onSyncChange,
   refreshSyncStatus,
@@ -68,7 +70,7 @@ interface Form {
   tagline: string;
   footer: string;
   defaultTheme: string; // "" | theme
-  publicLayout: string; // "" | "app" | "blog"
+  publicLayout: string; // "" | "app" | "blog" | "designed"
   blogLocale: string;
   language: string;       // "" | "en" | "ar"
   languageFilter: string; // "" | "on" | "off"
@@ -269,6 +271,7 @@ const ENUM_LABELS: Partial<Record<string, I18nKey>> = {
   dashboard: "modeDashboard",
   app: "layoutApp",
   blog: "layoutBlog",
+  designed: "layoutDesigned",
 };
 
 function enumLabel(value: string): string {
@@ -495,7 +498,10 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
     patch.languageToggle = f.languageToggle === "" ? null : f.languageToggle === "on";
   }
   if (f.publicLayout !== initial.publicLayout) {
-    patch.publicLayout = f.publicLayout === "app" || f.publicLayout === "blog" ? f.publicLayout : null;
+    patch.publicLayout =
+      f.publicLayout === "app" || f.publicLayout === "blog" || f.publicLayout === "designed"
+        ? f.publicLayout
+        : null;
   }
   if (f.excludeTags.trim() !== initial.excludeTags.trim()) {
     const tags = splitTags(f.excludeTags);
@@ -781,6 +787,7 @@ function Row({
  *  unrecognised value. The picker, this panel and the palette all read the
  *  same table (`THEME_LABELS`); the raw id stays the stored value. */
 function themeLabel(id: string | null): string {
+  if (id && isCustomThemeId(id)) return choiceLabel(id);
   return t(THEME_LABELS[isTheme(id ?? "") ? (id as Theme) : THEMES[0]].name);
 }
 
@@ -827,6 +834,25 @@ function themeChoices(effective: string | null): SelectGroup[] {
         };
       }),
     })),
+    // A custom theme is selectable everywhere a built-in is, and this row —
+    // the theme a visitor with no stored choice gets — is the one that makes
+    // that promise mean something on the PUBLIC site. The group is omitted
+    // entirely when the instance has none, rather than standing empty.
+    ...(getCustomThemes().length > 0
+      ? [
+          {
+            id: "custom",
+            label: t("themeGroupCustom"),
+            options: getCustomThemes().map((theme) => ({
+              value: customThemeChoice(theme.id),
+              label: theme.name,
+              // The note is the value DEFAULT_THEME takes, which for a custom
+              // theme is never derivable from its name.
+              note: customThemeChoice(theme.id),
+            })),
+          },
+        ]
+      : []),
   ];
 }
 
@@ -1729,7 +1755,10 @@ export default function SettingsModal() {
    *  Public layout to blog lights them up in the same breath, before the save.
    *  The Home NOTE row between them stays live on purpose — the app shell
    *  opens it at boot. */
-  const homeOff = (form?.publicLayout || eff?.publicLayout) !== "blog";
+  // The home rows are live in BOTH public shells: a designed site has a home
+  // page too, and it is composed from the same settings the blog's is.
+  const homeLayout = form?.publicLayout || eff?.publicLayout;
+  const homeOff = homeLayout !== "blog" && homeLayout !== "designed";
   /** The sync fields hold unsaved edits, so the two actions must wait for the
    *  save rather than act on a remote the form no longer shows. */
   const syncStale =
@@ -1961,7 +1990,11 @@ export default function SettingsModal() {
                     >
                       {/* The SAME miniature the picker draws, so the row and
                           the panel it opens are visibly the same object. */}
-                      <span className="s-tpick__card" data-theme-swatch={theme} aria-hidden="true">
+                      {/* The swatch tokens are keyed on the fifteen built-in
+                          ids and are CONSTANT by design, so a custom theme
+                          shows the room it was built on — under its OWN name,
+                          below. */}
+                      <span className="s-tpick__card" data-theme-swatch={choiceBase(theme)} aria-hidden="true">
                         <span className="s-tpick__card-rule" />
                         <span className="s-tpick__card-line" />
                         <span className="s-tpick__card-foot">
@@ -1970,7 +2003,7 @@ export default function SettingsModal() {
                         </span>
                       </span>
                       <bdi className="s-ctl-select__value s-smodal__themename">
-                        {t(THEME_LABELS[theme].name)}
+                        {choiceLabel(theme)}
                       </bdi>
                       <span className="s-ctl-select__note">{t("browseThemes")}</span>
                       <svg className="s-ctl-select__chev" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -2214,6 +2247,12 @@ export default function SettingsModal() {
                         { value: "", label: t("inheritSegment"), note: enumLabel(eff.publicLayout) },
                         { value: "app", label: t("layoutApp") },
                         { value: "blog", label: t("layoutBlog") },
+                        // The third value. Flipping between blog and designed
+                        // is LOSSLESS in both directions — the design lives in
+                        // its own file and is not consulted while this reads
+                        // anything else — so this segment is a switch, never a
+                        // migration, and "back to blog" is the rescue.
+                        { value: "designed", label: t("layoutDesigned") },
                       ]}
                       {...field("publicLayout")}
                     />

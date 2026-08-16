@@ -1,0 +1,1319 @@
+/* Vellum — the designed public shell.
+ *
+ * A SEPARATE stylesheet, and that is the architecture rather than a filing
+ * decision: `client/styles/blog.css` is the stock blog's, it is not imported
+ * here, not extended here, and not overridden here. Every selector below is
+ * `s-dsn-*`, so the two shells cannot reach each other even by accident and a
+ * reviewer can confirm the stock site is untouched by looking at which files
+ * the diff names.
+ *
+ * Everything is a token (CONTRACTS: components use tokens, never hard-coded
+ * colours) and everything directional is logical (`padding-inline`,
+ * `border-inline-start`, `text-align: start`), so an Arabic instance mirrors
+ * for free — the same rule the other five stylesheets follow.
+ *
+ * Two knobs come from the design config, as custom properties on the root:
+ *   --dsn-width   the reading measure (site.width)
+ *   --dsn-cols    a post grid's column count (per section)
+ * Density is a class, because it changes three values at once.
+ */
+
+.s-dsn {
+  --dsn-gap: 40px;
+  --dsn-pad: 24px;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+}
+
+.s-dsn--compact {
+  --dsn-gap: 26px;
+}
+
+.s-dsn--roomy {
+  --dsn-gap: 64px;
+}
+
+/* One column per page, exactly one — the rule the stock blog states and the
+   reason its marginalia block had to be un-nested. Everything inside a page
+   lives in this measure and nothing sets a second one. */
+.s-dsn-page {
+  max-width: var(--dsn-width, 720px);
+  margin: 0 auto;
+  padding: 40px var(--dsn-pad) 96px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--dsn-gap);
+}
+
+/* ── masthead ──────────────────────────────────────────────────────────── */
+
+.s-dsn-mast {
+  max-width: var(--dsn-width, 720px);
+  margin: 0 auto;
+  padding: 56px var(--dsn-pad) 20px;
+  text-align: center;
+}
+
+.s-dsn-mast--bar {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  text-align: start;
+  padding-block: 22px 14px;
+}
+
+.s-dsn-mast__name {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  text-decoration: none;
+  display: inline-block;
+}
+
+.s-dsn-mast__name:hover {
+  color: var(--accent);
+}
+
+.s-dsn-mast--bar .s-dsn-mast__name {
+  font-size: 1.25rem;
+}
+
+.s-dsn-mast__tagline {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.s-dsn-mast--bar .s-dsn-mast__tagline {
+  margin: 0;
+}
+
+/* ── nav ───────────────────────────────────────────────────────────────── */
+
+.s-dsn-nav {
+  border-block: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.s-dsn--sticky .s-dsn-nav {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.s-dsn-nav__inner {
+  max-width: var(--dsn-width, 720px);
+  margin: 0 auto;
+  padding: 0 var(--dsn-pad);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+}
+
+.s-dsn-nav__topics {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.s-dsn-nav__topics::-webkit-scrollbar {
+  display: none;
+}
+
+.s-dsn-nav__topic {
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.s-dsn-nav__topic:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.s-dsn-nav__tools {
+  display: flex;
+  gap: 4px;
+  margin-inline-start: auto;
+}
+
+.s-dsn-nav__tool {
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text-muted);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.s-dsn-nav__tool:hover {
+  border-color: var(--border);
+  color: var(--accent);
+}
+
+/* ── hero ──────────────────────────────────────────────────────────────── */
+
+.s-dsn-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: flex-end;
+  min-height: 200px;
+  isolation: isolate;
+}
+
+.s-dsn-hero--tall {
+  min-height: 360px;
+}
+
+.s-dsn-hero--center {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.s-dsn-hero__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: -1;
+}
+
+.s-dsn-hero__inner {
+  padding: 32px 28px;
+  max-width: 100%;
+}
+
+.s-dsn-hero__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(1.7rem, 4vw, 2.6rem);
+  line-height: 1.15;
+  color: var(--text);
+}
+
+.s-dsn-hero__sub {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+/* ── headings, blocks ──────────────────────────────────────────────────── */
+
+.s-dsn-head {
+  margin: 0 0 16px;
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  color: var(--text);
+  text-align: start;
+}
+
+.s-dsn-block,
+.s-dsn-note {
+  display: block;
+}
+
+.s-dsn-empty {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+/* Rendered markdown. `.s-rv` (the reading renderer's own root class) carries
+   the block styling from reading.css; only the OUTER box is ours. */
+.s-dsn-rich {
+  font-family: var(--font-serif);
+  font-size: var(--font-prose);
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.s-dsn-rich--center {
+  text-align: center;
+}
+
+.s-dsn-more {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-family: var(--font-ui);
+  text-decoration: none;
+}
+
+.s-dsn-more:hover {
+  text-decoration: underline;
+}
+
+/* ── meta line ─────────────────────────────────────────────────────────── */
+
+.s-dsn-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-family: var(--font-ui);
+}
+
+/* A hairline, never a "·": the Eastern Arabic zero IS a raised dot, which is
+   the same argument the sync lines make. */
+.s-dsn-meta__sep {
+  width: 1px;
+  height: 0.85em;
+  background: var(--border);
+}
+
+/* ── post grid ─────────────────────────────────────────────────────────── */
+
+.s-dsn-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--dsn-cols, 2), minmax(0, 1fr));
+  gap: 18px;
+}
+
+.s-dsn-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  background: var(--bg-raised);
+  transition: border-color 150ms ease;
+}
+
+.s-dsn-card:hover {
+  border-color: var(--accent);
+}
+
+.s-dsn-card__banner {
+  display: block;
+  height: 128px;
+  background-size: cover;
+  background-position: center;
+}
+
+.s-dsn-card__body {
+  display: block;
+  padding: 14px 16px 16px;
+}
+
+.s-dsn-card__title {
+  display: block;
+  font-family: var(--font-serif);
+  font-size: 1.02rem;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.s-dsn-card__excerpt {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+/* ── post list ─────────────────────────────────────────────────────────── */
+
+.s-dsn-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.s-dsn-list__link {
+  text-decoration: none;
+}
+
+.s-dsn-list__title {
+  font-family: var(--font-serif);
+  font-size: 1.12rem;
+  color: var(--text);
+}
+
+.s-dsn-list__link:hover .s-dsn-list__title {
+  color: var(--accent);
+}
+
+.s-dsn-list__excerpt {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+/* ── topics ────────────────────────────────────────────────────────────── */
+
+.s-dsn-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.s-dsn-topic {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.8rem;
+}
+
+.s-dsn-topic:hover {
+  background: var(--accent-soft);
+}
+
+/* A count is a NUMBER THE READER READS, so it is --text-muted and never
+   --text-faint: on --bg-hover that token measures 2.7:1 in most themes, which
+   is the whole reason DESIGN.md forbids it here. */
+.s-dsn-topic__count {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+/* ── cta ───────────────────────────────────────────────────────────────── */
+
+.s-dsn-cta {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  text-align: center;
+  background: var(--bg-raised);
+}
+
+.s-dsn-cta__head {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.2rem;
+  color: var(--text);
+}
+
+.s-dsn-cta__body {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.s-dsn-cta__btn {
+  display: inline-block;
+  margin-top: 16px;
+  padding: 9px 18px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--bg);
+  text-decoration: none;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.s-dsn-cta__btn:hover {
+  filter: brightness(1.08);
+}
+
+/* ── divider ───────────────────────────────────────────────────────────── */
+
+.s-dsn-div {
+  height: var(--dsn-space, 32px);
+}
+
+.s-dsn-div--rule {
+  border-top: 1px solid var(--border);
+  height: 0;
+  margin-block: calc(var(--dsn-space, 32px) / 2);
+}
+
+.s-dsn-div--dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  letter-spacing: 0.6em;
+}
+
+.s-dsn-div--dots::before {
+  content: "✦✦✦";
+  font-size: 0.7rem;
+}
+
+/* ── article ───────────────────────────────────────────────────────────── */
+
+.s-dsn-article {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.s-dsn-back {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 20px;
+  align-self: flex-start;
+}
+
+.s-dsn-back:hover {
+  color: var(--accent);
+}
+
+/* ← (U+2190) is NOT Bidi_Mirrored, so an RTL shell has to flip it by hand —
+   the same rule the stock blog's back arrow follows. */
+[dir="rtl"] .s-dsn-back__arrow {
+  display: inline-block;
+  transform: scaleX(-1);
+}
+
+.s-dsn-article__banner {
+  height: 200px;
+  border-radius: var(--radius);
+  background-size: cover;
+  background-position: center;
+  margin-bottom: 24px;
+}
+
+.s-dsn-article__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(1.6rem, 3.4vw, 2.2rem);
+  line-height: 1.2;
+  color: var(--text);
+}
+
+.s-dsn-article__meta {
+  margin-bottom: 26px;
+}
+
+/* THE BYLINE FOLLOWS THE TITLE'S SCRIPT. Four states, because the answer is
+   chrome direction XOR title direction and `flex-start` is the CONTAINER's
+   start — which is why the RTL chrome needs the opposite keyword to reach the
+   same physical edge. Same shape as the stock blog's rule, on this shell's own
+   class names. */
+.s-dsn-article__head--rtl .s-dsn-article__meta {
+  justify-content: flex-end;
+}
+
+[dir="rtl"] .s-dsn-article__head--rtl .s-dsn-article__meta {
+  justify-content: flex-start;
+}
+
+[dir="rtl"] .s-dsn-article__head:not(.s-dsn-article__head--rtl) .s-dsn-article__meta {
+  justify-content: flex-end;
+}
+
+.s-dsn-article__body {
+  margin-top: 22px;
+}
+
+.s-dsn-article__tags {
+  margin-top: 30px;
+}
+
+.s-dsn-article__related {
+  margin-top: 44px;
+  padding-top: 26px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── footer ────────────────────────────────────────────────────────────── */
+
+.s-dsn-footer {
+  max-width: var(--dsn-width, 720px);
+  margin: 0 auto;
+  padding: 26px var(--dsn-pad) 44px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.s-dsn-footer__line {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.s-dsn-footer__meta {
+  margin: 0;
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  font-size: 0.78rem;
+}
+
+.s-dsn-footer__link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-muted);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.s-dsn-footer__link:hover {
+  color: var(--accent);
+}
+
+.s-dsn-locked {
+  text-align: center;
+  padding-block: 80px;
+}
+
+.s-dsn-locked__title {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  color: var(--text-muted);
+}
+
+/* ── the owner's notices ───────────────────────────────────────────────────
+ * Only ever rendered for the OWNER (an admin previewing their own site). A
+ * visitor's page has already handed over to the stock blog by the time either
+ * of these would be drawn, which is why neither is styled to be unobtrusive:
+ * their whole job is to be impossible to miss and to carry the way out. */
+
+.s-dsn-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--danger);
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.s-dsn-notice__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  flex: none;
+}
+
+.s-dsn-notice__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.s-dsn-notice__head {
+  color: var(--danger);
+  margin-inline-end: 6px;
+}
+
+.s-dsn-notice__action {
+  flex: none;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--danger);
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.s-dsn-notice__action:hover:not(:disabled) {
+  background: var(--danger);
+  color: var(--bg);
+}
+
+.s-dsn-notice__action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.s-dsn-failed {
+  border: 1px dashed var(--danger);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  background: var(--bg-raised);
+}
+
+.s-dsn-failed__title {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.s-dsn-failed__why {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+/* ── narrow ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 700px) {
+  .s-dsn {
+    --dsn-pad: 18px;
+  }
+
+  .s-dsn-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .s-dsn-mast {
+    padding-top: 34px;
+  }
+}
+
+/* A coarse pointer gets 44px targets everywhere, exactly as the app shell and
+   the stock blog do — a tablet is 1024px wide and still has no mouse. */
+@media (max-width: 700px), (pointer: coarse) {
+  .s-dsn-nav__topic,
+  .s-dsn-nav__tool,
+  .s-dsn-topic,
+  .s-dsn-footer__link {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .s-dsn-nav__inner {
+    min-height: 48px;
+  }
+}
+/* THE DESIGNED SITE'S OWN LAYER.
+ *
+ * EVERY RULE IN THIS FILE IS SCOPED UNDER .s-dsg, without exception. That is
+ * the architectural promise made mechanical: .s-dsg exists only inside
+ * client/design/, only in designed mode, and nothing here can reach the stock
+ * blog even by accident. Delete the class from the tree and what is left is
+ * the stock stylesheet, unchanged — which is why switching back to stock is
+ * instant and total rather than a migration.
+ *
+ * The typography controls arrive as --dsg-* custom properties on the root
+ * element (shared/designChrome.ts, typographyVars) — the SAME numbers the
+ * designer's preview draws with, because they come from the same function.
+ * Colors are always tokens: a design decides size, weight, rhythm and
+ * arrangement, never hue. Fifteen themes stay fifteen themes.
+ */
+
+/* ── Typography: the prose ─────────────────────────────────────────────── */
+
+/* The reading column. .s-blog already zeroes the app's own padding here; this
+ * sets the SIZE, the FACE and the MEASURE from the design. The measure is in
+ * ch on the prose itself (a character count is what the control means) and in
+ * px on the wrappers around it (a ch resolves against each element's own
+ * font-size, so wrappers would each land on a different width). */
+.s-dsg .s-reading__content,
+.s-dsg .s-rv {
+  font-family: var(--dsg-body-font);
+  font-size: var(--dsg-base);
+  line-height: var(--dsg-line);
+}
+
+/* The reading column carries the APP's own frame by default (a 760px box,
+ * 48px of air above it, a 120px tail). The stock blog already drops it
+ * inside `.s-blog`; the designed layer drops it under `.s-dsg` too, so the
+ * designer's preview — which is the same components without the blog's
+ * scroller around them — measures the same as the site it previews. */
+.s-dsg .s-reading__content {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+.s-dsg .s-blog-page {
+  max-width: calc(var(--dsg-measure-px) + 48px);
+}
+
+.s-dsg .s-rv-p,
+.s-dsg .s-rv-ul,
+.s-dsg .s-rv-ol {
+  margin-block-end: var(--dsg-block-space);
+}
+
+.s-dsg .s-rv .s-rv-h {
+  font-family: var(--dsg-head-font);
+  font-weight: var(--dsg-head-weight);
+  text-transform: var(--dsg-head-transform);
+  font-variant-caps: var(--dsg-head-variant);
+  letter-spacing: var(--dsg-head-tracking);
+  margin-block: var(--dsg-head-space) calc(var(--dsg-head-space) * 0.38);
+}
+
+.s-dsg .s-rv .s-rv-h1 { font-size: var(--dsg-h1); }
+.s-dsg .s-rv .s-rv-h2 { font-size: var(--dsg-h2); }
+.s-dsg .s-rv .s-rv-h3 { font-size: var(--dsg-h3); }
+.s-dsg .s-rv .s-rv-h4 { font-size: var(--dsg-h4); }
+
+/* The article's own furniture follows the same scale: a title set from a
+ * different ladder than the headings under it is two typographies on one
+ * page. */
+.s-dsg .s-blog-article__title {
+  font-family: var(--dsg-head-font);
+  font-size: var(--dsg-h1);
+  font-weight: var(--dsg-head-weight);
+  text-transform: var(--dsg-head-transform);
+  font-variant-caps: var(--dsg-head-variant);
+  letter-spacing: var(--dsg-head-tracking);
+  line-height: 1.2;
+}
+
+.s-dsg .s-blog-card__title,
+.s-dsg .s-blog-post__title {
+  font-family: var(--dsg-head-font);
+  font-weight: var(--dsg-head-weight);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.s-dsg-top {
+  background: var(--bg);
+}
+
+/* Sticky is a reading decision, not a look: the whole header block, the nav
+ * bar alone, or neither. Both variants stick inside .s-blog's own scroller,
+ * so the shell's visitor-preview strip can never share the band with them. */
+.s-dsg-top--sticky {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 6;
+}
+
+.s-dsg-top--stickynav .s-dsg-nav {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 6;
+}
+
+.s-dsg-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-block: calc(var(--dsg-section-space) * 1.15) calc(var(--dsg-section-space) * 0.7);
+  padding-inline: 24px;
+  text-align: center;
+}
+
+.s-dsg-head--compact {
+  padding-block: calc(var(--dsg-section-space) * 0.55) calc(var(--dsg-section-space) * 0.4);
+}
+
+.s-dsg-head--tall {
+  padding-block: calc(var(--dsg-section-space) * 2) calc(var(--dsg-section-space) * 1.1);
+}
+
+.s-dsg-head--divider {
+  border-block-end: 1px solid var(--border);
+}
+
+.s-dsg-head--stackedStart {
+  align-items: flex-start;
+  text-align: start;
+}
+
+.s-dsg-head__id {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.s-dsg-head__name {
+  font-family: var(--dsg-head-font);
+  font-size: calc(var(--dsg-h1) * 1.35);
+  font-weight: var(--dsg-head-weight);
+  letter-spacing: var(--dsg-head-tracking);
+  text-transform: var(--dsg-head-transform);
+  font-variant-caps: var(--dsg-head-variant);
+  line-height: 1.1;
+}
+
+.s-dsg-head__id:hover .s-dsg-head__name {
+  color: var(--accent);
+}
+
+.s-dsg-head__logo {
+  max-height: 64px;
+  max-width: min(340px, 60vw);
+  object-fit: contain;
+}
+
+.s-dsg-head__tagline {
+  margin: 0;
+  max-width: var(--dsg-measure-px);
+  color: var(--text-muted);
+  font-family: var(--dsg-body-font);
+  font-size: calc(var(--dsg-base) * 0.95);
+  line-height: 1.5;
+}
+
+/* The inline header: identity and navigation on one row. */
+.s-dsg-head--inline {
+  align-items: stretch;
+  padding-block: calc(var(--dsg-section-space) * 0.5);
+  text-align: start;
+}
+
+.s-dsg-head--inline .s-dsg-head__row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 1100px;
+  margin-inline: auto;
+}
+
+.s-dsg-head--inline .s-dsg-head__block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.s-dsg-head--inline .s-dsg-head__name {
+  font-size: calc(var(--dsg-h3) * 1.05);
+}
+
+.s-dsg-head--inline .s-dsg-head__logo {
+  max-height: 34px;
+}
+
+.s-dsg-head--inline .s-dsg-head__tagline {
+  font-size: calc(var(--dsg-base) * 0.8);
+}
+
+.s-dsg-head--inline .s-dsg-nav__links {
+  margin-inline-start: auto;
+}
+
+/* ── Navigation ────────────────────────────────────────────────────────── */
+
+.s-dsg-nav {
+  background: var(--bg);
+  border-block-end: 1px solid var(--border);
+}
+
+.s-dsg-nav__inner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 1100px;
+  margin-inline: auto;
+  padding: 6px 24px;
+}
+
+.s-dsg-nav__links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.s-dsg-nav__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: calc(var(--dsg-base) * 0.82);
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+.s-dsg-nav__link:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.s-dsg-nav__link--active {
+  color: var(--accent);
+}
+
+.s-dsg-nav__ext {
+  opacity: 0.7;
+}
+
+.s-dsg-nav__chev {
+  transition: transform 150ms ease;
+}
+
+.s-dsg-nav__group {
+  position: relative;
+}
+
+.s-dsg-nav__group--open .s-dsg-nav__chev {
+  transform: rotate(180deg);
+}
+
+/* The submenu. Positioned on the LOGICAL start edge so an Arabic menu opens
+ * under its own trigger rather than off the far side of the bar. */
+.s-dsg-nav__menu {
+  display: none;
+  position: absolute;
+  inset-block-start: calc(100% + 4px);
+  inset-inline-start: 0;
+  z-index: 8;
+  min-width: 180px;
+  padding: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 35%);
+}
+
+.s-dsg-nav__group--open .s-dsg-nav__menu {
+  display: block;
+}
+
+.s-dsg-nav__sublink {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: calc(var(--dsg-base) * 0.82);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.s-dsg-nav__sublink:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.s-dsg-nav__sublink--active {
+  color: var(--accent);
+}
+
+.s-dsg-nav__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+
+.s-dsg-head--inline .s-dsg-nav__tools {
+  margin-inline-start: 0;
+}
+
+.s-dsg-nav__burger {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: calc(var(--dsg-base) * 0.82);
+  cursor: pointer;
+}
+
+.s-dsg-nav__burger:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+/* ── Static page ───────────────────────────────────────────────────────── */
+
+.s-dsg-page__title {
+  margin: 0 0 var(--dsg-head-space);
+  font-family: var(--dsg-head-font);
+  font-size: var(--dsg-h1);
+  font-weight: var(--dsg-head-weight);
+  text-transform: var(--dsg-head-transform);
+  font-variant-caps: var(--dsg-head-variant);
+  letter-spacing: var(--dsg-head-tracking);
+  line-height: 1.2;
+  color: var(--text);
+}
+
+/* ── Footer ────────────────────────────────────────────────────────────── */
+
+.s-dsg-foot {
+  margin-block-start: var(--dsg-section-space);
+  padding: var(--dsg-section-space) 24px calc(var(--dsg-section-space) * 1.2);
+  border-block-start: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: calc(var(--dsg-base) * 0.82);
+}
+
+.s-dsg-foot--center {
+  text-align: center;
+}
+
+.s-dsg-foot__cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 28px;
+  max-width: 1000px;
+  margin-inline: auto;
+  margin-block-end: var(--dsg-section-space);
+  text-align: start;
+}
+
+.s-dsg-foot__col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.s-dsg-foot__title {
+  margin: 0 0 2px;
+  color: var(--text);
+  font-family: var(--dsg-head-font);
+  font-size: calc(var(--dsg-base) * 0.78);
+  font-weight: var(--dsg-head-weight);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.s-dsg-foot__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--text-muted);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.s-dsg-foot__link:hover {
+  color: var(--accent);
+}
+
+.s-dsg-foot__icon {
+  flex: none;
+  opacity: 0.85;
+}
+
+.s-dsg-foot__text {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.s-dsg-foot__line {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+}
+
+.s-dsg-foot__meta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0;
+  color: var(--text-faint);
+  font-size: calc(var(--dsg-base) * 0.76);
+}
+
+.s-dsg-foot--start .s-dsg-foot__meta {
+  justify-content: flex-start;
+}
+
+.s-dsg-foot__metalink {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.s-dsg-foot__metalink:hover {
+  color: var(--accent);
+}
+
+.s-dsg-foot__hint kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.s-dsg-foot__powered a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.s-dsg-foot__powered a:hover {
+  color: var(--accent);
+}
+
+/* ── The admin's notice ────────────────────────────────────────────────── */
+
+/* Named, actionable, and never shown to a visitor: by the time a visitor
+ * could see one, they are already on the stock site. */
+.s-dsg-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  padding: 10px 16px;
+  background: var(--accent-soft);
+  border-block-end: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.86rem;
+  text-align: center;
+}
+
+.s-dsg-notice--fail {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.s-dsg-notice__btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.s-dsg-notice__btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.s-dsg-notice__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ── Narrow screens & touch ────────────────────────────────────────────── */
+
+/* One rule, both triggers, exactly as the app shell does it: a tablet is
+ * 1024px wide and still has no mouse. */
+@media (max-width: 700px), (pointer: coarse) {
+  .s-dsg-nav__link,
+  .s-dsg-nav__sublink,
+  .s-dsg-nav__burger {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 700px) {
+  .s-dsg-nav__burger {
+    display: inline-flex;
+  }
+
+  .s-dsg-nav__links {
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .s-dsg-nav--open .s-dsg-nav__links,
+  .s-dsg-head--menu .s-dsg-nav__links {
+    display: flex;
+  }
+
+  .s-dsg-nav__inner,
+  .s-dsg-head--inline .s-dsg-head__row {
+    flex-wrap: wrap;
+  }
+
+  /* Inside the burger panel every submenu is already open — a dropdown
+   * inside a drawer is a second layer of hiding for no gain — so it becomes
+   * an indented run rather than a floating card. */
+  .s-dsg-nav__group {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .s-dsg-nav__menu {
+    position: static;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    background: none;
+  }
+
+  .s-dsg-nav__sublink {
+    padding-inline-start: 26px;
+  }
+
+  .s-dsg-nav__trigger {
+    pointer-events: none;
+  }
+
+  .s-dsg-nav__chev {
+    display: none;
+  }
+
+  .s-dsg-head {
+    padding-inline: 18px;
+  }
+
+  .s-dsg-foot__cols {
+    gap: 20px;
+  }
+}
+
+/* ── App furniture the composed site must not inherit ──────────────────────
+   The reading renderer emits a frontmatter properties card and an inline
+   banner because the APP wants them. A public page does not: the properties
+   card is the note's raw frontmatter (publish flags, page flags, dates) shown
+   to a stranger, and the inline banner duplicates the hero the article draws
+   itself. The stock blog hides both under `.s-blog`; the composed site is a
+   SECOND renderer with its own root, so it must say so itself rather than
+   borrow a selector that does not match it. Same rules, same reasons — see
+   blog.css, where the argument is written out. */
+.s-dsn .s-rv-props {
+  display: none;
+}
+
+.s-dsn .s-rv-banner {
+  display: none;
+}
+
+/* Sticky chrome must never hide a jumped-to heading. */
+.s-dsn .s-rv-h {
+  scroll-margin-top: 72px;
+}

@@ -191,10 +191,64 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
   preview draws a block widget (`cm-s-hr-rule`), reading view and the blog draw `.s-rv-hr` — and
   live preview shows the source only while the cursor is on the line, like every other element.
 
+## The designed public site (`publicLayout: "designed"`)
+
+A third visitor shell, composed from a design config, beside the two that exist. Normative:
+
+- **The stock blog is the base and stays pristine.** `client/blog/*` and `client/styles/blog.css`
+  are not extended, not overridden and not themed by this feature; the designed shell is a second
+  renderer in `client/design/` with its own `s-dsn-*` classes and its own stylesheet, and the two
+  meet at one `if`. A reviewer confirms it from the list of files a diff names.
+- **The switch is lossless in both directions.** The design lives in its own file
+  (`VELLUM_DATA/designs.json`) and is never read while the layout is anything else, so going back
+  to stock is a rescue and going forward again restores the site exactly.
+- **A broken design is a VISITOR'S non-event.** An invalid config, a section pointing at a note
+  that is gone, or a section that throws → the visitor gets the stock blog, automatically, with
+  no blank page and no stack trace. The OWNER gets the designed page with the failing section
+  replaced by a card naming it, under a strip carrying one click back to stock. Gated by
+  `scripts/shoot-design.mjs`, which breaks the site all three ways and measures both sessions.
+- **One column per page.** `.s-dsn-page` sets the measure (`site.width`, 520–1400px, 24px
+  gutters; 18px on a phone) and nothing inside sets a second one — the rule the stock blog had to
+  learn twice.
+- **Every target is ≥44px below 700px or on any coarse pointer**, and the grid drops to one
+  column. Measured at 390: document horizontal overflow 0.
+- **The byline follows the TITLE's script, not the chrome's** — four rules, because the answer is
+  chrome direction XOR title direction and `flex-start` is the CONTAINER's start.
+- **Counts go through `localeNum()`.** A topic chip's count sits beside an Arabic-Indic date on
+  every card in the same column; one numbering system per instance is not negotiable for a new
+  surface either.
+- Separators between two runs of text are hairlines, never `·`, for the reason the status bar and
+  the sync lines give: the Eastern Arabic zero is itself a raised dot.
+
+## Custom themes
+
+A sixteenth room is MADE, not shipped: `{ base, tokens }` — one of the fifteen plus a sparse map
+of overrides, applied as `data-theme="<base>" data-custom-theme="<slug>"` so every token the
+author did not touch still comes from `tokens.css` and an upstream retune reaches them for free.
+
+- **A custom theme is selectable everywhere a built-in is**: the picker (its own "Your themes"
+  group), Settings → default theme, `DEFAULT_THEME`, the palette dot, the ☾/☀ pairing. The id is
+  `custom:<slug>`, and it is refused wherever it does not exist.
+- **The builder's preview is the app**, like the picker's — a theme is a room and the only
+  preview of a room is the room. Closing restores what was in force.
+- **The contrast warnings are the gate, live**: `shared/contrast.ts` is the single implementation
+  of the ratios, the 18 ΔE accent-vs-text distance and every floor, imported by
+  `scripts/check-contrast.mjs` AND by the builder. A second copy of the formula eventually
+  blesses a theme the gate rejects, and that is the theme that ships.
+- **Unset is a real state.** Rows show the value they inherit and reset by DELETING the override,
+  never by re-deriving it.
+- The gate now walks THREE grounds for `--text` and `--text-muted` (`--bg`, `--bg-raised`,
+  `--bg-hover` — the tag pill's ground, painted at rest) and two for `--text-faint`, which is a
+  statement about that token's remit rather than an exemption: faint measures 2.7:1 on hover in
+  twelve of the fifteen, which is exactly why the pill's count is `--text-muted`.
+
 ## Hard rules
 
 - No component may render raw markdown syntax to the user outside the editor (backlinks, search
   snippets strip/render `[[ ]]`, `#`, `**`).
 - Every CONTRACTS.md class name stays; new classes stay `s-` prefixed; zero inline style colors.
+- **The stock blog is never mutated, forked or monkey-patched by the design engine.** A new
+  public shell is a new renderer with new classes in a new stylesheet — never a prop threaded
+  through the base, because the base is what a broken design falls back to.
 - Screenshot gate: a change ships only if the 1440×900 screenshots (dark+light, editor+graph+
   palette) look like a product someone would pay for.

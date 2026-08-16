@@ -15,6 +15,7 @@ import {
   selectionToolbarEnabled,
   setSelectionToolbarEnabled,
 } from "./SelectionMenu.tsx";
+import { choiceBase } from "../themes.ts";
 import type { Theme } from "../state.ts";
 import { search } from "../api.ts";
 import { dailyNotePath, openDailyNote } from "../daily.ts";
@@ -28,6 +29,7 @@ import { toast } from "../toast.ts";
 import type { SearchHit } from "../../shared/types.ts";
 import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
 import { openThemePicker } from "./ThemePicker.tsx";
+import { openDesigner } from "./design/DesignerPanel.tsx";
 
 // ---------------------------------------------------------------------------
 // Fuzzy matching (subsequence with consecutive/word-start bonuses)
@@ -207,7 +209,10 @@ const COMMANDS: Command[] = [
     id: "theme-picker",
     label: () => t("browseThemes"),
     hint: () => t("cmdAppearanceHint"),
-    themeDot: () => useStore.getState().theme,
+    // choiceBase, not the raw choice: the dot is painted from the CONSTANT
+    // --swatch-<id>-* tokens, which are keyed on the fifteen built-in ids, so
+    // a custom theme previews as the room it was built on.
+    themeDot: () => choiceBase(useStore.getState().theme),
     available: () => true,
   },
   // Shell layout. Available to visitors too: where the panes sit and how much
@@ -341,6 +346,14 @@ const COMMANDS: Command[] = [
     id: "site-settings",
     label: () => t("siteSettings"),
     hint: () => t("cmdSiteSettingsHint"),
+    available: ({ admin, preview }) => admin && !preview,
+  },
+  {
+    // The design engine's one door. Like the theme picker, what it opens is a
+    // browsing-and-building surface rather than a list, so it is one row.
+    id: "design-site",
+    label: () => t("designTitle"),
+    hint: () => t("designPaletteHint"),
     available: ({ admin, preview }) => admin && !preview,
   },
   {
@@ -689,6 +702,9 @@ export default function CommandPalette() {
           break;
         case "site-settings":
           store.setSettingsOpen(true);
+          break;
+        case "design-site":
+          openDesigner();
           break;
         case "sync-now":
           void runSyncNow();

@@ -6,6 +6,14 @@
 //   --text-faint  >= 3:1    against --bg and --bg-raised              (UI glyphs)
 // Exits 1 on any failure.
 //
+// --bg-hover is a GROUND, not a hover artefact: DESIGN.md paints the sidebar's
+// tag pills and the backlink cards on it at rest, and a tree row is under the
+// pointer exactly when it is being read. It was never checked, and the two
+// tokens that carry reading text there clear it in all fifteen themes (worst
+// measured: 5.62:1 muted / 12.27:1 text), so the gate says so instead of
+// leaving it unstated. --text-faint stays on two grounds on purpose — see
+// FAINT_GROUNDS in shared/contrast.ts, where that argument is written out.
+//
 // --text-faint used to print "(info)" against a minimum of 0 — a number the
 // gate could never enforce, which is worse than not printing it: it reads
 // like coverage. Under that cover parchment sat at 2.50:1 while the token
@@ -86,98 +94,48 @@ for (const m of css.matchAll(/(:root|\[data-theme="([\w-]+)"\])\s*\{([^}]*)\}/g)
   themes[name] = parseBlock(m[3]);
 }
 
-function lum(hex) {
-  const c = hex.slice(1);
-  const [r, g, b] = [0, 2, 4]
-    .map((i) => parseInt(c.slice(i, i + 2), 16) / 255)
-    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
+// THE FORMULAS AND THE FLOORS LIVE IN shared/contrast.ts, and this gate is one
+// of its two callers. The other is the custom theme builder, which prints the
+// same warnings live while an author drags a color — and a builder carrying a
+// second copy of the rule is a builder that will one day bless a theme this
+// gate rejects, which is the theme that ships. Node runs .ts directly
+// (CONTRACTS: "Node >= 24"), so there is nothing to build for the import.
+import { ACCENT_TEXT_MIN_DE, REQUIRED_TOKENS, checkTheme, contrastRatio } from "../shared/contrast.ts";
 
-function ratio(a, b) {
-  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
+/** The semantic text-colour and callout sections below measure single pairs
+ *  rather than whole themes, so they call the ratio directly. Same function
+ *  the table above runs on, under the name this file has always used. */
+const ratio = contrastRatio;
 
-/** sRGB hex → CIELAB (D65). Used only for the accent-vs-text delta below. */
-function lab(hex) {
-  const c = hex.slice(1);
-  const [r, g, b] = [0, 2, 4]
-    .map((i) => parseInt(c.slice(i, i + 2), 16) / 255)
-    .map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
-  let x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
-  const y = r * 0.2126 + g * 0.7152 + b * 0.0722;
-  let z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
-  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
-  [x, z] = [f(x), f(z)];
-  const fy = f(y);
-  return [116 * fy - 16, 500 * (x - fy), 200 * (fy - z)];
+/** Gate label for a check id, so the output reads as it always has. */
+function label(check) {
+  if (check.id === "accent-text") return "accent / text";
+  const ground = { "--bg": "bg", "--bg-raised": "raised", "--bg-hover": "hover" }[check.against];
+  const token = check.token.replace("--text-", "").replace("--text", "text").replace("--accent", "accent");
+  return `${token} / ${ground}`;
 }
-
-/** CIE76 colour difference — perceptual distance, not a contrast ratio. */
-function deltaE(a, b) {
-  const [l1, a1, b1] = lab(a);
-  const [l2, a2, b2] = lab(b);
-  return Math.hypot(l1 - l2, a1 - a2, b1 - b2);
-}
-
-const ACCENT_TEXT_MIN_DE = 18;
 
 let failures = 0;
 for (const [name, t] of Object.entries(themes)) {
-  const need = ["--bg", "--bg-raised", "--text", "--text-muted", "--accent", "--text-faint"];
-  // --bg-hover is a THIRD ground, not a shade. Every hovered row, every
-  // highlighted menu row and every tag pill in the product is painted with it,
-  // so a token that clears its floor on --bg and --bg-raised and fails on
-  // --bg-hover is failing the floor without failing the check — one substrate
-  // over from where this script was looking. The selection menu shipped
-  // exactly that: keycaps and group titles at --text-faint on a --bg-hover
-  // active row measured 2.74:1 on iron-gall, 2.89 on sumi and tallow, 2.98 on
-  // parchment. --text-faint is NOT checked here, and that is the point: it is
-  // a two-ground token by construction (DESIGN.md), so a surface that paints
-  // --bg-hover may not put --text-faint on it — it uses --text-muted, which
-  // this gate now proves holds there in all fifteen.
-  const missing = need.filter((k) => !t[k]);
+  const missing = REQUIRED_TOKENS.filter((k) => !t[k]);
   if (missing.length > 0) {
     console.error(`${name}: missing ${missing.join(", ")}`);
     failures++;
     continue;
   }
-  const checks = [
-    ["text / bg", t["--text"], t["--bg"], 4.5],
-    ["text / raised", t["--text"], t["--bg-raised"], 4.5],
-    ["muted / bg", t["--text-muted"], t["--bg"], 3],
-    ["muted / raised", t["--text-muted"], t["--bg-raised"], 3],
-    ...(t["--bg-hover"]
-      ? [
-          ["text / hover", t["--text"], t["--bg-hover"], 4.5],
-          ["muted / hover", t["--text-muted"], t["--bg-hover"], 3],
-        ]
-      : []),
-    ["accent / bg", t["--accent"], t["--bg"], 4.5],
-    ["faint / bg", t["--text-faint"], t["--bg"], 3],
-    ["faint / raised", t["--text-faint"], t["--bg-raised"], 3],
-  ];
   console.log(`\n${name}`);
-  // Not a ratio: see the header. An accent that is a shade of the theme's own
-  // body text has no accent channel at all.
-  const dE = deltaE(t["--accent"], t["--text"]);
-  const dEok = dE >= ACCENT_TEXT_MIN_DE;
-  if (!dEok) failures++;
-  console.log(
-    `  ${"accent / text".padEnd(15)} ${dE.toFixed(1).padStart(5)} ΔE  ${
-      dEok ? "PASS" : `FAIL (needs ${ACCENT_TEXT_MIN_DE} ΔE)`
-    }`,
-  );
-  for (const [label, fg, bg, min] of checks) {
-    const r = ratio(fg, bg);
-    const ok = r >= min;
-    if (!ok) failures++;
-    console.log(
-      `  ${label.padEnd(15)} ${r.toFixed(2).padStart(5)}:1  ${
-        min === 0 ? "(info)" : ok ? "PASS" : `FAIL (needs ${min}:1)`
-      }`,
-    );
+  for (const check of checkTheme(t)) {
+    if (!check.pass) failures++;
+    const shown =
+      check.kind === "deltaE"
+        ? `${check.value.toFixed(1).padStart(5)} \u0394E `
+        : `${check.value.toFixed(2).padStart(5)}:1 `;
+    const verdict = check.pass
+      ? "PASS"
+      : check.kind === "deltaE"
+        ? `FAIL (needs ${ACCENT_TEXT_MIN_DE} \u0394E)`
+        : `FAIL (needs ${check.min}:1)`;
+    console.log(`  ${label(check).padEnd(15)} ${shown} ${verdict}`);
   }
 }
 

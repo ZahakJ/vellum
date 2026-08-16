@@ -30,7 +30,13 @@ import {
 import type { Lang } from "./i18n.ts";
 import { readVisitorLang, writeVisitorLang } from "./langPref.ts";
 import { isTheme, THEMES } from "./themes.ts";
-import type { Theme } from "./themes.ts";
+import type { ThemeChoice } from "./themes.ts";
+import { isCustomThemeId } from "../shared/customTheme.ts";
+import {
+  applyThemeChoice,
+  isKnownThemeChoice,
+  syncCustomThemes,
+} from "./design/customThemes.ts";
 import { isPublishedContent } from "./publish.ts";
 import { applyDefaultTemplate } from "./templateActions.ts";
 import { toast } from "./toast.ts";
@@ -88,6 +94,13 @@ export type SidebarSidePref = "auto" | "left" | "right";
  *  unchanged for everything that already imports THEMES/Theme from state. */
 export { THEMES, isTheme, counterpartTheme } from "./themes.ts";
 export type { Theme } from "./themes.ts";
+/** The store's theme is a CHOICE, not a built-in: one of the fifteen ids, or
+ *  a `custom:<slug>` naming an override layer in the design store
+ *  (shared/customTheme.ts). Everything that only ever handled the fifteen
+ *  keeps working — `Theme` is unchanged and still re-exported above — and the
+ *  surfaces that must cope with both ask client/themes.ts's choiceGroup /
+ *  counterpartChoice / choiceBase instead of the built-in-only functions. */
+export type { ThemeChoice } from "./themes.ts";
 export type View = "editor" | "graph";
 
 export interface State {
@@ -96,7 +109,7 @@ export interface State {
   openTabs: string[];
   dirty: Record<string, boolean>;
   view: View;
-  theme: Theme;
+  theme: ThemeChoice;
   vimMode: boolean;
   /** Which vim sub-mode the live editor is in, or null when vim is off /
    *  no editor is mounted. NOT persisted and never written by the shell —
@@ -194,8 +207,16 @@ export interface State {
 
   // ------------------------------------------------- blog mode (PUBLIC_LAYOUT)
   /** Visitor-facing layout: "blog" wraps visitors in the classic blog shell
-   *  (client/blog/); admins always get the full app. */
-  publicLayout: "app" | "blog";
+   *  (client/blog/), "designed" in the composed one (client/design/); admins
+   *  always get the full app. The server only ever SENDS "designed" when a
+   *  design is actually renderable, so this field never has to be second-
+   *  guessed here. */
+  publicLayout: "app" | "blog" | "designed";
+  /** Why the DESIGNED site is not being served, for a real admin session only
+   *  (/api/me withholds it from visitors and from an admin previewing as one).
+   *  Null on every healthy instance and on every instance that is not in
+   *  "designed" mode; `client/design/DesignStatus.tsx` is its only reader. */
+  designNotice: { reason: string; design?: string; detail?: string } | null;
   /** SITE_TAGLINE — masthead subtitle (blog mode). */
   tagline: string | null;
   shareButtons: boolean;
@@ -270,7 +291,7 @@ export interface State {
   openNote(path: string): void;
   closeTab(path: string): void;
   setView(v: View): void;
-  setTheme(t: Theme): void;
+  setTheme(t: ThemeChoice): void;
   toggleVim(): void;
   toggleReading(): void;
   setReadingMode(b: boolean): void;
@@ -295,9 +316,15 @@ export interface State {
   setPendingHeading(h: string | null): void;
 }
 
-function readTheme(): Theme {
+/** The stored theme, at BOOT — before the custom-theme registry has been
+ *  fetched, so a `custom:` id cannot be checked for existence yet. It is
+ *  accepted on SHAPE here and re-checked in loadMe() once the registry lands:
+ *  refusing it now would mean every custom-theme user opens on iron-gall for a
+ *  beat and then jumps, which is the flash this function exists to avoid. */
+function readTheme(): ThemeChoice {
   const stored = localStorage.getItem(THEME_KEY);
-  return isTheme(stored) ? stored : THEMES[0];
+  if (isTheme(stored)) return stored;
+  return stored !== null && isCustomThemeId(stored) ? stored : THEMES[0];
 }
 
 /** Add (or drop) the instance stylesheet link for VELLUM_DATA/custom.css.
@@ -430,8 +457,12 @@ function readReading(): boolean {
   return localStorage.getItem(READING_KEY) === "true";
 }
 
-function applyTheme(theme: Theme): void {
-  document.documentElement.setAttribute("data-theme", theme);
+/** One writer for both theme attributes — see client/design/customThemes.ts.
+ *  A built-in sets `data-theme` alone; a custom theme sets `data-theme` to its
+ *  BASE and `data-custom-theme` to itself, so the generated override sheet
+ *  wins on specificity and every untouched token still comes from tokens.css. */
+function applyTheme(theme: ThemeChoice): void {
+  applyThemeChoice(theme);
 }
 
 /** Apply the chrome language to the document: <html dir/lang> drive the CSS
@@ -663,6 +694,7 @@ export const useStore = create<State>()((set, get) => {
     previewVisitor: false,
 
     publicLayout: "app",
+    designNotice: null,
     tagline: null,
     shareButtons: false,
     footerLine: null,
@@ -743,7 +775,9 @@ export const useStore = create<State>()((set, get) => {
           publishedCounts: me.published ?? null,
           siteName: me.siteName?.trim() || "Vellum",
           language,
-          publicLayout: me.publicLayout === "blog" ? "blog" : "app",
+          publicLayout:
+            me.publicLayout === "blog" || me.publicLayout === "designed" ? me.publicLayout : "app",
+          designNotice: me.designNotice ?? null,
           tagline: me.tagline?.trim() || null,
           shareButtons: me.shareButtons === true,
           footerLine: me.footer?.trim() || null,
@@ -760,12 +794,39 @@ export const useStore = create<State>()((set, get) => {
         // also every sign-in, sign-out and preview toggle. Failures are silent:
         // an unlabelled chip renders its canonical tag, which is correct.
         void loadTagLabels();
+        // Custom themes: link (or drop) the generated override stylesheet and
+        // refresh the registry when its signature moved. Awaited because
+        // everything under it — the stored choice, DEFAULT_THEME — is only
+        // answerable once the registry knows which custom themes exist.
+        await syncCustomThemes(typeof me.customThemes === "string" ? me.customThemes : null);
+        // A stored `custom:` choice whose theme is gone (deleted on another
+        // device, or on an instance whose designs.json was replaced) falls
+        // back to the site default rather than painting its base and claiming
+        // to be something else. Boot accepted it on SHAPE; this is where it
+        // meets the registry.
+        const stored = localStorage.getItem(THEME_KEY);
+        if (stored !== null && !isKnownThemeChoice(stored)) {
+          localStorage.removeItem(THEME_KEY);
+          const fallback = isKnownThemeChoice(me.defaultTheme) ? me.defaultTheme : THEMES[0];
+          applyTheme(fallback);
+          set({ theme: fallback });
+        }
         // DEFAULT_THEME applies only while the user has made no explicit
         // choice (nothing in localStorage) — and is deliberately NOT
-        // persisted, so a changed server default keeps reaching them.
-        if (!localStorage.getItem(THEME_KEY) && isTheme(me.defaultTheme) && me.defaultTheme !== get().theme) {
+        // persisted, so a changed server default keeps reaching them. It may
+        // now name a custom theme, which is the whole "selectable everywhere a
+        // built-in is" promise reaching its last surface.
+        if (
+          !localStorage.getItem(THEME_KEY) &&
+          isKnownThemeChoice(me.defaultTheme) &&
+          me.defaultTheme !== get().theme
+        ) {
           applyTheme(me.defaultTheme);
           set({ theme: me.defaultTheme });
+        } else if (isKnownThemeChoice(get().theme)) {
+          // The registry may have arrived AFTER boot painted the base alone —
+          // re-apply so a custom theme's overrides land without a reload.
+          applyTheme(get().theme);
         }
         // Fonts before custom.css: ensureSiteFonts inserts itself ahead of the
         // custom.css link, and on first load that link does not exist yet.

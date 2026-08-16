@@ -90,7 +90,27 @@ export interface MeData {
   // Blog mode (PUBLIC_LAYOUT=blog): visitors get a classic blog shell instead
   // of the app chrome; admin sessions keep the full app. Fields below are
   // present only when blog mode is on.
-  publicLayout?: "app" | "blog"; // PUBLIC_LAYOUT (absent = "app")
+  /** PUBLIC_LAYOUT (absent = "app"). "designed" is the site design engine:
+   *  the visitor shell is composed from VELLUM_DATA/designs.json instead of
+   *  the stock blog components. The server only ever SENDS "designed" when a
+   *  design is actually renderable — an empty store, a corrupt file or a
+   *  quarantined document all answer "blog", so a visitor's first byte is the
+   *  pristine base and nothing has to fall back in the browser. */
+  publicLayout?: "app" | "blog" | "designed";
+  /** Signature of the ACTIVE design (id + updatedMs), present only in
+   *  "designed" mode. Its value changes whenever the design does, which is
+   *  what lets the client refetch instead of re-rendering yesterday's layout
+   *  after a save. */
+  design?: string;
+  /** Signature of this instance's custom themes; present makes the client
+   *  link /api/design/themes.css, and the value is that link's ?v=. Same
+   *  contract as `fonts` above, and sent to every session for the same
+   *  reason — a custom theme is the public site's own colour. */
+  customThemes?: string;
+  /** Why the designed site could not be served, for an ADMIN session only.
+   *  Visitors get the stock blog and no explanation, which is the whole
+   *  point; the owner gets a sentence naming the design and the reason. */
+  designNotice?: { reason: string; design?: string; detail?: string };
   tagline?: string;    // SITE_TAGLINE — masthead subtitle
   footer?: string;     // SITE_FOOTER resolved (default "© <year> <SITE_NAME>")
   blogLocale?: string; // BLOG_LOCALE — BCP47 tag the client uses for date formatting (default "en")
@@ -137,6 +157,15 @@ export interface PostMeta {
   commentCount?: number;
 }
 
+/** A STATIC PAGE: an ordinary published note carrying `page: true` in its
+ *  frontmatter. It has no separate store and no separate URL space — it is a
+ *  note that the designed site lays out as a page (title + prose) instead of
+ *  as an article (date, reading time, tags, related, comments). */
+export interface PageMeta {
+  path: string;  // vault-relative note path
+  title: string; // basename without .md, bidi controls stripped
+}
+
 // Instance settings (VELLUM_DATA/settings.json) — admin-editable at runtime,
 // unlike the env-driven site config. GET /api/settings (admin) →
 // SettingsResponse, PATCH /api/settings (admin) body = partial SettingsData
@@ -170,8 +199,10 @@ export interface SettingsData {
    *  One of the fifteen ids in `shared/themes.ts` — the list both the client's
    *  picker and the server's validator read, so they cannot drift. */
   defaultTheme?: string;
-  /** Visitor-facing layout (overrides PUBLIC_LAYOUT). */
-  publicLayout?: "app" | "blog";
+  /** Visitor-facing layout (overrides PUBLIC_LAYOUT). "designed" renders the
+   *  active design in VELLUM_DATA/designs.json; the stock blog stays exactly
+   *  where it is, so switching back is a rescue rather than a migration. */
+  publicLayout?: "app" | "blog" | "designed";
   /** Chrome language (overrides SITE_LANG): "ar" localizes all chrome
    *  strings to Arabic and mirrors the UI right-to-left. */
   language?: "en" | "ar";
@@ -288,7 +319,7 @@ export interface EffectiveSettings {
   tagline: string | null;
   footer: string | null;          // raw template (may contain {year}/{siteName})
   defaultTheme: string | null;
-  publicLayout: "app" | "blog";
+  publicLayout: "app" | "blog" | "designed";
   blogLocale: string;
   language: "en" | "ar";
   languageFilter: boolean;
@@ -332,7 +363,7 @@ export interface SettingsPatch {
   tagline?: string | null;
   footer?: string | null;
   defaultTheme?: string | null;
-  publicLayout?: "app" | "blog" | null;
+  publicLayout?: "app" | "blog" | "designed" | null;
   language?: "en" | "ar" | null;
   languageFilter?: boolean | null;
   languageToggle?: boolean | null;

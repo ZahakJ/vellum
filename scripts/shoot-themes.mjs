@@ -75,7 +75,12 @@ await page.waitForTimeout(500);
 // The picker, open, in a dark theme and in a light one — from the status bar's
 // own control when it opens it, else from the settings Appearance tab.
 const openPicker = async () => {
-  const themeBtn = page.locator(".s-statusbar__theme");
+  // `.s-statusbar__theme` never existed — the status bar's control is a plain
+  // `.s-statusbar__btn` — so this branch never fired and every run fell through
+  // to the settings route, where `getByRole("button", {name: /Themes/})`
+  // resolved to THIS button sitting behind the settings overlay and timed out
+  // after 30s. Scoping the role query to the bar finds the real control.
+  const themeBtn = page.locator(".s-statusbar").getByRole("button", { name: /Themes|السمات/ });
   if (await themeBtn.count()) {
     await themeBtn.first().click();
     await page.waitForTimeout(400);
