@@ -45,6 +45,7 @@ import type { PageMeta } from "../../../shared/types.ts";
 import { getTags, patchSettings } from "../../api.ts";
 import { collectNotes } from "../../editor/links.ts";
 import { countPhrase, localeNum, t, tf, type I18nKey } from "../../i18n.ts";
+import { shortcutKey } from "../../keys.ts";
 import { notePathToUrl } from "../../router.ts";
 import { useStore } from "../../state.ts";
 import { toast } from "../../toast.ts";
@@ -734,7 +735,11 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
   // before it exists.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key.toLowerCase() !== "s" || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      // `shortcutKey`, not `e.key`: on an Arabic keyboard the physical S key
+      // types "س" and this panel's save was as dead as everything else — see
+      // client/keys.ts.
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      if (shortcutKey(e) !== "s") return;
       e.preventDefault();
       if (dirty && !busy) save();
     };

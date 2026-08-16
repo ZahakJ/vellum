@@ -27,6 +27,7 @@
     "check-bundle": "node scripts/check-bundle.mjs",
     "check-hovercache": "node scripts/check-hovercache.mjs",
     "check-designer-nav": "node scripts/check-designer-nav.mjs",
+    "check-layouts": "node scripts/check-layouts.mjs",
     "test": "node --test \"tests/*.test.ts\""
   },
   "dependencies": {

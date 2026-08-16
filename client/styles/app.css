@@ -3465,6 +3465,27 @@ select:focus,
   font-size: 0.786rem;
 }
 
+/* WHAT THAT KEY TYPES ON THIS KEYBOARD. Present only on a layout that types
+   none of the sheet's Latin letters (Arabic, Persian, Russian, Greek, Hebrew):
+   the <kbd> names the POSITION and this names the character — "P ح". Quiet,
+   because it is a gloss on the keycap, not a second keystroke, and `dir="auto"`
+   on the element so an Arabic gloss sits the right way round inside an
+   otherwise-LTR key group. */
+.s-shortcuts__typed {
+  font-size: 0.786rem;
+  color: var(--text-muted);
+  min-width: 1.1rem;
+  text-align: center;
+}
+
+/* The one-line explanation above the list, shown under the same condition. */
+.s-shortcuts__layout {
+  margin: 8px 10px 0;
+  font-size: 0.786rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 /* A row with no keystroke still belongs in the list — it names the surface
    that carries the action instead ("Command palette", "Status bar"). */
 .s-shortcuts__via {
