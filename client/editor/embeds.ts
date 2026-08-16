@@ -13,6 +13,12 @@ export interface EmbedParts {
   alias: string | null;
   width: number | null; // parsed from a numeric alias like |300
   kind: "image" | "file" | "note";
+  /** The `#…` suffix, kept rather than only stripped. A transclusion that
+   *  names an anchor pulls in JUST that block — `![[Paper#eq:fourier]]` is one
+   *  equation, rendered by KaTeX, inside a markdown note — and the anchor may
+   *  be a markdown heading or a LaTeX `\label`, because they are the same kind
+   *  of thing (shared/anchors.ts). null when the embed names none. */
+  anchor: string | null;
 }
 
 /** Split the inner text of a ![[...]] embed. */
@@ -20,8 +26,10 @@ export function parseEmbed(inner: string): EmbedParts {
   const pipe = inner.indexOf("|");
   const alias = pipe >= 0 ? inner.slice(pipe + 1).trim() : null;
   let target = (pipe >= 0 ? inner.slice(0, pipe) : inner).trim();
-  // strip #heading / #^block suffix for resolution
+  // strip #heading / #^block suffix for resolution — but keep it: the anchor
+  // is what makes a partial transclusion possible.
   const hash = target.indexOf("#");
+  const anchor = hash > 0 ? target.slice(hash + 1).trim() || null : null;
   if (hash > 0) target = target.slice(0, hash).trim();
   const width = alias && /^\d{2,4}$/.test(alias) ? parseInt(alias, 10) : null;
   const kind = IMAGE_EXT.test(target)
@@ -29,7 +37,7 @@ export function parseEmbed(inner: string): EmbedParts {
     : ATTACHMENT_EXT.test(target)
       ? "file"
       : "note";
-  return { target, alias, width, kind };
+  return { target, alias, width, kind, anchor };
 }
 
 export function fileUrl(path: string): string {

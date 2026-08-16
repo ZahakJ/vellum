@@ -36,9 +36,12 @@ const SELF_SAVE_WINDOW_MS = 1500;
 /** How long zen's ✕ lingers before fading out (any mouse move brings it back). */
 const ZEN_HINT_MS = 2000;
 
-/** macOS binds Ctrl+B to emacs-style "char left" inside CodeMirror and reads
- *  Cmd as the app modifier — so plain Ctrl+B there belongs to the editor. */
-const IS_MAC = /Mac|iP(hone|ad|od)/.test(navigator.platform);
+// macOS binds Ctrl+B to emacs-style "char left" inside CodeMirror, and this
+// file used to carry an IS_MAC test so the editor could keep it. The test is
+// gone with the shortcut: Ctrl/Cmd+B is now the EDITOR's (bold), so the
+// question "may the editor have this key" no longer has a platform answer —
+// CodeMirror's own precedence decides, and plain Ctrl+B on macOS still reaches
+// the emacs binding underneath `formatKeymap`'s Mod-b.
 
 // The CodeMirror editor is the heaviest part of the client and anonymous
 // visitors (reading view only) never need it — load it on demand so the
@@ -361,6 +364,10 @@ export default function App() {
       }
       if (!(e.metaKey || e.ctrlKey)) return;
       const key = e.key.toLowerCase();
+      // The pane toggles carry Alt now, and Alt rewrites `key` on several
+      // platforms (macOS Option+B is "∫"), so they are matched on the
+      // PHYSICAL key as well. `key` alone still answers everything else.
+      const bKey = key === "b" || (e.altKey && e.code === "KeyB");
       // Ctrl/Cmd+/ — the list of every binding, including this one. Handled
       // ahead of the modal guard so it opens (and closes) from anywhere.
       if (key === "/" || key === "?") {
@@ -380,13 +387,24 @@ export default function App() {
       // branch below, read from the store because this listener never re-binds.
       const blogShell =
         store.authReady && !store.admin && store.publicLayout === "blog";
-      // Ctrl/Cmd+P, +K and +B are ALWAYS ours IN THE APP SHELL — swallowed
-      // before any early return so the browser's print dialog / address-bar
-      // search / bookmarks bar can never fire, modal open or not, and
-      // regardless of what CM does downstream. (Ctrl+Shift+B is Chrome's
-      // bookmark bar, plain Ctrl+B is Firefox's bookmarks sidebar: both have
-      // to die here.)
-      if (key === "k" || (!blogShell && (key === "p" || key === "b"))) e.preventDefault();
+      // Ctrl/Cmd+P and +K are ALWAYS ours IN THE APP SHELL — swallowed before
+      // any early return so the browser's print dialog / address-bar search
+      // can never fire, modal open or not, and regardless of what CM does
+      // downstream.
+      //
+      // +B IS THE EXCEPTION, AND preventDefault IS WHY. CodeMirror's whole
+      // keydown pipeline begins `if (event.defaultPrevented) break` — so a
+      // capture-phase preventDefault here does not merely stop the browser,
+      // it stops the EDITOR, and Ctrl/Cmd+B is now the editor's (bold). It
+      // was swallowed unconditionally while it folded a pane, and left that
+      // way it made the new binding silently dead: measured, Ctrl+I bolded
+      // nothing and Ctrl+B did nothing at all. So outside the editor it still
+      // dies here — Firefox's bookmarks sidebar (Ctrl+B) and Chrome's bookmark
+      // bar (Ctrl+Shift+B) must never open over the app — and inside it, the
+      // formatting keymap's own `preventDefault: true` does the same job one
+      // layer down, where it can also let vim's Ctrl+B through.
+      if (key === "k" || (!blogShell && key === "p")) e.preventDefault();
+      if (bKey && !blogShell && !inEditor(e.target)) e.preventDefault();
       // A modal dialog owns the keyboard: app-level shortcuts firing behind
       // the login/banner/moderation/confirm overlays would steal focus (e.g.
       // Ctrl+K focusing the sidebar search under the modal) or stack modals.
@@ -422,20 +440,28 @@ export default function App() {
         e.preventDefault();
         store.toggleReading();
         if (store.view === "graph") store.setView("editor");
-      } else if (key === "b" && e.shiftKey) {
-        // Ctrl/Cmd+Shift+B — the right panel. Nothing in CM or vim wants it,
-        // so it is unconditionally ours (and already preventDefault-ed above,
-        // which is what keeps Chrome's bookmark bar out of the layout).
+      } else if (bKey && e.altKey && !e.getModifierState("AltGraph")) {
+        // THE PANE TOGGLES WEAR ONE MORE MODIFIER THAN THEY USED TO.
+        // Ctrl/Cmd+B was the notes sidebar and Ctrl/Cmd+Shift+B the outline
+        // pane; Ctrl/Cmd+B is now BOLD, because that is the binding every
+        // reader arrives with and formatting wins inside the editor
+        // (client/editor/commands.ts). The pair kept its shape — one key,
+        // Shift picks the second pane — and moved out to Alt, so the only
+        // thing to re-learn is "add Alt". The status-bar tooltips, the two
+        // palette rows and the Ctrl/Cmd+/ sheet all print the new numbers.
+        // AltGraph is excluded: on several European layouts Right-Alt reports
+        // ctrl+alt, and a reader typing a bracket must not fold a pane.
+        e.preventDefault();
         e.stopPropagation();
-        store.setPanelCollapsed(!store.panelCollapsed);
-      } else if (key === "b") {
-        // Ctrl/Cmd+B — the sidebar. Same shape as the Ctrl+D rule below: the
-        // editor keeps plain Ctrl+B where the platform gave it a meaning
-        // (vim's page-up; macOS's emacs-style char-left), and Cmd+B toggles
-        // the sidebar from inside the editor on those setups.
-        if (!e.metaKey && inEditor(e.target) && (store.vimMode || IS_MAC)) return;
-        e.stopPropagation();
-        store.toggleSidebar();
+        if (e.shiftKey) store.setPanelCollapsed(!store.panelCollapsed);
+        else store.toggleSidebar();
+      } else if (bKey) {
+        // Plain Ctrl/Cmd+B (and +Shift+B) are swallowed above — Firefox's
+        // bookmarks sidebar and Chrome's bookmark bar must never open over the
+        // app — and then handed on: inside the editor CodeMirror's formatting
+        // keymap answers them, and outside it nothing does. Deliberately
+        // nothing: a key that folds a pane in one half of the window and bolds
+        // a word in the other is a key nobody can describe.
       } else if (key === "z" && e.shiftKey) {
         // Ctrl/Cmd+Shift+Z — zen. On macOS this is ALSO CodeMirror's only
         // redo binding (redo is Mod-y elsewhere), so the editor keeps Cmd+

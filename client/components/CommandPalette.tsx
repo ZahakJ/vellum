@@ -11,11 +11,17 @@ import type {
   ReactNode,
 } from "react";
 import { useStore } from "../state.ts";
+import {
+  selectionToolbarEnabled,
+  setSelectionToolbarEnabled,
+} from "./SelectionMenu.tsx";
 import type { Theme } from "../state.ts";
 import { search } from "../api.ts";
 import { dailyNotePath, openDailyNote } from "../daily.ts";
 import { t, tf, type I18nKey } from "../i18n.ts";
+import { isNotePath, stripNoteExt } from "../../shared/noteFormat.ts";
 import { confirmModal, confirmModalEx } from "./Confirm.tsx";
+import { moveViaPicker } from "./MovePicker.tsx";
 import { runSyncNow, syncSnapshot } from "../sync.ts";
 import { toast } from "../toast.ts";
 import type { SearchHit } from "../../shared/types.ts";
@@ -72,7 +78,7 @@ function highlight(text: string, indices: number[]): ReactNode {
 
 function titleOf(path: string): string {
   const base = path.split("/").pop() ?? path;
-  return base.replace(/\.md$/i, "");
+  return stripNoteExt(base);
 }
 
 /** Folder part of a vault path ("" for notes at the vault root). */
@@ -81,8 +87,16 @@ function folderOf(path: string): string {
   return cut === -1 ? "" : path.slice(0, cut);
 }
 
+/** A typed name → a note path. An extension the reader supplied is KEPT —
+ *  typing "Paper.tex" must create a LaTeX note, not "Paper.tex.md" — and
+ *  anything else gets `.md`, which is what "new note" has always meant. */
 function ensureMd(path: string): string {
-  return /\.md$/i.test(path) ? path : `${path}.md`;
+  return isNotePath(path) ? path : `${path}.md`;
+}
+
+/** The same, defaulting to LaTeX: the "New LaTeX note" command's ending. */
+function ensureTex(path: string): string {
+  return isNotePath(path) ? path : `${path}.tex`;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +138,24 @@ const COMMANDS: Command[] = [
     hint: () => t("cmdCreateHint"),
     prompt: { placeholder: "path/to/note.md", initial: () => "" },
     available: ({ admin }) => admin,
+  },
+  {
+    // LaTeX is a first-class note format, not an import path, so creating one
+    // belongs beside "New note" rather than behind a rename.
+    id: "new-tex-note",
+    label: () => t("newTexNote"),
+    hint: () => t("cmdCreateHint"),
+    prompt: { placeholder: "path/to/paper.tex", initial: () => "" },
+    available: ({ admin }) => admin,
+  },
+  {
+    // The macro package a `.tex` note needs to compile OUTSIDE Vellum. It is
+    // the promise the whole `\note{…}` syntax rests on, and a promise nobody
+    // can find is not one — so it sits in the palette, one search away.
+    id: "vellum-sty",
+    label: () => t("cmdCopyVellumSty"),
+    hint: () => t("cmdCopyVellumStyHint"),
+    available: () => true,
   },
   {
     id: "daily-note",
@@ -174,14 +206,24 @@ const COMMANDS: Command[] = [
   {
     id: "toggle-sidebar",
     label: () => t("cmdTogglePaneNotes"),
-    hint: () => "Ctrl/Cmd B",
+    hint: () => "Ctrl/Cmd Alt B",
     available: () => true,
   },
   {
     id: "toggle-panel",
     label: () => t("cmdTogglePaneOutline"),
-    hint: () => "Ctrl/Cmd Shift B",
+    hint: () => "Ctrl/Cmd Alt Shift B",
     available: () => true,
+  },
+  // The floating formatting toolbar's only way BACK. It defaults on and the
+  // selection menu's last row turns it off, so without this row the switch
+  // would be one-way — the classic trap of a hidden default-on affordance.
+  // Admin only: it acts on the editor, which a read-only session never mounts.
+  {
+    id: "toggle-selection-toolbar",
+    label: () => t("cmdSelectionToolbar"),
+    hint: () => t("cmdSelectionToolbarHint"),
+    available: () => useStore.getState().admin,
   },
   // Three commands, not one toggle. The old single command named the edge you
   // were NOT on, which made the third state — "follow the language" — both
@@ -252,6 +294,17 @@ const COMMANDS: Command[] = [
       placeholder: "new/path.md",
       initial: () => useStore.getState().openPath ?? "",
     },
+    available: ({ openPath, admin }) => admin && openPath !== null,
+  },
+  {
+    // The palette's half of drag-and-drop. `rename-current` above can also
+    // move a note — it takes a whole path — but typing "Zombies/Cache
+    // Locality.md" from memory is not the same affordance as picking a folder
+    // from a filtered list, and a reader who cannot drag (touch, keyboard) needs
+    // the second one. It opens exactly the picker the tree's row menu opens.
+    id: "move-current",
+    label: () => t("cmdMoveCurrent"),
+    hint: () => t("cmdMoveFolderHint"),
     available: ({ openPath, admin }) => admin && openPath !== null,
   },
   {
@@ -532,6 +585,9 @@ export default function CommandPalette() {
         case "toggle-panel":
           store.setPanelCollapsed(!store.panelCollapsed);
           break;
+        case "toggle-selection-toolbar":
+          setSelectionToolbarEnabled(!selectionToolbarEnabled());
+          break;
         case "sidebar-side-auto":
           store.setSidebarSidePref("auto");
           break;
@@ -540,6 +596,16 @@ export default function CommandPalette() {
           break;
         case "sidebar-side-right":
           store.setSidebarSidePref("right");
+          break;
+        case "move-current":
+          if (store.openPath) {
+            const path = store.openPath;
+            void moveViaPicker({
+              path,
+              name: path.slice(path.lastIndexOf("/") + 1),
+              isFolder: false,
+            });
+          }
           break;
         case "delete-current":
           if (store.openPath) {
@@ -609,6 +675,9 @@ export default function CommandPalette() {
         case "sign-in":
           store.setLoginOpen(true);
           break;
+        case "vellum-sty":
+          window.open("/api/vellum.sty", "_blank", "noopener");
+          break;
         case "sign-out":
           void store.logout();
           break;
@@ -623,8 +692,8 @@ export default function CommandPalette() {
     const value = query.trim();
     if (!command || !value) return;
     const store = useStore.getState();
-    if (command.id === "new-note") {
-      const path = ensureMd(value);
+    if (command.id === "new-note" || command.id === "new-tex-note") {
+      const path = command.id === "new-tex-note" ? ensureTex(value) : ensureMd(value);
       store
         .createNote(path)
         .then(() => store.openNote(path))
@@ -803,7 +872,7 @@ export default function CommandPalette() {
                           <span className="s-palette-item-hint">
                             {/* Hints are a mixed bag — localized words
                                 ("appearance" / «المظهر»), keystrokes
-                                ("Ctrl/Cmd Shift B") and a real vault path
+                                ("Ctrl/Cmd Alt Shift B") and a real vault path
                                 (the daily note's). The last two are Latin
                                 runs with weak leading characters, so each
                                 hint isolates itself rather than reordering

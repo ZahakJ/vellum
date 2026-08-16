@@ -45,8 +45,13 @@ import { getNote } from "../api.ts";
 import { t } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { renderMarkdown } from "../reading/render.ts";
+import { renderNoteContent } from "../reading/renderNote.ts";
+import { texPreviewSource } from "../reading/texRender.ts";
+import { isTexPath, noteTitleOf, stripNoteExt } from "../../shared/noteFormat.ts";
+import { unescapeTex } from "../../shared/tex.ts";
 import { findHeadingLine, parseWikilink, resolveLink, WIKILINK_RE } from "./links.ts";
-import { notePathFacet, posFromEvent, posFromPoint } from "./livePreview.ts";
+import { notePathFacet } from "./livePreview.ts";
+import { posFromEvent, posFromPoint } from "./pointer.ts";
 
 const FOOTNOTE_RE = /\[\^([^\]\s]+)\]/g;
 
@@ -144,9 +149,7 @@ function noteTooltip(
     end: to,
     above: true,
     create: () => {
-      const title = path
-        ? (path.split("/").pop() ?? path).replace(/\.md$/i, "")
-        : target;
+      const title = path ? noteTitleOf(path) : target;
       const { dom, body } = card(title);
       keepReachable(dom, view);
       if (!path) {
@@ -160,10 +163,15 @@ function noteTooltip(
           body.textContent = t("noteLoadFailed");
           return;
         }
-        const md = excerpt(content, heading, title);
+        // A LaTeX document does not survive a line slice — a cut between
+        // \begin{figure} and its \caption is a different document — so it
+        // gets its own paragraph-boundary preview.
+        const md = isTexPath(path)
+          ? texPreviewSource(content, heading)
+          : excerpt(content, heading, title);
         body.replaceChildren(
           md
-            ? renderMarkdown(md, {
+            ? renderNoteContent(md, {
                 notePath: path,
                 tree: useStore.getState().tree,
                 embedded: true,
@@ -225,9 +233,29 @@ function footnoteTooltip(
   };
 }
 
+/** `\note{Target}` / `\note[shown]{Target}` — the LaTeX spelling of a
+ *  wikilink, so it earns the same hover card. `%% [[Target]] %%` needs nothing
+ *  here: it IS a wikilink, and the pass below already matches it. */
+const TEX_NOTE_RE = /\\note(?:\[[^\]]*\])?\{([^{}]*)\}/g;
+
 function source(view: EditorView, pos: number): Tooltip | null {
   const line = view.state.doc.lineAt(pos);
   const text = line.text;
+
+  if (isTexPath(view.state.facet(notePathFacet))) {
+    TEX_NOTE_RE.lastIndex = 0;
+    for (let m = TEX_NOTE_RE.exec(text); m; m = TEX_NOTE_RE.exec(text)) {
+      const from = line.from + m.index;
+      const to = from + m[0].length;
+      if (pos < from || pos >= to) continue;
+      const raw = unescapeTex(m[1]);
+      const hash = raw.indexOf("#");
+      const target = (hash >= 0 ? raw.slice(0, hash) : raw).trim();
+      const anchor = hash >= 0 ? raw.slice(hash + 1).trim() : null;
+      if (!target) return null;
+      return noteTooltip(view, from, to, target, anchor);
+    }
+  }
 
   WIKILINK_RE.lastIndex = 0;
   for (let m = WIKILINK_RE.exec(text); m; m = WIKILINK_RE.exec(text)) {
@@ -240,7 +268,7 @@ function source(view: EditorView, pos: number): Tooltip | null {
     if (!target && heading) {
       // [[#Heading]] — same note; preview from that heading.
       const hostPath = view.state.facet(notePathFacet);
-      return noteTooltip(view, from, to, hostPath.replace(/\.md$/i, ""), heading);
+      return noteTooltip(view, from, to, stripNoteExt(hostPath), heading);
     }
     return noteTooltip(view, from, to, target, heading);
   }

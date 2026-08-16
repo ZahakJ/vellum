@@ -64,7 +64,7 @@ function groupBacklinks(backlinks: Backlink[]): BacklinkGroup[] {
 // between 1000 and 1354 it was taking the difference straight out of the
 // measure, which is how 1024 ended up with a 319px reading ribbon — narrower
 // than the same vault gets on a 390px phone. The pane is one click (or
-// Ctrl/Cmd+Shift+B) away at any width, and a click IS a preference: it
+// Ctrl/Cmd+Alt+Shift+B) away at any width, and a click IS a preference: it
 // persists, and the auto-collapse never overrides it.
 const NARROW_QUERY = "(max-width: 1360px)";
 
@@ -73,14 +73,14 @@ export default function BacklinksPanel() {
   const openPath = useStore((s) => s.openPath);
   const openNote = useStore((s) => s.openNote);
   useStore((s) => s.language); // re-render the chrome strings on language change
-  // Collapse lives in the store now: Ctrl/Cmd+Shift+B and the palette toggle
+  // Collapse lives in the store now: Ctrl/Cmd+Alt+Shift+B and the palette toggle
   // the same flag this header button does, and it persists across reloads.
   const collapsed = useStore((s) => s.panelCollapsed);
   const setCollapsed = useStore((s) => s.setPanelCollapsed);
   const zen = useStore((s) => s.zen);
   // A deliberate open/close wins over the responsive auto-collapse. "Deliberate"
   // is exactly "persisted": every real toggle (this header button, the reopen
-  // handle, Ctrl/Cmd+Shift+B, the palette) writes the flag, and the auto-
+  // handle, Ctrl/Cmd+Alt+Shift+B, the palette) writes the flag, and the auto-
   // collapse never does — so the stored key IS the "the reader has decided"
   // bit, and it carries across sessions for free.
   useEffect(() => {

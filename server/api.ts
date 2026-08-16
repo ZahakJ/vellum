@@ -9,8 +9,10 @@ import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { stripBidiControls } from "../shared/bidi.ts";
+import { isNotePath, isTexPath, stripNoteExt } from "../shared/noteFormat.ts";
 import { UPLOAD_MAX_BYTES } from "../shared/limits.ts";
 import type {
+  AnchorsResponse,
   CommentData,
   FrontmatterResult,
   NoteData,
@@ -19,6 +21,7 @@ import type {
   TreeNode,
   UploadResult,
   VaultEvent,
+  XrefResponse,
 } from "../shared/types.ts";
 import { authGuard, authRoutes, clientIp, isProtected, isPublishLimited } from "./auth.ts";
 import {
@@ -43,11 +46,15 @@ import {
   isNotePublished,
   isNoteVisibleToVisitor,
   listImageAttachments,
+  noteAnchors,
+  notesAffectedByFolderMove,
   posts,
   publishedNotes,
   publishedPaths,
   registerAttachment,
+  resolveCitekey,
   resolveEmbed,
+  resolveLabel,
   search,
   tags,
   visibleNotesUnder,
@@ -55,7 +62,9 @@ import {
   wikilinkRegex,
 } from "./indexer.ts";
 import { gitStatus, initRepo, syncNow } from "./gitSync.ts";
-import { setFrontmatterLine, setPublishFlag, yamlQuote } from "./publish.ts";
+import { dirOf, rewriteDestinations, rewriteForMove } from "./moveLinks.ts";
+import { yamlQuote } from "./publish.ts";
+import { setNoteFrontmatterLine, setNotePublishFlag } from "./noteFrontmatter.ts";
 import {
   buildFaceListCss,
   buildFontCss,
@@ -94,6 +103,7 @@ import {
   deleteNote,
   emitEvent,
   getVaultRoot,
+  moveFolder,
   noteExists,
   normalizeRel,
   onEvent,
@@ -489,6 +499,11 @@ api.delete("/note", async (c) => {
   const notePath = requiredQuery(c.req.query("path"), "path");
   const permanent = TRUTHY_QUERY.has((c.req.query("permanent") ?? "").toLowerCase());
   const result = await deleteNote(notePath, { permanent });
+  // Await the index the way DELETE /api/folder does: the client refetches
+  // /api/tree, /api/graph and the published count on this 200, and a note that
+  // is still in the index when they answer is a note the reader sees a second
+  // time in their own search results.
+  await whenIndexed();
   return c.json({ ok: true, ...result });
 });
 
@@ -496,6 +511,20 @@ api.post("/folder", async (c) => {
   const body = await jsonBody(c);
   await createFolder(requiredString(body, "path"));
   return c.json({ ok: true });
+});
+
+// Move a folder and everything under it to a new vault-relative path — the
+// server half of dragging a folder onto another folder in the tree. Same
+// `{ path, toPath }` body as /api/rename, because to the reader dragging a note
+// and dragging a folder are one gesture. Admin-only (the auth guard 401s every
+// non-GET, preview sessions included), and every refusal — into its own
+// descendant, onto an existing name, a symlinked folder — happens before a byte
+// moves. See moveFolderWithLinkRewrite for the ordering.
+api.post("/folder/move", async (c) => {
+  const body = await jsonBody(c);
+  const from = requiredString(body, "path");
+  const to = requiredString(body, "toPath");
+  return c.json(await moveFolderWithLinkRewrite(from, to));
 });
 
 // Delete a folder and everything under it. Default is Obsidian's safe move to
@@ -523,7 +552,9 @@ api.post("/publish", async (c) => {
     throw new VaultError(400, 'Body field "publish" must be a boolean');
   }
   const note = await readNote(notePath);
-  const updated = setPublishFlag(note.content, body.publish);
+  // Format-aware: markdown gets its `---` YAML line, LaTeX its `%---%` comment
+  // block. Same surgical contract either way — every other byte is preserved.
+  const updated = setNotePublishFlag(note.path, note.content, body.publish);
   if (updated !== note.content) {
     // The synthetic event below is the whole story — swallow the watcher's
     // redundant echo of this write so listeners don't see the toggle twice.
@@ -566,7 +597,7 @@ api.post("/frontmatter", async (c) => {
   }
   const note = await readNote(notePath);
   const line = value === null ? null : `${key}: ${yamlQuote(value)}`;
-  const updated = setFrontmatterLine(note.content, key, line);
+  const updated = setNoteFrontmatterLine(note.path, note.content, key, line);
   if (updated !== note.content) {
     suppressWatcherEcho(note.path);
     await writeNote(note.path, updated);
@@ -583,6 +614,69 @@ api.get("/resolve", (c) => {
   // answer 200 { path: null } instead of 404 so every visit to a note with
   // broken embeds doesn't spray red network errors across the console.
   return c.json({ path: resolveEmbed(name, isPublishLimited(c)) });
+});
+
+// ------------------------------------------------ anchors & cross-references
+//
+// One anchor space: a markdown heading and a LaTeX \label are the same kind of
+// thing, so these two routes serve `[[Note#anchor]]`, `\ref{Note#anchor}`,
+// `![[Paper#eq:fourier]]` and the `#` half of wikilink autocomplete without
+// any of them knowing the target's format.
+
+api.get("/anchors", (c) => {
+  const notePath = normalizeRel(requiredQuery(c.req.query("path"), "path"));
+  // Same gate /api/note applies: a visitor may read a published note, so a
+  // visitor may read where its anchors are. Nothing else.
+  if (isPublishLimited(c) && !isNotePublished(notePath)) {
+    throw new VaultError(404, `Note not found: ${notePath}`);
+  }
+  const result: AnchorsResponse = { path: notePath, anchors: noteAnchors(notePath) };
+  return c.json(result);
+});
+
+// A `\ref{sec:method}` or `\cite{knuth1997}` that found nothing LOCAL — the
+// caller has already checked its own document, because local-first is what
+// keeps an imported project compiling the way it always did. A miss is 200
+// with nulls, like /api/resolve: unresolved cross-references are the normal
+// state of a bibliography, not an error worth painting red in a console.
+api.get("/xref", (c) => {
+  const limited = isPublishLimited(c);
+  const label = c.req.query("label");
+  const cite = c.req.query("cite");
+  if (label === undefined && cite === undefined) {
+    throw new VaultError(400, "Missing query param: label or cite");
+  }
+  const result: XrefResponse = { path: null, anchor: null };
+  if (label !== undefined && label !== "") {
+    const hit = resolveLabel(label, limited);
+    if (hit) {
+      result.path = hit.path;
+      result.anchor = hit.anchor;
+    }
+  } else if (cite !== undefined && cite !== "") {
+    result.path = resolveCitekey(cite, limited);
+  }
+  return c.json(result);
+});
+
+// The `vellum.sty` a `.tex` note needs to compile OUTSIDE Vellum. It is a
+// dozen lines and it is the whole reason `\note{…}` is an honest syntax rather
+// than a lock-in: drop this beside the document, `\usepackage{vellum}`, and
+// pdflatex renders the link as a hyperref (or as emphasis when hyperref is not
+// loaded). Served to anyone who can reach the instance — it is a constant,
+// carries nothing about the vault, and a reader who cannot download it cannot
+// compile the paper they were just shown.
+const VELLUM_STY_PATH = new URL("../assets/vellum.sty", import.meta.url).pathname;
+let vellumStyCache: string | null = null;
+
+api.get("/vellum.sty", (c) => {
+  vellumStyCache ??= readFileSync(VELLUM_STY_PATH, "utf8");
+  return c.body(vellumStyCache, 200, {
+    "Content-Type": "text/x-tex; charset=utf-8",
+    "Content-Disposition": 'inline; filename="vellum.sty"',
+    "Cache-Control": "public, max-age=3600",
+    "X-Content-Type-Options": "nosniff",
+  });
 });
 
 // ------------------------------------------------------- attachment serving
@@ -777,10 +871,28 @@ api.post("/upload", async (c) => {
   let buf = Buffer.from(await file.arrayBuffer());
   const ext = sniffImageType(buf);
   if (!ext) {
-    throw new VaultError(400, "Not a recognized image (png, jpeg, webp, gif, svg)");
+    // Named, so the client can say it in the reader's language (see the API
+    // section of CONTRACTS: the prose here is for a log and for curl).
+    throw new VaultError(400, "Not a recognized image (png, jpeg, webp, gif, svg)", "upload_not_image");
   }
   if (ext === "svg") buf = Buffer.from(sanitizeSvg(buf.toString("utf8")), "utf8");
-  const dir = attachmentsDir();
+  // Optional destination FOLDER — the sidebar's "drop a file from the desktop
+  // onto a folder row" route. Every pre-existing caller (paste in the editor,
+  // the banner picker) omits it and keeps the configured attachments dir, byte
+  // for byte. The name still goes through sanitizeBaseName + safeAbs below;
+  // this only decides which folder the loop looks for a free name in, and a
+  // path that is not an existing directory is refused here rather than turning
+  // into a stray mkdir -p somewhere the caller named.
+  const asked = typeof form.dir === "string" ? normalizeRel(form.dir) : "";
+  let dir = attachmentsDir();
+  if (asked) {
+    const dirAbs = safeAbs(asked); // 400/404: traversal, dotfiles, escaping links
+    const dirStat = await fsp.lstat(dirAbs).catch(() => null);
+    if (!dirStat?.isDirectory()) {
+      throw new VaultError(400, `Not a folder: ${asked}`, "upload_bad_dir");
+    }
+    dir = asked;
+  }
   const base = sanitizeBaseName(file.name ?? "");
   // First free filename: name.ext, name-2.ext, name-3.ext, …
   let rel = "";
@@ -840,8 +952,8 @@ function assertCommentsEnabled(): void {
 
 function commentNotePath(rel: string): string {
   const notePath = normalizeRel(rel);
-  if (!notePath.toLowerCase().endsWith(".md")) {
-    throw new VaultError(400, `Not a markdown path: ${rel}`);
+  if (!isNotePath(notePath)) {
+    throw new VaultError(400, `Not a note path: ${rel}`);
   }
   return notePath;
 }
@@ -1214,12 +1326,29 @@ async function visitorEvents(event: VaultEvent): Promise<VaultEvent[]> {
     // vault.deleteFolder emits this before the chained reindex removes the
     // records, the same before/after discipline the note branch relies on.
     // Hidden and unpublished notes are never named, so nothing leaks.
+    // A folder MOVE is the same problem wearing the other verb: the notes did
+    // not go away, they changed address, and a visitor holding the old one gets
+    // a 404 from a link the site drew itself. Fan it out the same way, into a
+    // per-note `renamed` — a published note that is hidden at its new address
+    // (the languageFilter is path-blind, but publication can be re-read) leaves
+    // as a `deleted`, so the curated collection stays honest either way.
+    if (event.kind === "renamed" && event.toPath) {
+      const dirTo = event.toPath;
+      const before = visibleNotesUnder(event.path);
+      await whenIndexed();
+      return before.map((notePath) => {
+        const next = `${dirTo}${notePath.slice(event.path.length)}`;
+        return isNoteVisibleToVisitor(next)
+          ? { kind: "renamed", path: notePath, toPath: next }
+          : { kind: "deleted", path: notePath };
+      });
+    }
     if (event.kind !== "deleted") return [];
     const gone = visibleNotesUnder(event.path);
     await whenIndexed();
     return gone.map((notePath) => ({ kind: "deleted", path: notePath }));
   }
-  if (!event.path.toLowerCase().endsWith(".md")) return []; // attachments: never
+  if (!isNotePath(event.path)) return []; // attachments: never
   const wasVisible = isNoteVisibleToVisitor(event.path);
   await whenIndexed();
   switch (event.kind) {
@@ -1276,42 +1405,188 @@ api.get("/events", (c) => {
 // ----------------------------------------------------- rename + link rewrite
 
 function basenameNoExt(relPath: string): string {
-  const base = relPath.slice(relPath.lastIndexOf("/") + 1);
-  return base.replace(/\.md$/i, "");
+  return stripNoteExt(relPath.slice(relPath.lastIndexOf("/") + 1));
 }
 
-/** Rename a note; if its title changed, rewrite [[wikilinks]] in notes that pointed at it. */
+/** Rename a note; if its title changed, rewrite [[wikilinks]] in notes that pointed at it.
+ *
+ *  This is also the MOVE endpoint — a drag in the tree and the "Move to…"
+ *  command both land here — and a move is not a rename with a different string.
+ *  Two things happen only when the FOLDER changes, and neither used to:
+ *
+ *   - **The moved note's own relative embeds.** `![alt](Media/x.png)` and
+ *     `[see](../Ideas/Note.md)` resolve against the note's OWN directory. Drag a
+ *     note one folder up and every one of them points somewhere else: the admin
+ *     sees broken images, and a published note serves 404s to visitors, because
+ *     the publish allowlist is built from the same resolution (`parseAssets()`).
+ *     Nothing in the product said so — the images simply stopped loading.
+ *   - **Other notes' markdown links TO it.** The old rewrite only knew
+ *     `[[wikilinks]]`, so `[see](Ideas/Note.md)` in another note dangled.
+ *
+ *  Basename-form `[[Note]]` links are deliberately untouched by the move half:
+ *  they resolve by name, so a move cannot break them. */
 async function renameWithLinkRewrite(from: string, to: string): Promise<void> {
-  const oldTitle = basenameNoExt(from);
-  const newTitle = basenameNoExt(to);
+  const fromPath = normalizeRel(from);
+  const toPath = normalizeRel(to);
+  const oldTitle = basenameNoExt(fromPath);
+  const newTitle = basenameNoExt(toPath);
   const titleChanged = oldTitle.toLowerCase() !== newTitle.toLowerCase();
-  const oldPathNoExt = from.replace(/\.md$/i, "").toLowerCase();
-  const newPathNoExt = to.replace(/\.md$/i, "");
+  const oldPathNoExt = stripNoteExt(fromPath).toLowerCase();
+  const newPathNoExt = stripNoteExt(toPath);
+  const moved: ReadonlyMap<string, string> = new Map([[fromPath, toPath]]);
   // Capture linkers before the rename, while links still resolve to the old
   // path. Path-form links ([[Folder/Note]]) break on ANY move, so linkers are
   // captured even when the basename is unchanged.
-  const linkers = [...new Set(backlinks(from).map((b) => b.path))];
+  const linkers = [...new Set(backlinks(fromPath).map((b) => b.path))];
 
-  await renameNote(from, to);
+  await renameNote(fromPath, toPath);
+
+  // The note's OWN body, at its new address: markdown destinations resolved
+  // against the folder it left, re-expressed from the folder it arrived in.
+  if (dirOf(fromPath) !== dirOf(toPath)) {
+    try {
+      const note: NoteData = await readNote(toPath);
+      const rewritten = rewriteDestinations(
+        note.content,
+        dirOf(fromPath),
+        dirOf(toPath),
+        new Map(),
+      );
+      if (rewritten !== note.content) {
+        // The `renamed` event already told everyone this file moved; a second
+        // `changed` for the same gesture is noise.
+        suppressWatcherEcho(toPath);
+        await writeNote(toPath, rewritten);
+      }
+    } catch (err) {
+      console.error(`move: failed to rewrite embeds in ${toPath}:`, err);
+    }
+  }
 
   for (const linker of linkers) {
+    // A note never links to itself, but if it somehow did it now lives at `to`.
+    const at = linker === fromPath ? toPath : linker;
     try {
-      const note: NoteData = await readNote(linker);
-      const rewritten = note.content.replace(wikilinkRegex(), (whole, target: string, heading?: string, alias?: string) => {
+      const note: NoteData = await readNote(at);
+      let rewritten = note.content.replace(wikilinkRegex(), (whole, target: string, heading?: string, alias?: string) => {
         const t = target.trim();
         if (titleChanged && t.toLowerCase() === oldTitle.toLowerCase()) {
           return `[[${newTitle}${heading ?? ""}${alias ?? ""}]]`;
         }
         // Path-form target pointing at the old path → rewrite to the new path.
+        // PATH-form only: a bare `[[Solo]]` resolves by basename and survives a
+        // move untouched, and for a note at the vault ROOT its path spelling IS
+        // its basename — so without this guard, moving one root note into a
+        // folder rewrote every plain `[[Solo]]` in the vault into
+        // `[[folder/Solo]]`, converting portable links into brittle ones and
+        // dirtying files that had nothing wrong with them.
         const norm = t.toLowerCase().replace(/\\/g, "/").replace(/^\.?\/+/, "");
-        if (norm === oldPathNoExt || norm === `${oldPathNoExt}.md`) {
+        if (norm.includes("/") && (norm === oldPathNoExt || norm === `${oldPathNoExt}.md`)) {
           return `[[${newPathNoExt}${heading ?? ""}${alias ?? ""}]]`;
         }
         return whole;
       });
-      if (rewritten !== note.content) await writeNote(linker, rewritten);
+      // …and the other syntax: `[see](Ideas/Note.md)` pointing at the file that
+      // just moved. Same resolution the renderers use, so the allowlist and the
+      // page agree afterwards.
+      rewritten = rewriteDestinations(rewritten, dirOf(at), dirOf(at), moved);
+      // …and, in a `.tex` linker, `\note{Old Title}` — Vellum's OWN macro, so
+      // it is ours to keep true. `\input`, `\cite` and `\ref` are deliberately
+      // NOT rewritten: they belong to the document's own semantics, and
+      // silently editing them could change what `pdflatex` produces. The
+      // `%% [[…]] %%` form needs nothing here — it is a wikilink, and the pass
+      // above already caught it.
+      if (isTexPath(at)) rewritten = rewriteTexNoteMacros(rewritten, oldTitle, newTitle, titleChanged);
+      if (rewritten !== note.content) {
+        await writeNote(at, rewritten);
+        await indexFile(at);
+      }
     } catch (err) {
-      console.error(`rename: failed to rewrite links in ${linker}:`, err);
+      console.error(`rename: failed to rewrite links in ${at}:`, err);
     }
   }
+  // The client refetches tree/graph/search on the 200; index before answering
+  // rather than a watcher debounce later, so what it gets back is already true.
+  await indexFile(toPath);
+  await whenIndexed();
+}
+
+/** Rewrite `\note{Old}` / `\note[alias]{Old}` to the new title. Only the
+ *  TARGET moves; the optional display text is the author's prose and is left
+ *  exactly as written. Matching is case-insensitive on the title, the same
+ *  rule wikilink resolution uses, and `\#anchor` suffixes ride along
+ *  untouched — a rename changes which note is meant, never which place in it. */
+function rewriteTexNoteMacros(
+  src: string,
+  oldTitle: string,
+  newTitle: string,
+  titleChanged: boolean,
+): string {
+  if (!titleChanged) return src;
+  const want = oldTitle.toLowerCase();
+  return src.replace(
+    /\\note(\[[^\]]*\])?\{([^{}]*)\}/g,
+    (whole, alias: string | undefined, target: string) => {
+      const raw = target.trim();
+      const hash = raw.search(/\\?#/);
+      const head = (hash >= 0 ? raw.slice(0, hash) : raw).trim();
+      const tail = hash >= 0 ? raw.slice(hash) : "";
+      if (head.toLowerCase() !== want) return whole;
+      return `\\note${alias ?? ""}{${newTitle}${tail}}`;
+    },
+  );
+}
+
+export interface MoveFolderResponse {
+  ok: true;
+  /** `.md` files that travelled with the folder — the toast's number. */
+  notes: number;
+  /** How many notes had links or embeds rewritten. */
+  rewritten: number;
+}
+
+/** Move a folder, then repair every link the move would otherwise have broken.
+ *
+ *  The order is the whole correctness argument, and it is the folder-DELETE
+ *  order with one extra step:
+ *   1. sample the affected notes while their links still resolve to the OLD
+ *      paths (`notesAffectedByFolderMove`, one pass over the index);
+ *   2. move — one `fs.rename`, one synthetic `{kind:"renamed", dir:true}` event,
+ *      the watcher's per-file storm suppressed;
+ *   3. `whenIndexed()` — the event drives `reindexFolderMove`, so from here on
+ *      the index describes the new vault;
+ *   4. rewrite: path-form wikilinks and markdown destinations, in the notes
+ *      that moved AND in the notes that pointed into the folder;
+ *   5. reindex what was rewritten, then answer. A `/api/tree` + `/api/graph`
+ *      refetch on the 200 is already correct — no debounce race.
+ *
+ *  A rewrite that throws is logged and skipped, never retried into a half-state:
+ *  the FILES are already where the caller asked, and one unreadable note must
+ *  not strand the other 714. */
+async function moveFolderWithLinkRewrite(from: string, to: string): Promise<MoveFolderResponse> {
+  const fromPath = normalizeRel(from);
+  const affected = notesAffectedByFolderMove(fromPath);
+  const { notes, moved } = await moveFolder(fromPath, to);
+  await whenIndexed();
+
+  const map = new Map(moved.map((m) => [m.from, m.to]));
+  const rewritten: string[] = [];
+  for (const before of affected) {
+    const after = map.get(before) ?? before;
+    try {
+      const note: NoteData = await readNote(after);
+      const next = rewriteForMove(note.content, before, after, map);
+      if (next === note.content) continue;
+      // Notes INSIDE the folder are already covered by the one dir event;
+      // notes outside it get their own `changed`, which is what tells an open
+      // editor to reload a body that changed underneath it.
+      if (map.has(before)) suppressWatcherEcho(after);
+      await writeNote(after, next);
+      rewritten.push(after);
+    } catch (err) {
+      console.error(`move: failed to rewrite links in ${after}:`, err);
+    }
+  }
+  for (const notePath of rewritten) await indexFile(notePath);
+  return { ok: true, notes, rewritten: rewritten.length };
 }

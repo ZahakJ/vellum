@@ -31,6 +31,7 @@ import type { SyntaxNode } from "@lezer/common";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { parseWikilink, resolveLink, WIKILINK_RE } from "./links.ts";
+import { posFromEvent } from "./pointer.ts";
 import { bannerFromYaml } from "../banner.ts";
 import { getLang, t, tf } from "../i18n.ts";
 import { buildBannerEl, buildPropsCard, parseProps, TAG_RE } from "./noteMeta.ts";
@@ -48,7 +49,8 @@ import {
   findCallouts,
 } from "./callouts.ts";
 import { blockMathDecos, inlineMathDecos } from "./math.ts";
-import { sanitizeHtml } from "../reading/rawHtml.ts";
+import { sanitizeHtml, sanitizeStyle } from "../reading/rawHtml.ts";
+import { isNotePath } from "../../shared/noteFormat.ts";
 
 /** Vault path of the note this editor shows (embeds resolve against it). */
 export const notePathFacet = Facet.define<string, string>({
@@ -107,6 +109,29 @@ class LinkSepWidget extends WidgetType {
 
 const linkSepWidget = new LinkSepWidget();
 
+/** THE THEMATIC BREAK, RENDERED. Live preview drew every block element in
+ *  markdown except this one: `---`, `***` and `___` stayed as literal
+ *  letter-spaced source (`- - -`, `* * *`), so the one block the editor did
+ *  not preview was the divider — and reading view and the blog both drew a
+ *  real rule, leaving three surfaces disagreeing about what a divider looks
+ *  like. The widget draws exactly what `.s-rv-hr` draws, ornamental variant
+ *  included; put the cursor on the line and the source comes back, like every
+ *  other live-preview element. */
+class RuleWidget extends WidgetType {
+  constructor(readonly ornamental: boolean) {
+    super();
+  }
+  override eq(other: RuleWidget): boolean {
+    return other.ornamental === this.ornamental;
+  }
+  toDOM(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = this.ornamental ? "cm-s-hr-rule cm-s-hr-rule--orn" : "cm-s-hr-rule";
+    el.setAttribute("aria-hidden", "true");
+    return el;
+  }
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const HEADING_CLASS: Record<string, string> = {
@@ -127,6 +152,9 @@ const EMBED_RE = /!\[\[([^[\]]+?)\]\]/g;
 const COMMENT_RE = /%%([^%\n]*?)%%/g;
 const HIGHLIGHT_RE = /==([^=\n]+?)==/g;
 const FOOTNOTE_RE = /\[\^([^\]\s]+)\]/g;
+/** One colored run, on one line. The opening tag is matched exactly as the
+ *  color commands emit it, and the value is re-sanitized before it is used. */
+const COLOR_RE = /<span style="color:([^"<>]*)">(.*?)<\/span>/g;
 
 /** Line numbers currently touched by any selection range. */
 function activeLines(state: EditorState): Set<number> {
@@ -435,6 +463,45 @@ function buildDecorations(view: EditorView, revealActive: boolean): DecorationSe
         claimed.push({ from: start, to: end });
       }
 
+      // <span style="color:…"> — THE editor half of colored text. The reading
+      // view and the blog get this from the raw-HTML pass in render.ts; the
+      // editor had no inline-HTML pass at all, so a colored run showed as tag
+      // soup in the one surface where it is written. It renders as a MARK with
+      // a style attribute rather than a widget, so the letters stay real text:
+      // the caret still walks them, search still finds them, and the pointer
+      // mapping still has glyphs to land on (pointer.ts).
+      //
+      // The value goes through the SAME sanitizer the other two surfaces use.
+      // Anything it rejects is left as source, which is the honest rendering
+      // of a declaration that will not survive being read back.
+      COLOR_RE.lastIndex = 0;
+      for (let m = COLOR_RE.exec(text); m; m = COLOR_RE.exec(text)) {
+        const start = line.from + m.index;
+        const end = start + m[0].length;
+        if (blocked(start, end)) continue;
+        const style = sanitizeStyle(`color:${m[1]}`, "span");
+        if (!style) continue;
+        const openTo = start + m[0].indexOf(">") + 1;
+        const closeFrom = end - "</span>".length;
+        // Only the TAGS are claimed: everything between them is still markdown,
+        // and **bold** inside a colored run has to keep rendering.
+        claimed.push({ from: start, to: openTo });
+        claimed.push({ from: closeFrom, to: end });
+        if (lineIsActive) {
+          mark(start, openTo, "cm-s-syntax");
+          mark(closeFrom, end, "cm-s-syntax");
+        } else {
+          hide(start, openTo);
+          hide(closeFrom, end);
+        }
+        decos.push(
+          Decoration.mark({
+            class: "cm-s-colored",
+            attributes: { style },
+          }).range(openTo, closeFrom),
+        );
+      }
+
       // ![[embeds]] — images, attachment cards, note transclusions.
       EMBED_RE.lastIndex = 0;
       for (let m = EMBED_RE.exec(text); m; m = EMBED_RE.exec(text)) {
@@ -457,6 +524,10 @@ function buildDecorations(view: EditorView, revealActive: boolean): DecorationSe
             embed.target,
             resolveLink(embed.target, tree),
             notePath,
+            // `![[Note#Section]]` names a BLOCK, not a note. Dropping the
+            // anchor here pulled the whole note into the card and left the
+            // reading view three centimetres away showing just the section.
+            embed.anchor,
           );
         }
         decos.push(Decoration.replace({ widget }).range(start, end));
@@ -600,7 +671,7 @@ function openWikilink(inner: string): void {
     toast(tf("linkMissing", { name: target }));
     return;
   }
-  const path = /\.md$/i.test(target) ? target : `${target}.md`;
+  const path = isNotePath(target) ? target : `${target}.md`;
   toast(tf("creatingNote", { name: target }));
   void store.createNote(path);
 }
@@ -644,67 +715,13 @@ function jumpToFootnoteDef(view: EditorView, label: string): boolean {
   return false;
 }
 
-/** Document position under the pointer. `posAtCoords` maps through the
- *  vertical line layout, which can drift by whole lines in scrolled notes
- *  containing block widgets (math, frontmatter card, images) — so a click on
- *  a wikilink would resolve to a neighboring line and the link would never
- *  open. Deriving the position from the DOM node actually under the pointer
- *  (caretPositionFromPoint → posAtDOM) is exact; posAtCoords stays only as
- *  the last-resort fallback.
- *
- *  Exported because the hover previews need the SAME resolution: a card that
- *  opens on the wrong line is the same bug as a click that opens the wrong
- *  note, and CodeMirror's own `hoverTooltip` resolves the pointer with
- *  `posAtCoords` — which is why previews were dead on every note carrying a
- *  frontmatter card or block math (see hoverPreview.ts). */
-export function posFromEvent(event: MouseEvent, view: EditorView): number | null {
-  return posFromPoint(event.clientX, event.clientY, view, event.target);
-}
-
-/** `posFromEvent` for a bare viewport point. The hover previews ask this of a
- *  remembered pointer position, with no event in hand, when deciding whether
- *  a card that MOVED under a motionless pointer should be dismissed. */
-export function posFromPoint(
-  x: number,
-  y: number,
-  view: EditorView,
-  target?: EventTarget | null,
-): number | null {
-  const doc = view.contentDOM.ownerDocument;
-  const within = (node: Node | null | undefined): node is Node =>
-    node != null && view.contentDOM.contains(node);
-
-  if (typeof doc.caretPositionFromPoint === "function") {
-    const caret = doc.caretPositionFromPoint(x, y);
-    if (caret && within(caret.offsetNode)) {
-      try {
-        return view.posAtDOM(caret.offsetNode, caret.offset);
-      } catch {
-        /* fall through */
-      }
-    }
-  }
-  // WebKit spells it caretRangeFromPoint.
-  if (typeof doc.caretRangeFromPoint === "function") {
-    const range = doc.caretRangeFromPoint(x, y);
-    if (range && within(range.startContainer)) {
-      try {
-        return view.posAtDOM(range.startContainer, range.startOffset);
-      } catch {
-        /* fall through */
-      }
-    }
-  }
-  const node = target instanceof Node ? target : doc.elementFromPoint(x, y);
-  if (within(node)) {
-    try {
-      return view.posAtDOM(node);
-    } catch {
-      /* fall through */
-    }
-  }
-  return view.posAtCoords({ x, y });
-}
+// The pointer → document mapping moved to pointer.ts, which now also owns
+// CARET placement (`pointerSelection`). It was exported from here while its
+// only readers were this file's click handler and the hover previews; the
+// caret was still being placed by CodeMirror's own `posAtCoords`, which is the
+// half of the bug that survived — see pointer.ts's header for the measurement.
+// Re-exported so nothing that imported it from here has to move.
+export { posFromEvent, posFromPoint } from "./pointer.ts";
 
 function handleMousedown(event: MouseEvent, view: EditorView): boolean {
   const target = event.target as HTMLElement;
@@ -935,6 +952,19 @@ function buildBlockDecorations(state: EditorState): DecorationSet {
               ),
               block: true,
             }).range(doc.line(firstLine).from, doc.line(lastLine).to),
+          );
+        }
+        return false;
+      }
+      // Thematic break → the drawn divider, while the cursor is elsewhere.
+      if (node.name === "HorizontalRule") {
+        const line = doc.lineAt(node.from);
+        if (!active.has(line.number) && line.text.trim() !== "") {
+          decos.push(
+            Decoration.replace({
+              widget: new RuleWidget(line.text.trim().startsWith("*")),
+              block: true,
+            }).range(line.from, line.to),
           );
         }
         return false;

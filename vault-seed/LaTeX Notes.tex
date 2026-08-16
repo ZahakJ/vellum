@@ -1,0 +1,67 @@
+%---
+% publish: true
+% tags: [guide, latex]
+%---%
+%
+% This block is Vellum's frontmatter. Both fences are LaTeX COMMENTS, so
+% pdflatex never sees it — which is the deal this whole file is built on:
+% everything Vellum adds must be invisible to the other toolchain.
+
+\documentclass{article}
+\usepackage{vellum}   % get it from your own instance: /api/vellum.sty
+\usepackage{amsmath}
+\usepackage{graphicx}
+
+\newcommand{\R}{\mathbb{R}}
+
+\title{LaTeX in Vellum}
+\author{The vault}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+  A \texttt{.tex} file is a note here, not an import. It sits in the tree, it
+  is searchable by its words, it draws edges in the graph, it can be published
+  to the blog, and it still compiles with \texttt{pdflatex} exactly as it did
+  before you dropped it in.
+\end{abstract}
+
+\section{Linking out}\label{sec:linking}
+The recommended form is a real macro, so the file stays portable:
+\note{Wikilinks \& Backlinks} links by note title, and
+\note[the graph view]{Graph View} gives it different display text. A link the
+PDF must not show rides in a comment instead:
+%% [[Embeds & Transclusion]] %%
+
+Nothing else had to be invented. \texttt{\textbackslash input}, \texttt{\textbackslash cite},
+\texttt{\textbackslash ref} and \texttt{\textbackslash eqref} already say what they mean, so Vellum
+just extends their search path to the vault --- local definitions first, always,
+so an existing project cannot change how it compiles by being moved here.
+
+\section{Maths}\label{sec:maths}
+Inline maths reads as $e^{i\pi} + 1 = 0$, and a display equation is numbered
+and addressable:
+\begin{equation}\label{eq:euler}
+  \int_{-\infty}^{\infty} e^{-x^{2}}\,\mathrm{d}x = \sqrt{\pi}.
+\end{equation}
+Equation~\eqref{eq:euler} can be pointed at from anywhere in the vault --- a
+markdown note writes \texttt{[[LaTeX Notes\#eq:euler]]} to link it, or
+\texttt{![[LaTeX Notes\#eq:euler]]} to pull the equation itself into its own
+page. A heading and a \texttt{\textbackslash label} are the same kind of thing here, so that
+works in both directions and in both formats.
+
+\section{The rest}\label{sec:rest}
+Lists, emphasis, quotes and figures render as you would expect:
+\begin{itemize}
+  \item \emph{Emphasis}, \textbf{bold}, \texttt{monospace}, \textsc{small caps}.
+  \item Sections are numbered, and the outline panel follows the hierarchy.
+  \item $\R$ and any other \texttt{\textbackslash newcommand} you define reach the maths.
+\end{itemize}
+
+\begin{theorem}[Honest boundaries]\label{thm:honest}
+  Anything this reader does not implement renders as a quiet marker --- never
+  as raw source, and never as a crash. The README lists the supported subset.
+\end{theorem}
+
+\end{document}

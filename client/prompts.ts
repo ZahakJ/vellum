@@ -16,6 +16,7 @@ import { promptModal, type PromptCheck } from "./components/Confirm.tsx";
 import { t, tf } from "./i18n.ts";
 import { useStore } from "./state.ts";
 import { toast } from "./toast.ts";
+import { isNotePath } from "../shared/noteFormat.ts";
 
 /** Everything a typed path arrives decorated with: whitespace, backslashes
  *  (a Windows paste), leading/trailing and doubled slashes. */
@@ -39,7 +40,10 @@ function check(dir: string, md: boolean, raw: string): PromptCheck {
   // reader has committed, than as a toast reading "Not found".
   if (segments.includes("..")) return { value: "", error: t("promptNoTraversal") };
   if (segments.some((seg) => seg.startsWith("."))) return { value: "", error: t("promptNoDotName") };
-  const named = md && !typed.endsWith(".md") ? `${typed}.md` : typed;
+  // An extension the reader TYPED is kept: "Paper.tex" must create a LaTeX
+  // note, not "Paper.tex.md". Anything else gets `.md`, which is what the new-
+  // note prompt has always meant.
+  const named = md && !isNotePath(typed) ? `${typed}.md` : typed;
   const value = dir ? `${dir}/${named}` : named;
   // Quiet when the text IS the path; explicit the moment we added anything.
   return { value, note: value === typed ? undefined : tf("promptCreates", { path: value }) };

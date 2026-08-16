@@ -1,0 +1,379 @@
+/* Vellum — LaTeX reading view.
+
+   Deliberately SMALL. A `.tex` note reuses the reading view's whole vocabulary
+   (s-rv-p, s-rv-h*, s-rv-quote, s-rv-list, s-rv-table, s-rv-figure, s-rv-pre,
+   s-rv-transclude, s-rv-footnotes, KaTeX), so what is left here is only what
+   LaTeX genuinely has and markdown does not: section numbers, equation
+   numbers, "Figure 1" captions, theorem boxes, citation chips, cross-reference
+   links and a \bibitem bibliography.
+
+   Every colour is a token from tokens.css — no literal colour lives here, so
+   all fifteen themes get this for free and check-contrast.mjs keeps covering
+   it. Every inline offset is a LOGICAL property, so the Arabic RTL chrome
+   mirrors without a second rule. */
+
+/* ── Title block (\maketitle) ──────────────────────────────────────────── */
+
+.s-rv-tex-titleblock {
+  margin: 0 0 1.6em;
+  text-align: center;
+}
+
+.s-rv .s-rv-tex-title {
+  margin: 0 0 0.25em;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.s-rv-tex-byline {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 0.92em;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* ── Numbered sections ─────────────────────────────────────────────────── */
+
+/* The number sits in the heading's own line, one space ahead of the title —
+   the way a printed paper sets it, not as a badge. */
+.s-rv-tex-num {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  margin-inline-end: 0.5em;
+}
+
+.s-rv .s-rv-h1 .s-rv-tex-num,
+.s-rv .s-rv-h2 .s-rv-tex-num {
+  color: color-mix(in srgb, var(--accent) 70%, var(--text-muted));
+}
+
+/* ── Abstract ──────────────────────────────────────────────────────────── */
+
+.s-rv-tex-abstract {
+  margin: 0 0 1.6em;
+  padding: 0.9em 1.2em;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.95em;
+}
+
+.s-rv-tex-abstract__head {
+  font-family: var(--font-ui);
+  font-size: 0.72em;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.5em;
+}
+
+/* THE TWINS MUST WEIGH THE SAME. "ABSTRACT" is 11px faint uppercase
+   letterspaced; "الملخّص" was visibly larger and heavier beside it, for two
+   reasons that are both about the script rather than about the label:
+   `text-transform` does nothing in Arabic (there is no case), and naskh sets
+   optically larger than Latin at the same em. Letter-spacing is not merely
+   ineffective here but WRONG — it prises apart letters that join — so it
+   goes, and the size comes down to where the two labels read as one label in
+   two languages. */
+[lang="ar"] .s-rv-tex-abstract__head {
+  font-size: 0.66em;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.s-rv-tex-abstract > .s-rv-p:last-child {
+  margin-bottom: 0;
+}
+
+/* ── Equation anchors ─────────────────────────────────────────────────── */
+
+/* The NUMBER is inside the KaTeX display (an injected `\tag{n}`), where
+   amsmath puts it, so nothing here draws one. A long formula scrolls inside
+   its own box rather than pushing the prose column sideways. */
+.s-rv--tex .s-rv-mathblock {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* A \label — in running text or on an align row — is an addressable point
+   with no ink of its own. */
+.s-rv-tex-anchor {
+  display: inline-block;
+  width: 0;
+  height: 0;
+}
+
+/* ── Captions (\caption) ───────────────────────────────────────────────── */
+
+.s-rv-caption {
+  margin-top: 0.55em;
+  font-family: var(--font-serif);
+  font-size: 0.86em;
+  line-height: 1.55;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.s-rv-caption__label {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  margin-inline-end: 0.45em;
+}
+
+/* A table's caption sits ABOVE its grid, as LaTeX floats set it. */
+.s-rv-tablewrap > .s-rv-caption {
+  margin-top: 0;
+  margin-bottom: 0.55em;
+}
+
+/* ── Theorem-like environments ─────────────────────────────────────────── */
+
+/* The same box the reading view's callouts use, tinted by the environment's
+   own family, so a theorem in a `.tex` note and a `> [!note]` callout in a
+   markdown note read as siblings rather than as two products. */
+.s-rv-theorem {
+  --co: var(--callout-abstract);
+  margin: 0.9em 0;
+  border: 1px solid color-mix(in srgb, var(--co) 30%, var(--border));
+  border-inline-start: 3px solid var(--co);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--co) 7%, var(--bg-raised));
+  padding: 0.7em 1em 0.75em;
+}
+
+.s-rv-theorem--definition { --co: var(--callout-info); }
+.s-rv-theorem--remark,
+.s-rv-theorem--note { --co: var(--callout-note); }
+.s-rv-theorem--example { --co: var(--callout-example); }
+.s-rv-theorem--proof { --co: var(--callout-quote); }
+.s-rv-theorem--conjecture,
+.s-rv-theorem--claim { --co: var(--callout-question); }
+.s-rv-theorem--exercise,
+.s-rv-theorem--problem { --co: var(--callout-todo); }
+
+.s-rv-theorem__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4em;
+  margin-bottom: 0.35em;
+  font-family: var(--font-serif);
+  font-size: 0.95em;
+}
+
+.s-rv-theorem__name {
+  color: var(--co);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.s-rv-theorem__title {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* A theorem's body is italic by convention; a proof's is not. */
+.s-rv-theorem__body {
+  font-style: italic;
+}
+
+.s-rv-theorem--proof .s-rv-theorem__body,
+.s-rv-theorem--remark .s-rv-theorem__body,
+.s-rv-theorem--example .s-rv-theorem__body {
+  font-style: normal;
+}
+
+.s-rv-theorem__body > :last-child {
+  margin-bottom: 0;
+}
+
+/* ── Cross-references (\ref, \eqref) ───────────────────────────────────── */
+
+.s-rv-xref {
+  color: var(--accent);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+}
+
+.s-rv-xref:hover {
+  text-decoration: underline;
+}
+
+/* Waiting on the vault lookup: present, but not yet claiming anything. */
+.s-rv-xref--pending {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* Nothing in the vault defines this label. Muted, exactly like a broken
+   wikilink — never an error, never raw source. */
+.s-rv-xref--broken {
+  color: var(--text-muted);
+  cursor: help;
+  text-decoration: underline dashed
+    color-mix(in srgb, var(--danger) 45%, var(--text-faint));
+  text-underline-offset: 0.2em;
+}
+
+/* ── Citations (\cite) ─────────────────────────────────────────────────── */
+
+.s-rv-cite {
+  font-family: var(--font-ui);
+  font-size: 0.85em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.s-rv-cite__key {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.s-rv-cite__key:hover {
+  text-decoration: underline;
+}
+
+/* A key some NOTE in the vault answers to gets the wikilink's weight; a key
+   that only names a book in the bibliography stays a quiet jump. */
+.s-rv-cite__key--note {
+  font-weight: 500;
+}
+
+/* ── Bibliography (thebibliography / \bibitem) ─────────────────────────── */
+
+.s-rv-bib {
+  margin: 2.4em 0 0;
+  padding-top: 1.1em;
+  border-top: 1px solid var(--border);
+}
+
+.s-rv-bib__head {
+  font-family: var(--font-ui);
+  font-size: 0.72em;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.7em;
+}
+
+.s-rv-bib__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.s-rv-bib__item {
+  display: flex;
+  gap: 0.6em;
+  margin-bottom: 0.5em;
+  font-size: 0.88em;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.s-rv-bib__marker {
+  flex: none;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One child, so the row's gap sits between the marker and the entry — never
+   between an italicised title and the comma after it. */
+.s-rv-bib__text {
+  min-width: 0;
+}
+
+/* ── Table of contents (\tableofcontents) ──────────────────────────────── */
+
+.s-rv-tex-toc {
+  margin: 0 0 1.6em;
+  padding: 0.8em 1.1em;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.s-rv-tex-toc__head {
+  font-family: var(--font-ui);
+  font-size: 0.72em;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.5em;
+}
+
+.s-rv-tex-toc ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9em;
+  line-height: 1.9;
+}
+
+.s-rv-tex-toc a {
+  color: var(--text);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.s-rv-tex-toc a:hover {
+  color: var(--accent);
+}
+
+.s-rv-tex-toc__l3 { padding-inline-start: 1.2em; }
+.s-rv-tex-toc__l4 { padding-inline-start: 2.4em; color: var(--text-muted); }
+
+/* ── Small type ────────────────────────────────────────────────────────── */
+
+.s-rv-tex-sc {
+  font-variant-caps: small-caps;
+}
+
+.s-rv-tex-sf {
+  font-family: var(--font-ui);
+}
+
+.s-rv-tex-center {
+  text-align: center;
+}
+
+.s-rv-tex-center > .s-rv-p {
+  text-align: center;
+}
+
+/* \begin{description}: the term leads its own item. */
+.s-rv-tex-desc .s-rv-tex-term {
+  color: var(--text);
+}
+
+/* An environment this reader does not implement still renders its CONTENTS —
+   swallowing them would hide a chapter behind one unrecognized macro — so the
+   wrapper itself must be invisible. */
+.s-rv-tex-env {
+  display: contents;
+}
+
+/* A command this reader does not implement: one muted dot, and the command's
+   name only in the tooltip. The alternative — printing `\pgfplotsset` into
+   someone's prose — is the failure this marker exists to prevent. */
+.s-rv-tex-unknown {
+  color: var(--text-faint);
+  cursor: help;
+  user-select: none;
+}
+
+/* The anchor a partial transclusion names, beside the note's title in the
+   card header: `![[Paper#eq:fourier]]` says WHICH part it pulled in. */
+.s-rv-transclude__anchor {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* An `\input` a visitor may not follow: no card, no red, no filename. The
+   admin sees the broken transclusion card instead — for them it is a fact
+   worth knowing; for a reader it is a stranger's directory listing. */
+.s-rv-tex-dropped {
+  display: none;
+}

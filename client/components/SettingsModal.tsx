@@ -51,6 +51,7 @@ import {
 } from "../sync.ts";
 import { isThemePickerOpen, openThemePicker } from "./ThemePicker.tsx";
 import { toast } from "../toast.ts";
+import { isNotePath } from "../../shared/noteFormat.ts";
 
 // ---------------------------------------------------------------------------
 // Form model: strings for every control; "" = inherit the env default.
@@ -223,7 +224,7 @@ function validate(f: Form): Partial<Record<keyof Form, string>> {
   }
   const badTag = splitTags(f.excludeTags).find((tag) => tag.length > 50 || !TAG_RE.test(tag));
   if (badTag !== undefined) errors.excludeTags = tf("errNotSimpleTag", { tag: badTag });
-  if (f.homeNote.trim() !== "" && !/\.md$/i.test(f.homeNote.trim())) {
+  if (f.homeNote.trim() !== "" && !isNotePath(f.homeNote.trim())) {
     errors.homeNote = t("errMdPath");
   }
   if (/^http:\/\//i.test(f.logo.trim())) {

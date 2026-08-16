@@ -149,6 +149,24 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    // Formatting is its own group, not three more rows under Editing: these
+    // are the keys a reader tries FIRST, before they have read anything, and
+    // one of them (Ctrl/Cmd+B) used to fold a pane instead — so the sheet has
+    // to be able to answer "what happened to Ctrl+B" in one glance. Every
+    // binding here is Obsidian's except underline, which Obsidian has no
+    // command for at all (see client/editor/commands.ts).
+    title: "scGroupFormatting",
+    items: [
+      { label: "scBold", keys: ["Ctrl/Cmd", "B"], admin: true },
+      { label: "scItalic", keys: ["Ctrl/Cmd", "I"], admin: true },
+      { label: "scUnderline", keys: ["Ctrl/Cmd", "U"], admin: true },
+      { label: "scStrikethrough", keys: ["Ctrl/Cmd", "Shift", "X"], admin: true },
+      { label: "scHighlight", keys: ["Ctrl/Cmd", "Shift", "H"], admin: true },
+      { label: "scSelectionMenu", via: "scSelectionMenuKey", admin: true },
+      { label: "scTextColor", via: "scViaSelectionMenu", admin: true },
+    ],
+  },
+  {
     title: "scGroupModes",
     items: [
       {
@@ -187,7 +205,7 @@ const GROUPS: Group[] = [
     items: [
       {
         label: "cmdTogglePaneNotes",
-        keys: ["Ctrl/Cmd", "B"],
+        keys: ["Ctrl/Cmd", "Alt", "B"],
         shell: "app",
         run: () => {
           const s = useStore.getState();
@@ -196,7 +214,7 @@ const GROUPS: Group[] = [
       },
       {
         label: "cmdTogglePaneOutline",
-        keys: ["Ctrl/Cmd", "Shift", "B"],
+        keys: ["Ctrl/Cmd", "Alt", "Shift", "B"],
         shell: "app",
         run: () => {
           const s = useStore.getState();

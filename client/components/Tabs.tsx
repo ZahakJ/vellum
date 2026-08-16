@@ -4,13 +4,14 @@
 import { t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { stripBidiControls } from "../../shared/bidi.ts";
+import { noteLabelOf } from "../../shared/noteFormat.ts";
 
 /** Tab label: the basename, with bidi controls out. A filename carrying an
  *  RLO reorders its own label ("Bidi<U+202E>Attack Note" → "BidietoN kcattA"),
  *  and these labels travel into aria-labels and the document title. */
 function titleOf(path: string): string {
   const base = path.slice(path.lastIndexOf("/") + 1);
-  return stripBidiControls(base.replace(/\.md$/, ""));
+  return stripBidiControls(noteLabelOf(base));
 }
 
 export default function Tabs() {

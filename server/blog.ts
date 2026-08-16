@@ -10,6 +10,7 @@ import type { PostMeta } from "../shared/types.ts";
 import { posts, publishedBanner } from "./indexer.ts";
 import { faviconPath } from "./settings.ts";
 import { blogLocale, siteLanguage, siteName, siteUrl, tagline } from "./site.ts";
+import { noteCandidates, stripNoteExt } from "../shared/noteFormat.ts";
 
 // ------------------------------------------------------------------ helpers
 
@@ -25,7 +26,7 @@ function xmlEscape(text: string): string {
 /** Vault note path → deep-link pathname ("a/b.md" → "/a/b"), mirroring the
  *  client router's notePathToUrl. */
 export function notePathToUrl(notePath: string): string {
-  const trimmed = notePath.replace(/\.md$/i, "");
+  const trimmed = stripNoteExt(notePath);
   return "/" + trimmed.split("/").map(encodeURIComponent).join("/");
 }
 
@@ -62,9 +63,13 @@ function matchPublished(pathname: string): PostMeta | null {
   }
   const rel = decoded.replace(/^\/+/, "").replace(/\/+$/, "");
   if (!rel) return null;
-  const want = (rel.toLowerCase().endsWith(".md") ? rel : `${rel}.md`).toLowerCase();
+  // Every note extension is tried, in the same order the client router and
+  // the server resolver use, so a `.tex` permalink is matched here exactly as
+  // a `.md` one is — and a crawler that follows the feed's link lands on the
+  // post's own <title> and og: tags rather than on the generic site meta.
+  const wants = noteCandidates(rel).map((c) => c.toLowerCase());
   for (const post of posts(true)) {
-    if (post.path.toLowerCase() === want) return post;
+    if (wants.includes(post.path.toLowerCase())) return post;
   }
   return null;
 }

@@ -57,6 +57,7 @@ that is the pre-existing pattern, and the door is now open.
 - `POST /api/rename` body `{ path, toPath }` → `{ ok: true }` (also rewrites `[[wikilinks]]` in other notes that pointed at the old name)
 - `DELETE /api/note?path=&permanent=<bool>` → `{ ok: true, trashPath?: string }` (default MOVES to `.trash/`; see "Note deletion")
 - `POST /api/folder` body `{ path }` → `{ ok: true }`
+- `POST /api/folder/move` body `{ path, toPath }` → `{ ok: true, notes, rewritten }` (moves the whole subtree and repairs the links it would have broken; see "Moving notes and folders")
 - `GET  /api/search?q=` → `SearchHit[]` (max 50, minisearch, prefix+fuzzy)
 - `GET  /api/graph` → `GraphData` (nodes = all md files, edges = resolved wikilinks)
 - `GET  /api/backlinks?path=` → `Backlink[]`
@@ -277,7 +278,7 @@ stays on `.s-panel--collapsed`, as it always did.
   (`paneNotes`) and "Outline & backlinks" (`paneOutline`), in the status-bar toggles, the palette
   commands, the shortcut sheet, both reopen handles and each pane's own `aria-label` — with the
   keystroke in the tooltip. In Arabic the notes sidebar sits right and the outline panel left, so
-  "the left bar" names a different pane in each language, and `Ctrl/Cmd B` looked like it folded
+  "the left bar" names a different pane in each language, and `Ctrl/Cmd Alt B` looked like it folded
   the wrong one. A reader of a live Arabic instance asked why "the left bar cannot be folded".
 - **That XOR is also the icon rule.** The pane chevrons (panel header toggle, both reopen
   handles) point at a physical edge, so they answer to *both* switches: `[dir="rtl"]` flips them,
@@ -350,7 +351,7 @@ stays on `.s-panel--collapsed`, as it always did.
   non-decreasing in both languages**, document horizontal overflow 0 at every one.
 - **One gesture per pane, whichever shell is on screen.** `toggleSidebar()` (state.ts) routes to
   `setSidebarOpen` below `DRAWER_QUERY` (`max-width: 999px`, the single copy of that number in
-  the client) and to `setSidebarCollapsed` above it; `Ctrl/Cmd+B`, the palette row and the
+  the client) and to `setSidebarCollapsed` above it; `Ctrl/Cmd+Alt+B`, the palette row and the
   status-bar switch all go through it, and the switch reports `sidebarOpen` in drawer mode
   (tracked with a live `matchMedia` listener, because a resize crosses the breakpoint without
   touching the store). Without this the sidebar switch was a control that did nothing at 900px.
@@ -395,10 +396,19 @@ stays on `.s-panel--collapsed`, as it always did.
   item (which is "Delete folder") off-screen. A layout effect measures the rendered menu, opens
   it from the pointer toward the inline direction, folds it back when that edge has no room, and
   clamps both axes to an 8px margin.
-- **Keyboard.** `Ctrl/Cmd+B` (sidebar) and `Ctrl/Cmd+Shift+B` (panel) are `preventDefault`-ed in
-  the capture-phase handler next to `Ctrl+P`/`Ctrl+K` — Chrome's bookmark bar (`Ctrl+Shift+B`)
-  and Firefox's bookmarks sidebar (`Ctrl+B`) must never fire. Plain `Ctrl+B` inside the editor
-  yields to vim's page-up and to macOS's emacs-style char-left (`Cmd+B` still toggles there);
+- **Keyboard.** The pane toggles are **`Ctrl/Cmd+Alt+B`** (sidebar) and **`Ctrl/Cmd+Alt+Shift+B`**
+  (panel); they moved one modifier out when `Ctrl/Cmd+B` became bold inside the editor — see
+  "Text formatting" for why formatting won it, and note that the pair KEPT ITS SHAPE (one key,
+  Shift picks the second pane), so the only thing to re-learn is "add Alt". They are matched on
+  `event.code` as well as `event.key` (Alt rewrites `key` on several platforms) and refused while
+  `AltGraph` is down (Right-Alt reports ctrl+alt on European layouts).
+  PLAIN `Ctrl/Cmd+B` and `Ctrl/Cmd+Shift+B` are still `preventDefault`-ed in the capture-phase
+  handler next to `Ctrl+P`/`Ctrl+K` — Chrome's bookmark bar (`Ctrl+Shift+B`) and Firefox's
+  bookmarks sidebar (`Ctrl+B`) must never fire — but **only OUTSIDE the editor**: CodeMirror's
+  keydown pipeline opens with `if (event.defaultPrevented) break`, so swallowing them there stops
+  the EDITOR as well as the browser, and the formatting binding was silently dead while that line
+  stood. Inside the editor the formatting keymap's own `preventDefault: true` does the same job one
+  layer down, where it can also let vim's Ctrl+B through as page-up.
   `Ctrl/Cmd+Shift+Z` (zen) `stopPropagation`s so CodeMirror cannot redo on the same keystroke —
   except on macOS inside the editor, where `Mod-Shift-z` is the *only* redo binding and keeps it.
 
@@ -784,8 +794,20 @@ visitors, which is what lets it name absolute paths.
 - **`permanent=true`** (also `1`/`yes`/`on`, parsed exactly as on `DELETE /api/folder`) → `fs.rm`;
   no `trashPath` in the response. This is the escalated path the client asks a second question for.
 - Errors: `400` non-`.md` path or traversal, `404` when the note does not exist.
-- **Events:** the watcher's own `unlink` for the moved file carries it (`{kind:"deleted"}`, 100 ms
-  debounce, as before); `.trash` is ignored everywhere, so the arrival at the far end is silent.
+- **Events: the delete ANNOUNCES ITSELF**, exactly as `deleteFolder` does — one synthetic
+  `{kind:"deleted", path}` after the fs work, with the watcher's echo of the same removal
+  suppressed first. `.trash` is ignored everywhere, so the arrival at the far end is silent.
+  **Leaving this to the watcher made the removal LOSABLE, and that was the bug.** `suppress()` is
+  keyed on the PATH ALONE and holds for a second, so any write to the same note in the preceding
+  second — the editor's own 600 ms-debounced autosave, a publish toggle, the PUT behind Ctrl+S —
+  swallowed the `unlink` that was the only thing telling the indexer the note was gone. Measured:
+  PUT then DELETE on one path, 0–200 ms apart, left a note in the index, the graph and the search
+  results with **no file behind it**, still resolvable by `[[wikilink]]` and impossible to remove
+  (a second DELETE 404s, because the file really is gone). Reachable by hand in one gesture: type
+  a word into a note, then delete it. Both formats, both verbs.
+- **The route awaits `whenIndexed()`** before answering, like `DELETE /api/folder`: the client
+  refetches `/api/tree`, `/api/graph` and the published count on this 200, and a note still in the
+  index when those answer is a note the reader sees a second time in their own search results.
 - Vault API: `deleteNote(rel, opts?: { permanent?: boolean }): Promise<{ trashPath? }>`.
 
 ## Folder deletion (server, shipped)
@@ -1501,7 +1523,30 @@ this is a language decision, not a direction one.
   from `--text` at 7–9%, so it is the theme's own ink on any of the fifteen grounds) over the
   three hash-hued radial blobs. Three soft blobs alone read as an image that failed to load: a
   783×166 field with no edge anywhere in it, and index thumbnails that looked broken rather than
-  abstract. The hues, the tint clamp (`--banner-tint`) and the thumb/hero strengths are unchanged.
+  abstract.
+- **The generated banner is ONE SYSTEM, in the room's own palette.** Two things made it read as
+  clip-art dropped into a manuscript. (1) Every hash hue now sits under a hard floor of
+  `var(--accent)` (`color-mix(… var(--accent) 55%, <tinted hue>)`); `--banner-tint` alone let a
+  theme opt out entirely (parchment at 0%), which is how iron-gall's gold-and-brown page carried a
+  saturated green→yellow card. The hash still tells two posts apart — by where the warmth sits and
+  how the field is ruled — and never by importing a colour the theme does not own. (2) `variant`
+  is a SIZE, not a look: the thumb ran at 85% saturation and 2.1× strength against the hero's 62%
+  and 1×, and the base layer was tinted for one and not the other, so the same post rendered as a
+  saturated multi-hue diagonal on the home page and a near-flat brown wash at the top of its own
+  article. One saturation, one accent floor, one base layer, one grain; the small size keeps a
+  1.35× nudge because 130px of anything reads flatter than 780px of it.
+- **A snippet STRIPS a tag, whole.** `stripInlineMd` removed the `#` and left the word standing,
+  so a post ending "…it buys the reader a breath. #design #typography" shipped on the front page as
+  "…it buys the reader a breath. design typography" — a nonsense noun phrase glued to real prose.
+  DESIGN.md's hard rule is strip OR render; plain text cannot render a tag, so the whole token goes
+  (the shape `isFurnitureLine` already uses). Search matching is unaffected: MiniSearch indexes the
+  raw `body` and a separate `tags` field, not the stripped prose.
+- **An empty public list says WHY it is empty, and never how much it is hiding.** With the
+  languageFilter on, the blog's empty state adds one line naming the rule
+  (`blogFilteredByLanguage`); `/api/me` carries `languageFilter` as a BOOLEAN policy flag and
+  never a count, because a count of filtered-out notes is exactly the existence the filter exists
+  to withhold. "Nothing published here yet." on an instance with twenty-one published posts is a
+  true sentence about the list and a false one about the site.
 
 ## Typography (self-hosted webfont catalog)
 
@@ -1792,3 +1837,618 @@ as a visitor is refused too; the POSTs are mutations the auth guard already 401s
   and it is selectable text with a copy button, never a `title` tooltip. Counts and dates in these
   lines are separated by a hairline rule, never by a "·": the Eastern Arabic zero is itself a
   raised dot.
+
+## Moving notes and folders (drag in the tree, "Move to…", undo)
+
+A vault reorganizes itself constantly, and until this landed the only way to move anything was to
+retype its whole path into Rename. Three surfaces now perform one operation — a drag in the file
+tree, "Move to…" in the tree's row menu, and "Move note to…" in the command palette — and they all
+run `moveTo()` in `client/move.ts`, which owns the validity rule, the conflict dialog, the tab
+remap, the toast and the undo. A second implementation behind the keyboard route is exactly how
+the two would drift.
+
+**A MOVE IS NOT A RENAME WITH A DIFFERENT STRING.** `POST /api/rename` was already the note-move
+endpoint and was already rewriting `[[wikilinks]]` in the notes that pointed at a renamed note.
+That is the whole story for a rename in place. It is not the whole story when the FOLDER changes,
+and the two things it missed were both invisible until a reader noticed a picture had gone:
+
+- **The moved note's own relative embeds.** `![alt](Media/x.png)` and `[see](../Ideas/Note.md)`
+  resolve against the note's OWN directory (`resolveRelative()` in `client/editor/embeds.ts`, and
+  its server twin `parseAssets()`). Drag a note one folder up and every one of them points
+  somewhere else — the admin sees broken images, and a PUBLISHED note serves 404s to visitors,
+  because `allowedAttachments()` is built from the same resolution. Nothing said so.
+- **Other notes' markdown links TO it.** The old rewrite knew `[[wikilinks]]` only, so
+  `[see](Ideas/Note.md)` in another note dangled.
+
+Both are `server/moveLinks.ts`, which is pure string work over one note's content (no fs, no
+index): `rewriteWikilinkPaths` remaps PATH-form targets, `rewriteDestinations` re-resolves
+standard-markdown destinations, `rewriteForMove` composes them. Three rules it keeps:
+
+- **Basename-form `[[Note]]` is never touched.** It resolves by name, so a move cannot break it,
+  and rewriting it turns a portable link into a brittle one. The same guard fixed a live wart in
+  the rename path: for a note at the vault ROOT the path spelling IS the basename, so moving one
+  root note into a folder used to rewrite every plain `[[Solo]]` in the vault into
+  `[[folder/Solo]]`.
+- **The written FORM survives.** Rooted (`/Media/x.png`) stays rooted, `<…>` stays `<…>`, and
+  percent-encoding is restored whenever it was there or the new text needs it. Angle brackets are
+  never ADDED — `parseAssets()` does not read that form, so inventing it would allowlist nothing
+  and 404 the image to every visitor. **A destination the move did not touch is reprinted
+  BYTE-FOR-BYTE**, not re-encoded: `encodeURIComponent` is not the inverse of `decodeURIComponent`
+  (it does not produce `%2E` for `.`), so `![p](Media/pic%2Epng)` came back as
+  `![p](Media/pic.png)` after a folder move — a live link, and a byte the round-trip promise says
+  should survive. `printDest` keeps the author's own spelling whenever the new one names the same
+  path (`sameDest`).
+- **A destination that climbs out of the vault is left alone**, exactly as `parseAssets()` drops
+  rather than clamps it.
+
+### `POST /api/folder/move` (server, shipped)
+
+Body `{ path, toPath }` — the same shape as `/api/rename`, because dragging a note and dragging a
+folder are one gesture to the reader. Answers `{ ok: true, notes, rewritten }`. **Admin only** (the
+standard guard 401s every non-GET, preview sessions included). Every refusal happens before a byte
+moves, and each carries a stable `code`:
+
+- `move_into_self` — a folder into its own descendant (`Ideas` → `Ideas/2026/Ideas`). Checked on
+  the string, as written AND lowercased, so a case-insensitive filesystem cannot slip past. This
+  is the gesture that eats a vault: `fs.rename` answers EINVAL on some platforms and builds an
+  unreachable loop on others.
+- `move_conflict` (409) — the destination name is taken. Never a merge, never an overwrite:
+  `fs.rename` over a non-empty directory fails, but over an EMPTY one it succeeds, silently
+  swallowing the folder that was there.
+- `move_not_folder` — including a SYMLINKED folder, which is a link and not a tree; moving it would
+  make every count and rewrite below describe files outside the vault (the rule `deleteFolder`
+  already follows when it refuses to count through one).
+- `move_same`, `move_missing` (404), `move_invalid` / `move_invalid_target` (an ignored tree —
+  `.trash`, `.obsidian`…), `move_bad_parent`.
+
+One `fs.rename` does the work — atomic within a filesystem. The `EXDEV` fallback (a bind-mounted
+sub-tree) copies FIRST and removes the source only once the copy is whole, cleaning up a partial
+copy rather than leaving a second half-folder beside the original. A failure at any point leaves
+the vault exactly as it was.
+
+**Events: exactly ONE** `{kind:"renamed", path, toPath, dir:true}`, the shape folder DELETE
+established — 715 per-file events describing one gesture is not a description. The watcher's
+add/unlink storm is suppressed on both sides, **including the sub-directories** (without them a
+folder holding one sub-folder still leaked an `unlinkDir` + `addDir` pair), and the suppression
+window scales with the subtree: chokidar re-walks the arriving tree, so a 715-note folder trickles
+events in for several seconds, all of them after a fixed 1s window would have closed
+(`suppress(rel, ms)`).
+
+**The index is correct before the response returns.** The dir event drives
+`reindexFolderMove(from, to)` in the indexer (`removeFolder` + a walk of the new subtree via
+`listFolderFiles`, never a re-walk of all 1,388 notes), awaited through the same `settled` chain as
+every other event — so the `/api/tree` + `/api/graph` refetch the client fires on the 200 is
+already true. The rewrite set is sampled BEFORE the move by `notesAffectedByFolderMove(rel)`: one
+pass over the index collecting notes inside the folder, notes whose wikilinks resolve into it, and
+notes whose markdown embeds point at any file inside it (the case that breaks when `Media/` is
+dragged). Calling `backlinks()` once per moved note instead is O(notes²) — a million link
+resolutions for one drag on a real vault. Measured: 1,214 notes moved, 246 notes rewritten, ~3.1s,
+and a round trip restores every link byte-for-byte.
+
+**The SSE visitor filter fans a folder move out per note**, like a folder delete: a visitor holding
+the old path of a published note would get a 404 from a link the site drew itself. Visible-both-
+ends becomes a per-note `renamed`; anything hidden at its new address leaves as a `deleted`.
+
+### Client
+
+- **Drop targets are FOLDER rows plus the vault root.** A note is not a container, so a file row
+  refuses quietly (the browser's own cursor, no colour — every file row flashing red on the way
+  past its folder is noise). The valid target takes `--accent-soft` plus a full inset `--accent`
+  ring; the ring is what separates it from the ACTIVE note row, which wears the same wash with a
+  leading bar. A refused folder — its own descendant, or the one it is already in — takes a
+  `--danger` ring and wash, because a target that merely fails to light up is indistinguishable
+  from one the pointer has not reached. `preventDefault` is what ALLOWS a drop; withholding it on
+  a refused target is the refusal, so an invalid drop cannot fire at all.
+- **The vault root has no row of its own**, so two surfaces stand in for it: the tree's empty space
+  below the last row, and the SIDEBAR HEADER — which names the vault, never scrolls away, and is
+  the only one of the two a 1,375-note vault offers, since its rows fill the pane end to end. A
+  sticky "vault root" row inside the tree was the other candidate and was rejected: appearing at
+  dragstart it pushes every row down 26px under a pointer that has already picked something up.
+- **Spring-loaded folders**: hovering a collapsed folder mid-drag opens it after 600ms (the
+  Finder/Obsidian figure — long enough that passing over on the way somewhere else never opens
+  one). It arms for ANY folder, including one the item cannot land in: resting on the folder you
+  are dragging OUT of is exactly how you reach the sub-folder you are dragging INTO. Dropping onto
+  a collapsed folder works and does not expand it — the spring is an aid, never a precondition.
+- **Auto-scroll** within 56px of either edge of the tree, speed ramping with depth into the band
+  (`autoScroll` in `client/move.ts`). Driven from `onDragOverCapture` on the tree, because the rows
+  stop `dragover` from bubbling and auto-scroll has to run while the pointer is over rows — which
+  is all of the time.
+- **No React state during a drag.** The drop classes are toggled on the DOM nodes and the dragged
+  item lives in a module variable: a `dropTarget` prop would bust `memo()` on all 1.4k rows every
+  time the pointer moved one row, twelve times a second, to repaint one background.
+- **A drag ghost naming the item** (`.s-dragghost`, parked off-screen and snapshotted at
+  dragstart). The default drag image is a translucent copy of a 26px row against a 1.4k-row tree —
+  invisible, and the reader loses track of what they are dragging half a screen in.
+- **ONE LABEL RULE ACROSS THE GESTURE.** `MoveItem.name` is the basename on disk (what the API is
+  called with); `itemLabel()` is what a reader is shown, and it is the tree's own label
+  (`noteLabelOf`). The ghost read "Welcome.md" while the row it had just left read "Welcome", and
+  the same disk name went on to the Move-to conflict dialog, its prefilled field and the error
+  toasts. The landed-name toast follows the same rule.
+- **Keyboard and touch get the same operation, not a lesser one.** HTML5 drag does not exist on a
+  touch screen and cannot be reached from the keyboard at all, so `MovePicker.tsx` — the row menu's
+  "Move to…" and the palette's "Move note to…" — is a folder picker shaped like the command palette
+  (filter field, 34px rows, arrow keys, Enter, Esc, capture-phase bindings, ≥44px rows on a coarse
+  pointer). It lists exactly the destinations `canDrop()` allows, so the tree's highlighting and the
+  list can never disagree, and it mounts its own React root on demand rather than adding a host to
+  `App.tsx`.
+- **`POST /api/folder/move` refuses a path WRITTEN as absolute.** `normalizeRel` strips the leading
+  slash, so `toPath:"/tmp/escaped"` answered 200 and invented a top-level `tmp/` folder inside the
+  vault. Nothing escaped — but a request that reads as "put this at /tmp" and succeeds by meaning
+  something else is a success nobody asked for, so it is `move_invalid_target` (and
+  `move_invalid` on the source side). Two neighbours of the same call: the destination's existence
+  check is `lstat`, not `access`, so a DANGLING symlink at the target name is a `move_conflict`
+  rather than something `fs.rename` replaces in silence (the source side already refused symlinks
+  by `lstat`); and the `mkdir -p` that precedes the rename is taken back out when the rename throws
+  (`pruneEmptyParents`, stopping at the first non-empty directory and never leaving the vault),
+  instead of leaving the half-built path behind as folders nobody asked for.
+- **Safety.** A name collision opens the themed prompt (`promptModal`) offering another name or
+  Cancel — never a silent overwrite, and Cancel means nothing at all happened; the check is
+  case-INSENSITIVE, because macOS and Windows would let `Notes.md` land on `notes.md`. Every
+  completed move raises `actionToast` (`client/undoToast.ts`) naming the item, the folder it left
+  and the folder it reached, **with Undo** — a real `<button>`, Tab-reachable, 9s, and the undo is
+  the inverse move through the same code path, confirming with a plain toast rather than offering a
+  third round. Open tabs and the active note follow the file (`remapPath` BEFORE `loadTree`, so the
+  note you were reading stays the note you are reading, at its new address; App.tsx's SSE handler
+  does the same for every other connected client, and `remap()` already handled the folder-prefix
+  case). A move waits out a pending autosave first (`whenSaved`, 2s bounded) — a 600ms-debounced
+  save landing after the move would recreate the old path as a ghost. A failure toasts the
+  server's CODE translated, never `err.message`.
+- **Attachments are not individually draggable**: `/api/rename` and `/api/folder/move` are note and
+  folder routes, so an image travels only inside a folder that moves. The row menu follows the same
+  rule the Rename row already did.
+
+### Files dragged in from the desktop
+
+Dropping OS files onto a folder row uploads them there through the existing magic-byte-checked
+`POST /api/upload`, which grew one optional multipart field, `dir`. Omitted — every pre-existing
+caller: paste in the editor, the banner picker — it is the configured attachments dir, byte for
+byte as before. Given, it must name an existing directory inside the vault (`safeAbs` plus an
+`lstat`; `upload_bad_dir` otherwise), and the filename still goes through `sanitizeBaseName` and
+the first-free-name loop. Without this branch the browser's default takes over on drop and
+navigates the whole app away to the image — the reader loses their vault to a gesture the tree
+invites.
+
+Conflicts are handled the way an UPLOAD must and a MOVE must not: the server takes the first free
+name (`shot.png`, `shot-2.png`…) rather than asking, because nothing is at risk of being
+overwritten and the reader has not named anything yet — and the toast names what actually landed,
+so the counter is visible rather than silent. There is deliberately **no undo** here: an upload only
+adds a file, and taking it back would need a delete route for attachments that the API does not
+have. The destructive gesture is the one that carries undo.
+
+## Pointer → document mapping (the ONE implementation)
+
+**`client/editor/pointer.ts` owns every question of the form "which document position is under
+this point", and CodeMirror's `posAtCoords` is not that implementation.** Live preview replaces
+source with rendered boxes of a different WIDTH and a different LENGTH — `$7.7\ \text{km/s}$` is
+eighteen characters of markdown standing under seven glyphs of KaTeX, `[[Note|alias]]` hides
+eleven characters that still occupy positions, `![dot](…)` is one offset wearing an image — and
+`posAtCoords` reasons about geometry: it walks the height map to a block and binary-searches that
+block's client rects. On a row carrying a replaced inline widget that search gives up and returns
+**the end of the line**. Measured on the live vault's "Eppur si muove", on the wrapped row that
+carries one inline formula, x = 500 / 527 / 620 / 700 / 804 all resolved to doc position **606**,
+the line's end, against a truth of 552 / 556 / 570 / 581 / 598. That is the owner's report — "click
+near the start of a line and the caret lands about 25 words in" — and the error IS the distance
+from the click to the end of the line, which is why it scales with how much rendered math precedes
+it.
+
+- **The mapping asks the DOM, which cannot be wrong about which glyph is under a point**:
+  `caretPositionFromPoint` (WebKit: `caretRangeFromPoint`) → `posAtDOM`. Inside a widget's own DOM
+  that resolves to the widget's START, which is exactly what "click the rendered math to edit its
+  source" means. `posAtCoords` survives only as the last resort, for points the DOM refuses to
+  answer for.
+- **THE FIX HAD TO REACH THE CARET, NOT ONLY THE READERS OF A POSITION.** The block-widget case of
+  this bug was fixed once already — the frontmatter card, named in livePreview.ts — and the fix
+  stopped at links and hover cards, because CodeMirror places the caret from its OWN mouse
+  handler and nothing had told it otherwise. `pointerSelection` is that instruction: an
+  `EditorView.mouseSelectionStyle` that replaces `basicMouseSelection` wholesale (Shift extends,
+  Alt adds a range, double/triple click take a word / a line), resolving every position through
+  this file. Four consumers, one implementation: caret placement, wikilink / footnote / url clicks
+  and checkbox toggling (livePreview.ts), the hover previews (hoverPreview.ts), and the selection
+  menu.
+- **Assoc is decided by the click's own y.** One document position sits at the end of one visual
+  row AND the start of the next; the two rows are ~30px apart, so `assocAt` compares
+  `coordsAtPos(pos, 1)` and `coordsAtPos(pos, -1)` against the pointer.
+- **A drag leaves the content**, so `posFromPointOrNearest` falls through to
+  `posAtCoords(…, false)` — the height-map estimate is the right tool once the DOM has no glyph to
+  offer, and a selection that stops updating past the last line is a selection that snaps back.
+- **THE GATE IS `scripts/check-caret.mjs`**, documented in README beside the other gates. It writes
+  its own note — inline math, inline code, wikilinks, tags, highlights and an image, in English and
+  Arabic, on lines long enough to wrap several times — parks the selection on a neutral line before
+  each sample (the reveal-on-cursor rule rewrites the layout of whatever line the caret is on, so
+  measuring and clicking must both happen with the target RENDERED), takes the glyph's own box from
+  `coordsAtPos(pos, 1)`…`coordsAtPos(pos + 1, -1)`, clicks 35% into it, and requires the caret
+  within ONE character. Zero-width positions (hidden syntax, replaced source) and positions
+  straddling a soft wrap are skipped — they are not clickable glyphs. Rendered wikilinks, tag pills
+  and images are skipped too: off the cursor line those are BUTTONS, and clicking one navigates
+  rather than placing a caret. The matrix runs once in each shell direction. Measured against the
+  unfixed build: 15 failures, worst |Δ| **82**.
+
+## Text formatting (client/editor/commands.ts)
+
+**One implementation, three surfaces** — the keystroke, the selection menu and the floating
+toolbar all call the same command; a menu that inserted its own asterisks would drift from Ctrl+B
+the first time either changed, silently.
+
+- **Bindings are Obsidian's, checked rather than guessed**: `Mod-b` bold, `Mod-i` italic,
+  `Mod-Shift-x` strikethrough, `Mod-Shift-h` highlight. `Mod-u` underline is the word processor's —
+  Obsidian has no underline command, because markdown has no underline — and emits `<u>`, which
+  `rawHtml.ts`'s `INLINE_TAGS` already admitted and the reading view already rendered. `__text__`
+  was rejected: it is a second spelling of bold. Inline code has no Obsidian default and gets none;
+  it lives in the menu.
+- **`Prec.high` so they beat `defaultKeymap`, but BELOW the vim compartment**, which is first in
+  the extension list: vim's Ctrl+B stays page-up, exactly as the shell handler used to promise.
+- **THE PANE TOGGLES MOVED, AND `preventDefault` IS WHY THEY HAD TO.** `Mod-b` was the notes
+  sidebar and `Mod-Shift-b` the outline pane. Formatting wins in the editor — it is the binding
+  every reader arrives with — so the pair kept its shape (one key, Shift picks the second pane) and
+  took one more modifier: **`Ctrl/Cmd Alt B`** and **`Ctrl/Cmd Alt Shift B`**, matched on
+  `event.code` as well as `event.key` because Alt rewrites `key` on several platforms, and refused
+  while `AltGraph` is down (Right-Alt reports ctrl+alt on European layouts). The status-bar
+  tooltips, both palette rows and the Ctrl/Cmd+/ sheet print the new numbers, and the sheet gained
+  a *Formatting* group so it can answer "what happened to Ctrl+B" in one glance.
+  App.tsx's capture handler no longer `preventDefault`s `Mod-b` INSIDE the editor: CodeMirror's
+  keydown pipeline opens with `if (event.defaultPrevented) break`, so a capture-phase
+  `preventDefault` does not merely stop the browser, it stops the EDITOR — measured, the new
+  binding was silently dead while that line stood. Outside the editor it still dies there, because
+  Firefox's bookmarks sidebar (Ctrl+B) and Chrome's bookmark bar (Ctrl+Shift+B) must never open
+  over the app.
+- **Three rules every command obeys.** (1) *Applying twice removes* — each kind carries a regex for
+  its own rendered span, and a range already inside one is unwrapped. The containment test is
+  against the span's OUTER range, markers included: the narrower "inside the inner text" broke the
+  second press on a multi-line selection, whose middle lines are clipped with one end inside the
+  markers and the other outside, and Ctrl+B answered by bolding the bold (`****alpha line one****`).
+  (2) *No selection is a real case* — markers inserted, caret parked between them, and a caret
+  already inside a span of that kind removes it. (3) *A multi-line selection is applied PER LINE* —
+  markdown emphasis does not cross a blank line, so one `**` at the top of three paragraphs is two
+  stray asterisks and a lost paragraph break; blank lines drop out and trailing whitespace is
+  excluded.
+- Line-level structure (`toggleLinePrefix`) treats `#`/`##`/`###`, `- `, `1. `, `- [ ] ` and `> ` as
+  ONE family: applying `## ` to a `# ` line replaces rather than stacks, and a numbered list
+  numbers itself down the block instead of emitting five `1.` lines.
+
+### A FOURTH RULE: the commands answer the note's FORMAT
+
+A note is no longer necessarily markdown, and `**bold**` typed into a `.tex` file is not bold text
+— it is two pairs of asterisks that `pdflatex` prints verbatim, that `shared/tex.ts` does not read,
+and that the live preview beside the caret does not render. Measured before this landed: Ctrl+B in
+a `.tex` note wrote `**Typed**`, the menu's "Heading 2" wrote `## ` (invisible to the `\section`
+outline, so the note lost a heading it appeared to gain), and a colour swatch wrote a
+`<span style="color:…">` into a LaTeX document. Three agents each shipped something correct and the
+seam between them was the defect; this is the rule that closes it.
+
+- **`syntaxOf(state)` is the one question**, answered from `notePathFacet`, which BOTH editors
+  provide (livePreview.ts for markdown, tex/preview.ts for LaTeX). The keystroke, the selection
+  menu and the floating toolbar all ask it, so none of the three can drift from another — the same
+  argument that made them share `format()` in the first place.
+- **The LaTeX column is exactly what the reader can read back.** `\textbf` / `\emph` /
+  `\underline` / `\texttt` are four of the six `STYLE_COMMANDS` in `shared/tex.ts` (and of
+  `TEXT_STYLE` in tex/preview.ts). Anything else would render as raw source in the very next paint.
+- **A format with no honest spelling is ABSENT, never approximated.** There is no `\sout` without
+  `ulem` and no `\hl` without `soul`, so strikethrough and highlight do not exist in a `.tex` note:
+  their rows are gone from the menu, their glyphs are gone from the toolbar (a button that does
+  nothing when pressed is worse than one that is not there), and their keystrokes DECLINE — return
+  `false`, so the key falls through instead of being silently eaten, while `preventDefault: true`
+  still keeps Ctrl/Cmd+Shift+H off the browser's history sidebar. The task list goes the same way.
+  **The colour group is gone entirely** in a `.tex` note: a coloured run is HTML.
+- **Structure translates rather than transferring.** A markdown heading is a PREFIX and a LaTeX one
+  is a CALL, so `toggleTexSection` wraps the line instead of prefixing it — and keeps both of the
+  family rules: applying `\subsection` to a `\section` line REPLACES it, and the second press takes
+  it off, with **whatever trailed the heading (almost always its `\label`) carried through
+  unharmed**. Lists and quotes become `itemize` / `enumerate` / `quote` environments
+  (`toggleTexEnv`), whose "second press removes" test reads the lines JUST OUTSIDE the selection,
+  because that is where `\begin`/`\end` ended up after the first press.
+- **A wikilink becomes `\note{…}`** — Vellum's own macro, the one `vellum.sty` makes compile
+  elsewhere — and a link becomes `\href{url}{…}`. **Inline math is the one row that is
+  byte-identical in both languages**, which is the whole reason `$…$` was chosen for it.
+
+## Selection menu & floating toolbar (client/components/SelectionMenu.tsx, styles/selection.css)
+
+- **Right-click over a SELECTION** opens it; with nothing selected the browser's own menu
+  (spelling, paste, the dictionary) is the better answer and taking it would be theft.
+  `Shift+F10` and the Menu key open the same menu at the selection — a menu reachable only by
+  right-click is a menu half the readers of this app cannot open.
+- **A MENU IS NOT A PANEL.** The top level is *text style* (six rows), *colour* (ONE swatch row
+  plus a "fixed ink" checkbox) and two doors — *Structure ›* and *Insert ›* — which open as PAGES
+  of the same box, with a *Back* row, ← and Esc to leave. Flat, the vocabulary measured 341×884 in
+  a 1440×900 viewport and 341×828 with 1,217px of scroll at 390×844: twenty-one rows, seventeen
+  swatches and four lines of body copy, i.e. ~390px of scrolling INSIDE a context menu to reach
+  "Remove colour". Nothing was dropped — the palette owns the same commands, and a page a reader
+  opens on purpose costs no height to a reader who does not. Measured after: 273×458 at 1440×900,
+  no internal scroll.
+- **The colour group is one row.** The two tiers stay (see *Coloured text*) but the reader does not
+  adjudicate a WCAG argument at the moment they want a word red: the row is theme-aware by default,
+  a *Fixed ink* checkbox switches the same row to the literal inks, the arithmetic lives in each
+  row's `title` instead of four lines of prose in the box, and **Remove colour is the ⊘ chip at the
+  end of the row**, not a row of its own.
+- Keyboard-complete: ↑↓ walk the flat
+  row list, ←→ walk a swatch row *answering the inline direction* (the settings SegmentedControl's
+  rule) and open/leave a page by the same rule, Enter runs the highlighted row, Esc leaves a page
+  and then closes, handing the caret back. Hover never moves the
+  keyboard highlight without the pointer actually moving — the palette's bug, which the theme
+  picker also refused to reproduce.
+- **ONE ROW IS LIT, AND IT IS LIT IN THE PRODUCT'S OWN LANGUAGE.** `--accent-soft` plus a gold
+  leading bar — what the command palette uses. The generic `button:hover` in app.css paints
+  `--bg-hover`, which was ALSO the active row's ground, so the row under the finger and the row
+  Enter would run looked equally chosen and regularly were not the same row (measured at 390: Bold
+  keyboard-active and Heading 1 pointer-hovered, both `rgb(41,35,26)`). `.s-selmenu__row:hover` now
+  paints nothing; the pointer's only job is to move `--active`.
+- **Keycaps and group titles are `--text-muted`**, not `--text-faint`: they sit on the highlighted
+  row's `--bg-hover`, where faint measures 2.74–2.98:1 across the themes. `check-contrast.mjs`
+  walks `--bg-hover` as a third ground now (DESIGN.md, *Contrast*). Below 700px or on a coarse
+  pointer the keycaps are **not rendered at all** — a keyboard legend on a device with no keyboard
+  is the taunt DESIGN.md already forbids in the empty state.
+- **Clamped into the viewport and opened toward the reading direction**, measured from the rendered
+  box after layout — the tree's context menu had to learn this for the same reason: in Arabic, and
+  whenever a reader pins the sidebar right, the pointer is regularly at the trailing edge. Verified
+  at 1440×900 and 1024×620 in Arabic: inside the viewport on both axes, document horizontal
+  overflow 0.
+- **Focus lands AFTER the placement**, never on mount — the shell's "focus after the reveal lands"
+  rule one component down. Without it Esc goes to the page and the menu cannot be closed from the
+  keyboard.
+- **The floating toolbar carries six actions** — bold, italic, strikethrough, highlight, inline
+  code, and the door to the full menu. Underline is deliberately absent: least used of the six
+  wrapping formats in a markdown vault, and it keeps its keystroke. It is a plain DOM strip
+  parented to `<body>` (it must escape the scroller's overflow) placed from the selection's own
+  client rect, owned by a `ViewPlugin` so it dies with the editor, and its buttons act on
+  **mousedown** — a click would already have destroyed the selection it exists to act on.
+- **It centres on the SELECTION'S RECTS, not on two carets.** The union of
+  `getSelection().getRangeAt(0).getClientRects()` (falling back to `coordsAtPos` when the DOM
+  selection cannot answer). `coordsAtPos(from)`/`coordsAtPos(head)` describe carets: triple-click a
+  line and both land at column 0, so their midpoint is the column's LEFT EDGE — measured, a strip
+  at x=302.5–494 over a selection spanning 398–948, floating in the prose gutter clear of the text
+  it acts on. It is then clamped to the **prose column** first and the window second; clamping to
+  the window alone put it at x=4 at 768.
+- **It flips when the band above is OCCUPIED, not only when it is off-screen.** `top < 8` was the
+  whole test, so double-clicking a word on a paragraph's first line landed the strip on the
+  preceding heading's baseline. The band is probed as a nine-point grid of `elementFromPoint`
+  (the strip taken out of hit-testing for the duration) and any `.cm-line` other than the
+  selection's own means "occupied" → go below, which is the reader's own paragraph and the lesser
+  collision. The floor is the SCROLLER's top, not the window's: above it is the tab bar.
+- **The highlight glyph is a filled swatch behind the H**, never a rule under it — a 3px gold
+  underline sitting one row from a genuine *Underline* command reads as underline. Drawn as a
+  `background-image`, because an absolutely positioned `::before` paints ABOVE the button's own
+  text node.
+
+## The editor's prose gutter (why it is on `.cm-scroller`)
+
+`--prose-gutter` is `padding-inline` on **`.cm-scroller`**, and `.cm-content` is `max-width: 648px`
+with zero horizontal padding (zen: 672px inside `min(64px, 8%)`). The measure is unchanged — 648px
+at every width the column is at its cap, and the percentage resolves against the same box — but the
+CONTENT BOX now ends where the text ends, and that is the whole point: CodeMirror's `drawSelection`
+computes a multi-line selection's rects as `contentDOM.getBoundingClientRect()` ± the first
+`.cm-line`'s own padding, so a padded content box painted every wrapped and continuation row ~56px
+into the prose margin — a ragged gold L hanging in the gutter under the most-used gesture in the
+editor, overshooting BOTH edges in Arabic. Measured after: content 399.5–1047.5, selection rects
+405.5–1045.5. Padding on `.cm-line` would fix the arithmetic too and is refused: callouts and
+quotes own that padding to place their own bars.
+- **Its switch is a DEVICE preference** (`vellum.selToolbar`, default ON), beside `vellum.vim` and
+  `vellum.theme` — it says how THIS person edits, must not travel to a co-author through the
+  settings panel, and must not need a server round-trip to answer a selection. The menu's last row
+  turns it off; the palette's *Floating formatting toolbar* row turns it back on, so the switch is
+  never one-way.
+
+## Coloured text (shared/textColors.ts, client/styles/textcolor.css)
+
+**TWO TIERS, AND THE SECOND ONE EXISTS BECAUSE THE FIRST CANNOT BE A FIXED COLOUR.** A colour a
+reader puts inside a note outlives the theme it was chosen under, so it has to survive fifteen
+themes × two grounds. Ask for AA on all of them at once and the answer is provably empty: against
+`void`'s `#050508` a colour needs relative luminance ≥ 0.186, against `solar`'s `#ffffff` it needs
+≤ 0.183. There is no such colour.
+
+- **Tier 1, the default — SEMANTIC.** The note stores `var(--vc-red)`; `client/styles/textcolor.css`
+  resolves it per theme GROUP (`themeGroup()` already partitions the fifteen into eleven dark rooms
+  and four light ones), so "red" is a light coral on a dark ground and a deep brick on a light one.
+  Every value clears **4.75:1 against every ground in its group** — the shipped set's worst is
+  5.29:1. The note carries a MEANING, not an ink, so it reads correctly in a sixteenth theme too.
+- **Tier 2 — LITERAL.** Nine hexes, one value for all fifteen themes, solved against all thirty
+  grounds at once and held to **3:1** — WCAG 1.4.11's non-text floor, the most a fixed ink can
+  promise given the paragraph above. For when the author means THIS red: a diagram key, a quoted
+  brand, a colour being discussed as itself.
+- `scripts/check-contrast.mjs` asserts both floors from the same module the client imports, and
+  asserts that the stylesheet's `--vc-*` values ARE the module's (they are written twice by
+  necessity — CSS cannot import — and a drift would mean the gate measures one palette while the
+  product paints another).
+- **`textcolor.css` is linked from `client/index.html`, after `themes.css`** — not imported from the
+  editor bundle. Coloured text has to resolve in the editor, the reading view AND the blog, and
+  only one of those three ever loads CodeMirror.
+- **The editor renders a coloured run as a MARK, not a widget** (livePreview.ts): the tags hide off
+  the cursor line and the inner text takes a `style` attribute, so the letters stay real text — the
+  caret walks them, search finds them, and the pointer mapping has glyphs to land on. Only the TAGS
+  are claimed, so `**bold**` inside a coloured run still renders. The value goes through the same
+  sanitizer the other two surfaces use; anything it rejects is left as source, which is the honest
+  rendering of a declaration that will not survive being read back. Verified: editor and reading
+  view paint byte-identical computed colours for the semantic, literal and bold-inside-colour cases.
+
+### The sanitizer's `style` allowance (client/reading/rawHtml.ts)
+
+`style` used to pass through **untouched on every element** — the attribute filter only looked at
+`on*`, `srcdoc` and URL attributes. That was a hole with the colour feature and without it:
+`background:url(https://…)` in a note is a beacon that fires for every reader and reports their IP
+and User-Agent to whoever wrote it, and `position:fixed` over the viewport is a clickjack. Neither
+needs script, so the CSP never saw them. Two rules now, because notes are not all ours:
+
+- **On a `<span>` the attribute is REBUILT** and may carry only `color` and `background-color`,
+  whose values must be a hex / `rgb()` / `hsl()` literal, a bare colour identifier, or a `var()`
+  naming a token in `COLOR_TOKENS` (the eight `--vc-*` plus `--text`, `--text-muted`, `--accent`).
+  A `var()` is a read of the page's own cascade, so an unbounded allowlist would let a note paint
+  itself in any value the app holds — and, with `background-color` in play, read one out by
+  contrast. The bare identifier is a deliberate widening of "hex/rgb/hsl only": `color:red` is what
+  a hand-written note actually says (two of them in the 1,388-note fixture), an identifier has no
+  grammar for a URL, and an unknown keyword is simply ignored by the browser.
+- **On every other element the attribute is FILTERED, not rebuilt.** Real vaults keep layout in
+  inline style — measured on the fixture, seventeen notes carry `stroke-width` on Excalidraw SVG
+  paths, `width:100%` on a figure, `text-align:center` on a div — and rebuilding those to a colour
+  allowlist would silently un-draw the diagrams the raw-HTML feature exists to render. What is
+  dropped is what was never legitimate: any value reaching OUT of the document (`url()`,
+  `image-set()`, `element()`, `expression()`, backslash escapes, `@import`), any `position` that is
+  not `static`/`relative`, any `var()` naming a token outside `COLOR_TOKENS`, `color` /
+  `background-color` values that fail the same colour rule the span path applies, and
+  custom-property declarations (a value smuggler).
+- **`position` IS AN ALLOWLIST, and so is every `var()` read.** The test was `fixed|sticky` — a
+  denylist, in which `absolute` was simply not thought of. Verified live against the 1,388-note
+  fixture at 1440×900, on BOTH code paths: a published note carrying
+  `<div style="position:absolute;top:0;left:0;width:100vw;height:100vh;z-index:99999;…">` rendered
+  a 1440×900 box at (293,0) and `document.elementFromPoint(720,450)` answered `DIV#OVERLAY`; the
+  inline `<font id=INLINEOVER style="position:absolute;…">` did the same and answered for the page
+  centre AND for the status bar at (700,886). It covered the reading column, the outline pane, the
+  backlinks pane and the status bar and swallowed every click there for an anonymous visitor. A
+  property whose whole job is to take an element out of flow cannot be filtered by listing the ways
+  one has gone wrong so far. Re-verified after: computed `position` is `static` for all three
+  values, `relative` survives, and `elementFromPoint` over the status bar answers
+  `FOOTER.s-statusbar`. The `var()` bound closes the other half of the same hole: `COLOR_TOKENS`
+  was stated as the reason a note cannot "paint itself in any value the app holds", and
+  `<font style="color:var(--danger)">` sidestepped it entirely by not being a `<span>`.
+- Both code paths are covered — the DOM pass (`sanitizeElement`, used by the reading view's block
+  HTML and the editor's HTML-block widget) and the regex pass (`sanitizeInlineTag`, used by the
+  inline renderer). **No CSP change is involved**: `style-src 'unsafe-inline'` was already required
+  by React style props, KaTeX and the generated banner gradients.
+
+## LaTeX notes — `.tex` and `.latex`
+
+**A note is no longer necessarily markdown.** `shared/noteFormat.ts` is the single answer to both
+"is this a note" (`isNotePath`) and "which language is it written in" (`noteFormat`, `isTexPath`),
+and it replaces the `.endsWith(".md")` that was spelled out about forty times across the server
+and the client. `NOTE_EXTENSIONS` is ordered `[".md", ".tex", ".latex"]` and **the order is
+load-bearing**: `[[Fourier]]` with both `Fourier.md` and `Fourier.tex` in the vault resolves to the
+markdown one, because that is what every vault written before this feature meant by the name.
+`noteCandidates()` is the shared resolution order — server (`indexer.resolveLink`), client
+(`editor/links.resolveLink`), the router and `blog.matchPublished` all walk it, so no two of them
+can disagree about which note a link means.
+
+### The reader: `shared/tex.ts`
+
+Source text → a small document model. Node-free and DOM-free, because the indexer, the reading
+renderer and the editor all import it. Three properties the rest of the feature leans on:
+
+- **It never executes anything.** `\newcommand` is expanded by substitution under a hard depth
+  (8) and count (4,000) budget; there is no other macro programming. Maths is never expanded here
+  at all — the collected definitions are handed to KaTeX as its `macros` option, where its own
+  sandboxed expander runs them.
+- **It never reaches outside the vault.** `\input` and `\includegraphics` yield NAMES; resolving
+  them is the caller's job, through the same resolver wikilinks use. `server/texNote.ts` folds a
+  relative name against the note's own directory and **drops** anything that climbs out (it does
+  not clamp), exactly as `parseAssets()` does for a markdown image destination.
+- **EVERY `\includegraphics` yields its name, not only the one inside a `figure`.** The command
+  sat in `SWALLOWED_COMMANDS`, so anything outside `parseFigure` — a bare `\includegraphics{…}` in
+  a paragraph, or one inside `center` / `minipage` / `wrapfigure` / a table cell — was consumed
+  with its argument: it rendered as NOTHING and never reached `doc.graphics`, which is what
+  `allowedAttachments()` builds the publish allowlist from. Measured on the fixture with three
+  identical PNGs in one published `.tex` note: `figure` → anon `GET /api/file` 200, `center` →
+  404, bare → 404, while a byte-identical markdown `![p](Fig/plot.png)` allowlisted 200. The author
+  saw a paper (admin gets 200); every reader saw blank space and three 404s. It is now an inline
+  `{ t: "graphic", name, width }` node — the same `<img>` the float draws, with no caption and no
+  number — and the name is pushed to `doc.graphics` at the point it is read. Re-verified: all three
+  forms 200 for an anonymous visitor, `parseTex(...).graphics` = all three names.
+- **It never produces HTML.** Every string in the model is plain text and both renderers build DOM
+  with `createElement`/`textContent`, so there is no injection path through TeX. `\href` and `\url`
+  reach an `href` only when the value is `http(s)`; a `javascript:` target renders as its own text.
+
+Unparseable input is never an error: a malformed document yields whatever was readable, and every
+unimplemented control sequence becomes a quiet inline marker — never raw source, never a crash.
+
+### Numbering belongs to Vellum, not to KaTeX
+
+KaTeX restarts its equation counter on every `renderToString` call, so a paper with four numbered
+equations rendered block-by-block would print "(1)" four times and every `\eqref` would point at
+the wrong one. So the counters live in `shared/tex.ts`, and the number is handed to KaTeX as an
+explicit `\tag{n}`, which it places where amsmath does — per row inside `align*`/`gather*`
+included. Unstarred `align`/`gather` therefore render through their **starred** form with one
+injected tag per row: same layout, our numbers, and no doubled "(1) (1)". Numbering is
+article-style whatever the document class; this is stated in the README rather than left to be
+discovered.
+
+### One anchor space (`shared/anchors.ts`)
+
+A markdown heading and a LaTeX `\label` are **the same kind of thing** — a named place inside a
+note — so `[[Note#anchor]]` and `\ref{Note#anchor}` are one lookup, and neither the backlinks
+panel, the graph, the hover preview, the outline nor the transclusion code has to know which
+format it is pointing at. `noteAnchors(path, content)` dispatches on format; `findAnchor()` matches
+an id first (a `\label` value, a heading slug) and then an anchor's human TITLE, which is what
+makes `\note{Notes on Diffusion\#Derivation}` and `[[Paper#eq:fourier]]` the same operation from
+opposite sides. Markdown slugs are generated by the same rule `client/reading/toc.ts` uses, because
+an anchor whose id disagrees with the element id the reading view assigns is an anchor that
+silently misses.
+
+Transclusion falls out of it: `![[Paper#eq:fourier]]` resolves the note, then the anchor, then
+renders only the blocks that anchor OWNS (one equation/figure/table, or a section down to the next
+heading at the same or a shallower level). A miss transcludes the whole note, which is what
+`![[Note#missing]]` did before anchors existed.
+
+**`renderNoteSlice()` in `client/reading/renderNote.ts` is the ONE place that decides this**, beside
+`renderNoteContent()` and for the same reason. The first version of the anchor rule lived inside
+the reading view's own `transclusion()` and the EDITOR's transclusion widget never learned it: the
+same `![[Note#Section]]`, twelve pixels apart, pulled in one section in the reading pane and the
+entire note in the live-preview card — which also dropped the anchor from the card's title, so
+nothing on screen said which of the two you were looking at. Both surfaces now call
+`renderNoteSlice`, the reading view's `anchorSlice` delegates to it, and both card headers print
+the same `note › anchor` trail (`.s-rv-transclude__anchor` / `.cm-s-transclude__anchor`). **The
+anchor is part of the editor widget's identity** (`TransclusionWidget.eq`): two embeds of one note
+at different anchors are different widgets, and leaving it out lets CodeMirror reuse one for the
+other.
+
+### Local-first, everywhere, without exception
+
+A `\ref` whose label is defined in the SAME document never looks at the vault (`server/texNote.ts`
+drops it before it ever becomes an xref; `client/reading/texRender.ts` checks the local anchor
+table first). `\input` resolves against the note's own folder before the vault-wide basename
+fallback. This is the rule that makes dropping an existing LaTeX project into a vault safe:
+importing it can only ADD edges the compiler would have followed anyway, never change what its own
+cross-references mean. For the same reason, **renaming a note rewrites `\note{…}` and
+`%% [[…]] %%` — Vellum's own syntax — and leaves `\input`, `\cite` and `\ref` alone**: those belong
+to the document's own semantics, and silently editing them could change what `pdflatex` produces.
+
+### What the indexer stores
+
+`NoteRecord` gains four fields, and the branch that fills them is the ONE place in the indexer
+where a note's text is interpreted; every field below it is format-blind again.
+
+- `prose` — the reader's prose, control sequences, math markup, labels and citation keys already
+  gone. NULL for markdown (which derives the same thing lazily from `body`). This one field is what
+  makes a `.tex` note searchable by its WORDS instead of by `\textbf`, and it is also what the
+  language detector reads — without it a LaTeX file of Arabic prose scores as English, because
+  `\begin{document}` is Latin letters.
+- `anchors` — the format-agnostic table above.
+- `xrefs` — LaTeX's own linking vocabulary (`\cite`, and the `\ref` that found no local label),
+  kept apart from `links` because it resolves against different tables (`byCitekey` / `byLabel`).
+  Putting a bibliography key through basename resolution would draw a broken edge for every
+  reference in a paper. Both become graph edges and backlinks when they resolve, which is what
+  "an existing project lights up unmodified" MEANS.
+- `excerptSource` — the abstract, or the first real paragraph, found by walking the document TREE
+  (a LaTeX file has no markdown paragraph structure to scan).
+
+`body` stays the RAW source, because backlink context and the editor both count in source LINES and
+a prose string has none.
+
+### Frontmatter
+
+`%---` … `%---%` — **both fences are LaTeX comments**, so the block is invisible to `pdflatex`,
+which is the same bargain `%% [[Note]] %%` strikes for links. Inner lines may or may not carry
+their own leading `%`. `\vellum{key=value, …}` is the macro spelling and loses to the block on any
+shared key. `findTexFrontmatter()` refuses a block whose lines do not look like YAML, so a
+decorative `%------` rule is not mistaken for a fence (which would blank the top of the document).
+`server/noteFrontmatter.ts` dispatches every publish toggle and `banner:` write, with the same
+surgical single-line contract `server/publish.ts` states for markdown.
+
+### Routes
+
+- `GET /api/anchors?path=` → `AnchorsResponse`. Visitor-scoped exactly like `/api/note`: a
+  published note's anchors are readable, nothing else is.
+- `GET /api/xref?label=` | `?cite=` → `XrefResponse`. The vault-wide half of a cross-reference,
+  asked only after the document's own definitions have been checked. A miss is `200` with nulls,
+  like `/api/resolve` — unresolved keys are the normal state of a bibliography, not an error.
+  Visitor-scoped, because an anonymous caller must not learn that a private note defines
+  `sec:acquisition`.
+- `GET /api/vellum.sty` → the macro package, `text/x-tex`. A constant; it carries nothing about the
+  vault, and a reader who cannot download it cannot compile the paper they were just shown.
+
+### Editor
+
+One branch in `buildEditorState()`'s extension list. Everything around it is format-blind — the
+theme, vim, the save keymap, caret handling, uploads, hover previews. **The formatting layer is the
+exception, and it is not a second branch here**: the extension is the same in both notes and only
+its VOCABULARY changes, one layer down, on `notePathFacet` — see "A FOURTH RULE" under *Text
+formatting*. What differs in the list is the language
+(`stex` via `@codemirror/legacy-modes`, a direct dependency so LaTeX highlighting is up on the
+FIRST paint), the folding (environments as well as sections), the autocomplete (`\note{`, `\ref{`,
+`\cite{`, `\begin{`) and what live preview MEANS. `\label` is the one command hidden outright on an
+inactive line — it prints nothing in the PDF either, and left visible it set a `\label` key in
+heading type beside every section title.

@@ -13,6 +13,11 @@
          vignette) into per-theme tokens, and the settings sheet is the
          designed surface over app.css's base panel rules. -->
     <link rel="stylesheet" href="/styles/themes.css" />
+    <!-- The --vc-* text-colour tokens a note may name in a <span style="color">.
+         Here rather than in the editor bundle because colored text has to
+         resolve in all three surfaces — editor, reading view and the blog —
+         and only one of them ever loads CodeMirror. -->
+    <link rel="stylesheet" href="/styles/textcolor.css" />
     <!-- The control set (styled select/toggle/segmented/number), before the
          settings sheet: settings is a SURFACE built out of these primitives,
          so it must be able to adjust them and never the other way round. -->

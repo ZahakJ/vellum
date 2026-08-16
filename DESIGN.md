@@ -18,7 +18,8 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 
 - Sidebar and backlinks panel have `--bg-raised`; center is `--bg`; 1px `--border` separators.
 - Backlinks collapse: chevron button in the panel header; collapsed = 0 width. Animate width
-  180ms ease. The sidebar collapses the same way (`Ctrl/Cmd B`; the panel is `Ctrl/Cmd Shift B`).
+  180ms ease. The sidebar collapses the same way (`Ctrl/Cmd Alt B`; the panel is
+  `Ctrl/Cmd Alt Shift B` — the pair moved one modifier out when `Ctrl/Cmd B` became **bold**).
 - A collapsed pane leaves a **reopen handle**: a 14px full-height strip on that pane's own edge,
   `--bg-raised` with the shared 1px border and a `--text-muted` chevron pointing into the
   content; hover fills `--bg-hover` and turns the chevron gold. Always visible while collapsed —
@@ -170,6 +171,25 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
   parchment sat at 2.50:1 and text kept moving onto the one token nothing could fail. **Opacity
   is invisible to the gate**: `--text-faint` at 0.85 is 2.56:1 on iron-gall, so a fade over a
   token that is already at its floor is a way of failing the floor without failing the check.
+- **`--bg-hover` is a THIRD ground, not a shade.** Every hovered row, every highlighted menu row
+  and every tag pill is painted with it, so `check-contrast.mjs` walks it too: `--text` ≥ 4.5:1
+  and `--text-muted` ≥ 3:1 on all fifteen (worst measured 4.53:1). `--text-faint` is NOT checked
+  there and may not be USED there — it is a two-ground token by construction, and on `--bg-hover`
+  it measures 2.74:1 (iron-gall), 2.89 (sumi, tallow), 2.98 (parchment). The selection menu's
+  keycaps and group titles shipped exactly that: passing on `--bg` and `--bg-raised`, failing one
+  substrate over, which is the same "failing the floor without failing the check" as the opacity
+  case above.
+
+## The divider
+
+- `---` and `___` draw the plain divider, `***` the ornamental one. Both are a gold rule that
+  FADES at both ends (`color-mix(--accent 65%)`, 22%→78%) with 2.8em of air; the ornamental one
+  adds the wordmark's ✦ over a gap in the middle. **The divider is content, not furniture**: it
+  may never be `1px solid var(--border)`, which is the h1 rule and the blog byline rule, because
+  an article that carries three chrome hairlines and one content hairline at the same weight,
+  colour and measure has told the reader nothing. All three surfaces draw it identically — live
+  preview draws a block widget (`cm-s-hr-rule`), reading view and the blog draw `.s-rv-hr` — and
+  live preview shows the source only while the cursor is on the line, like every other element.
 
 ## Hard rules
 

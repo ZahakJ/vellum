@@ -455,7 +455,29 @@
   font-family: var(--font-serif);
   font-style: italic;
   font-size: 1.071rem;
-  color: var(--text-faint);
+  /* A sentence the reader READS, so --text-muted (4.5:1 in all fifteen), not
+     --text-faint, whose bar is the 3:1 non-text one. */
+  color: var(--text-muted);
+}
+
+.s-blog-empty p {
+  margin: 0;
+}
+
+.s-blog-empty__why {
+  margin-top: 6px;
+  font-size: 0.929rem;
+}
+
+/* ARABIC HAS NO ITALIC. A leaning naskh is a SYNTHESIZED oblique — the
+   browser shearing an upright face — which in an Arabic setting is a
+   typographic error rather than emphasis. The chrome lines that lean in
+   English stand up in Arabic; the emphasis they carry is already carried by
+   their size, their serif face and their position. */
+[lang="ar"] .s-blog-empty,
+[lang="ar"] .s-blog-mast__tagline,
+[lang="ar"] .s-dash-hero__tagline {
+  font-style: normal;
 }
 
 /* ── Post list ─────────────────────────────────────────────────────────── */

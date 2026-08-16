@@ -9,6 +9,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
+import { isNotePath } from "../shared/noteFormat.ts";
 import path from "node:path";
 import argon2 from "argon2";
 import { Hono } from "hono";
@@ -20,7 +21,7 @@ import { isNoteVisibleToVisitor, publishedCounts, resolveLink } from "./indexer.
 import { commentsEnabled } from "./comments.ts";
 import { fontsSignature, slotsAreSystem } from "./fonts.ts";
 import { fontSlots, getSettings } from "./settings.ts";
-import { bannerFallback, blogLocale, customCssPath, dataDir, defaultTheme, footerLine, publicLayout, siteLanguage, siteName, tagline } from "./site.ts";
+import { bannerFallback, blogLocale, customCssPath, dataDir, defaultTheme, footerLine, languageFilterEnabled, publicLayout, siteLanguage, siteName, tagline } from "./site.ts";
 import { normalizeRel } from "./vault.ts";
 
 const COOKIE_NAME = "vellum_session";
@@ -590,7 +591,7 @@ function homeNoteVisible(ref: string): boolean {
   if (!config.publicReads) return false;
   if (resolveLink(ref, true) !== null) return true;
   try {
-    const asPath = /\.md$/i.test(ref) ? ref : `${ref}.md`;
+    const asPath = isNotePath(ref) ? ref : `${ref}.md`;
     return isNoteVisibleToVisitor(normalizeRel(asPath));
   } catch {
     return false;
@@ -632,6 +633,9 @@ authRoutes.get("/me", (c) => {
   // describes the public shell) and sent to every session so an admin
   // previewing as a visitor sees exactly what a visitor sees.
   if (settings.languageToggle === true) me.languageToggle = true;
+  // The language FILTER, so an empty public list can say why it is empty.
+  // A boolean, not a count: see MeData.
+  if (languageFilterEnabled()) me.languageFilter = true;
   // Marginalia, for every session. The reading view used to find this out by
   // asking /api/comments per note and reading the 404 — one bad response per
   // note open on every instance with comments off. It is one instance-wide

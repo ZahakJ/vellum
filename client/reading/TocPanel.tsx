@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { getNote } from "../api.ts";
 import { localeNum, t } from "../i18n.ts";
 import { useStore } from "../state.ts";
-import { extractHeadings, type Heading } from "./toc.ts";
+import { noteHeadings, type Heading } from "./toc.ts";
 
 export default function TocPanel() {
   const openPath = useStore((s) => s.openPath);
@@ -30,7 +30,10 @@ export default function TocPanel() {
         // Furniture headings (sections that are only link/tag lists, e.g. a
         // trailing "Tags:") stay out of the outline; their ids still exist
         // in the reading view so in-page anchors keep working.
-        if (!cancelled) setHeadings(extractHeadings(note.content).filter((h) => !h.furniture));
+        // Format-blind: markdown headings and `\section` hierarchies come
+        // back in the same shape, with slugs that match the ids the
+        // corresponding renderer assigns.
+        if (!cancelled) setHeadings(noteHeadings(openPath, note.content).filter((h) => !h.furniture));
       })
       .catch((err: unknown) => {
         console.error("vellum: loading note for outline failed", err);

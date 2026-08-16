@@ -13,13 +13,19 @@ import { buildEditorState, setVim } from "../editor/setup.ts";
 import { attachVimStatus, detachVimStatus } from "../editor/vimStatus.ts";
 import { languageChanged } from "../editor/langEffect.ts";
 import { findHeadingLine } from "../editor/links.ts";
+import { anchorLine } from "../../shared/anchors.ts";
+import { isTexPath } from "../../shared/noteFormat.ts";
+import { findTexFrontmatter } from "../../shared/tex.ts";
 
 const AUTOSAVE_MS = 600;
 
-/** Offset just past a leading YAML frontmatter block (0 if none). Opening a
- *  note lands the cursor here so frontmatter renders as its properties card
- *  instead of raw YAML. */
-function afterFrontmatter(content: string): number {
+/** Offset just past a leading frontmatter block (0 if none). Opening a note
+ *  lands the cursor here so frontmatter renders as its properties card instead
+ *  of raw source — in BOTH formats: a `.tex` note's frontmatter is a `%--- …
+ *  %---%` comment block, and landing the caret inside it would have opened
+ *  every LaTeX note on five lines of raw YAML-in-comments. */
+function afterFrontmatter(path: string, content: string): number {
+  if (isTexPath(path)) return findTexFrontmatter(content)?.end ?? 0;
   if (!/^---\r?\n/.test(content)) return 0;
   const m = /^---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)(?:\r?\n|$)/.exec(content);
   return m ? m[0].length : 0;
@@ -95,7 +101,7 @@ export default function Editor({ path }: { path: string }) {
         // never runs — the pill would then show VIM with no sub-mode.
         else attachVimStatus(view);
 
-        const anchor = afterFrontmatter(note.content);
+        const anchor = afterFrontmatter(path, note.content);
         if (anchor > 0 && anchor <= view.state.doc.length) {
           view.dispatch({ selection: { anchor } });
         }
@@ -104,7 +110,9 @@ export default function Editor({ path }: { path: string }) {
         const pending = useStore.getState().pendingHeading;
         if (pending !== null) {
           useStore.getState().setPendingHeading(null);
-          const line = findHeadingLine(note.content, pending);
+          // Format-blind: a markdown heading and a LaTeX \label are the same
+          // kind of anchor, so one lookup lands on either.
+          const line = anchorLine(path, note.content, pending);
           if (line !== null && line <= view.state.doc.lines) {
             const pos = view.state.doc.line(line).from;
             view.dispatch({

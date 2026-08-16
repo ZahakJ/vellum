@@ -19,6 +19,7 @@ import { DRAWER_QUERY, useStore } from "../state.ts";
 import { themeGroup } from "../themes.ts";
 import SyncBadge from "./SyncBadge.tsx";
 import { openThemePicker } from "./ThemePicker.tsx";
+import { noteLabelOf, stripNoteExt } from "../../shared/noteFormat.ts";
 
 /** True while the shell shows the sidebar as an overlay drawer (app.css's
  *  `@media (max-width: 999px)`). The switch below has to know: at those widths
@@ -199,8 +200,8 @@ export default function StatusBar() {
   // Visitors browse a flat curated collection — never leak folder structure.
   const crumbs = openPath
     ? admin
-      ? openPath.replace(/\.md$/, "").split("/")
-      : [openPath.replace(/\.md$/, "").split("/").pop()!]
+      ? [...stripNoteExt(openPath).split("/").slice(0, -1), noteLabelOf(openPath)]
+      : [noteLabelOf(openPath)]
     : [];
 
   return (

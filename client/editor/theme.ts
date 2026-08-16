@@ -65,6 +65,7 @@ export function editorTheme(): Extension {
     },
     "&.cm-focused": { outline: "none" },
     ".cm-scroller": {
+      paddingInline: "var(--prose-gutter)",
       fontFamily: "var(--font-serif)",
       fontSize: "calc(var(--font-prose, 1.161rem) * var(--prose-scale, 1))",
       lineHeight: "1.7",
@@ -72,10 +73,13 @@ export function editorTheme(): Extension {
       scrollbarWidth: "thin",
       scrollbarColor: "var(--border) transparent",
     },
+    // The horizontal gutter lives on the SCROLLER (see app.css): CodeMirror's
+    // own selection rects are drawn against the content box, so a padded
+    // content box paints the selection into the prose margin.
     ".cm-content": {
-      maxWidth: "760px",
+      maxWidth: "648px",
       margin: "0 auto",
-      padding: "48px 56px 120px",
+      padding: "48px 0 120px",
       caretColor: "var(--accent)",
     },
     ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)" },
@@ -248,6 +252,9 @@ export function editorTheme(): Extension {
       color: "var(--text-muted)",
       fontStyle: "italic",
     },
+    // The SOURCE line, shown only while the cursor is on it. The rendered
+    // divider is a block widget (livePreview.ts) styled in preview.css — this
+    // is what `---` looks like when you are editing it, nothing more.
     ".cm-s-hr": {
       color: "var(--text-faint)",
       letterSpacing: "0.2em",
@@ -275,12 +282,14 @@ export function editorTheme(): Extension {
       textDecorationColor: "color-mix(in srgb, var(--danger) 55%, transparent)",
       textUnderlineOffset: "3px",
     },
+    // Smaller than the sidebar pill (DESIGN.md: "same pill style as sidebar,
+    // smaller"), and the same size as the reading view's own chip.
     ".cm-s-tag": {
       color: "var(--accent)",
       background: "var(--accent-soft)",
       borderRadius: "999px",
       padding: "0.05em 0.5em",
-      fontSize: "0.85em",
+      fontSize: "0.72em",
     },
     ".cm-s-link, .cm-s-url": {
       color: "var(--accent)",

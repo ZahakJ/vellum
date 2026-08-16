@@ -1,0 +1,262 @@
+/* ============================================================== moving ====
+   Drag-and-drop in the file tree, its keyboard twin ("Move to…"), and the
+   toast that can take a move back.
+
+   Everything here is logical (inset-inline, padding-inline) and token-only:
+   the sidebar sits on the right in Arabic and on either edge by preference, so
+   a drop ring drawn on the "left" would be drawn on the wrong side of half the
+   readers' vaults. Imported by Sidebar.tsx, like attachments.css. */
+
+/* ------------------------------------------------------------ drop targets */
+
+/* The row the drop would land in. --accent-soft is the same wash the ACTIVE
+   note row wears, so the ring is what separates them: a full inset outline
+   (never a leading bar, which is the active row's own mark) says "into here",
+   not "this one is open". */
+.s-tree__item--dropok {
+  background: var(--accent-soft);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* A refusal has to be SEEN, not merely not-offered: dropping a folder into its
+   own descendant is the gesture that eats a vault, and a target that simply
+   fails to light up is indistinguishable from one the pointer has not reached.
+   The browser's own cursor says "no" (the handler never calls preventDefault);
+   this says which row said it. */
+.s-tree__item--dropbad {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  box-shadow: inset 0 0 0 1px var(--danger);
+  cursor: no-drop;
+}
+
+/* The row being dragged, while it is in flight. */
+.s-tree__item--dragging {
+  opacity: 0.45;
+}
+
+/* The vault ROOT as a destination. It has no row of its own, so two surfaces
+   stand in for it: the tree's empty space below the last row, and the sidebar
+   header — which carries the vault's name, never scrolls away, and is the only
+   one of the two a 1,375-note vault actually offers, since its rows fill the
+   pane end to end. */
+.s-tree--droproot,
+.s-sidebar-header--dropok {
+  box-shadow: inset 0 0 0 1px var(--accent);
+  border-radius: var(--radius);
+}
+
+.s-sidebar-header--dropok {
+  background: var(--accent-soft);
+}
+
+/* ---------------------------------------------------------- the drag ghost */
+
+/* Parked off-screen, snapshotted by the browser at dragstart, removed on the
+   next frame (client/move.ts). It exists because the default drag image is a
+   translucent copy of a 292px-wide row — at 26px tall against a 1.4k-row tree
+   it is invisible, and the reader loses track of WHAT they are dragging half a
+   screen into the gesture. */
+.s-dragghost {
+  position: fixed;
+  top: -1000px;
+  inset-inline-start: -1000px;
+  max-width: 260px;
+  padding: 5px 11px;
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  font-family: var(--font-ui);
+  font-size: 0.929rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.s-dragghost--folder {
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------- the undo toast --- */
+
+/* Same `.s-toast` element as every other message (they must never stack), with
+   room for one button. */
+.s-toast--action {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-inline-end: 8px;
+}
+
+.s-toast__msg {
+  min-width: 0;
+}
+
+.s-toast__action {
+  flex: none;
+  padding: 4px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 0.857rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.s-toast__action:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* ------------------------------------------------------- the "Move to…" -- */
+
+/* Shaped like the command palette on purpose (CONTRACTS, "Command palette"):
+   a reader who can drive one can drive the other without being taught twice. */
+.s-movepick {
+  width: min(480px, calc(100vw - 32px));
+  max-height: 58vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  animation: s-palette-in 0.14s ease;
+}
+
+/* `flex: none` on everything that is NOT the list. The panel is a flex column
+   with a max-height, so any child left shrinkable gets squashed once the list
+   is longer than the panel — which it is in every real vault. The title's line
+   box collapsed to 1px and `overflow: hidden` sliced the heading through the
+   middle of its glyphs; in Arabic, where the descenders are deep, what survived
+   was the top half of a sentence. */
+.s-movepick__title {
+  flex: none;
+  margin: 0;
+  padding: 16px 16px 10px;
+  font-family: var(--font-serif);
+  font-size: 1.071rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-movepick__input {
+  flex: none;
+  width: 100%;
+  border: none;
+  border-block: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  padding: 11px 16px;
+  font-family: var(--font-serif);
+  font-size: 1rem;
+}
+
+.s-movepick__input:focus {
+  box-shadow: none;
+  border-color: var(--border);
+}
+
+.s-movepick__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.s-movepick__row {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  min-height: 2.125rem;
+  text-align: start;
+  padding-block: 4px;
+  padding-inline: 14px 12px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: 0.929rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.s-movepick__row--active {
+  background: var(--accent-soft);
+}
+
+.s-movepick__row--active::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.s-movepick__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The ancestors, pushed to the trailing edge. --text-muted, not --text-faint:
+   this is a PATH the reader has to read to tell two "2026" folders apart. */
+.s-movepick__parent {
+  margin-inline-start: auto;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: end;
+  font-size: 0.786rem;
+  color: var(--text-muted);
+}
+
+.s-movepick__none {
+  margin: 0;
+  padding: 18px 16px;
+  font-size: 0.929rem;
+  color: var(--text-muted);
+}
+
+/* Where it is now — so the dialog answers "moved from where?" before the fact
+   rather than only in the toast afterwards. */
+.s-movepick__from {
+  flex: none;
+  margin: 0;
+  padding: 9px 16px 11px;
+  border-top: 1px solid var(--border);
+  font-size: 0.786rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Coarse pointers: the tree's rows are already ≥44px there (app.css), and the
+   picker is the ONLY way to move anything, since HTML5 drag does not exist on
+   touch. Its rows have to be reachable by a thumb. */
+@media (pointer: coarse), (max-width: 700px) {
+  .s-movepick__row {
+    min-height: 44px;
+  }
+
+  .s-movepick__input {
+    padding-block: 14px;
+  }
+}

@@ -1,0 +1,42 @@
+/* Vellum — the theme-aware text-colour tokens (`--vc-*`).
+   Linked from client/index.html, AFTER tokens.css: a note's colour has to
+   resolve in the editor, in the reading view and in the blog, and only two of
+   those three ever load the editor bundle.
+
+   ONE VALUE PER THEME GROUP, NOT PER THEME. `themeGroup()` already partitions
+   the fifteen themes into eleven dark rooms and four light ones, and the thing
+   a colour has to clear is the GROUP's worst ground: `#2d231c` (tallow raised)
+   for the dark set, `#ffffff` (solar raised) for the light one. Solved against
+   every ground in the group, the whole set holds 4.75:1 or better — see
+   shared/textColors.ts for why a single value per hue cannot, and
+   scripts/check-contrast.mjs, which asserts it.
+
+   The default block is the DARK set, matching tokens.css: no `data-theme`
+   attribute means iron-gall. */
+
+:root {
+  --vc-red: #db8076;
+  --vc-orange: #d18952;
+  --vc-amber: #b99531;
+  --vc-green: #40b12f;
+  --vc-teal: #2da999;
+  --vc-blue: #6a9dd7;
+  --vc-violet: #b586df;
+  --vc-magenta: #db76b6;
+}
+
+/* The four light rooms. Listed by name rather than by a media query: the
+   theme is a stored choice, not the operating system's. */
+:root[data-theme="parchment"],
+:root[data-theme="sandstone"],
+:root[data-theme="linen"],
+:root[data-theme="solar"] {
+  --vc-red: #a93528;
+  --vc-orange: #8c5021;
+  --vc-amber: #745c1b;
+  --vc-green: #246b19;
+  --vc-teal: #196b60;
+  --vc-blue: #265fa1;
+  --vc-violet: #8530cf;
+  --vc-magenta: #a9287a;
+}

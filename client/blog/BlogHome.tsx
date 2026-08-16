@@ -7,7 +7,7 @@ import type { PostMeta } from "../../shared/types.ts";
 import { getNote } from "../api.ts";
 import { t } from "../i18n.ts";
 import { resolveLink } from "../editor/links.ts";
-import { renderMarkdown } from "../reading/render.ts";
+import { renderNoteContent } from "../reading/renderNote.ts";
 import { useStore } from "../state.ts";
 import PostList from "./PostList.tsx";
 import "../reading/reading.css";
@@ -46,7 +46,7 @@ export default function BlogHome({
     getNote(introPath)
       .then((note) => {
         if (disposed || !introRef.current) return;
-        const el = renderMarkdown(note.content, {
+        const el = renderNoteContent(note.content, {
           notePath: introPath,
           tree: useStore.getState().tree,
           // Same reader-facing polish as the article page.

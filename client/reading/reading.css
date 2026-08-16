@@ -64,10 +64,48 @@
   letter-spacing: 0.04em;
 }
 
+/* ── The divider ───────────────────────────────────────────────────────────
+   THE ONE PIECE OF PUNCTUATION IN THE PAGE. It was `border-top: 1px solid
+   var(--border)` — byte-identical to the h1 rule and to the blog byline rule,
+   so an article carried three chrome hairlines and one CONTENT hairline at the
+   same weight, colour and measure and a reader could not tell furniture from
+   punctuation. For a product whose identity is an illuminated manuscript, the
+   divider is the obvious place for gold and it was the one place with none.
+
+   Two variants, because markdown has three spellings and a typesetter has
+   always had two things to say: `---`/`___` is the plain gold rule that fades
+   at both ends (it is a BREATH, not a border, so it does not touch the
+   measure's edges), and `***` adds the ✦ the wordmark already carries. The
+   margin is 2.8em against a 1.7 line-height — the old 1.6em was barely more
+   air than a paragraph gap, which is to say the rule separated without giving
+   the breath it exists to buy. */
 .s-rv-hr {
+  position: relative;
+  height: 1px;
   border: none;
-  border-top: 1px solid var(--border);
-  margin: 1.6em 0;
+  margin: 2.8em 0;
+  overflow: visible;
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--accent) 65%, transparent) 22%,
+    color-mix(in srgb, var(--accent) 65%, transparent) 78%,
+    transparent
+  );
+}
+
+.s-rv-hr--orn::after {
+  content: "✦";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  transform: translate(-50%, -50%);
+  padding: 0 0.7em;
+  background: var(--bg);
+  color: var(--accent);
+  font-family: var(--font-serif);
+  font-size: 0.8rem;
+  line-height: 1;
 }
 
 /* ── Links, tags, marks ────────────────────────────────────────────────── */
@@ -108,7 +146,11 @@
   display: inline-block;
   font: inherit;
   font-family: var(--font-ui);
-  font-size: 0.8em;
+  /* SMALLER than the sidebar pill, which is what DESIGN.md asks for ("same
+     pill style as sidebar, smaller") and what the pair did not do: 0.8em of a
+     1.161rem prose column is 13px against the sidebar's 12, so the chip
+     dropped INTO the prose was the larger of the two. */
+  font-size: 0.72em;
   color: var(--accent);
   background: var(--accent-soft);
   border: none;
@@ -376,6 +418,14 @@ li.s-rv-task--done > span {
 
 .s-rv-figure {
   margin: 0.9em 0;
+}
+
+/* `\includegraphics` outside a float. It sits in the paragraph it was written
+   in — no caption, no number, no float box — so it needs its own block-ness
+   and nothing else. */
+.s-rv-img--bare {
+  display: block;
+  margin: 0.9em auto;
 }
 
 /* Raw author HTML (sanitized): keep it inside the column, never sideways. */
@@ -864,7 +914,7 @@ span.s-rv-math-live {
 }
 
 .s-app--visitor .s-rv-hr {
-  margin: 2.2em auto;
+  margin: 3.2em auto;
   width: 72%;
 }
 

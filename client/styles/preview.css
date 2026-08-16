@@ -126,6 +126,15 @@
   background: var(--accent-soft);
 }
 
+/* The anchor a partial transclusion names, beside the note's title in the card
+   header — the editor's half of the rule reading/tex.css states for
+   `.s-rv-transclude__anchor`: `![[Paper#eq:fourier]]` says WHICH part it
+   pulled in, on both surfaces and in the same words. */
+.s-editor .cm-s-transclude__anchor {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
 .s-editor .cm-s-transclude__body {
   display: block;
   padding: 0.55em 1em 0.7em;
@@ -594,3 +603,37 @@
 .s-editor .cm-s-complete-callout[data-group="bug"] { color: var(--callout-bug); }
 .s-editor .cm-s-complete-callout[data-group="example"] { color: var(--callout-example); }
 .s-editor .cm-s-complete-callout[data-group="quote"] { color: var(--callout-quote); }
+
+/* ── The thematic break, rendered ──────────────────────────────────────────
+   The editor's divider IS the reading view's divider: same gold rule fading
+   at both ends, same ✦ for the `***` spelling, same air. Before this the
+   three surfaces disagreed — live preview showed `- - -` as letter-spaced
+   source while reading view and the blog both drew a rule — which made the
+   divider the one block element live preview did not preview. */
+
+.s-editor .cm-s-hr-rule {
+  position: relative;
+  height: 1px;
+  margin: 1.4em 0;
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--accent) 65%, transparent) 22%,
+    color-mix(in srgb, var(--accent) 65%, transparent) 78%,
+    transparent
+  );
+}
+
+.s-editor .cm-s-hr-rule--orn::after {
+  content: "✦";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  transform: translate(-50%, -50%);
+  padding: 0 0.7em;
+  background: var(--bg);
+  color: var(--accent);
+  font-family: var(--font-serif);
+  font-size: 0.8rem;
+  line-height: 1;
+}

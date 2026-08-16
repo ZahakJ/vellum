@@ -1,0 +1,113 @@
+/* Vellum — LaTeX live preview (editor).
+
+   Small on purpose: a `.tex` note reuses the markdown editor's own preview
+   classes (cm-s-h1…h6, cm-s-em, cm-s-strong, cm-s-inline-code, cm-s-bullet,
+   cm-s-wikilink, cm-s-math, cm-s-math-block, cm-s-frontmatter, cm-s-codeblock,
+   cm-s-props), which is what makes the two editors feel like one editor. Only
+   the marks LaTeX genuinely has and markdown does not live here.
+
+   Every colour is a token from tokens.css, so all fifteen themes are covered
+   and the contrast gate keeps covering them. */
+
+/* Structure the author must SEE but should not have to read: \begin/\end,
+   preamble commands, \label. Quiet, never hidden — hiding a \label would mean
+   deleting it by accident. --text-muted, not --text-faint: these are words on
+   the page, and DESIGN.md reserves the faint token for non-text. */
+.cm-s-tex-env,
+.cm-s-tex-quiet {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+}
+
+.cm-s-tex-env {
+  color: color-mix(in srgb, var(--accent) 45%, var(--text-muted));
+}
+
+/* A comment. `%%…%%` links get their own treatment below. */
+.cm-s-tex-comment {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+
+/* The raw source of a command whose preview is suppressed because the caret is
+   on its line — the same faint ink the markdown editor uses for a revealed
+   `**`. */
+.cm-s-tex-cmd {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+/* \cite{…} → a chip, the same shape the reading view draws. */
+.cm-s-tex-cite {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 0.05em 0.5em;
+  font-family: var(--font-ui);
+  font-size: 0.8em;
+  cursor: text;
+}
+
+/* \ref{…} / \eqref{…}: the key, in the accent, with the machinery hidden. The
+   NUMBER is not known here — that needs the whole document — so the editor
+   shows what was written, which is what an author is editing. */
+.cm-s-tex-ref {
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 0.88em;
+}
+
+/* Small caps, sans and underline — the three text commands with no markdown
+   twin to inherit from. */
+.cm-s-tex-sc {
+  font-variant-caps: small-caps;
+}
+
+.cm-s-tex-sf {
+  font-family: var(--font-ui);
+}
+
+.cm-s-tex-u {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+/* A `%% [[Note]] %%` link: a real edge that the PDF never shows. It reads as a
+   link, at the weight of a comment, so the author can see it is doing
+   something without mistaking it for printed text. */
+.cm-s-tex-hidden-link {
+  font-style: italic;
+  opacity: 0.9;
+}
+
+/* \note{…} rendered as its target (or its display text). Inherits
+   cm-s-wikilink for colour and the broken-link affordance. */
+.cm-s-tex-note {
+  cursor: pointer;
+}
+
+/* \begin{figure} → the vault's own image with its caption, inline. The one
+   thing this editor shows that a `pdflatex` run would take a compile to
+   reveal. */
+.cm-s-tex-figure {
+  margin: 0.9em 0;
+  text-align: center;
+  cursor: text;
+}
+
+.cm-s-tex-figure__img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.cm-s-tex-figure__cap {
+  margin-top: 0.5em;
+  font-family: var(--font-serif);
+  font-size: 0.82em;
+  line-height: 1.5;
+  color: var(--text-muted);
+}

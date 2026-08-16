@@ -1,3 +1,6 @@
+import { isTexPath } from "../../shared/noteFormat.ts";
+import { inlineText as texInlineText, parseTex } from "../../shared/tex.ts";
+
 // Heading extraction + slug generation, shared by the reading-view renderer
 // (heading element ids) and the outline panel (TOC entries). Both walk the
 // top-level headings in document order with a fresh Slugger, so the slugs the
@@ -117,4 +120,35 @@ export function extractHeadings(md: string): Heading[] {
   }
   finalize();
   return out;
+}
+
+// ── LaTeX outlines ──────────────────────────────────────────────────────────
+
+/** The outline of a `.tex` note: its `\section` hierarchy, with the printed
+ *  number ahead of the title exactly as the reading view sets it.
+ *
+ *  The slug is the element id the LaTeX renderer assigns (`tex-<label or
+ *  slug>`), so clicking an entry lands on the same element — the outline never
+ *  needs to know which format it is looking at, which is the same bargain the
+ *  anchor table makes for `[[Note#anchor]]`. */
+export function texHeadings(src: string): Heading[] {
+  const out: Heading[] = [];
+  for (const block of parseTex(src).blocks) {
+    if (block.t !== "section") continue;
+    const text = texInlineText(block.title);
+    out.push({
+      // \part and \chapter fold into the six levels the panel styles, the same
+      // way the renderer maps them onto h1…h6.
+      level: Math.min(6, Math.max(1, block.level)),
+      text: block.number ? `${block.number}  ${text}` : text,
+      slug: `tex-${block.id}`,
+      line: block.line,
+    });
+  }
+  return out;
+}
+
+/** The outline of a note in EITHER format — the one call the panel makes. */
+export function noteHeadings(relPath: string, content: string): Heading[] {
+  return isTexPath(relPath) ? texHeadings(content) : extractHeadings(content);
 }

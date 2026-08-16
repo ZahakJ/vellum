@@ -16,12 +16,13 @@ import { isTheme, THEMES } from "./themes.ts";
 import type { Theme } from "./themes.ts";
 import { isPublishedContent } from "./publish.ts";
 import { toast } from "./toast.ts";
+import { noteTitleOf } from "../shared/noteFormat.ts";
 
 /** A note path as the reader knows it: the basename, minus `.md`. The toast
  *  that names a note is a sentence, not a file listing — and tf() bidi-isolates
  *  the value, so an Arabic title still reads correctly inside it. */
 function noteTitle(path: string): string {
-  return (path.split("/").pop() ?? path).replace(/\.md$/, "");
+  return noteTitleOf(path);
 }
 
 const THEME_KEY = "vellum.theme";
@@ -107,14 +108,14 @@ export interface State {
    *  Appearance segmented control (auto / left / right) calls; the palette's
    *  three commands call it too. */
   setSidebarSidePref(pref: SidebarSidePref): void;
-  /** Sidebar collapsed to its slim reopen handle (Ctrl/Cmd+B; persisted). */
+  /** Sidebar collapsed to its slim reopen handle (Ctrl/Cmd+Alt+B; persisted). */
   sidebarCollapsed: boolean;
   setSidebarCollapsed(b: boolean): void;
   /** Show/hide the notes sidebar, whichever shell is on screen (pane above the
-   *  drawer breakpoint, overlay drawer below it). Every door — Ctrl/Cmd+B, the
+   *  drawer breakpoint, overlay drawer below it). Every door — Ctrl/Cmd+Alt+B, the
    *  palette command, the status-bar switch — goes through this. */
   toggleSidebar(): void;
-  /** Backlinks/outline panel collapsed (Ctrl/Cmd+Shift+B; persisted). Also
+  /** Backlinks/outline panel collapsed (Ctrl/Cmd+Alt+Shift+B; persisted). Also
    *  set by the panel's own responsive auto-collapse on narrow viewports. */
   panelCollapsed: boolean;
   setPanelCollapsed(b: boolean, persist?: boolean): void;
@@ -149,6 +150,11 @@ export interface State {
   /** settings.languageToggle — the instance offers visitors an EN/ع switch.
    *  Off (the default) means no public language chrome exists at all. */
   languageToggle: boolean;
+  /** settings.languageFilter / LANGUAGE_FILTER — the public lists carry only
+   *  notes in the site language's script. The blog's empty state is the one
+   *  surface that needs it: "nothing published here yet" is a true sentence
+   *  about a filtered list and a false one about the site. */
+  languageFilter: boolean;
   /** COMMENTS=on / settings.commentsEnabled. Off means Marginalia never even
    *  asks /api/comments — the answer is instance-wide and already in /api/me,
    *  so asking per note only bought one console 404 per note open. */
@@ -571,6 +577,7 @@ export const useStore = create<State>()((set, get) => {
     siteName: "Vellum",
     language: "en",
     languageToggle: false,
+    languageFilter: false,
     commentsEnabled: false,
     setVisitorLang: (lang) => {
       if (!get().languageToggle || get().language === lang) return;
@@ -648,6 +655,7 @@ export const useStore = create<State>()((set, get) => {
         set({ sidebarSide: effectiveSide(get().sidebarSidePref, language) });
         set({
           languageToggle,
+          languageFilter: me.languageFilter === true,
           commentsEnabled: me.comments === true,
           admin: me.admin,
           publicReads: me.public,
@@ -946,7 +954,7 @@ export const useStore = create<State>()((set, get) => {
 
     // ONE gesture, whichever shell is on screen. Below the drawer breakpoint
     // the sidebar is an overlay driven by `sidebarOpen`, and `sidebarCollapsed`
-    // has nothing on screen to act on — so Ctrl/Cmd+B, the palette row and the
+    // has nothing on screen to act on — so Ctrl/Cmd+Alt+B, the palette row and the
     // status-bar switch all went dead at 900px, which is exactly the "a
     // control that does nothing" failure this product keeps hunting.
     toggleSidebar: () => {
