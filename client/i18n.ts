@@ -2365,6 +2365,20 @@ const DICT = {
     ar: "التطبيق ينشئ نسخة قابلة للتحرير. القالب لا يتغيّر، وتحرير نسختك لا يمسّه.",
   },
   presetApplied: { en: "Preset applied — your copy is open", ar: "طُبِّق القالب — نسختك مفتوحة" },
+  // The way back out of a preset, and the crumb that says where "back" goes.
+  // Two strings rather than one: the button wears the short one and the
+  // screen reader is given the whole sentence.
+  designWhereLabel: { en: "Where you are", ar: "أين أنت" },
+  presetBack: { en: "All presets", ar: "كل القوالب" },
+  presetBackToGallery: { en: "Back to all presets", ar: "العودة إلى كل القوالب" },
+  presetPrev: { en: "Previous preset", ar: "القالب السابق" },
+  presetNext: { en: "Next preset", ar: "القالب التالي" },
+  presetPosition: { en: "{n} of {total}", ar: "{n} من {total}" },
+  presetPreviewOnly: { en: "Preview — not applied yet", ar: "معاينة — لم يُطبَّق بعد" },
+  presetKeysHint: {
+    en: "Esc goes back to the shelf; ← and → step through it.",
+    ar: "Esc يعيدك إلى الرف، و← و→ يتنقلان بين القوالب.",
+  },
 
   // ── Preview content: the sample rows a fresh vault is padded with ────────
   // Copy, so it is here; DATA, so it is deliberately generic. These stand in

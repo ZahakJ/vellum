@@ -19,7 +19,14 @@
 //  4. THE DESIGN IS A FILE. Named, versioned, exportable, importable, and
 //     resettable to stock defaults.
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
   type DesignChrome,
@@ -88,7 +95,7 @@ import "../../styles/designer.css";
 // real page of the design.
 import PreviewStage from "./PreviewStage.tsx";
 import { usePreviewBuild } from "../../design/previewContent.tsx";
-import PresetGallery, { loadPresets } from "./PresetGallery.tsx";
+import PresetGallery, { closePresetDetail, isPresetDetailOpen, loadPresets } from "./PresetGallery.tsx";
 import { presetExport, type Preset } from "../../../shared/presets.ts";
 import type { PostMeta } from "../../../shared/types.ts";
 
@@ -457,6 +464,17 @@ function Slider({
   );
 }
 
+/** One crumb separator. `›` (U+203A) is Bidi_Mirrored, so the browser draws it
+ *  flipped under `dir="rtl"` on its own and it must NOT be given a transform —
+ *  that would flip it back to pointing the wrong way (CONTRACTS). */
+function Sep() {
+  return (
+    <span className="s-dsgr__crumbsep" aria-hidden="true">
+      ›
+    </span>
+  );
+}
+
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div className="s-dsgr-ctlrow">
@@ -560,10 +578,21 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
   // `window` and this one is registered first, so asking is the ONLY way the
   // inner surface can win: one Esc used to close the whole designer out from
   // under an open picker.
+  //
+  // THE GALLERY'S DRILL-IN IS A THIRD LAYER, and it is the one a reader is
+  // most likely to press Esc inside: they opened a preset to look at it. So
+  // Esc UNWINDS one step — out of the preset, back to the shelf — and only
+  // closes the panel once there is nothing left to step out of. Anything else
+  // makes Esc a trapdoor: one keystroke from browsing a catalog to no panel at
+  // all, with the design under edit still unsaved behind it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== "Escape" || isSelectOpen() || isSectionPickerOpen()) return;
       e.preventDefault();
+      if (isPresetDetailOpen()) {
+        closePresetDetail();
+        return;
+      }
       onClose();
     };
     window.addEventListener("keydown", onKey, true);
@@ -805,6 +834,43 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
+  /** The rail's rooms in the order they are drawn — the order the arrows
+   *  walk, which is the order the eye reads, groups flattened. */
+  const railOrder = useMemo(() => RAIL.flatMap((group) => group.tabs), []);
+  /** Is the panel in the LIBRARY (no one document under edit) or in a room of
+   *  one? The crumb's first segment differs, and so does what "up" means. */
+  const isLibraryTab = tab === "designs" || tab === "presets";
+
+  /**
+   * ARROWS WALK THE RAIL; HOME AND END GO TO ITS ENDS.
+   *
+   * Up/Down are the vertical tablist's own keys. Left/Right are accepted too
+   * and follow the READING direction — the rail sits on the inline-start edge,
+   * so in Arabic the key that means "further into the panel" is the left one —
+   * because a reader who has just moved between two side-by-side columns with
+   * the horizontal arrows does not switch hands to walk the column they landed
+   * in. The selection MOVES with the focus (an "automatic" tablist), which is
+   * right here because every panel is instant and none of them is a form that
+   * loses anything on the way past.
+   */
+  const onRailKey = (e: ReactKeyboardEvent<HTMLElement>): void => {
+    const rtl = document.documentElement.getAttribute("dir") === "rtl";
+    const at = railOrder.indexOf(tab);
+    let next = -1;
+    if (e.key === "ArrowDown" || e.key === (rtl ? "ArrowLeft" : "ArrowRight")) next = at + 1;
+    else if (e.key === "ArrowUp" || e.key === (rtl ? "ArrowRight" : "ArrowLeft")) next = at - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = railOrder.length - 1;
+    else return;
+    if (next < 0 || next >= railOrder.length) return;
+    e.preventDefault();
+    const id = railOrder[next];
+    setTab(id);
+    // Focus follows in the SAME tick the class does not: the button already
+    // exists, only its `tabIndex` changes, so there is nothing to wait for.
+    e.currentTarget.querySelector<HTMLElement>(`[data-tab="${id}"]`)?.focus();
+  };
+
   const chrome = draft?.chrome ?? null;
   const typo = chrome?.typography ?? stockChrome().typography;
   // ONE content object for the preview pane and the gallery both. Real posts
@@ -845,8 +911,73 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
           <p className="s-dsgr__offnote">{t("designCorruptNotice")}</p>
         )}
 
+        {/* ── WHERE YOU ARE, ONE LINE, ALWAYS ────────────────────────────────
+            Three segments at most: the panel, the DESIGN, the room. The rail
+            already said which room and the footer already said whether
+            anything was unsaved; the middle segment is the one nothing on
+            screen carried, and it is the subject of every control on every
+            tab. Quiet by construction — one hairline, 0.76rem, muted — because
+            it is glanced at rather than read. */}
+        <nav className="s-dsgr__crumbs" aria-label={t("designWhereLabel")}>
+          <button
+            type="button"
+            className="s-dsgr__crumb s-dsgr__crumb--root"
+            // THE ROOT OF THE CRUMB IS A LINK, because a crumb whose first
+            // segment does nothing is a label wearing a trail's clothes. It
+            // goes to the shelf of designs — the panel's own front door, and
+            // the one screen every other tab is downstream of.
+            onClick={() => setTab("designs")}
+          >
+            {t("designTitle")}
+          </button>
+          {/* `›` is Bidi_Mirrored: the browser flips it under dir="rtl" on its
+              own, so it gets no rule (CONTRACTS). */}
+          <Sep />
+          {/* THE MIDDLE SEGMENT IS THE DOCUMENT, and it is what the panel never
+              printed: the rail said which ROOM, the footer said whether
+              anything was unsaved, and nothing said which DESIGN — so a panel
+              holding two of them looked identical whichever was loaded. It
+              appears only where it is true: the library tabs are a shelf of
+              designs, not a room inside one. */}
+          {!isLibraryTab && draft && (
+            <>
+              <button
+                type="button"
+                className="s-dsgr__crumb"
+                onClick={() => setTab("designs")}
+                title={t("designTabDesigns")}
+              >
+                {/* An author names their own design, in their own script, and
+                    a Latin name spliced into an Arabic trail reorders it. Same
+                    <bdi> rule as every other note-derived label in the chrome;
+                    the separators stay OUTSIDE the isolate so they keep the
+                    chrome's direction. */}
+                <bdi>{name || draft.name}</bdi>
+              </button>
+              <Sep />
+            </>
+          )}
+          <span className="s-dsgr__crumb s-dsgr__crumb--leaf" aria-current="page">
+            {t((TABS.find((x) => x.id === tab)?.label ?? "designTabNav") as "designTabNav")}
+          </span>
+        </nav>
+
         <div className={`s-dsgr__body${tab === "presets" ? " s-dsgr__body--wide" : ""}`}>
-          <nav className="s-dsgr__rail" role="tablist" aria-label={t("designSections")}>
+          {/* A TABLIST ANSWERS ARROW KEYS, and this one is the panel's whole
+              address bar. Eight buttons that were each their own tab stop made
+              the rail cost eight presses to cross and gave a reader no way to
+              walk it the way the pattern (and every screen reader's tab-list
+              mode) promises: one stop for the rail, arrows inside it, Home and
+              End to the ends. `roving` is the index that carries the tab stop;
+              it follows the selection, so Tab always re-enters at the room the
+              reader is actually in. */}
+          <nav
+            className="s-dsgr__rail"
+            role="tablist"
+            aria-orientation="vertical"
+            aria-label={t("designSections")}
+            onKeyDown={onRailKey}
+          >
             {RAIL.map((group) => (
               <div key={group.label} className="s-dsgr__railgroup">
                 <span className="s-dsgr__railhead">{t(group.label as "designGroupPage")}</span>
@@ -860,6 +991,8 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
                       role="tab"
                       data-tab={id}
                       aria-selected={tab === id}
+                      aria-controls="s-dsgr-panel"
+                      tabIndex={tab === id ? 0 : -1}
                       className={`s-dsgr__tab${tab === id ? " s-dsgr__tab--on" : ""}`}
                       onClick={() => setTab(id)}
                     >
@@ -875,7 +1008,18 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
           {/* `key={tab}` is the cross-fade: the panel's body is REPLACED when
               the rail moves, so the new controls arrive over 160ms instead of
               popping into a column the eye has to re-find. */}
-          <div className="s-dsgr__controls" data-popbounds key={tab}>
+          <div
+            className="s-dsgr__controls"
+            id="s-dsgr-panel"
+            role="tabpanel"
+            // NOT focusable, deliberately: every panel in here starts with a
+            // real control, and a tabpanel with `tabIndex={0}` adds a stop
+            // that announces the panel and then makes the reader press Tab
+            // again to reach the first thing they can use.
+            aria-label={t((TABS.find((x) => x.id === tab)?.label ?? "designTabNav") as "designTabNav")}
+            data-popbounds
+            key={tab}
+          >
             {/* The tab's own sentence — but not over an empty instance: "drag
                 a row, or move it with the arrows" above a panel with no rows
                 in it is instructions for a thing that is not there. The

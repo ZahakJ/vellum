@@ -89,6 +89,61 @@
   font-size: 0.82rem;
 }
 
+/* ── The crumb ─────────────────────────────────────────────────────────────
+   One line under the head that names the SUBJECT and the ROOM: "Front Page ›
+   Sections". The rail already says which room, but nothing said which
+   document, so a panel holding two designs looked identical whichever was
+   loaded. Quiet by construction — 0.76rem, muted, one hairline — because it
+   is a thing you glance at, not a thing you read. */
+.s-dsgr__crumbs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 7px 18px;
+  border-block-end: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  min-width: 0;
+}
+
+.s-dsgr__crumb {
+  min-width: 0;
+  max-width: 42ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The root segment is a button and must not look like one — it looks like the
+   text it is, and earns its underline on hover. */
+.s-dsgr__crumb--root {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: color 140ms ease;
+}
+
+.s-dsgr__crumb--root:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.s-dsgr__crumb--leaf {
+  color: var(--text);
+}
+
+.s-dsgr__crumbsep {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+}
+
 /* THE THREE COLUMNS, and the ratio is an argument. The controls need a fixed
    comfortable measure (a form column that grows past ~460px is a form with
    nothing in the middle of it); everything left over is the preview's, because
