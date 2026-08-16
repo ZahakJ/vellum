@@ -1447,6 +1447,14 @@ const DICT = {
   scViaPalette: { en: "Command palette", ar: "لوحة الأوامر" },
   scViaStatusBar: { en: "Status bar", ar: "شريط الحالة" },
   scHelp: { en: "This list", ar: "هذه القائمة" },
+  // Shown only when the reader's keyboard types none of the Latin letters on
+  // this sheet — an Arabic, Persian, Russian, Greek or Hebrew layout. The
+  // letters name a POSITION there, and beside each one the sheet prints what
+  // that position actually types on this keyboard.
+  scLayoutNote: {
+    en: "Your keyboard does not type these letters. A shortcut follows the key’s position — the letter printed on the keycap — and the character it types is shown beside it.",
+    ar: "لوحة مفاتيحك لا تكتب هذه الحروف. يتبع الاختصار موضع المفتاح — الحرف المطبوع عليه — ويظهر بجانبه الحرف الذي يكتبه فعلاً.",
+  },
 
   // ── Moving things (drag in the tree, "Move to…", undo) ────────────────────
   // Every one of these is reachable without a mouse: the row menu and the

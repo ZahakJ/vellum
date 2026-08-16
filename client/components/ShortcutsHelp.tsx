@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { openDailyNote } from "../daily.ts";
 import { insertTemplateCommand, newNoteFromTemplateCommand } from "../templateActions.ts";
 import { t, type I18nKey } from "../i18n.ts";
+import { layoutHints, loadLayoutHints } from "../layoutMap.ts";
 import { useStore } from "../state.ts";
 import { openThemePicker } from "./ThemePicker.tsx";
 
@@ -266,11 +267,27 @@ export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
   useStore((s) => s.language); // re-render the chrome strings on language change
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  // WHAT THE READER'S KEYBOARD ACTUALLY TYPES. Every keystroke below is
+  // resolved by physical position when the layout produces no Latin letter
+  // (client/keys.ts), so on an Arabic keyboard the palette really is the key
+  // marked P — which types ح. Printing "P" alone is true about the keycap and
+  // useless to anyone reading their own screen, so where the browser will tell
+  // us (Chromium's keyboard-layout map) the sheet prints both. Read on open,
+  // never at module load: it is one async call, and a sheet nobody has opened
+  // has no questions to answer.
+  const [hints, setHints] = useState(layoutHints);
 
   useEffect(() => {
     if (!open) return;
     setQuery("");
     requestAnimationFrame(() => inputRef.current?.focus());
+    let live = true;
+    void loadLayoutHints().then((map) => {
+      if (live) setHints(map);
+    });
+    return () => {
+      live = false;
+    };
   }, [open]);
 
   const groups = useMemo(() => {
@@ -327,6 +344,10 @@ export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
           spellCheck={false}
           autoComplete="off"
         />
+        {/* Shown ONLY when the reader's layout types none of these letters —
+            i.e. exactly when the letters on this sheet need explaining. On a
+            US, AZERTY or Dvorak keyboard the map is empty and so is this. */}
+        {hints.size > 0 && <p className="s-shortcuts__layout">{t("scLayoutNote")}</p>}
         <div className="s-shortcuts__list">
           {groups.map((group) => (
             <section className="s-shortcuts__group" key={group.title}>
@@ -339,16 +360,28 @@ export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
                       {item.via && !item.keys && (
                         <span className="s-shortcuts__via">{t(item.via)}</span>
                       )}
-                      {item.keys?.map((key, i) => (
-                        <span className="s-shortcuts__key" key={key}>
-                          {i > 0 && (
-                            <span className="s-shortcuts__plus" aria-hidden="true">
-                              +
-                            </span>
-                          )}
-                          <kbd className="s-kbd">{key}</kbd>
-                        </span>
-                      ))}
+                      {item.keys?.map((key, i) => {
+                        // Single Latin letters are the only tokens a layout can
+                        // move out from under the reader. "Ctrl/Cmd", "Shift",
+                        // "Esc" and the arrow glyphs are the same key on every
+                        // keyboard on earth.
+                        const typed = key.length === 1 ? hints.get(key.toLowerCase()) : undefined;
+                        return (
+                          <span className="s-shortcuts__key" key={key}>
+                            {i > 0 && (
+                              <span className="s-shortcuts__plus" aria-hidden="true">
+                                +
+                              </span>
+                            )}
+                            <kbd className="s-kbd">{key}</kbd>
+                            {typed && (
+                              <span className="s-shortcuts__typed" lang="" dir="auto">
+                                {typed}
+                              </span>
+                            )}
+                          </span>
+                        );
+                      })}
                       {item.via && item.keys && (
                         <span className="s-shortcuts__via">{t(item.via)}</span>
                       )}

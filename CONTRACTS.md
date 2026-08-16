@@ -427,9 +427,12 @@ stays on `.s-panel--collapsed`, as it always did.
 - **Keyboard.** The pane toggles are **`Ctrl/Cmd+Alt+B`** (sidebar) and **`Ctrl/Cmd+Alt+Shift+B`**
   (panel); they moved one modifier out when `Ctrl/Cmd+B` became bold inside the editor — see
   "Text formatting" for why formatting won it, and note that the pair KEPT ITS SHAPE (one key,
-  Shift picks the second pane), so the only thing to re-learn is "add Alt". They are matched on
-  `event.code` as well as `event.key` (Alt rewrites `key` on several platforms) and refused while
-  `AltGraph` is down (Right-Alt reports ctrl+alt on European layouts).
+  Shift picks the second pane), so the only thing to re-learn is "add Alt". They resolve through
+  `shortcutKey(e)` like every other binding — which covers both Alt rewriting `key` on macOS
+  (Option+B is "∫") and the LAYOUT rewriting it (Arabic's B key types the ligature "لا") — and are
+  refused while `AltGraph` is down (Right-Alt reports ctrl+alt on European layouts), a refusal the
+  resolver now applies to everything rather than to these two. See "A shortcut is resolved by the
+  layout first and by the physical key second".
   PLAIN `Ctrl/Cmd+B` and `Ctrl/Cmd+Shift+B` are still `preventDefault`-ed in the capture-phase
   handler next to `Ctrl+P`/`Ctrl+K` — Chrome's bookmark bar (`Ctrl+Shift+B`) and Firefox's
   bookmarks sidebar (`Ctrl+B`) must never fire — but **only OUTSIDE the editor**: CodeMirror's
@@ -1413,10 +1416,79 @@ carry that, and none of them may be quiet:
   border and the rest at 1px above 640, all segments at 0px below it, and nothing on the hidden
   overflow.
 
+**A SHORTCUT IS RESOLVED BY THE LAYOUT FIRST AND BY THE PHYSICAL KEY SECOND** — `client/keys.ts`,
+and the whole of it goes through `shortcutKey(e)`. `KeyboardEvent.key` is what the LAYOUT
+produced, and `App.tsx` compared `e.key.toLowerCase()` to Latin letters, so on the owner's Arabic
+keyboard — where the physical P key reports `"ح"`, K reports `"ن"`, G `"ل"` — **every global
+shortcut in the product was dead**, in an app that ships a complete Arabic translation and mirrors
+its entire layout for it. Measured by `scripts/check-layouts.mjs` before the fix: 5 of 7 bindings
+dead under Arabic, Russian and Hebrew, 4 of 7 under Greek. Only two bindings carried an `e.code`
+fallback, and only while Alt was held.
+- **The rule.** If the layout produced a printable ASCII character, THAT is the key. Only when it
+  did not — a non-Latin script, a dead key, `"Unidentified"`, an empty `key`, macOS's Alt-mangled
+  `"∫"` — does the physical position (`e.code`, then legacy `e.keyCode`) answer.
+- **Physical does not simply win, and that is the load-bearing half.** On Dvorak `b` is under the
+  physical N key and the physical B key types `x`; on AZERTY `z` is under the physical W key, and
+  Ctrl+Shift on the physical Z key there is `Ctrl+Shift+W` — *close the window*. A reader who
+  learned "Ctrl+B is bold" learned it about the key that TYPES b. Resolving by `code` alone would
+  bold from the wrong finger and do nothing from the right one: the same bug aimed at a different
+  reader. Layout-first is the convention VS Code, Chrome and Firefox settled on, and — arrived at
+  independently — the one CodeMirror's own keymap already follows.
+- **AltGr returns `null`, for every binding.** On several European layouts Right-Alt reports as
+  ctrl+alt, and AltGr+E on Polish is how you type `ę`. Resolving that to the physical E would
+  break TYPING in order to fix commands. The two hand-written `!e.getModifierState("AltGraph")`
+  guards on the pane and template toggles are gone — the resolver does it once, for everything.
+- **Named keys are not resolved at all** — `Escape`, `Enter`, `Tab`, the arrows are the same key
+  on every keyboard on earth, so the palette, the pickers, the blog search overlay and the
+  confirm dialog match `e.key` directly and were never affected. Plain typing is likewise never
+  rewritten: `Select.tsx`'s typeahead follows the layout, which is the only thing it could mean.
+- **The editor agrees with the app, and reuses its own keymap to do it.** CodeMirror resolves keys
+  itself (`runHandlers` → `keyName(event)`, with a `base[event.keyCode]` fallback), which is why
+  Ctrl+B still bolded on Russian and Greek while nothing else worked. It has three holes: its
+  fallback requires the layout's output to be ONE code point — and Arabic 101 puts the lam-alef
+  ligature `"لا"`, two code points, on the physical B key — it depends on the deprecated `keyCode`,
+  and on Windows it declines every ctrl+alt event as AltGr whether or not AltGr was pressed.
+  `client/editor/layoutKeys.ts` closes all three WITHOUT binding anything of its own: when the
+  layout produced no Latin character it synthesizes the keydown that same physical key would have
+  sent on a US keyboard and pushes it back through CodeMirror's own `runScopeHandlers`, so bold,
+  save, search, undo and every default answer with no second table to drift. It carries a US
+  `keyCode` because that is how CodeMirror reaches a SHIFTED binding (`Mod-Shift-x` is found
+  through `shift[keyCode]`, not through the key name), and it sits at `Prec.highest` — which puts
+  it ahead of every keymap and still BEHIND vim, because vim arrives as a ViewPlugin and
+  `InputState.runHandlers` runs plugin handlers before facet handlers whatever their precedence.
+- **The gate is a layout matrix, and it is two-sided.** `tests/shortcuts.test.ts` resolves all 22
+  documented character bindings under Arabic, Persian, Russian, Greek, Hebrew, US, AZERTY and
+  Dvorak, and asserts the fallback does NOT fire where the layout answered.
+  `scripts/check-layouts.mjs` does the same against the real app through the DevTools Protocol
+  (`Input.dispatchKeyEvent`, which is the only way to set `key`, `code` and `keyCode`
+  independently — Playwright's keyboard always sends the US `key` for a `code`). 65 checks.
+  Cases the browser cannot deliver — Chromium flattens a two-code-point `key` to `""` — live in
+  the node test. **A binding added to `ShortcutsHelp` and not to `BINDINGS` in
+  `tests/shortcuts.test.ts` is a binding untested on every non-Latin keyboard on earth.**
+- **Known limit, stated rather than hidden:** vim mode's own keys (`Ctrl+D`, `Ctrl+U`, and every
+  normal-mode letter) still resolve through `e.key` inside @replit/codemirror-vim. Vim on a
+  non-Latin layout is unusable for a larger reason — `hjkl` are Arabic letters there — so this
+  is not papered over with a fallback that would only half-work.
+
 **`Ctrl/Cmd+/` opens `ShortcutsHelp` (`shortcutsOpen` in the store).** Searchable, grouped
 Navigation / Editing / Modes / Publishing / Panels, `Esc` closes, also reachable from the palette
 and the status-bar `?`. Rows with no keystroke still appear, naming the surface that carries them
 ("Command palette", "Status bar", "Click") — the reader is asking "how do I do X".
+
+- **The sheet does not print a letter the reader cannot type.** Every row said `Ctrl/Cmd + P`;
+  on an Arabic keyboard that key types `ح` and nothing on the sheet said so. Where the browser
+  will tell us — Chromium's `navigator.keyboard.getLayoutMap()` — `client/layoutMap.ts` reads the
+  layout once (on open, not at module load) and the sheet prints BOTH: the position `P` and the
+  character `ح` beside it, under a one-line explanation (`scLayoutNote`). Shown **only** when the
+  layout types none of these letters, so a US, AZERTY or Dvorak reader sees the sheet exactly as
+  before — their `b` key is labelled B, they press it, bold happens. Where the API does not exist
+  (Firefox, Safari, an insecure context) the map is empty and nothing is claimed that is not
+  known, which is the whole bar for a legend.
+- **Letters only.** The layout map reports each key's UNSHIFTED character, and a punctuation
+  binding may live behind Shift: ЙЦУКЕН has no slash on the slash key at all — it types `.`, and
+  the Russian reader's `/` is Shift+Backslash, which arrives as `"/"` and is answered by the
+  LAYOUT. Annotating `/` from the unshifted map would print `.` beside it and be precisely the
+  lie this removes.
 
 **A KEYMAP IS NOT AN ANSWER ON A DEVICE WITH NO KEYBOARD.** `.s-empty` (App.tsx, no note open)
 showed one thing: a grid of `Ctrl`-combination chips. At 390×844 that was the first screen after
@@ -3369,8 +3441,8 @@ the first time either changed, silently.
 - **THE PANE TOGGLES MOVED, AND `preventDefault` IS WHY THEY HAD TO.** `Mod-b` was the notes
   sidebar and `Mod-Shift-b` the outline pane. Formatting wins in the editor — it is the binding
   every reader arrives with — so the pair kept its shape (one key, Shift picks the second pane) and
-  took one more modifier: **`Ctrl/Cmd Alt B`** and **`Ctrl/Cmd Alt Shift B`**, matched on
-  `event.code` as well as `event.key` because Alt rewrites `key` on several platforms, and refused
+  took one more modifier: **`Ctrl/Cmd Alt B`** and **`Ctrl/Cmd Alt Shift B`**, resolved through
+  `shortcutKey(e)` because both Alt and the LAYOUT rewrite `key`, and refused
   while `AltGraph` is down (Right-Alt reports ctrl+alt on European layouts). The status-bar
   tooltips, both palette rows and the Ctrl/Cmd+/ sheet print the new numbers, and the sheet gained
   a *Formatting* group so it can answer "what happened to Ctrl+B" in one glance.
@@ -4009,9 +4081,10 @@ depends on it.
 `Ctrl/Cmd Alt T` inserts, `Ctrl/Cmd Alt Shift T` creates — one key, `Shift` picks the second
 command, exactly the shape the pane toggles kept. **Alt is not decoration**: `Ctrl/Cmd T` is the
 browser's new tab and `Ctrl/Cmd Shift T` reopens a closed one, neither is takeable, and a
-keystroke that fights the browser is a keystroke that loses. Matched on `e.code === "KeyT"` as
-well as `e.key`, because Alt rewrites `key` on macOS (Option+T is "†"), and `AltGraph` is
-excluded like the pane toggles. Both commands are in the palette; "New note from template…" is
+keystroke that fights the browser is a keystroke that loses. Resolved through `shortcutKey(e)`
+like every other binding, which is what makes it work when Alt rewrites `key` on macOS (Option+T
+is "†") AND when the layout does (Arabic's T key types "ف") — and which excludes `AltGraph`
+without this binding spelling the guard itself. Both commands are in the palette; "New note from template…" is
 also in the tree's folder menu, where it carries a DESTINATION the other two doors do not.
 
 The picker previews the template's body with placeholders ALREADY FILLED — what is about to land,

@@ -104,9 +104,9 @@ arrives with, and a key that bolds a word in one half of the window and folds a 
 is a key nobody can describe. The two pane toggles kept their shape — one key, `Shift` picks the
 second pane — and moved one modifier out, so the only thing to re-learn is "add `Alt`". Outside the
 editor `Ctrl/Cmd B` and `Ctrl/Cmd Shift B` are still swallowed, because Firefox's bookmarks sidebar
-and Chrome's bookmark bar must never open over the app. Both Alt bindings also match the physical
-key, so macOS Option+B (`∫`) and Option+T (`†`) work, and both decline when `AltGr` is held so a
-European layout's Right-Alt never folds a pane by accident.
+and Chrome's bookmark bar must never open over the app. macOS Option+B (`∫`) and Option+T (`†`)
+work, and every binding declines when `AltGr` is held so a European layout's Right-Alt never folds
+a pane by accident — see [Non-Latin keyboards](#non-latin-keyboards) for how that is decided.
 
 Nothing in the interface calls either pane "the left one": the toggles, the palette and the
 shortcut sheet say **Notes sidebar** and **Outline & backlinks**, in both languages, because
@@ -115,3 +115,30 @@ shortcut sheet say **Notes sidebar** and **Outline & backlinks**, in both langua
 In vim mode, `Ctrl D` and `Ctrl B` inside the editor keep their half-page scroll and page-up, and
 `Esc` stays vim's mode key — use `Cmd`, the palette, or zen's ✕ instead. On macOS, `Cmd Shift Z`
 inside the editor stays redo; `Ctrl Shift Z` enters zen there.
+
+## Non-Latin keyboards
+
+**Every binding on this page works with an Arabic, Persian, Russian, Greek or Hebrew system
+keyboard.** That deserves saying out loud, because for a while it did not: the shortcuts were
+matched against the letter the keyboard *typed*, and on an Arabic layout the key marked `P` types
+`ح`, so `Ctrl P` opened nothing at all. If you run Vellum in Arabic — and the interface is fully
+[translated and mirrored](arabic-and-rtl.md) for exactly that — your shortcuts are the keys marked
+with the Latin letters on your keycaps.
+
+The rule, in one line: **a shortcut follows the letter your layout types when that letter is
+Latin, and the key's position when it is not.**
+
+- On a US, UK or German keyboard nothing changes.
+- On **AZERTY** and **Dvorak** the letters have moved, and the shortcut moved with them —
+  `Ctrl Shift Z` for zen is the key that types `z` (physical `W` on AZERTY), not the key sitting
+  where a US keyboard has Z. That key types `w`, and `Ctrl Shift W` closes your window.
+- On **Arabic, Persian, Russian, Greek or Hebrew** there is no Latin letter to follow, so the
+  position answers: the key marked `P` opens the palette whatever it types.
+- **`AltGr` is always typing, never a command.** On layouts where Right-Alt reports as Ctrl+Alt,
+  `AltGr E` stays `ę` and does not toggle the reading view.
+- The `Ctrl/Cmd /` sheet knows this. On a keyboard that types none of these letters it prints the
+  character each key produces beside the letter — `P` `ح` — with a line saying why. On Chromium;
+  elsewhere it prints the letters alone rather than guessing.
+
+Vim mode is the exception, and it is not one this can fix: in normal mode `hjkl` are keys your
+Arabic or Russian layout does not have, so vim is a Latin-layout feature.

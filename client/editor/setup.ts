@@ -33,6 +33,7 @@ import {
   completionKeymap,
 } from "@codemirror/autocomplete";
 import { autoLineDirection } from "./bidi.ts";
+import { layoutFallback } from "./layoutKeys.ts";
 import { noteLayoutExtension } from "./noteLayout.ts";
 import { editorTheme, vellumHighlighting } from "./theme.ts";
 import { livePreview } from "./livePreview.ts";
@@ -93,6 +94,13 @@ export function buildEditorState(options: EditorSetupOptions): EditorState {
       // vimMode flag reconfigure it on a live view without a rebuild. When the
       // module has not arrived yet, setVim() patches it in async after mount.
       vimCompartment.of(options.vimMode && vimExt ? vimExt : []),
+      // NON-LATIN KEYBOARDS. Every keymap below resolves through `e.key` —
+      // what the LAYOUT produced — so on the owner's Arabic keyboard the
+      // physical B key reports the two-code-point ligature "لا" and Ctrl+B
+      // bolds nothing. This re-runs those same keymaps with the physical key
+      // when, and only when, the layout produced no Latin character. It binds
+      // nothing of its own; see layoutKeys.ts and client/keys.ts.
+      layoutFallback,
       Prec.high(
         keymap.of([
           {

@@ -109,6 +109,31 @@ counted and margins are not — put the air on a wrapper's padding, or in a tran
 `background-clip: padding-box`, never in a margin. It restores the instance language and deletes
 its fixture however the run ends.
 
+### `npm run check-layouts` — the keyboard-layout gate
+
+`KeyboardEvent.key` is what the *layout* produced. The shell compared it to Latin letters, so on
+an Arabic keyboard — where the key marked `P` reports `ح` — every global shortcut in the product
+was dead, in an app that ships a complete Arabic translation and mirrors its whole interface for
+it. It was invisible to every test we had, because every test typed Latin letters.
+
+So this one does not. It drives the real app through the DevTools Protocol
+(`Input.dispatchKeyEvent`, the only way to set `key`, `code` and `keyCode` independently —
+Playwright's own keyboard always sends the US `key` for a `code`) with the keydowns Arabic 101,
+ЙЦУКЕН, Greek, Hebrew, AZERTY, Dvorak and US QWERTY actually send, and asserts that the palette,
+the graph, the shortcut sheet, zen, reading view, search, the pane toggles, bold and strikethrough
+all still fire — including `Ctrl/Cmd K` in the signed-out blog shell, which is an anonymous
+reader's only binding. **72 checks; 46 of them passed before the fix.**
+
+Its second half is the one that keeps the fix from over-correcting: on Dvorak the key that types
+`b` is physical `KeyN`, so `Ctrl Alt` on physical `KeyB` — which types `x` there — must do
+**nothing**. Layout first, position only as the fallback. `tests/shortcuts.test.ts` runs the same
+matrix over the resolver with no browser at all, and holds the cases a browser cannot deliver
+(Chromium flattens Arabic's two-code-point lam-alef to an empty `key`). A binding added to the
+shortcut sheet and not to that file is a binding untested on every non-Latin keyboard on earth.
+
+`node scripts/shoot-layouts.mjs` is the companion picture: the `Ctrl/Cmd /` sheet with the layout
+map stubbed to Arabic and to Russian, which is how the annotated keycaps are reviewed.
+
 ### `npm run check-excerpt` — the tag-in-prose gate
 
 `DESIGN.md`'s hard rule is that a snippet outside the editor either STRIPS markdown or RENDERS it;
@@ -177,7 +202,8 @@ Not wired into `package.json` — run by hand, for visual review. All take `CHRO
    things later.
 3. **Run the gates your change touches** — theme tokens mean `check-contrast`, any user-visible
    string means `check-i18n`, the outline or note-rewriting code means `check-sections`, the editor
-   means `check-caret`, the designer means `check-board` / `check-preview` / `check-design`.
+   means `check-caret`, the designer means `check-board` / `check-preview` / `check-design`, and
+   **anything that reads a keystroke means `check-layouts` plus `tests/shortcuts.test.ts`**.
 4. **Both languages, both directions.** Every string comes from `client/i18n.ts`, and every layout
    is built on CSS logical properties. A change that only reads correctly left-to-right is not
    finished — `LANGSET=ar` on any shoot harness is the cheapest way to see it.

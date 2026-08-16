@@ -59,6 +59,13 @@ than Georgia at the same pixel size, `lang="ar"` also multiplies the two type-sc
 face selection — an Arabic word inside an English sentence, set correctly, on an English
 instance — see [Typography](typography.md#the-arabic-slot-is-per-character-not-per-language).
 
+**Your keyboard is part of this too.** An Arabic system layout puts `ح` on the key marked `P`, and
+for a while that meant `Ctrl P` opened nothing — an Arabic interface whose shortcuts only answered
+to an English keyboard. It does not any more: a shortcut follows the letter your layout types when
+that letter is Latin and the key's *position* when it is not, so the keys marked with Latin letters
+on your keycaps are your shortcuts. The `Ctrl/Cmd /` sheet prints what each of them actually types
+beside the letter. See [Keymap → Non-Latin keyboards](keymap.md#non-latin-keyboards).
+
 ## Visitor language switch
 
 `SITE_LANG` picks the language *you* publish in. **Settings → Appearance & language → Visitor

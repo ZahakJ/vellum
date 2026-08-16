@@ -27,6 +27,7 @@ import DesignStatus from "./design/DesignStatus.tsx";
 import TemplatePicker from "./components/TemplatePicker.tsx";
 import { openDailyNote } from "./daily.ts";
 import { t, tf } from "./i18n.ts";
+import { isKey, shortcutKey } from "./keys.ts";
 import { promptNewNote } from "./prompts.ts";
 import { insertTemplateCommand, newNoteFromTemplateCommand } from "./templateActions.ts";
 import { applyUrl, installRouter, syncUrl } from "./router.ts";
@@ -466,16 +467,30 @@ export default function App() {
         return;
       }
       if (!(e.metaKey || e.ctrlKey)) return;
-      const key = e.key.toLowerCase();
-      // The pane toggles carry Alt now, and Alt rewrites `key` on several
-      // platforms (macOS Option+B is "∫"), so they are matched on the
-      // PHYSICAL key as well. `key` alone still answers everything else.
-      const bKey = key === "b" || (e.altKey && e.code === "KeyB");
-      // Same physical-key trick, same reason: macOS Option+T is "†".
-      const tKey = key === "t" || (e.altKey && e.code === "KeyT");
+      // NOT `e.key.toLowerCase()`. `e.key` is what the LAYOUT produced, and on
+      // the owner's Arabic keyboard the physical P key produces "ح" — so every
+      // line below was false and every shortcut in this listener was dead for
+      // him (and for Russian, Greek, Hebrew, Persian…). `shortcutKey` takes the
+      // layout's answer when it has a Latin one and the PHYSICAL key when it
+      // does not; client/keys.ts carries the whole argument, including why
+      // physical must not simply win (Dvorak) and why AltGr returns null
+      // (Ctrl+Alt is how half of Europe types). One consequence worth naming:
+      // the two `e.altKey && e.code === "KeyB"` special cases that used to live
+      // here are GONE — macOS Option+B ("∫") is not a Latin character, so it
+      // falls to the physical key on the general path now, and the AltGraph
+      // guards the pane toggles carried are the resolver's job for every
+      // binding rather than two of them.
+      const key = shortcutKey(e) ?? "";
+      const bKey = key === "b";
+      const tKey = key === "t";
       // Ctrl/Cmd+/ — the list of every binding, including this one. Handled
-      // ahead of the modal guard so it opens (and closes) from anywhere.
-      if (key === "/" || key === "?") {
+      // ahead of the modal guard so it opens (and closes) from anywhere. `?` is
+      // Shift+/ on a US keyboard and the sheet answers to both; on a layout
+      // that puts / elsewhere (German Shift+7, Dvorak's `[` position) the
+      // layout's own "/" is what arrives, and on Arabic the physical Slash key
+      // (which types "ظ") resolves to "/". `isKey` is what folds "?" into "/",
+      // so this is the one binding that does not read `key` directly.
+      if (isKey(e, "/")) {
         e.preventDefault();
         if (!modalUp(store)) {
           store.setPaletteOpen(false);
@@ -545,7 +560,7 @@ export default function App() {
         e.preventDefault();
         store.toggleReading();
         if (store.view === "graph") store.setView("editor");
-      } else if (bKey && e.altKey && !e.getModifierState("AltGraph")) {
+      } else if (bKey && e.altKey) {
         // THE PANE TOGGLES WEAR ONE MORE MODIFIER THAN THEY USED TO.
         // Ctrl/Cmd+B was the notes sidebar and Ctrl/Cmd+Shift+B the outline
         // pane; Ctrl/Cmd+B is now BOLD, because that is the binding every
@@ -554,8 +569,10 @@ export default function App() {
         // Shift picks the second pane — and moved out to Alt, so the only
         // thing to re-learn is "add Alt". The status-bar tooltips, the two
         // palette rows and the Ctrl/Cmd+/ sheet all print the new numbers.
-        // AltGraph is excluded: on several European layouts Right-Alt reports
-        // ctrl+alt, and a reader typing a bracket must not fold a pane.
+        // AltGraph is excluded — on several European layouts Right-Alt reports
+        // ctrl+alt, and a reader typing a bracket must not fold a pane — but
+        // the exclusion is no longer spelled here: `shortcutKey` returns null
+        // for AltGr, for THIS binding and every other one.
         e.preventDefault();
         e.stopPropagation();
         if (e.shiftKey) store.setPanelCollapsed(!store.panelCollapsed);
@@ -589,7 +606,7 @@ export default function App() {
         // Our dialog, not the OS box: prompts.ts owns the naming rule and
         // shows what the typed name becomes (see client/prompts.ts).
         void promptNewNote("");
-      } else if (tKey && e.altKey && !e.getModifierState("AltGraph")) {
+      } else if (tKey && e.altKey) {
         // TEMPLATES WEAR ALT, and it is not a stylistic choice. Ctrl/Cmd+T is
         // the browser's new tab and Ctrl/Cmd+Shift+T reopens a closed one —
         // neither is takeable, and a keystroke that fights the browser is a
@@ -597,8 +614,9 @@ export default function App() {
         // took when Ctrl/Cmd+B became bold, and the pair keeps that shape:
         // one key, Shift picks the second command. AltGraph is excluded for
         // the same reason it is there (European layouts report Right-Alt as
-        // ctrl+alt). A desktop that eats Ctrl+Alt+T at the WM layer still
-        // leaves the palette and the tree's folder menu.
+        // ctrl+alt) — `shortcutKey` does that for every binding now, so the
+        // guard is not repeated here. A desktop that eats Ctrl+Alt+T at the WM
+        // layer still leaves the palette and the tree's folder menu.
         if (!store.admin) return;
         e.preventDefault();
         e.stopPropagation();
