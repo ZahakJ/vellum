@@ -551,10 +551,35 @@ const DICT = {
   // ── Home banner modal (dashboard hero) ──────────────────────────────────
   homeBannerTitle: { en: "Home banner", ar: "غلاف الرئيسية" },
   homeBannerSubtitle: { en: "dashboard hero", ar: "واجهة اللوحة" },
-  homeBannerAria: { en: "Change home banner", ar: "تغيير غلاف الرئيسية" },
   homeBannerSet: { en: "Home banner set", ar: "تم تعيين غلاف الرئيسية" },
   homeBannerRemoved: { en: "Home banner removed", ar: "تمت إزالة غلاف الرئيسية" },
   homeBannerFailed: { en: "Saving the banner failed", ar: "فشل حفظ الغلاف" },
+
+  // ── Accessibility: names for surfaces that carry no visible label ────────
+  // Every string here exists because something on screen is obvious to a
+  // reader who can see it and silent to one who cannot: a tree of rows, a
+  // canvas, a row of tabs, a bare landmark.
+  skipToContent: { en: "Skip to content", ar: "تخطَّ إلى المحتوى" },
+  mainContent: { en: "Main content", ar: "المحتوى الرئيسي" },
+  vaultTree: { en: "Vault files", ar: "ملفات الخزانة" },
+  rowActions: { en: "Row actions", ar: "إجراءات السطر" },
+  openTabsAria: { en: "Open notes", ar: "الملاحظات المفتوحة" },
+  searchResultsAria: { en: "Search results", ar: "نتائج البحث" },
+  paletteResultsAria: { en: "Commands and notes", ar: "الأوامر والملاحظات" },
+  resultCount: { en: "{count} results", ar: "{count} نتيجة" },
+  noResultsAria: { en: "No results", ar: "لا نتائج" },
+  graphAria: { en: "Vault link graph", ar: "رسم روابط الخزانة" },
+  localGraphAria: {
+    en: "Links around this note — the panel below lists them as text",
+    ar: "الروابط حول هذه الملاحظة — تسردها اللوحة أدناه نصًّا",
+  },
+  linkedNotesAria: { en: "Linked notes", ar: "الملاحظات المرتبطة" },
+  chooseImageFile: { en: "Choose an image file", ar: "اختر ملف صورة" },
+  sidebarAria: { en: "Vault navigation", ar: "تصفح الخزانة" },
+  statusBarAria: { en: "Status bar", ar: "شريط الحالة" },
+  backlinksPanelAria: { en: "Note context", ar: "سياق الملاحظة" },
+  siteNav: { en: "Site sections", ar: "أقسام الموقع" },
+  articleContent: { en: "Article", ar: "المقالة" },
 } satisfies Record<string, Entry>;
 
 export type I18nKey = keyof typeof DICT;

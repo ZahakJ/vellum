@@ -99,9 +99,13 @@ export default function PostList({
       {posts.map((post) => (
         <article key={post.path} className="s-blog-entry">
           <div className="s-blog-entry__text">
-            <h3 className="s-blog-entry__title" dir="auto">
+            {/* h2 under the page's h1 — this list is only ever rendered by
+                BlogHome and BlogTopic, both of which now head their page at
+                level 1, and a jump from 1 straight to 3 is a hole in the
+                outline a screen reader reads as a missing section. */}
+            <h2 className="s-blog-entry__title" dir="auto">
               <NavLink url={notePathToUrl(post.path)}>{post.title}</NavLink>
-            </h3>
+            </h2>
             <PostMetaLine post={post} locale={locale} />
             {post.excerpt !== "" && (
               <p className="s-blog-entry__excerpt" dir="auto">

@@ -5,6 +5,7 @@
 
 import { useEffect, useRef } from "react";
 import { EditorView } from "@codemirror/view";
+import { focusIsClaimed } from "../a11y.ts";
 import { getNote, putNote } from "../api.ts";
 import { tf } from "../i18n.ts";
 import { Lru } from "../lru.ts";
@@ -112,7 +113,7 @@ export default function Editor({ path }: { path: string }) {
                 yMargin: 24,
               }),
             });
-            view.focus();
+            if (!focusIsClaimed()) view.focus();
             return;
           }
         }
@@ -126,7 +127,10 @@ export default function Editor({ path }: { path: string }) {
             },
           });
         }
-        view.focus();
+        // Opening a note normally means "I want to write in it", so the caret
+        // comes here — unless a chrome widget is mid-keystroke and said the
+        // focus is its (the tab bar arrowing between notes; see a11y.ts).
+        if (!focusIsClaimed()) view.focus();
       })
       .catch((err) => {
         console.error(`Failed to open ${path}`, err);

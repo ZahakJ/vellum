@@ -155,6 +155,10 @@ export default function ConfirmHost() {
 
   if (!current) return null;
   const { opts } = current;
+  // The body line ("N notes will be erased from disk") is the whole reason
+  // this dialog exists — it must be part of what gets read on open, not
+  // something the reader has to go hunting for after the title.
+  const bodyId = "s-confirm-body";
 
   return (
     <div className="s-confirm-overlay" onMouseDown={() => settle("cancel")}>
@@ -163,10 +167,15 @@ export default function ConfirmHost() {
         role="alertdialog"
         aria-modal="true"
         aria-label={opts.title}
+        aria-describedby={opts.body ? bodyId : undefined}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <h2 className="s-confirm__title">{opts.title}</h2>
-        {opts.body && <p className="s-confirm__body">{opts.body}</p>}
+        {opts.body && (
+          <p className="s-confirm__body" id={bodyId}>
+            {opts.body}
+          </p>
+        )}
         <div className="s-confirm__actions">
           {opts.extraLabel && (
             <button
