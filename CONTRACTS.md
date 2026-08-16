@@ -2116,6 +2116,36 @@ reference must be an `https://` URL or a safe vault image path, and a CTA link m
 site-relative or `https://` — a homepage button is not a place that accepts `javascript:`.
 Prototype keys (`__proto__`, `constructor`) hit the allowlist like any other unknown key.
 
+**A REJECTION IS A NAMED 400, AND THERE ARE TWO CLASSES THAT MAKE ONE.** `shared/design.ts` throws
+`DesignError(path, …)` for the document tree; `shared/designChrome.ts` throws its OWN
+`DesignError(path, code, …)` for the chrome, and `validateDesign()` calls `validateChrome()`, so
+both escape from a single write. `server/designs.ts::bad()` knew only the first, so every chrome
+rejection failed the `instanceof` test, was rethrown, and reached the generic handler as a **500
+with no message** — one file rejecting two different ways depending on which half was malformed,
+which is the opposite of what this section promises. Measured then: a bad nav `kind`, a nav nested
+three deep, `{"kind":"url","target":"javascript:alert(1)"}` and `{"typography":{"baseSize":"big"}}`
+all answered 500 `{"error":"Internal server error"}` while a bad section answered a correct 400
+naming the path. `isRejection()` now lists every class a validator is ALLOWED to throw, by name,
+in one predicate — `DesignError`, the chrome's (imported as `ChromeError`), `ThemeError`,
+`QuarantineError` — and the same import fixes the quarantine reason a step below, where a
+hand-written `designs.json` with a bad nav item listed as "unreadable design (…)" instead of its
+own sentence. Measured after: `nav.items[0].kind must be one of: home, note, page, topic, url,
+group`, `nav.items[0].target must be an http(s) or site-relative URL`, `typography.baseSize must
+be a number`, each a 400.
+
+**"Every string" MEANS BOTH VALIDATORS, and for a while it meant one.** `shared/design.ts` stripped
+bidi in `text()` and `block()`; `shared/designChrome.ts::strictText` — the validator behind every
+nav label, group label, footer column title, footer entry label and `footer.copyright` — stripped
+only `[\u0000-\u001f\u007f]` and let `U+202A–202E` / `U+2066–2069` through, as did `cleanText`
+beside it and the custom theme's `name` (whose own doc comment claimed otherwise). Measured: a
+design imported with the nav label `"safe\u202Eevil"` and the copyright `"\u2066hidden\u2069 c
+2026"` stored both intact, `GET /api/design/public` handed both to a cookieless visitor, and the
+public header drew that menu item as `safelive`. A design document — including one imported from a
+stranger's `.json`, which is the same file as a shipped preset — could put a label on the public
+header whose displayed text differs from its stored text and which reorders the glyphs after it.
+The codebase already knew the rule; one validator was missed. `designChrome.ts` now imports
+`shared/bidi.ts` (which is purer than it is: a regexp and a replace), and so does `customTheme.ts`.
+
 **The client validates AGAIN before it renders a byte**, with the same shared validator. A
 `designs.json` edited by hand past the API is a supported way to configure this product (it is
 the same escape hatch `settings.json` has), and a server one build ahead of a cached bundle is a
@@ -2129,7 +2159,9 @@ Mounted at `/api/design` from `server/api.ts`, BELOW `authGuard`, so every mutat
 the design panel while asking to be treated as a visitor".
 
 - `GET /api/design` — the admin overview: designs (with quarantine reasons), themes, the section
-  kinds and the token table the panel builds its menus from.
+  kinds and the token table the panel builds its menus from, and `posts` — the VISITOR's feed, so
+  the previews draw the site the design will actually print rather than the list this session can
+  read (see "Preview content" above).
 - `GET|PUT|DELETE /api/design/docs/:id`, `POST /api/design/docs`,
   `POST /api/design/docs/:id/{duplicate,reset}`, `GET /api/design/docs/:id/export`,
   `POST /api/design/docs/import`, `PUT /api/design/active`.
@@ -2379,15 +2411,26 @@ The shape+width collisions it prints are a NOTE, never a failure: two designs ma
 share a skeleton and differ in palette, columns and type (`casebook`/`lyceum` do), and that is a
 judgement for a person rather than a threshold.
 
-### Thumbnails: a CSS miniature in the grid, a real render on hover
+**The collision key is what a 200px card can RESOLVE, and it used to be finer than that.** It was
+`kinds.join(">") + "|" + exact px width`, so `casebook` (1160) and `vitrine` (1120) — visually the
+same card — slipped through on forty pixels nobody can see, and the gate printed ONE collision
+where a reader measured six. The width is bucketed into the three bands a silhouette actually has
+(narrow ≤780 / mid ≤1080 / wide), a `postGrid`'s column count and its banner flag are folded in (a
+2-across and a 4-across grid are two pictures; a grid with photographs and one without are two
+shelves), and a hero's height with them. It now reports seven — the six a reader measured
+(`quiet-page`/`measure`, `daybook`/`preprint`, `casebook`/`vitrine`, `commissions`/`lyceum`,
+`compendium`/`thicket`, `overture`/`envelope`) and `billboard`/`broadside`, which the hero fold
+caught and the eye had let pass. Seven twins out of fifty-nine is a better hit rate than most
+shipping theme galleries, which is why it is a note.
 
-The choice was between three, and the two that lost are worth writing down.
+### Thumbnails: a REAL RENDER in the grid, a CSS miniature while it arrives
+
+The choice was between three, and only one of the losers stayed lost.
 
 - **Shipped screenshots** are accurate and dead. Fifty PNGs at two densities is megabytes in a
   public repo that must be REGENERATED whenever a token moves, and every one is painted in
   whatever theme the machine that shot it was wearing — so a reader on `nocturne` browses fifty
-  pictures of `parchment`.
-- **Fifty live canvases** is several thousand nodes mounting while somebody scrolls.
+  pictures of `parchment`. Still refused.
 - **`DesignThumb`** (`client/components/design/DesignThumb.tsx`) draws the design as CSS: its
   header layout, density and hairline, its column width as a percentage of the canvas, its actual
   section list in its actual order, with the artwork coming from `generatedBannerCss()` — the
@@ -2396,31 +2439,61 @@ The choice was between three, and the two that lost are worth writing down.
   card, and it repaints on a theme switch because it never named a colour.** Every dimension is
   in `cqw` against `container-type: inline-size`, so one coordinate system is correct at 160px and
   at 400px with no media query and no JS measure.
+- **Fifty-nine live canvases** was refused as "several thousand nodes mounting while somebody
+  scrolls" — and that was the wrong number to be afraid of, because a reader can only see six.
 
-**And the hybrid is the point.** The card under the pointer — one at a time, after a 180 ms
-dwell — swaps its miniature for a real `<DesignCanvas>`: the actual header, the actual sections,
-the operator's own posts and banners, at 1120 px, scaled into the card. The expensive honest
-render is paid once, for the card somebody is looking at.
+**THE PICTURE IS REAL, AND IT IS REAL AT REST.** Every card in or near the viewport draws a
+`<DesignCanvas>` — the actual header, the actual sections, the operator's own posts and their own
+banner PHOTOGRAPHS, at 1120px, scaled into the card, in the PRESET's own theme. The wireframe is
+now the PLACEHOLDER: what a card shows before it arrives and while it is being flung past.
 
-**Why a wireframe is not a compromise at 200px.** A scaled screenshot of a real page at that size
-is a grey smear with an unreadable word on top: it LOOKS accurate and communicates nothing. The
-miniature answers the only question 200px can answer — what shape is this, how much air does it
-have — in the reader's own palette. The question it cannot answer is what the type feels like,
-which is exactly what the hover canvas is for.
+The old arrangement — fifty-nine wireframes in the operator's one hue, with a real render bought
+only for the single card under the pointer — is what made this read as a settings form with
+pictures rather than as a template gallery. The `gallery` family, five presets whose entire
+premise is photographs, rendered as five identical pale rectangles on a vault holding eight real
+banner images; the honest render was already written and was being refused to fifty-eight cards
+out of fifty-nine. WordPress, Ghost and Squarespace all lead with a real rendering in the theme's
+own colours.
 
-**The miniature is painted in the ACTIVE theme, always.** A preset's own theme appears as a
-labelled swatch on the card (`<span data-theme="…">` — `tokens.css` keys bare `[data-theme]`, so
-one element in the gallery legitimately wears somebody else's palette). Fifty cards each in their
-own palette is a colour riot that hides the one variable the grid is for, and the operator is
-choosing a SHAPE with the palette one click away in their own picker. The hover and detail
-CANVASES do honour the preset's theme, because at that size the palette IS the preset.
+**What keeps it affordable is that "visible" is a small number.** An `IntersectionObserver` with
+a `400px` root margin mounts a canvas a screen BEFORE it is needed and unmounts it 600 ms after it
+leaves, so the document holds the two or three screens around the reader rather than fifty-nine
+trees; a card must dwell 90 ms in that band before it pays, so a fling through the catalog mounts
+nothing it flies past. Measured on a ten-post vault at 1440×900: 59 cards, 14 live canvases, 10
+distinct preset themes on screen at once and 19 real `/api/file` banner backgrounds — with no
+pointer anywhere near the grid. A browser with no `IntersectionObserver` draws everything: a
+gallery of blank cards is the one outcome worse than a slow one.
+
+**Why the wireframe is still worth having.** A scaled screenshot of a real page at 200px is a grey
+smear with an unreadable word on top, and the miniature answers the one question that size can
+answer — what shape is this, how much air does it have — for the fraction of a second before the
+canvas lands. It is the same argument as before, applied to the moment it is actually true of.
+
+**The MINIATURE is painted in the ACTIVE theme; the CANVAS is painted in the PRESET's.** A
+wireframe in somebody else's palette would be a colour riot with no information in it; a real
+render in the operator's palette would be a lie about the design, which is the disagreement the
+preview blockers were all about. Each card also names its theme in WORDS beside the swatch
+(`s-dsgp-card__themename`): the dot is `aria-hidden` decoration, and a `title` is a tooltip, which
+is not a label on a touch screen and not a label to a screen reader.
 
 ### `DesignCanvas` — any design, any width (`client/design/DesignCanvas.tsx`)
 
 The component that closed the gap named in the design engine's own notes: the panel's LIVE
 PREVIEW drew the chrome around a typography SPECIMEN, so every control that shapes the composed
-page changed nothing on screen. The specimen is kept and is one click away — `route: "article"`
-— because an article page IS the specimen and is also a real page of the design.
+page changed nothing on screen.
+
+**`route: "article"` IS THE ARTICLE PAGE, NOT THE SPECIMEN** — the other half of the same gap,
+and it stayed open one round longer. Drawing a bare heading ladder there left all five
+`DesignArticle` switches (Banner, Date and reading time, Tags, Related posts, Back link) with no
+visible effect anywhere in the product: five toggles and no preview. The route now renders
+`DesignedArticle` — the renderer the live site uses — against `PreviewContent`, so the furniture
+is the design's own and every switch moves something on screen. Two things differ from the live
+path and both go through `usePreviewContent()`, the seam a `note` section and a `postGrid`'s
+banners already use: the body is the SPECIMEN prose (assembled from the same `designSpecimen*`
+keys the old block used, so a type control still shows the sizes, the measure and the rhythm and
+there is not one new string to translate) instead of a fetched note, and the page does not write
+`openPath` — a picture of an article is not a page anybody navigated to. The specimen survives as
+the fallback for a preview with no posts at all.
 
 ```ts
 <DesignCanvas
@@ -2431,6 +2504,8 @@ page changed nothing on screen. The specimen is kept and is one click away — `
   route="home" | "article"
   clipHeight={860}            // px of laid-out height to keep, with a fade at the cut
   ownTheme                    // paint the design's theme on the canvas box
+                              // (built-ins only — a custom theme is keyed at
+                              //  :root; the FRAME is where one can be honoured)
   live                        // it is in a REAL viewport (the preview frame):
                               // hoverable, and sticky is honoured
   label="…"                   // it is role="img"; everything inside is aria-hidden
@@ -2482,7 +2557,7 @@ from production by grepping for that one hook.
 
 ```ts
 interface PreviewContent {
-  posts: PostMeta[];            // the owner's own, in their own order, padded to 8
+  posts: PostMeta[];            // the VISITOR'S feed, in its own order, padded to 8
   pages: PageMeta[];
   notes: Map<string, string>;   // note bodies supplied instead of fetched
   noteMode: "fetch" | "sample"; // designer previews the real note; the gallery never fetches
@@ -2493,9 +2568,23 @@ interface PreviewContent {
 
 Where the content comes from, and this is the half that makes a fresh install compelling:
 
-- **The owner's own posts first.** Real titles, real dates, real banners, real reading times, in
-  real order. A preset previewed against six of your own essays is a decision you can make; the
-  same preset against "Lorem ipsum" is a screenshot.
+- **The owner's own posts first — as a VISITOR will get them.** Real titles, real dates, real
+  banners, real reading times, in real order. A preset previewed against six of your own essays is
+  a decision you can make; the same preset against "Lorem ipsum" is a screenshot.
+
+  **The list comes from `GET /api/design` (`overview.posts`), never from `/api/posts`,** and that
+  is a correctness rule rather than a tidy-up. `/api/posts` answers for the SESSION and for the
+  layout that is live: to an admin it is unscoped, and `staticPagesActive()` is false while
+  `publicLayout` is still `"blog"` — which is exactly the state an operator is in while building
+  their FIRST design, before they switch, and exactly what the panel's own banner says ("The
+  public site is not on your design yet"). So every preview and all fifty-nine gallery cards
+  opened with the author's Contact, Colophon and About PAGES as the newest articles, plus any note
+  the language filter hides from every visitor. The overview's list is
+  `posts(true, languageScope(c, true).lang, true)` — visitor scope, the visitor's language scope,
+  and pages excluded unconditionally, because a designed site never lists a page as an article
+  whatever `publicLayout` says today. Measured on a vault of 12 published notes with `layout=blog`:
+  `/api/posts` 12 rows led by Colophon and About, `/api/design.posts` 10 rows led by the newest
+  essay.
 - **Generated artwork wherever a banner is missing**, from `generatedBannerCss()` — deterministic
   per title, painted out of the ACTIVE theme's tokens, repainting on a theme switch with nobody
   re-rendering anything. `forceGeneratedBanners` is on in every preview even when the instance
@@ -2557,6 +2646,23 @@ blocks and Vite's dev-injected styles, forever, with no manifest to keep in sync
 `data-custom-theme`, `dir` and `lang` are mirrored off `<html>` by a second observer, so a theme
 switch behind the panel repaints the preview (measured: `parchment` → body `rgb(242,235,218)`)
 and an Arabic instance previews an RTL site.
+
+**THE DESIGN'S OWN THEME OVERRIDES THE OPERATOR'S, over those two attributes and no others.**
+`design.theme` is FORCED on every reader who has not chosen one — it is literally what a
+first-time visitor sees — so a pane painted in the operator's theme is a preview of a site nobody
+will be served. Measured before this: an operator on `iron-gall` applied Front Page (`linen`) and
+the editor drew it DARK while the live page was light, and the gallery card that sold it was a
+third colour again — a three-way disagreement inside one session, in the one pane the whole
+editing session happens in. `PreviewFrame` takes `ownTheme`, `themeChoiceAttrs()` (the value form
+of `applyThemeChoice`, one decision written by two callers in two documents) says which two
+attributes a choice means, and the frame is the one preview surface that can honour a `custom:`
+choice as well as one of the fifteen, because the generated sheet keys `:root[data-custom-theme]`
+and the frame has a root. `dir` and `lang` stay the INSTANCE's — a design does not choose the
+language its site is written in — and a design that names no theme mirrors the app, which is the
+honest drawing of "the reader's own". A theme change is a REPAINT of two attributes, never a
+document rebuild: the clones, the observers and the author's scroll position all survive it.
+Measured end to end: operator `iron-gall`, design `porphyry` → frame `porphyry`, and a cookieless
+visitor's `<html data-theme>` is `porphyry` with the same body ground, `rgb(27,20,26)`.
 
 **The scroller is put back where the live site keeps it.** `app.css` clips `html`/`body`/`#root`
 — the app grid owns all scrolling — and the visitor's designed page scrolls inside `.s-dsn`.
@@ -2633,14 +2739,21 @@ like and must not learn.
   is a promise of a shelf next to an empty one. The fix is a module, never a chip that learns to
   hide, because the alternative is a closed vocabulary carrying a dead word. `check-presets.mjs`
   is what keeps it true.
-- **Hover is a DWELL, not a hover.** Swapping on `mouseenter` turns a mouse crossing the grid into
-  a dozen React trees mounting; 180 ms means only a card somebody stopped on pays. Exactly one
-  card is ever live. Keyboard focus reaches it immediately — a focus ring is a deliberate stop
-  with nothing to debounce.
+- **VISIBILITY, not hover, decides what is drawn for real.** The pointer no longer selects the
+  one honest card: everything on screen is one (see Thumbnails above), and there is nothing left
+  for a hover dwell to buy. The dwell that remains is a SCROLL dwell inside the
+  `IntersectionObserver`, which no input device can starve — the old `onFocus` path armed the
+  180 ms timer despite the comment above it promising keyboard readers an immediate render, and
+  that disagreement is gone with the timer.
 - **Selecting opens a detail pane** above the grid: the real canvas at `clipHeight: 1400`, the
   blurb, the family, the theme swatch and its name, "Use this design", and two sentences that have
   to be said before somebody clicks — that a preset ships the shape and the words stay theirs, and
-  that applying makes an editable copy the preset can never reach again.
+  that applying makes an editable copy the preset can never reach again. The right half also
+  carries **what this page is made of** (the section manifest, glyph and name, in order) and the
+  preset's **tags as FACETS**: every preset already ships a rich `tags` array ("wide", "grid",
+  "uppercase", "masthead", "news", "dense", "headlines") and the only way to reach any of it was
+  to guess the word into the free-text box. `presetMatches` already searches tags, so a chip is
+  one `setText` away from being a filter.
 - **"Start from blank" is the first tile**, always, dashed, and it is `createDesignDoc` — the
   stock defaults and nothing else.
 - **THE GALLERY TAKES THE PREVIEW'S COLUMN** (`.s-dsgr__body--wide`, `tab === "presets"`). It is
@@ -2655,9 +2768,10 @@ like and must not learn.
   1440 and four at 1320. **`.s-dsgr__preview` is UNMOUNTED, not hidden**: it owns an iframe, a
   `MutationObserver` and a settle timer, and none of those should be running behind a surface that
   is not showing them (measured: 0 frames in the document while the gallery is open).
-- **Browsing the whole catalog leaks nothing.** Measured over all 59 cards and 12 detail sheets:
-  exactly one live canvas at any moment, and the document node count is *unchanged* at the end
-  (3514 → 3514 → 3514). The dwell, the single-live-card rule and the unmounted stage are what buy
+- **Browsing the whole catalog leaks nothing.** The live canvases are BOUNDED rather than singular
+  now — the two or three screens around the reader — and every one of them is unmounted when it
+  leaves that band, so scrolling to the end of the catalog and back leaves the document the size
+  it started. The unmount, the 600 ms leave grace and the unmounted preview stage are what buy
   that, and a regression in any of them shows up here first.
 
 ## Backup & sync (server/gitSync.ts)
@@ -4360,6 +4474,17 @@ underneath it.
   `PATCH /` (merge a partial chrome per SECTION — a list is replaced wholesale, since "moved to
   the top" and "deleted" are the same diff to a field-wise merge), `PUT /` (import a whole
   document, ≤ 256 KB, unknown keys kept), `POST /reset`.
+- **A REFUSAL IS PRINTED, NOT REPLACED.** `client/design/api.ts` builds a `DesignApiError`
+  carrying the server's exact sentence, and every catch in the panel used to throw it away for a
+  static `designSaveFailed` / `designImportFailed` — so a precise 400 (`sections[0].markdown: is
+  too long (20000 characters max)`) reached the author as "Could not save the design", naming
+  neither the field nor the reason, and the 500-instead-of-400 defect above was invisible in
+  practice for exactly that reason. `designErrorText(err, fallback)` prints a 4xx's own message
+  (the server is saying something about THIS document) and falls back to the panel's sentence on a
+  5xx or a dropped connection (which say only that something broke). The import file is also
+  size-checked against `API_BODY_MAX` BEFORE it is read: the server 413s an 11 MB body and always
+  did, but by then the admin's tab has read and `JSON.parse`d the whole thing, and a `File` knows
+  its own size for free.
 - **The designer** (`client/components/design/`) is a DRAFT surface: every control writes to a
   draft, the preview redraws from the draft, Save is one request. The preview renders the REAL
   components with the REAL derived tokens — a preview built from a second rendition is a preview
@@ -4374,6 +4499,50 @@ The panel that composes a design (`client/components/design/`, `styles/designer.
 `styles/composer.css`) is the surface this whole feature is judged on: a home page is an ORDER
 before it is anything else, and an order you cannot rearrange with your hand is a list of settings
 wearing a designer's name. What follows is normative for that panel.
+
+### THE DESIGN'S COLOUR IS CHOSEN BY LOOKING AT IT
+
+`DesignThemeCards` (`client/components/design/DesignThemeCards.tsx`) — "Site default" plus the
+fifteen plus every custom theme, as swatch cards painted from the CONSTANT `--swatch-<id>-*`
+tokens through the same `[data-theme-swatch]` hook the theme picker and the builder already use.
+It is the rule the ThemeBuilder states, applied to the other control that decides a palette; a
+retuned theme moves here with no second table to update.
+
+This was a `<Select>` whose options were `["", ...customThemes]` — the instance's HAND-BUILT
+themes and nothing else. On a fresh instance that is exactly ONE row ("Site default"), the
+control's own value rendered as the raw slug `iron-gall` with no label and no colour, and not one
+of the fifteen built-in themes was reachable: after applying a preset an author could keep the
+colour it shipped or destroy it, and nothing else. The field's own hint says the value is "forced
+on readers who have not chosen a theme themselves", so the single control that decides what every
+first-time visitor sees was inoperable — against WordPress's Customizer colour panel and
+Squarespace's palette picker, disqualifying on its own.
+
+Two details are load-bearing. **"Site default" is a real choice, not an empty row**: it carries no
+swatch attribute, so its card inherits the live document's `--bg/--text/--accent` and draws the
+room the app is standing in — "the reader's own", which is a decision an author makes on purpose.
+And **a custom theme's card is painted from its own overrides where it has them and from its
+base's swatch where it has not**, which is exactly what a sparse layer over a built-in is.
+
+(It is also a popover that cannot be misplaced. The old `<Select>` opened UPWARD and covered the
+design rows above it, including the "ACTIVE" badge on the design being edited.)
+
+### TWO MORE DOORS, BECAUSE ONE WAS THE COMMAND PALETTE
+
+`openDesigner()` had exactly one call site in the whole client (`CommandPalette.tsx`). The Settings
+modal carried the `publicLayout: "designed"` segment with no link to the designer, and there was
+no sidebar, status-bar or gear entry — so an operator who flipped the switch landed on a designed
+site with no design and no signpost to the tool, and the entire feature was behind Ctrl+P and a
+guess at the word. It now also opens from:
+
+- **the status bar**, beside the gear — where an admin already goes to change what a visitor sees;
+- **Settings → Publishing & comments**, in the row directly under the layout segment. The row that
+  just taught somebody the word "designed" is the row that has to hand them the tool.
+
+Both are the same `openDesigner()`; the settings door closes the settings modal first, because two
+stacked dialogs is not a place. (Arabic discoverability came with it: the palette matched only the
+exact label «صمّم», so the noun everybody types, «تصميم», answered "no results". It is in the row's
+HINT now, which the palette already searches — "typing what you can read must never answer no
+matches".)
 
 ### The three columns, and the laptop that decides them
 
@@ -4458,9 +4627,13 @@ the key, which is exactly the precedence `isSelectOpen()` already keeps for the 
 
 ### Empty states invite
 
-An instance with no design opens on the Designs tab, so that IS the first screen: three section
-glyphs, "Nothing designed yet", the sentence that says posts fill a design in immediately, and the
-two doors (*Browse the presets*, *New design*). A design with no sections says "An empty page,
+An instance with no design opens on the PRESETS tab, so that IS the first screen: fifty-nine
+finished sites, two columns wide, each already drawn in its own colours against the operator's own
+posts. It opened on the Designs tab before, which spent ~55% of a 1440×900 dialog on dark
+emptiness with a one-line "No design yet" in the preview column — and that screen is the moment
+the WordPress comparison is won or lost. The invitation is still on the Designs tab for anybody
+who goes back: three section glyphs, "Nothing designed yet", the sentence that says posts fill a
+design in immediately, and the two doors (*Browse the presets*, *New design*). A design with no sections says "An empty page,
 waiting" and names what a page is made of. Neither reports the absence of a list, and the tab's own
 instruction line is withheld while there is nothing to instruct — "drag a row, or move it with the
 arrows" over a panel with no rows in it is directions to a thing that is not there.
@@ -4483,6 +4656,17 @@ changes" — true, and there is no honest number to print.
 
 `Ctrl/Cmd+S` saves, and it is SWALLOWED either way: the browser's own Save dialog over a design
 panel is a jump-scare, not a feature.
+
+### A DIFFERENT SITE ARRIVES; IT DOES NOT CUT
+
+Applying a preset or opening another design replaces the entire page in the preview pane, and a
+hard cut between two complete sites reads as a glitch rather than as the choice somebody just
+made. `PreviewStage` cross-fades on a change of `design.id` — 280 ms, once, and never on first
+render, because a pane that animates its own arrival every time the designer opens is an animation
+about nothing. An edit to the SAME document still updates in place; that is the 120 ms settle and
+it must not be dressed up. The keyframe writes OPACITY ONLY: the frame carries an inline
+`transform: scale(k)` the stage computed, and a keyframe that also wrote `transform` would snap
+the device to the wrong size for the length of the fade.
 
 ### Motion is 150–200ms and it is a preference
 

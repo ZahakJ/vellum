@@ -195,6 +195,24 @@ designRoutes.get("/", (c) => {
       ...posts(true, null).map((post) => post.path),
       ...pages(true, null).map((page) => page.path),
     ],
+    // WHAT THE DESIGN'S FEED WILL ACTUALLY HOLD — the designer's preview reads
+    // this rather than `/api/posts`, and the difference is the whole point.
+    //
+    // `/api/posts` answers for the SESSION and for the layout that is live: to
+    // an admin it is unscoped, and `staticPagesActive()` is false while
+    // `publicLayout` is still "blog" — which is exactly the state an operator
+    // is in while building their FIRST design, before they switch. So the pane
+    // that is supposed to show the designed site drew a front page whose lead
+    // stories were the author's own Contact and Colophon PAGES (and any note
+    // the language filter hides from every visitor), in every preview and on
+    // all fifty-nine gallery cards, on a brand-new instance.
+    //
+    // Three arguments, all fixed rather than session-derived, because the
+    // question is not "what may this session read" but "what will the designed
+    // site print": VISITOR scope, the visitor's own language scope, and pages
+    // excluded unconditionally — a designed site never lists a page as an
+    // article, whatever `publicLayout` says today.
+    posts: posts(true, languageScope(c, true).lang, true),
   });
 });
 

@@ -28,6 +28,13 @@
 // numeric control here is a clamp between two values that both read well, and
 // the DERIVED sizes (heading steps, section rhythm) are computed from them
 // rather than set, so no combination of legal inputs produces an illegal page.
+//
+// THE ONE IMPORT is `shared/bidi.ts`, which is purer than this file is: a
+// regexp and a replace. Every string here renders into a public page, so the
+// product's one bidi rule has to reach both validators rather than only the
+// one in shared/design.ts.
+
+import { stripBidiControls } from "./bidi.ts";
 
 // ── Errors ──────────────────────────────────────────────────────────────────
 
@@ -330,7 +337,7 @@ function snap(value: number, key: TypoNumberKey): number {
  *  treatment settings.ts gives every stored string. */
 function cleanText(value: unknown, max: number): string {
   if (typeof value !== "string") return "";
-  return value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max);
+  return stripBidiControls(value).replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max);
 }
 
 /** A URL a designed page may LINK to. Absolute http/https, or site-relative
@@ -544,12 +551,24 @@ function bad(path: string, code: string, message: string): never {
   throw new DesignError(path, code, message);
 }
 
+/**
+ * THE STRICT SIDE OF `cleanText`, AND IT STRIPS BIDI FOR THE SAME REASON.
+ *
+ * Every string this validates — a nav label, a group label, a footer column's
+ * label, `footer.copyright` — is drawn into the PUBLIC header and footer of a
+ * designed site, beside note titles, for a reader with no cookie. An RLO in a
+ * label renders as text that differs from the text stored and reorders every
+ * glyph after it ("safe‮evil" draws as "safelive"), which is exactly the
+ * lie `shared/bidi.ts` exists to refuse and exactly what `shared/design.ts`
+ * already refuses for a section heading. One validator was missed; a design
+ * document is one document, so both halves of it now answer the same way.
+ */
 function strictText(value: unknown, path: string, max: number, required: boolean): string {
   if (typeof value !== "string") {
     if (required) bad(path, "design_bad_string", `${path} must be a string`);
     return "";
   }
-  const clean = value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+  const clean = stripBidiControls(value).replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
   if (clean.length > max) {
     bad(path, "design_too_long", `${path} is too long (${max} characters max)`);
   }

@@ -92,6 +92,22 @@ export function applyThemeChoice(choice: string): void {
   root.removeAttribute("data-custom-theme");
 }
 
+/**
+ * The same decision as `applyThemeChoice`, as a VALUE rather than as a write.
+ *
+ * The designer's preview frame is a second document, and a theme has to reach
+ * it as a pair of attributes on ITS root — a custom theme is keyed at `:root`
+ * and can be painted nowhere else, which is why a nested `<div data-theme>`
+ * (what a scaled canvas can do) is only ever right for the fifteen. One
+ * function decides "which attributes does this choice mean"; two callers write
+ * them in two documents.
+ */
+export function themeChoiceAttrs(choice: string): { theme: Theme; custom: string | null } {
+  const custom = findCustomTheme(choice, registry);
+  if (custom) return { theme: custom.base, custom: custom.id };
+  return { theme: isTheme(choice) ? choice : baseThemeOf(choice, registry), custom: null };
+}
+
 // ── The stylesheet ──────────────────────────────────────────────────────────
 
 /** Add, refresh or drop the generated custom-theme stylesheet.

@@ -455,6 +455,24 @@
   transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
+/* A DIFFERENT SITE ARRIVES; IT DOES NOT CUT. Applying a preset or opening
+   another design swaps the entire page in the pane, and a hard cut between two
+   complete sites reads as a glitch rather than as the choice somebody just
+   made. The frame is NOT remounted for this — the author's scroll position and
+   the cloned sheets survive; only the pixels cross-fade, over one beat. */
+.s-dsgs--arriving .s-dsgs__frame {
+  animation: s-dsgs-swap 280ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* OPACITY ONLY. The frame carries an inline `transform: scale(k)` — the stage
+   computed it — so a keyframe that also writes `transform` would override that
+   scale and snap the device to the wrong size for the length of the fade. */
+@keyframes s-dsgs-swap {
+  from {
+    opacity: 0;
+  }
+}
+
 .s-dsgs__note {
   margin: 0;
   padding: 8px 14px;
@@ -470,6 +488,7 @@
   }
 
   .s-dsgs__device,
+  .s-dsgs--arriving .s-dsgs__frame,
   .s-dsgs--pending .s-dsgs__pulse {
     animation: none;
   }
@@ -998,4 +1017,108 @@
 .s-dsgr-listrow__acts .s-btn {
   padding: 3px 9px;
   font-size: 0.76rem;
+}
+
+/* ── The design's theme, as cards ────────────────────────────────────────── */
+
+/* A stacked control row: the label sits above a control that is a GRID rather
+   than a field, because fifteen rooms do not fit in the 58% a field gets. */
+.s-dsgr-ctlrow--stack {
+  display: block;
+}
+
+.s-dsgr-ctlrow--stack .s-dsgr-ctlrow__text {
+  margin-block-end: 9px;
+}
+
+/* Sixteen-plus swatch cards. `auto-fill` rather than a column count: the panel
+   is a dialog whose controls column changes width with the tab, and a fixed
+   count would be four cramped cards at 380px and four wide ones at 460. */
+.s-dsgtc {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 7px;
+}
+
+.s-dsgtc__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: pointer;
+  text-align: start;
+  transition: border-color 140ms ease, transform 140ms ease;
+}
+
+.s-dsgtc__card:hover:not(:disabled) {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.s-dsgtc__card:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* The chosen room reads as chosen from across the panel: an accent ring plus
+   the accent wash the rest of this product uses for an active row. */
+.s-dsgtc__card--on {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--accent-soft);
+}
+
+/* The theme's own trio, from the CONSTANT --swatch-<id>-* tokens by way of
+   [data-theme-swatch] (styles/themes.css) — so this card is painted in the
+   room it names, whatever room the operator is standing in. */
+.s-dsgtc__paint {
+  display: block;
+  height: 30px;
+  border-radius: 4px;
+  background: var(--sw-bg);
+  border: 1px solid color-mix(in oklab, var(--sw-text) 22%, transparent);
+  padding: 6px 5px 0;
+}
+
+.s-dsgtc__rule {
+  display: block;
+  height: 3px;
+  width: 70%;
+  border-radius: 2px;
+  background: var(--sw-text);
+  opacity: 0.75;
+}
+
+.s-dsgtc__chip {
+  display: block;
+  margin-block-start: 4px;
+  height: 5px;
+  width: 34%;
+  border-radius: 2px;
+  background: var(--sw-accent);
+}
+
+.s-dsgtc__name {
+  font-size: 11px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.s-dsgtc__note {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-dsgtc__card {
+    transition: none;
+  }
+
+  .s-dsgtc__card:hover:not(:disabled) {
+    transform: none;
+  }
 }

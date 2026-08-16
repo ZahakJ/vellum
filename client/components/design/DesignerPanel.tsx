@@ -53,6 +53,8 @@ import {
   resetDesignDoc,
   saveDesignDoc,
   setActiveDesignId,
+  DESIGN_IMPORT_MAX_BYTES,
+  designErrorText,
   type DesignOverview,
 } from "../../design/api.ts";
 import {
@@ -71,8 +73,8 @@ import { TabGlyph } from "./PanelGlyphs.tsx";
 import { SectionOptions, sectionKindHint, type SectionContext } from "./SectionOptions.tsx";
 import { designId } from "../../../shared/designChrome.ts";
 import { NumberInput } from "../controls/Fields.tsx";
-import { Select } from "../controls/Select.tsx";
 import { promptModal } from "../Confirm.tsx";
+import DesignThemeCards from "./DesignThemeCards.tsx";
 import "../../styles/composer.css";
 import FooterBuilder from "./FooterBuilder.tsx";
 import NavBuilder from "./NavBuilder.tsx";
@@ -88,7 +90,6 @@ import PreviewStage from "./PreviewStage.tsx";
 import { usePreviewBuild } from "../../design/previewContent.tsx";
 import PresetGallery, { loadPresets } from "./PresetGallery.tsx";
 import { presetExport, type Preset } from "../../../shared/presets.ts";
-import { getPosts } from "../../api.ts";
 import type { PostMeta } from "../../../shared/types.ts";
 
 type Tab = "designs" | "presets" | "sections" | "nav" | "pages" | "type" | "chrome" | "file";
@@ -251,7 +252,7 @@ function DesignsTab({
       })
       .catch((err: unknown) => {
         console.error("vellum: the design store refused that", err);
-        toast(t("designSaveFailed"), "error");
+        toast(designErrorText(err, t("designSaveFailed")), "error");
       })
       .finally(() => setBusy(false));
   };
@@ -273,7 +274,7 @@ function DesignsTab({
         })
         .catch((err: unknown) => {
           console.error("vellum: creating the design failed", err);
-          toast(t("designSaveFailed"), "error");
+          toast(designErrorText(err, t("designSaveFailed")), "error");
         })
         .finally(() => setBusy(false));
     });
@@ -393,22 +394,24 @@ function DesignsTab({
             />
           </Row>
           {/* A design is a look, and a look is a theme plus a layout. Keeping
-              them in two panels is how they drift apart. */}
-          <Row label={t("designTheme")} hint={t("designThemeHint")}>
-            <Select
-              value={draft.theme ?? ""}
-              onChange={(theme) => setDoc({ theme: theme === "" ? null : theme })}
-              options={[
-                { value: "", label: t("designThemeInherit") },
-                ...admin.themes.map((theme) => ({
-                  value: `custom:${theme.id}`,
-                  label: theme.name,
-                  note: `custom:${theme.id}`,
-                })),
-              ]}
-              label={t("designTheme")}
+              them in two panels is how they drift apart — and keeping the
+              fifteen built-ins OUT of the only control that sets it (this was
+              a `<Select>` over `admin.themes`, i.e. the instance's CUSTOM
+              themes and nothing else) meant the first thing a blogger changes
+              was the one thing they could not. Cards, in their own colours,
+              for the reason the theme picker and the builder both give. */}
+          <div className="s-dsgr-ctlrow s-dsgr-ctlrow--stack">
+            <div className="s-dsgr-ctlrow__text">
+              <span className="s-dsgr-ctlrow__label">{t("designTheme")}</span>
+              <span className="s-dsgr-ctlrow__hint">{t("designThemeHint")}</span>
+            </div>
+            <DesignThemeCards
+              value={draft.theme ?? null}
+              onChange={(theme) => setDoc({ theme })}
+              custom={admin.themes}
+              disabled={busy}
             />
-          </Row>
+          </div>
         </>
       )}
     </>
@@ -488,10 +491,20 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
   /** The shipped catalog, once. `null` while the chunk is in flight — the
    *  gallery has no loading state of its own, so the tab shows the panel's. */
   const [presets, setPresets] = useState<readonly Preset[] | null>(null);
-  /** The instance's own published posts. The preview draws from these before
-   *  it invents anything, which is what makes a preset look like YOUR site
-   *  rather than like a screenshot of somebody else's. */
-  const [posts, setPosts] = useState<PostMeta[] | null>(null);
+  /**
+   * THE FEED THE DESIGNED SITE WILL PRINT, not the one this session can read.
+   *
+   * The preview draws from the instance's own posts before it invents
+   * anything — that is what makes a preset look like YOUR site rather than
+   * like a screenshot of somebody else's. But it has to be the VISITOR's list:
+   * `/api/posts` answers for the session and for the layout that is live, so
+   * to an admin whose `publicLayout` is still "blog" — the state every
+   * operator is in while building their first design — it returned the static
+   * pages and the language-hidden notes as ordinary posts, and every preview
+   * and all fifty-nine gallery cards opened with "Contact" and "Colophon" as
+   * the lead stories. `GET /api/design` carries the scoped list instead.
+   */
+  const posts: PostMeta[] | null = useMemo(() => admin?.posts ?? null, [admin]);
   /** Which page of the design the preview pane is showing. */
   const [previewRoute, setPreviewRoute] = useState<"home" | "article">("home");
 
@@ -505,6 +518,12 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
         // The ACTIVE design is the one the panel opens on; with an empty store
         // there is nothing to open, and the Designs tab is where you make one.
         const openId = data.activeId ?? data.designs.find((d) => !d.quarantine)?.id ?? null;
+        // A FRESH INSTANCE OPENS ON THE SHELF. "Nothing designed yet" over an
+        // empty preview column is the screen this product's whole comparison
+        // is won or lost on, and it had nothing to look at; the gallery is
+        // fifty-nine finished sites and it is already two columns wide. The
+        // invitation is still on the Designs tab for anyone who goes back.
+        if (data.designs.length === 0) setTab("presets");
         if (!openId) return;
         const doc = await getDesignDoc(openId);
         if (disposed) return;
@@ -519,11 +538,6 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
     getTags()
       .then((list) => {
         if (!disposed) setTags(list.map((entry) => entry.tag));
-      })
-      .catch(() => undefined);
-    getPosts()
-      .then((list) => {
-        if (!disposed) setPosts(list);
       })
       .catch(() => undefined);
     // The catalog is a dynamic import: fifty layouts are a chunk the admin
@@ -636,7 +650,7 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
       })
       .catch((err: unknown) => {
         console.error("vellum: saving the design failed", err);
-        toast(t("designSaveFailed"), "error");
+        toast(designErrorText(err, t("designSaveFailed")), "error");
       })
       .finally(() => setBusy(false));
   };
@@ -666,7 +680,7 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
       })
       .catch((err: unknown) => {
         console.error("vellum: switching the public layout failed", err);
-        toast(t("designSaveFailed"), "error");
+        toast(designErrorText(err, t("designSaveFailed")), "error");
       })
       .finally(() => setBusy(false));
   };
@@ -685,6 +699,14 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
   };
 
   const runImport = (file: File): void => {
+    // THE CAP IS CHECKED BEFORE THE FILE IS READ. The server 413s at
+    // API_BODY_MAX and always did, but by the time it answers, the admin's tab
+    // has already read an eleven-megabyte string into memory and run
+    // `JSON.parse` over it. A `File` knows its own size for free.
+    if (file.size > DESIGN_IMPORT_MAX_BYTES) {
+      toast(tf("designImportTooBig", { n: localeNum(Math.round(DESIGN_IMPORT_MAX_BYTES / 1048576)) }), "error");
+      return;
+    }
     setBusy(true);
     file
       .text()
@@ -698,7 +720,7 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
       })
       .catch((err: unknown) => {
         console.error("vellum: importing the design failed", err);
-        toast(t("designImportFailed"), "error");
+        toast(designErrorText(err, t("designImportFailed")), "error");
       })
       .finally(() => setBusy(false));
   };
@@ -721,7 +743,7 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
         })
         .catch((err: unknown) => {
           console.error("vellum: resetting the design failed", err);
-          toast(t("designSaveFailed"), "error");
+          toast(designErrorText(err, t("designSaveFailed")), "error");
         })
         .finally(() => setBusy(false));
     });
@@ -752,7 +774,7 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
       toast(t("presetApplied"));
     } catch (err) {
       console.error("vellum: applying the preset failed", err);
-      toast(t("designSaveFailed"), "error");
+      toast(designErrorText(err, t("designSaveFailed")), "error");
     } finally {
       setBusy(false);
     }
@@ -777,7 +799,7 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
       toast(t("designCreated"));
     } catch (err) {
       console.error("vellum: creating the design failed", err);
-      toast(t("designSaveFailed"), "error");
+      toast(designErrorText(err, t("designSaveFailed")), "error");
     } finally {
       setBusy(false);
     }

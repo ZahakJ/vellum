@@ -243,9 +243,30 @@ if (doubled.length) {
 
 // ── the editorial note (never a failure) ────────────────────────────────────
 
+// WHAT A 200px CARD CAN ACTUALLY RESOLVE, and nothing finer. The key used to
+// be the section kinds plus the EXACT pixel width, which meant `casebook`
+// (1160) and `vitrine` (1120) — visually the same card — slipped through on a
+// 40px difference nobody can see. It printed one collision where a reader
+// measured six. So the width is BUCKETED into the three bands a silhouette
+// has (narrow reading column, mid, wide magazine), the grid's column count is
+// folded in (a 2-across and a 4-across grid are two different pictures), and
+// so is whether the pictures are there at all — a grid with banners and one
+// without are not the same shelf even when the blocks line up.
+//
+// It stays a NOTE and never a failure: two designs may legitimately share a
+// skeleton and differ in palette, columns and type, and that is a judgement
+// for a person rather than a threshold.
+const widthBand = (px) => (px <= 780 ? "narrow" : px <= 1080 ? "mid" : "wide");
+const silhouette = (section) => {
+  if (section.kind === "postGrid") {
+    return `postGrid${section.columns}${section.showBanner ? "+art" : ""}`;
+  }
+  if (section.kind === "hero") return `hero:${section.height}`;
+  return section.kind;
+};
 const shapes = new Map();
 for (const p of PRESETS) {
-  const key = `${p.design.sections.map((s) => s.kind).join(">")}|${p.design.site.width}`;
+  const key = `${p.design.sections.map(silhouette).join(">")}|${widthBand(p.design.site.width)}`;
   shapes.set(key, [...(shapes.get(key) ?? []), p.id]);
 }
 const twins = [...shapes.values()].filter((v) => v.length > 1);

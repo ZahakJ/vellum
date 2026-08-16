@@ -61,6 +61,12 @@ import { createPortal } from "react-dom";
  *  a custom theme is keyed at the root and can be defined nowhere else. */
 const ROOT_ATTRS = ["data-theme", "data-custom-theme", "dir", "lang"] as const;
 
+/** The two attributes a theme choice IS (client/design/customThemes.ts). */
+export interface FrameTheme {
+  theme: string;
+  custom: string | null;
+}
+
 /** The frame's own reset. Four rules, and each one is the difference between a
  *  document and a component: the body is the page's ground, the canvas's
  *  BOX chrome (its radius, its clip, its fade) belongs to a card in a gallery
@@ -110,6 +116,22 @@ export interface PreviewFrameProps {
   /** The frame's accessible name. It is a real nested document and browsers
    *  announce it; an unnamed frame is announced as "frame". */
   title: string;
+  /**
+   * THE DESIGN'S OWN THEME, WHEN IT NAMES ONE.
+   *
+   * A design carries a theme and it is FORCED on every reader who has not
+   * chosen one — so the pane an author spends the whole session in has to be
+   * painted in it. Without this the frame mirrored the OPERATOR's `data-theme`
+   * and the session held a three-way disagreement: the gallery card sold the
+   * design in its own palette, the editor then drew it in yours, and the
+   * shipped site was a third thing.
+   *
+   * The frame is the one preview surface that can honour a `custom:` choice
+   * too: the generated stylesheet keys `:root[data-custom-theme]`, and the
+   * frame's document has a root of its own. `null` means the design inherits,
+   * which is a real answer — mirror the app.
+   */
+  ownTheme?: FrameTheme | null;
   className?: string;
   style?: CSSProperties;
   /** Rendered INTO the frame's document, by portal — same React tree, same
@@ -122,6 +144,7 @@ export interface PreviewFrameProps {
 
 export default function PreviewFrame({
   title,
+  ownTheme = null,
   className,
   style,
   children,
@@ -131,6 +154,11 @@ export default function PreviewFrame({
   const [mount, setMount] = useState<HTMLElement | null>(null);
   const readyRef = useRef(onReady);
   readyRef.current = onReady;
+  // Read through a ref by the observer below, so changing the design's theme
+  // repaints the frame WITHOUT tearing down a document, its clones, its
+  // observers and the author's scroll position.
+  const themeRef = useRef(ownTheme);
+  themeRef.current = ownTheme;
 
   useEffect(() => {
     const frame = ref.current;
@@ -148,7 +176,7 @@ export default function PreviewFrame({
       if (doc.documentElement.hasAttribute("data-vellum-frame")) return;
       doc.documentElement.setAttribute("data-vellum-frame", "");
       cleanup?.();
-      cleanup = dress(doc, () => {
+      cleanup = dress(doc, themeRef, () => {
         if (!disposed) setMount(null);
       });
       const host = doc.createElement("div");
@@ -167,6 +195,14 @@ export default function PreviewFrame({
       setMount(null);
     };
   }, []);
+
+  // A THEME CHANGE IS A REPAINT, NEVER A REBUILD. Applying a preset or
+  // pressing a card in the theme grid changes two attributes on the frame's
+  // root; tearing the document down for it would drop the clones, the
+  // observers and the author's place in their own page.
+  useEffect(() => {
+    refreshFrameTheme(ref.current?.contentDocument ?? null);
+  }, [ownTheme?.theme, ownTheme?.custom, mount]);
 
   return (
     <>
@@ -196,7 +232,11 @@ export default function PreviewFrame({
  * Furnish a fresh frame document: the app's stylesheets, the app's theme, the
  * app's language, and one rule about navigation. Returns the teardown.
  */
-function dress(doc: Document, onGone: () => void): () => void {
+function dress(
+  doc: Document,
+  theme: { current: FrameTheme | null },
+  onGone: () => void,
+): () => void {
   const root = document.documentElement;
 
   // NO `<base>` ELEMENT, and the reason is worth keeping. Relative URLs — the
@@ -247,9 +287,19 @@ function dress(doc: Document, onGone: () => void): () => void {
     }
   };
 
+  // THE DESIGN'S THEME WINS OVER THE OPERATOR'S, and only over the two
+  // attributes that carry it: `dir` and `lang` are the INSTANCE's and are
+  // mirrored whatever the design says, because a design does not choose the
+  // language its site is written in.
   const syncRoot = (): void => {
+    const own = theme.current;
     for (const name of ROOT_ATTRS) {
-      const value = root.getAttribute(name);
+      const value =
+        own && name === "data-theme"
+          ? own.theme
+          : own && name === "data-custom-theme"
+            ? own.custom
+            : root.getAttribute(name);
       if (value === null) doc.documentElement.removeAttribute(name);
       else doc.documentElement.setAttribute(name, value);
     }
@@ -257,6 +307,10 @@ function dress(doc: Document, onGone: () => void): () => void {
 
   syncStyles();
   syncRoot();
+  // The design's theme can change under a live frame (a card in the theme
+  // grid, a preset applied) and that is not a document rebuild — the stage
+  // calls this back through the handle below.
+  themeSyncs.set(doc, syncRoot);
 
   // Reveal once the first set of sheets has answered — or after a second,
   // whichever comes first.
@@ -311,6 +365,7 @@ function dress(doc: Document, onGone: () => void): () => void {
 
   return () => {
     clearTimeout(revealTimer);
+    themeSyncs.delete(doc);
     headWatch.disconnect();
     rootWatch.disconnect();
     doc.removeEventListener("click", swallow, true);
@@ -320,6 +375,16 @@ function dress(doc: Document, onGone: () => void): () => void {
     doc.removeEventListener("keydown", guardKey, true);
     win?.removeEventListener("pagehide", onUnload);
   };
+}
+
+/** Every live frame document and the function that repaints its root. A module
+ *  map rather than a ref chain: `dress()` owns the writing, the component owns
+ *  the prop, and neither has to hold the other. */
+const themeSyncs = new Map<Document, () => void>();
+
+/** Repaint a live frame's root from the latest `ownTheme`. */
+export function refreshFrameTheme(doc: Document | null): void {
+  if (doc) themeSyncs.get(doc)?.();
 }
 
 /** What makes a style node the same node as last time. An href for a link, the
