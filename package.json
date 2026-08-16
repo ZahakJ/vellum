@@ -12,7 +12,8 @@
     "hash-password": "node scripts/hash-password.ts",
     "typecheck": "tsc --noEmit",
     "check-i18n": "node scripts/check-i18n.mjs",
-    "check-a11y": "node scripts/check-a11y.mjs"
+    "check-a11y": "node scripts/check-a11y.mjs",
+    "test": "node --test \"tests/*.test.ts\""
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",
