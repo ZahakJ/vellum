@@ -15,7 +15,7 @@
 .s-reading__content {
   max-width: 760px;
   margin: 0 auto;
-  padding: 48px 56px 120px;
+  padding: 48px var(--prose-gutter) 120px;
   font-family: var(--font-serif);
   font-size: calc(var(--font-prose, 1.161rem) * var(--prose-scale, 1));
   line-height: 1.7;
@@ -835,7 +835,7 @@ span.s-rv-math-live {
 .s-app--visitor .s-reading__content {
   font-size: 1.214rem;
   line-height: 1.78;
-  padding: 64px 56px 160px;
+  padding: 64px var(--prose-gutter) 160px;
   font-kerning: normal;
   font-variant-ligatures: common-ligatures;
   text-rendering: optimizeLegibility;

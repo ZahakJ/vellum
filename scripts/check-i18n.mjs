@@ -1,6 +1,9 @@
 // Assert: every t()/tf() key used in client/ exists in DICT, every DICT key
 // defines BOTH en and ar (non-empty, and ar actually differs / is Arabic),
-// every DICT key is used somewhere, tf() placeholders match across langs, and
+// every DICT key is used somewhere (counted from the CALL SITES only — the
+// dictionary is excluded from the usage scan, or a key whose English value is
+// its own name marks itself used and no dead key can ever be reported; see the
+// note at the scan), tf() placeholders match across langs, and
 // no user-visible English copy is typed straight into the source (bypassing
 // t()) — in JSX *or* in the imperative DOM builders.
 //
@@ -44,6 +47,15 @@ const files = [];
 const used = new Set();
 const errs = [];
 for (const f of files) {
+  // THE DICTIONARY IS NOT A CALL SITE. This scan used to read i18n.ts along
+  // with everything else, and the dead-key check below is a set difference
+  // against it — so a key whose own English value happens to be the key name
+  // (`read: { en: "read", … }`) matched the `"([A-Za-z0-9_]+)"` token scan
+  // inside its OWN definition and marked itself used. `read` was reachable
+  // from nowhere in the product and the gate still printed "used keys: 617 /
+  // dict keys: 617 · PARITY OK". A gate that counts a definition as a use can
+  // never report a dead key, which made the whole line ceremonial.
+  if (f.endsWith("/i18n.ts")) continue;
   const s = readFileSync(f, "utf8");
   // Keys reach t()/tf() literally, via conditionals (t(a ? "x" : "y")), and via
   // thunk tables — so count any quoted dict-key token outside i18n.ts itself.

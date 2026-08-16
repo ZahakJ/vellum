@@ -2,10 +2,11 @@
 // global keyboard shortcuts, and the single SSE subscription that keeps the
 // tree, backlinks, and externally-changed open notes fresh.
 
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { VaultEvent } from "../shared/types.ts";
 import { subscribeEvents } from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
+import { collectNotes } from "./editor/links.ts";
 import BlogShell from "./blog/BlogShell.tsx";
 import BacklinksPanel from "./components/BacklinksPanel.tsx";
 import BannerModal from "./components/BannerModal.tsx";
@@ -25,7 +26,7 @@ import { openDailyNote } from "./daily.ts";
 import { t, tf } from "./i18n.ts";
 import { promptNewNote } from "./prompts.ts";
 import { applyUrl, installRouter, syncUrl } from "./router.ts";
-import { recentPublishWrite, useStore } from "./state.ts";
+import { recentPublishWrite, sidebarIsDrawer, useStore } from "./state.ts";
 import { dismissToasts, toast } from "./toast.ts";
 
 /** Writes made by our own autosave echo back through the watcher; ignore
@@ -43,6 +44,58 @@ const IS_MAC = /Mac|iP(hone|ad|od)/.test(navigator.platform);
 // visitors (reading view only) never need it — load it on demand so the
 // first-paint bundle stays lean.
 const Editor = lazy(() => import("./components/Editor.tsx"));
+
+// ── Recently opened notes ──────────────────────────────────────────────────
+// The empty state on a phone cannot be a keymap, and "here are four buttons"
+// is only half an answer: the thing a reader wants at the top of a session is
+// the note they were in. Nothing else in the client remembers that — the
+// store persists OPEN TABS, and by definition there are none when this pane
+// is on screen — so App keeps a short list of its own beside them. Paths only;
+// they are re-checked against the live tree before anything is drawn, so a
+// deleted note, a signed-out session and an admin previewing as a visitor all
+// narrow the list by themselves rather than leaking a title.
+const RECENT_KEY = "vellum.recent";
+const RECENT_MAX = 12;
+/** How many of them the empty state offers — a list, not an index. */
+const RECENT_SHOWN = 5;
+
+function readRecent(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((p): p is string => typeof p === "string").slice(0, RECENT_MAX);
+  } catch {
+    return []; // private mode, quota, a hand-edited value: not worth a toast
+  }
+}
+
+/** Where Ctrl/Cmd+K goes, reached by tapping instead. The sidebar owns the
+ *  search box and reveals itself when it is COLLAPSED — but on a phone that
+ *  pane is a fixed drawer whose visibility is `sidebarOpen`, not
+ *  `sidebarCollapsed`, so a bare dispatch would focus a field parked off the
+ *  screen edge and swallow every keystroke after it. Open the drawer first and
+ *  dispatch on the next frame, once React has committed the class that slides
+ *  it in. */
+function openQuickSearch(): void {
+  const store = useStore.getState();
+  // Same breakpoint as the drawer's own (state.ts owns the number): the
+  // sidebar stops being a grid pane at 999px, not at 700, so quick search has
+  // to open the drawer at every width where the search box lives inside it.
+  if (sidebarIsDrawer()) store.setSidebarOpen(true);
+  requestAnimationFrame(() => window.dispatchEvent(new Event("vellum:quicksearch")));
+}
+
+function pushRecent(path: string): string[] {
+  const next = [path, ...readRecent().filter((p) => p !== path)].slice(0, RECENT_MAX);
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore — the in-memory list still works for this session */
+  }
+  return next;
+}
+
 
 export default function App() {
   const view = useStore((s) => s.view);
@@ -67,6 +120,9 @@ export default function App() {
   const zen = useStore((s) => s.zen);
   const locked = useStore((s) => !s.admin && !s.publicReads);
   const lang = useStore((s) => s.language); // re-render the chrome strings on language change
+  const tree = useStore((s) => s.tree);
+  /** Recently opened notes, for the phone's empty state (see readRecent). */
+  const [recent, setRecent] = useState<string[]>(readRecent);
   const lastSaveRef = useRef(0);
   /** Where the caret was when Ctrl/Cmd+K threw focus into the search box —
    *  Esc puts it back there (see returnToNote in the keyboard effect). */
@@ -123,6 +179,32 @@ export default function App() {
       }),
     [],
   );
+
+  // Remember which notes this reader was in. Subscribed rather than driven off
+  // the `openPath` render value, so the list is written once per real change
+  // (a re-render for any other reason must not reorder it).
+  useEffect(
+    () =>
+      useStore.subscribe((state, prev) => {
+        if (state.openPath && state.openPath !== prev.openPath) {
+          setRecent(pushRecent(state.openPath));
+        }
+      }),
+    [],
+  );
+
+  // …and shown only if they still exist for THIS session. The tree is already
+  // scoped — a visitor's is the flat published collection, an admin in preview
+  // gets the same one — so filtering through it is what keeps a remembered
+  // path from naming an unpublished note to somebody who may not see it.
+  const recentNotes = useMemo(() => {
+    if (!tree) return [];
+    const live = new Map(collectNotes(tree).map((n) => [n.path, n.title]));
+    return recent
+      .filter((p) => live.has(p))
+      .slice(0, RECENT_SHOWN)
+      .map((p) => ({ path: p, title: live.get(p)! }));
+  }, [recent, tree]);
 
   // Navigating to another note dismisses lingering toasts — a message about
   // the previous interaction must not overlay unrelated content.
@@ -353,7 +435,7 @@ export default function App() {
         // the sidebar from inside the editor on those setups.
         if (!e.metaKey && inEditor(e.target) && (store.vimMode || IS_MAC)) return;
         e.stopPropagation();
-        store.setSidebarCollapsed(!store.sidebarCollapsed);
+        store.toggleSidebar();
       } else if (key === "z" && e.shiftKey) {
         // Ctrl/Cmd+Shift+Z — zen. On macOS this is ALSO CodeMirror's only
         // redo binding (redo is Mod-y elsewhere), so the editor keeps Cmd+
@@ -540,6 +622,18 @@ export default function App() {
             <div className="s-empty">
               <div className="s-empty__glyph" aria-hidden="true">✦</div>
               <p className="s-empty__title">{t("vaultOpen")}</p>
+              {/* TWO empty states, and CSS picks. The keymap is the right
+                  answer on a machine with a keyboard and is nothing but a
+                  taunt without one: at 390px the first screen after signing in
+                  was seven chips naming Ctrl-combinations, one of them
+                  wrapping and shoving the grid a row out of true, the first
+                  chip flush against x=0 because the grid was exactly as wide
+                  as the viewport. Below ~700px — and on ANY coarse pointer,
+                  because a tablet in landscape is 1024px wide and still has no
+                  Ctrl key — the pane offers the same four destinations as
+                  things to tap, with the notes this reader was last in above
+                  them. app.css owns the swap; both halves are always in the
+                  DOM so there is no resize listener and no first-paint flash. */}
               <div className="s-empty__keys">
                 <span className="s-empty__key">
                   <kbd>Ctrl P</kbd> {t("keyPalette")}
@@ -566,6 +660,51 @@ export default function App() {
                     </span>
                   </>
                 )}
+              </div>
+              <div className="s-empty__touch">
+                {recentNotes.length > 0 && (
+                  <nav className="s-empty__recents" aria-label={t("emptyRecent")}>
+                    <h2 className="s-empty__recentshead">{t("emptyRecent")}</h2>
+                    {recentNotes.map((note) => (
+                      <button
+                        type="button"
+                        className="s-empty__recent"
+                        key={note.path}
+                        onClick={() => useStore.getState().openNote(note.path)}
+                      >
+                        {/* A note title is user content in a chrome row: it
+                            picks its own direction, like every other title in
+                            the product. */}
+                        <bdi>{note.title}</bdi>
+                      </button>
+                    ))}
+                  </nav>
+                )}
+                <div className="s-empty__actions">
+                  {admin && (
+                    <button
+                      type="button"
+                      className="s-empty__action s-empty__action--go"
+                      onClick={() => void promptNewNote("")}
+                    >
+                      {t("newNote")}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="s-empty__action"
+                    onClick={openQuickSearch}
+                  >
+                    {t("scSearch")}
+                  </button>
+                  <button
+                    type="button"
+                    className="s-empty__action"
+                    onClick={() => useStore.getState().setView("graph")}
+                  >
+                    {t("scGraph")}
+                  </button>
+                </div>
               </div>
             </div>
           )}

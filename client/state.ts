@@ -31,6 +31,17 @@ const TABS_KEY = "vellum.tabs";
 const PREVIEW_KEY = "vellum.preview";
 const SIDE_KEY = "vellum.sidebarSide";
 const SIDEBAR_COLLAPSED_KEY = "vellum.sidebarCollapsed";
+
+/** The drawer breakpoint, mirrored from app.css's `@media (max-width: 999px)`.
+ *  At and below it the sidebar leaves the grid and becomes an overlay drawer
+ *  (so the reading column keeps its full measure at 1024, 900 and 768 alike);
+ *  its visibility is then `sidebarOpen`, not `sidebarCollapsed`. Keep the two
+ *  numbers in step — this is the only copy of it in the client. */
+export const DRAWER_QUERY = "(max-width: 999px)";
+
+export function sidebarIsDrawer(): boolean {
+  return typeof window !== "undefined" && window.matchMedia(DRAWER_QUERY).matches;
+}
 const PANEL_COLLAPSED_KEY = "vellum.panelCollapsed";
 const ZEN_KEY = "vellum.zen";
 
@@ -59,13 +70,6 @@ export type SidebarSidePref = "auto" | "left" | "right";
 export { THEMES, isTheme, counterpartTheme } from "./themes.ts";
 export type { Theme } from "./themes.ts";
 export type View = "editor" | "graph";
-
-/** The next theme in list order. `openThemePicker()` is what the chrome should
- *  reach for — fifteen blind steps is not a control — but a plain cycle is
- *  still the right answer for a keyboard-only "next look" command. */
-export function nextTheme(theme: Theme): Theme {
-  return THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
-}
 
 export interface State {
   tree: TreeNode | null;
@@ -106,6 +110,10 @@ export interface State {
   /** Sidebar collapsed to its slim reopen handle (Ctrl/Cmd+B; persisted). */
   sidebarCollapsed: boolean;
   setSidebarCollapsed(b: boolean): void;
+  /** Show/hide the notes sidebar, whichever shell is on screen (pane above the
+   *  drawer breakpoint, overlay drawer below it). Every door — Ctrl/Cmd+B, the
+   *  palette command, the status-bar switch — goes through this. */
+  toggleSidebar(): void;
   /** Backlinks/outline panel collapsed (Ctrl/Cmd+Shift+B; persisted). Also
    *  set by the panel's own responsive auto-collapse on narrow viewports. */
   panelCollapsed: boolean;
@@ -141,6 +149,10 @@ export interface State {
   /** settings.languageToggle — the instance offers visitors an EN/ع switch.
    *  Off (the default) means no public language chrome exists at all. */
   languageToggle: boolean;
+  /** COMMENTS=on / settings.commentsEnabled. Off means Marginalia never even
+   *  asks /api/comments — the answer is instance-wide and already in /api/me,
+   *  so asking per note only bought one console 404 per note open. */
+  commentsEnabled: boolean;
   /** Store the visitor's own chrome language and apply it live (strings +
    *  direction only). Ignored unless `languageToggle` is on. */
   setVisitorLang(lang: Lang): void;
@@ -559,6 +571,7 @@ export const useStore = create<State>()((set, get) => {
     siteName: "Vellum",
     language: "en",
     languageToggle: false,
+    commentsEnabled: false,
     setVisitorLang: (lang) => {
       if (!get().languageToggle || get().language === lang) return;
       writeVisitorLang(lang);
@@ -635,6 +648,7 @@ export const useStore = create<State>()((set, get) => {
         set({ sidebarSide: effectiveSide(get().sidebarSidePref, language) });
         set({
           languageToggle,
+          commentsEnabled: me.comments === true,
           admin: me.admin,
           publicReads: me.public,
           authProtected: me.protected ?? false,
@@ -928,6 +942,17 @@ export const useStore = create<State>()((set, get) => {
     setSidebarCollapsed: (sidebarCollapsed) => {
       persistFlag(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed);
       set({ sidebarCollapsed });
+    },
+
+    // ONE gesture, whichever shell is on screen. Below the drawer breakpoint
+    // the sidebar is an overlay driven by `sidebarOpen`, and `sidebarCollapsed`
+    // has nothing on screen to act on — so Ctrl/Cmd+B, the palette row and the
+    // status-bar switch all went dead at 900px, which is exactly the "a
+    // control that does nothing" failure this product keeps hunting.
+    toggleSidebar: () => {
+      const s = get();
+      if (sidebarIsDrawer()) s.setSidebarOpen(!s.sidebarOpen);
+      else s.setSidebarCollapsed(!s.sidebarCollapsed);
     },
 
     // `persist` is false for the responsive auto-collapse: a narrow window

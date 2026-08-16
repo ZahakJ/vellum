@@ -28,9 +28,14 @@ Obsidian is excellent — and if it fits, use it. Vellum exists for the gap it l
 ## Quickstart
 
 **Node ≥ 24** (`node --version`). Vellum's server is TypeScript that Node runs directly, with no
-build step and no transpiler — that needs type stripping on by default, `--env-file-if-exists`, and
-an unflagged `node:sqlite` (the comments database), which all line up at 24. It is declared in
-`package.json` under `engines`, so `npm install` will tell you if you are below it.
+build step and no transpiler, and three separate things set that floor: type stripping on by
+default (flagged before 22.18), `--env-file-if-exists`, which every npm script here passes
+(added in 22.9), and an unflagged `node:sqlite` for the comments database (22.13). They line up
+at 24, which is the first Node that carries all three in an LTS line — so 24 is the real number,
+not a rounded-up one. It is declared in `package.json` under `engines` and this repo ships
+`engine-strict=true` in `.npmrc`, so a clone on an older Node **fails at `npm install`** with
+the required and actual versions in the message, rather than dying later at `npm start` with a
+syntax error from inside a `.ts` file.
 
 ```sh
 git clone https://github.com/ZahakJ/vellum.git
@@ -133,10 +138,10 @@ All `.env` keys (npm scripts load the file automatically via `node --env-file-if
 | `ATTACHMENTS_DIR` | Vault-relative directory the in-app image upload writes into (default `attachments`), created on demand |
 | `BANNER_FALLBACK` | Blog hero for posts without a `banner:` — `generated` (default; a deterministic abstract gradient from the note title) or `none` |
 
-### Site settings
+### Settings
 
 Most of the site-identity keys above can also be changed **at runtime, from the app** — no
-`.env` edit, no restart. As admin, open **Site settings** (the gear in the status bar, or the
+`.env` edit, no restart. As admin, open **Settings** (the gear in the status bar, or the
 command palette): a panel with six tabs, each opening with its name and one sentence saying what
 it decides —
 
@@ -144,7 +149,7 @@ it decides —
   wordmark in the sidebar and the blog masthead), and a **favicon** (served at `/favicon.ico`
   with its real content type and injected into every page's `<link rel="icon">`).
 - **Appearance & language** — the default theme visitors arrive on, **your own** theme (this
-  browser only, with *Browse themes…*), the **language** (English / العربية), which edge the
+  browser only, with *Themes*), the **language** (English / العربية), which edge the
   **notes sidebar** sits on (*Auto* follows the language — Arabic carries it to the right — or
   pin it to a screen edge for good), the date locale, the language filter and the optional
   **visitor switch**.
@@ -193,7 +198,7 @@ answers the same shape.
 
 ### Arabic mode
 
-Set `SITE_LANG=ar` (or pick **العربية** in Site settings → Language) and Vellum becomes an
+Set `SITE_LANG=ar` (or pick **العربية** in Settings → Language) and Vellum becomes an
 Arabic application, not an English one with translated labels. The document goes
 `<html dir="rtl" lang="ar">` and the **entire** interface mirrors: the sidebar moves to the
 right, the outline/local-graph/backlinks panel to the left, tree indentation and disclosure
@@ -343,7 +348,7 @@ Absolute URLs in both are built from `SITE_URL` when set, else derived from the 
 
 ### Arabic & RTL
 
-Vellum speaks Arabic. `SITE_LANG=ar` (or **Site settings → Language → العربية**, applied live
+Vellum speaks Arabic. `SITE_LANG=ar` (or **Settings → Language → العربية**, applied live
 without a restart) does two things at once:
 
 **It translates the chrome.** Every label, button, placeholder, menu item, toast and confirm
@@ -357,7 +362,7 @@ follows: the notes sidebar moves to the right and the outline/backlinks panel to
 it keeps following, because the side is a **three-state** preference. *Follow the language* is
 the default and is re-evaluated every time the language changes; *pin to the left edge* and *pin
 to the right edge* name a screen edge in both languages and outrank the direction for good. All
-three sit in the palette and as a segmented control in **Site settings → Appearance & language**,
+three sit in the palette and as a segmented control in **Settings → Appearance & language**,
 directly under the row that moves it — where *Auto* also names the edge it has landed on, so the
 default state is never a silent one. (The third state is how you get back to automatic.) Tree
 indentation and chevrons flip, the active-note accent bar moves to the other edge, the status
@@ -390,7 +395,7 @@ than Georgia at the same pixel size, `lang="ar"` also multiplies the two type-sc
 
 #### Visitor language switch
 
-`SITE_LANG` picks the language *you* publish in. **Site settings → Visitor switch** (settings key
+`SITE_LANG` picks the language *you* publish in. **Settings → Visitor switch** (settings key
 `languageToggle`, **off by default**) adds a small `EN` / `ع` control at the edge of the public
 nav so a reader can pick the other one for themselves. Their choice lives in their own browser's
 `localStorage` and survives return visits; nobody else's site changes.
@@ -409,7 +414,7 @@ at once. Leave the switch off (the default) and the public site has no language 
 
 #### Language filter
 
-A bilingual vault often wants a monolingual public site. `LANGUAGE_FILTER=true` (**Site settings
+A bilingual vault often wants a monolingual public site. `LANGUAGE_FILTER=true` (**Settings
 → Language filter**) narrows the public blog to notes actually written in the site language:
 
 | | `SITE_LANG=ar` | `SITE_LANG=en` |
@@ -470,14 +475,17 @@ another theme wearing a different background.
 | `tallow` | warm brown paper, candle-flame amber | | |
 
 Every reader picks their own from the **theme picker** — the theme control in the status bar
-opens it, and so does *Browse themes…* in Settings → Appearance & language. Each row is a
+opens it, and so does *Themes* in Settings → Appearance & language. Each row is a
 miniature of the room — its ground carrying a heading rule, a line of type and an accent chip —
 next to a human name and a one-line description, both localized; the raw id (what `DEFAULT_THEME`
 and the palette take) is in the row's tooltip. It is a grouped, keyboard-driven
 list: `↑↓←→` moves the highlight and applies that theme live to the whole app behind the panel,
 `Enter` keeps it, `Esc` puts back the theme you started with. (The mouse never moves the keyboard
-highlight — only a click picks.) The palette carries both routes: *Browse themes…* opens the
-same panel, and one *Theme: …* command per theme jumps straight to one by name. A
+highlight — only a click picks.) The palette carries ONE route to all fifteen: *Themes*
+opens the same panel, with a dot showing the theme you are in. (It used to carry sixteen —
+that row plus a `Theme: <id>` command per theme, 15 of 41 entries spent on one preference,
+every one of them a blind jump into a room you had not seen. A parameter with fifteen values
+belongs behind the surface that shows the values.) A
 reader's choice sticks in their own browser; `DEFAULT_THEME=cinnabar` — or Settings → Appearance & language
 → *Default theme* — sets what first-time visitors see before they choose. An unknown
 `DEFAULT_THEME` is ignored with a line on stderr at startup rather than silently.
@@ -542,7 +550,7 @@ If you keep body text ≥ 4.5:1 contrast against `--bg`, the whole app stays rea
 ### Typography
 
 The catalog is the no-CSS version of the escape hatch above — and its point is **Arabic**.
-Open **Site settings → Typography** and you get four pickers:
+Open **Settings → Typography** and you get four pickers:
 
 | Slot | Drives | Offers |
 | --- | --- | --- |
@@ -610,7 +618,7 @@ the Arabic type-metric compensation that `:root[lang="ar"]` applies.
 
 A catalog of twenty-seven Google families cannot be the whole answer for typography, and for
 Arabic it is not even close: the face a serious instance wants is usually one its owner licensed,
-and it is on nobody's CDN. So **Site settings → Typography → Your own fonts** takes an upload.
+and it is on nobody's CDN. So **Settings → Typography → Your own fonts** takes an upload.
 
 | | |
 | --- | --- |
@@ -697,7 +705,7 @@ git@git.example.com:you/vault.git          # SSH: needs a key on this machine
   under the server too.
 - **Access token.** For HTTPS remotes. Create a **fine-grained** token scoped to that one
   repository with contents read/write and the shortest expiry you can live with — never a
-  full-account classic token. Paste it into Site settings → Backup & sync → Access token, with
+  full-account classic token. Paste it into Settings → Backup & sync → Access token, with
   the username it pairs with (many hosts ignore the username; put anything non-empty).
 
 **Where the token lives.** In `VELLUM_DATA/git-credentials.json`, mode `0600`, owned by the
@@ -711,7 +719,7 @@ The API never gives it back: `GET /api/settings` answers `tokenSet: true` and no
 any git error shown to you or written to the log is scrubbed of the stored token and of any URL
 userinfo first. **Clear token** deletes the file.
 
-**3. Turn it on.** Site settings → **Backup & sync**: switch Backup on (everything below that
+**3. Turn it on.** Settings → **Backup & sync**: switch Backup on (everything below that
 switch stays disabled until you do), paste the remote URL, pick the branch (default `main`), and
 pick an **Automatic sync** period — *Manual only* through *Once a day* (the timer skips a tick
 while a sync is still running). If the vault is not a git repository yet, press **Initialize
@@ -727,7 +735,8 @@ one-click jump to the settings section. **Sync now** is in that panel and in the
 One pass is:
 
 1. optionally `fetch` + `merge --ff-only` — see below;
-2. `git add -A`;
+2. `git add -A`, then `.trash/` (and `VELLUM_DATA`, if you put it inside the vault) are dropped
+   back out of the index — see **What sync never stages** below;
 3. commit `vellum sync: <ISO timestamp>`, **skipped entirely when nothing changed**;
 4. `git push`.
 
@@ -740,13 +749,34 @@ have, the sync stops **before touching the working tree** and tells you the hist
 Nothing is committed, nothing is pushed, no note is modified. You then reconcile in a terminal,
 which is where a human belongs for that decision. Vellum never force-pushes.
 
-**.gitignore advice.** The vault is committed as it stands, so decide what does *not* belong in
-a backup before the first push:
+**What sync never stages.** Two paths are removed from the index on every single pass, before
+anything is committed, **whatever your vault's own `.gitignore` says about them**:
+
+| Path | Why |
+| --- | --- |
+| `.trash/` | Deleting a note or a folder *moves* it here, and the whole promise of that is that it is a **local** bin — something you can dig through, restore from, or empty without consequence. Committing it makes every deletion permanent remote history, which is the opposite guarantee. |
+| `VELLUM_DATA`, when it is inside the vault | It holds `settings.json`, the comments database and your git **access token**. |
+
+This is enforced with `git rm --cached` against the index, not with an ignore rule, and the
+difference matters. An ignore rule is your file and your opinion: git's *last matching rule*
+wins, so a vault whose `.gitignore` carries `.trash/` and then `!.trash/` un-ignores it again,
+and a build that only checked "is there a `.trash/` line?" saw nothing to do and pushed the
+trash. The index eviction asks no ignore file anything. It also **repairs** a vault that an
+older build already pushed: the first sync after upgrading stages the removal, so the trash
+leaves the tip of your branch on its own (it stays in the *history* — see the note about
+rewriting below).
+
+Vellum still *appends* `.trash/` and `.obsidian/workspace*.json` to your `.gitignore` if they
+are missing, so a `git status` in a terminal is quiet too — but that is a courtesy, not the
+mechanism.
+
+**.gitignore advice.** Beyond those two, the vault is committed as it stands, so decide what
+does *not* belong in a backup before the first push:
 
 ```gitignore
-.trash/                 # Vellum's soft-delete bin — deleted notes, kept on disk
 .obsidian/workspace*    # Obsidian's per-machine window state, if you also use Obsidian
 .DS_Store
+*.pdf                   # large attachments, if your remote has a size limit
 ```
 
 Keep `.obsidian/` itself if you want your Obsidian settings backed up; drop the whole directory
@@ -754,13 +784,14 @@ if you do not. **Never commit your instance data directory.** `VELLUM_DATA` (def
 holds `settings.json`, comment data and the git token, so keep it *outside* the vault — that is
 the default, and this repository's own `.gitignore` already excludes `data/`.
 
-If you have pointed `VELLUM_DATA` inside the vault anyway, Vellum defends it three ways, and all
-three run on an existing repository with an existing `.gitignore` (which is the normal case, not
+If you have pointed `VELLUM_DATA` inside the vault anyway, Vellum defends it four ways, and all
+four run on an existing repository with an existing `.gitignore` (which is the normal case, not
 a special one): **Initialize repository** creates `.gitignore` or *appends* the data-directory
 rule to the one you already have; every sync re-checks the rule with `git check-ignore` and
-**refuses to run** if the directory is still not ignored; and anything an older build already
-committed is dropped from the index (`git rm --cached`) before the next `git add -A`. A sync
-never stages your credentials. Note that files already pushed stay in the remote's *history* —
+**refuses to run** if the directory is still not ignored; anything an older build already
+committed is dropped from the index (`git rm --cached`); and the same eviction runs again after
+`git add -A` on every pass, so the directory is out of the index no matter which ignore rule
+matched last. A sync never stages your credentials. Note that files already pushed stay in the remote's *history* —
 if that happened, rotate the token and rewrite the history in a terminal.
 
 **Things worth knowing.**
@@ -806,13 +837,18 @@ Runs the API server and Vite with hot reload side by side.
 `PORT` overrides the server port. `npm run typecheck` keeps the strict TypeScript build honest,
 and `npm run check-i18n` keeps the chrome dictionary honest — it fails if any `t()` key is
 missing, untranslated, dead, or if the English and Arabic sides of an entry disagree about
-their `{placeholders}`.
+their `{placeholders}`. "Dead" is counted from the call sites only: the dictionary file is
+excluded from the usage scan, because a key whose English value happens to be its own name
+(`read: { en: "read" }`) otherwise matches inside its own definition and reports itself used.
+`npm run check-contrast` holds every one of the fifteen themes to WCAG on the four text tokens
+against both grounds (`--bg` and the raised surfaces), including `--text-faint` at the 3:1
+non-text bar.
 `scripts/shoot.mjs` is the screenshot harness used for visual review: point it at a running
 server (`node scripts/shoot.mjs http://localhost:6801 shots`) and it captures the editor, graph,
 and palette in both themes — it needs `npm i -D playwright` plus either
 `npx playwright install chromium` or a system browser via `CHROMIUM=/usr/bin/chromium`.
 Two narrower harnesses sit beside it for the admin chrome, which the first one never signs in to
-see: `node scripts/shoot-settings.mjs <url> <password> <outdir>` logs in, opens Site settings and
+see: `node scripts/shoot-settings.mjs <url> <password> <outdir>` logs in, opens Settings and
 captures every section through the rail (printing the panel's scroll geometry and the specimen
 font sizes), and `node scripts/shoot-sync.mjs <url> <password> <outdir>` captures the Backup &
 sync section plus the status badge's detail panel. Both take `THEME=parchment` and

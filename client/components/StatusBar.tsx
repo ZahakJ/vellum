@@ -15,10 +15,30 @@ import { Fragment, useEffect, useState } from "react";
 import { getNote } from "../api.ts";
 import { countPhrase, t, tf } from "../i18n.ts";
 import { isPublishedContent } from "../publish.ts";
-import { useStore } from "../state.ts";
+import { DRAWER_QUERY, useStore } from "../state.ts";
 import { themeGroup } from "../themes.ts";
 import SyncBadge from "./SyncBadge.tsx";
 import { openThemePicker } from "./ThemePicker.tsx";
+
+/** True while the shell shows the sidebar as an overlay drawer (app.css's
+ *  `@media (max-width: 999px)`). The switch below has to know: at those widths
+ *  "the sidebar is showing" is `sidebarOpen`, not `!sidebarCollapsed`, and a
+ *  switch reporting the wrong one is the invisible-state bug in miniature.
+ *  Tracked live, because a window resize crosses the breakpoint without ever
+ *  touching the store. */
+function useDrawerShell(): boolean {
+  const [drawer, setDrawer] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(DRAWER_QUERY).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(DRAWER_QUERY);
+    const onChange = (e: MediaQueryListEvent): void => setDrawer(e.matches);
+    mq.addEventListener("change", onChange);
+    setDrawer(mq.matches);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return drawer;
+}
 
 function countWords(text: string): number {
   const words = text.trim().split(/\s+/);
@@ -130,7 +150,10 @@ export default function StatusBar() {
   const previewVisitor = useStore((s) => s.previewVisitor);
   const setPreviewVisitor = useStore((s) => s.setPreviewVisitor);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
-  const setSidebarCollapsed = useStore((s) => s.setSidebarCollapsed);
+  const sidebarOpen = useStore((s) => s.sidebarOpen);
+  const drawerShell = useDrawerShell();
+  /** Is the notes sidebar on screen right now, in whichever shell this is? */
+  const sidebarShown = drawerShell ? sidebarOpen : !sidebarCollapsed;
   const panelCollapsed = useStore((s) => s.panelCollapsed);
   const setPanelCollapsed = useStore((s) => s.setPanelCollapsed);
   const setZen = useStore((s) => s.setZen);
@@ -220,18 +243,44 @@ export default function StatusBar() {
         <span className="s-statusbar__crumbs s-statusbar__crumb">{t("noNoteOpen")}</span>
       )}
       <span className="s-statusbar__spacer" />
-      {counts && (
-        <>
-          <span className="s-statusbar__counts">
-            {countPhrase(counts.words, "words")} · {countPhrase(counts.chars, "chars")}
-          </span>
-          <span className="s-statusbar__dot" aria-hidden="true">
-            ·
-          </span>
-        </>
+      {/* ── The ambient pair ──────────────────────────────────────────────
+          Both of the bar's COUNTS, in one group. They used to sit apart with
+          a `·` between them and the publish toggle wedged in the middle,
+          which is how the bar ended up mixing dot separators between some
+          neighbours and hairlines between others — the thing DESIGN.md
+          forbids. Together they are also one unit of sacrifice: `.s-statusbar
+          __ambient` is what the ≤1280 rule drops, so the group never
+          degrades into a hairline with nothing after it.
+          (Publish state renders wherever an admin is signed in. It used to
+          hang off `authProtected` as well, which meant the count — and with
+          it the only route to the published filter — vanished on an open
+          local vault and on every PUBLIC=false instance, while the publish
+          TOGGLE stayed, still saying "Published — live for visitors".) */}
+      {(counts || (admin && publishedCounts)) && (
+        <span className="s-statusbar__group s-statusbar__ambient">
+          {counts && (
+            <span className="s-statusbar__counts">
+              {countPhrase(counts.words, "words")} · {countPhrase(counts.chars, "chars")}
+            </span>
+          )}
+          {admin && publishedCounts && (
+            <button
+              type="button"
+              className={`s-statusbar__btn s-statusbar__pubcount${
+                publishedFilter ? " s-statusbar__btn--on" : ""
+              }`}
+              onClick={() => setPublishedFilter(!publishedFilter)}
+              title={t(publishedFilter ? "showFullVault" : "filterToPublished")}
+            >
+              {countPhrase(publishedCounts.notes, "publishedNotes")}
+            </button>
+          )}
+        </span>
       )}
+      {/* The publish toggle is an ACT, not ambient trivia, so it is its own
+          group and it survives every width down to the phone. */}
       {admin && openPath && (
-        <>
+        <span className="s-statusbar__group">
           <button
             type="button"
             className={`s-statusbar__btn s-statusbar__pub${
@@ -245,37 +294,13 @@ export default function StatusBar() {
             </span>
             {t(openPublished ? "published" : "publish")}
           </button>
-          <span className="s-statusbar__dot" aria-hidden="true">
-            ·
-          </span>
-        </>
-      )}
-      {/* Publish state, wherever an admin is signed in. This used to hang off
-          `authProtected` as well, which meant the segment (and with it the
-          only route to the published filter) vanished on an open local vault
-          and on every PUBLIC=false instance — while the publish TOGGLE two
-          segments to the left stayed, still saying "Published — live for
-          visitors". Offering the act and hiding the state is the one thing
-          this bar exists to prevent. */}
-      {admin && publishedCounts && (
-        <>
-          <button
-            type="button"
-            className={`s-statusbar__btn s-statusbar__pubcount${
-              publishedFilter ? " s-statusbar__btn--on" : ""
-            }`}
-            onClick={() => setPublishedFilter(!publishedFilter)}
-            title={t(publishedFilter ? "showFullVault" : "filterToPublished")}
-          >
-            {countPhrase(publishedCounts.notes, "publishedNotes")}
-          </button>
-          <span className="s-statusbar__dot" aria-hidden="true">
-            ·
-          </span>
-        </>
+        </span>
       )}
       {/* Backup & sync: renders nothing unless this is an admin session on an
-          instance where sync is switched on with a remote. */}
+          instance where sync is switched on with a remote. Its own root
+          (`.s-sync`) takes the group hairline from app.css — the component
+          alone knows whether it draws anything, and an empty wrapper here
+          would leave a rule with nothing behind it. */}
       <SyncBadge />
       {/* ── Mode cluster ──────────────────────────────────────────────────
           Lit = this mode is ON right now. Every pill leaves its own mode. */}
@@ -317,7 +342,12 @@ export default function StatusBar() {
           Groups are marked by ONE hairline each, never by sprinkled dots.
           The bar had eleven controls with separator dots between some
           neighbours and not others, which read as an undifferentiated icon
-          strip rather than the deliberate groups the code actually builds. */}
+          strip rather than the deliberate groups the code actually builds.
+          Every right-cluster segment is a group now — the counts, the publish
+          toggle, the sync badge, the mode pills, these two, the panes, the
+          view controls and the session control — and app.css drops the rule
+          on whichever one opens the cluster, because a hairline with nothing
+          on its far side is a rule separating a group from empty space. */}
       {admin && (
         <span className="s-statusbar__group">
           <button
@@ -372,17 +402,17 @@ export default function StatusBar() {
       <span className="s-statusbar__panes">
         <button
           type="button"
-          className={`s-statusbar__btn s-statusbar__icon${sidebarCollapsed ? "" : " s-statusbar__btn--on"}`}
-          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          title={t(sidebarCollapsed ? "showPaneNotes" : "hidePaneNotes")}
-          aria-label={t(sidebarCollapsed ? "showPaneNotes" : "hidePaneNotes")}
-          aria-pressed={!sidebarCollapsed}
+          className={`s-statusbar__btn s-statusbar__icon${sidebarShown ? " s-statusbar__btn--on" : ""}`}
+          onClick={() => useStore.getState().toggleSidebar()}
+          title={t(sidebarShown ? "hidePaneNotes" : "showPaneNotes")}
+          aria-label={t(sidebarShown ? "hidePaneNotes" : "showPaneNotes")}
+          aria-pressed={sidebarShown}
         >
           <PaneIcon kind="sidebar" />
         </button>
         <button
           type="button"
-          className={`s-statusbar__btn s-statusbar__icon${panelCollapsed ? "" : " s-statusbar__btn--on"}`}
+          className={`s-statusbar__btn s-statusbar__icon s-statusbar__pane-outline${panelCollapsed ? "" : " s-statusbar__btn--on"}`}
           onClick={() => setPanelCollapsed(!panelCollapsed)}
           title={t(panelCollapsed ? "showPaneOutline" : "hidePaneOutline")}
           aria-label={t(panelCollapsed ? "showPaneOutline" : "hidePaneOutline")}

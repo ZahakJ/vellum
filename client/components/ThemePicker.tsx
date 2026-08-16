@@ -28,8 +28,43 @@ import { t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { THEME_GROUPS, THEME_LABELS, type Theme } from "../themes.ts";
 
-/** Two columns; the arrow keys move by 1 across and by COLS down. */
+/** Two columns. ←/→ move by one across the whole list; ↑/↓ move by a ROW —
+ *  which is not the same as moving by COLS, because each group is its own
+ *  grid. The dark group holds ELEVEN themes, so its last row is half empty and
+ *  the column parity flips at the group boundary: stepping by ±2 through the
+ *  flat list took ArrowDown from Tallow (dark, left column) to Sandstone
+ *  (light, RIGHT column) and made Parchment — the flagship light theme —
+ *  unreachable by ArrowDown at all. `rowStep` walks the geometry the reader
+ *  can see instead: down a row inside the group, then into the next group's
+ *  first row in the SAME column, clamped to what that row actually holds. */
 const COLS = 2;
+
+const GROUP_SIZES = THEME_GROUPS.map((g) => g.themes.length);
+const GROUP_STARTS = GROUP_SIZES.reduce<number[]>(
+  (acc, size, i) => [...acc, (acc[i - 1] ?? 0) + (GROUP_SIZES[i - 1] ?? 0)],
+  [],
+);
+
+/** The index one visual row up (dir -1) or down (dir +1) from `index`. */
+function rowStep(index: number, dir: 1 | -1): number {
+  let g = -1;
+  for (let i = 0; i < GROUP_STARTS.length; i++) if (index >= GROUP_STARTS[i]) g = i;
+  if (g < 0) return index;
+  const size = GROUP_SIZES[g];
+  const local = index - GROUP_STARTS[g];
+  const row = Math.floor(local / COLS);
+  const col = local % COLS;
+  const lastRow = Math.ceil(size / COLS) - 1;
+  if (dir === 1) {
+    if (row < lastRow) return GROUP_STARTS[g] + Math.min(size - 1, (row + 1) * COLS + col);
+    if (g + 1 >= GROUP_SIZES.length) return index;
+    return GROUP_STARTS[g + 1] + Math.min(GROUP_SIZES[g + 1] - 1, col);
+  }
+  if (row > 0) return GROUP_STARTS[g] + (row - 1) * COLS + col;
+  if (g === 0) return index;
+  const prevLastRow = Math.ceil(GROUP_SIZES[g - 1] / COLS) - 1;
+  return GROUP_STARTS[g - 1] + Math.min(GROUP_SIZES[g - 1] - 1, prevLastRow * COLS + col);
+}
 
 /** Apply a theme to the document WITHOUT persisting it — the preview channel.
  *  (state.ts's setTheme is the committing one; it writes localStorage.) */
@@ -90,6 +125,11 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
         e.stopPropagation();
         setCursor((c) => Math.max(0, Math.min(flat.length - 1, c + delta)));
       };
+      const row = (dir: 1 | -1): void => {
+        e.preventDefault();
+        e.stopPropagation();
+        setCursor((c) => rowStep(c, dir));
+      };
       switch (e.key) {
         case "Escape":
           e.preventDefault();
@@ -102,9 +142,9 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
           commit(flat[cursor]);
           return;
         case "ArrowDown":
-          return step(COLS);
+          return row(1);
         case "ArrowUp":
-          return step(-COLS);
+          return row(-1);
         case "ArrowRight":
           return step(rtl ? -1 : 1);
         case "ArrowLeft":

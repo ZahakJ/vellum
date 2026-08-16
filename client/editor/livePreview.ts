@@ -658,12 +658,24 @@ function jumpToFootnoteDef(view: EditorView, label: string): boolean {
  *  `posAtCoords` — which is why previews were dead on every note carrying a
  *  frontmatter card or block math (see hoverPreview.ts). */
 export function posFromEvent(event: MouseEvent, view: EditorView): number | null {
+  return posFromPoint(event.clientX, event.clientY, view, event.target);
+}
+
+/** `posFromEvent` for a bare viewport point. The hover previews ask this of a
+ *  remembered pointer position, with no event in hand, when deciding whether
+ *  a card that MOVED under a motionless pointer should be dismissed. */
+export function posFromPoint(
+  x: number,
+  y: number,
+  view: EditorView,
+  target?: EventTarget | null,
+): number | null {
   const doc = view.contentDOM.ownerDocument;
   const within = (node: Node | null | undefined): node is Node =>
     node != null && view.contentDOM.contains(node);
 
   if (typeof doc.caretPositionFromPoint === "function") {
-    const caret = doc.caretPositionFromPoint(event.clientX, event.clientY);
+    const caret = doc.caretPositionFromPoint(x, y);
     if (caret && within(caret.offsetNode)) {
       try {
         return view.posAtDOM(caret.offsetNode, caret.offset);
@@ -674,7 +686,7 @@ export function posFromEvent(event: MouseEvent, view: EditorView): number | null
   }
   // WebKit spells it caretRangeFromPoint.
   if (typeof doc.caretRangeFromPoint === "function") {
-    const range = doc.caretRangeFromPoint(event.clientX, event.clientY);
+    const range = doc.caretRangeFromPoint(x, y);
     if (range && within(range.startContainer)) {
       try {
         return view.posAtDOM(range.startContainer, range.startOffset);
@@ -683,14 +695,15 @@ export function posFromEvent(event: MouseEvent, view: EditorView): number | null
       }
     }
   }
-  if (event.target instanceof Node && within(event.target)) {
+  const node = target instanceof Node ? target : doc.elementFromPoint(x, y);
+  if (within(node)) {
     try {
-      return view.posAtDOM(event.target);
+      return view.posAtDOM(node);
     } catch {
       /* fall through */
     }
   }
-  return view.posAtCoords({ x: event.clientX, y: event.clientY });
+  return view.posAtCoords({ x, y });
 }
 
 function handleMousedown(event: MouseEvent, view: EditorView): boolean {

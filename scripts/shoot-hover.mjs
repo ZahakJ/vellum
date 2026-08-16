@@ -2,6 +2,9 @@
 // preview. It ASSERTS and exits 1 — this feature died silently once already.
 //   node scripts/shoot-hover.mjs http://localhost:7041 /outdir
 // env: CHROMIUM=/usr/bin/chromium
+//      VELLUM_PASSWORD=<pw>  — only if the instance sets ADMIN_PASSWORD_HASH;
+//      without an admin session no editor mounts and the script refuses,
+//      loudly, instead of reporting a crashed browser.
 //
 // The case that matters is a note WITH FRONTMATTER. Previews shipped broken
 // on notes carrying a block widget (the frontmatter card, $$ math, an image)
@@ -15,6 +18,13 @@
 // the third was dead. The script therefore picks its subjects through the API
 // (first line `---`, plus a non-embed [[wikilink]]) and requires EVERY
 // visible link it hovers to open a card.
+//
+// It also requires every card to still be there a beat after it opened. The
+// second way this feature died was subtler than not opening: the card opens
+// small, GROWS over the motionless pointer when the excerpt arrives, and is
+// then lifted back above the link — and the dismiss handler took the browser's
+// boundary events at face value and closed it ~200ms in. A check that samples
+// once, straight after the hover, sees a card and calls it working.
 import { chromium } from "playwright";
 
 const [url = "http://localhost:7041", out = "shots"] = process.argv.slice(2);
@@ -22,6 +32,10 @@ const SUBJECTS = 4;
 const LINKS_PER_SUBJECT = 3;
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM });
+// ONE context for the whole run: `browser.newPage()` makes a fresh context
+// every time, which would drop the session cookie the login below sets and
+// send every subject back to being a visitor.
+const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 
 const fail = [];
 const check = (ok, label, detail = "") => {
@@ -32,11 +46,24 @@ const check = (ok, label, detail = "") => {
 // One page per subject, closed after it: a 1,158-image vault plus a loaded
 // machine will OOM a single long-lived renderer ("Target crashed") halfway
 // through, and a harness that dies mid-run reports nothing at all.
+// A card is created before its excerpt exists and filled when /api/note
+// answers. On localhost that gap is a couple of milliseconds and the card is
+// full-size before it is ever positioned; over a real network it is hundreds,
+// and the card grows AFTER it has been placed — over the pointer that summoned
+// it, which is how it ended up dismissing itself. Holding the note endpoint
+// back makes this run the shape every remote reader gets, instead of the one
+// shape (a same-machine vault, an idle browser) where the bug hides.
+const NOTE_LATENCY_MS = 250;
+let slowNotes = false;
 let page;
 const newPage = async () => {
   if (page) await page.close().catch(() => {});
-  page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  page = await context.newPage();
   page.on("pageerror", (e) => console.log("[pageerror]", String(e).slice(0, 300)));
+  await page.route(/\/api\/note\b/, async (route) => {
+    if (slowNotes) await new Promise((r) => setTimeout(r, NOTE_LATENCY_MS));
+    await route.continue();
+  });
   return page;
 };
 const card = () => page.locator(".cm-s-hovercard");
@@ -52,6 +79,34 @@ const open = async (path) => {
     await page.reload({ waitUntil: "load" });
     await page.waitForTimeout(1600);
   }
+  // Wait for the rendered link count to stop moving. CodeMirror decorates only
+  // the visible range, and on this vault the visible range keeps shifting for
+  // a second or two while banner/embedded images load — sampling too early
+  // finds 1 link in a note that has 14, and the run then "passes" on a third
+  // of the evidence it was asked for.
+  let last = -1;
+  for (let i = 0; i < 6; i++) {
+    const now = await page.locator(".cm-s-wikilink").count();
+    if (now > 0 && now === last) break;
+    last = now;
+    await page.waitForTimeout(400);
+  }
+  // Counted before any scrolling: the frontmatter card sits at the top of the
+  // document and CodeMirror drops it from the DOM once it scrolls away.
+  const props = await page.locator(".cm-s-props").count();
+  // Still too few to be worth testing? Page down until enough links are in the
+  // document. How much of a note is visible on first paint depends on which of
+  // its images have loaded, and a run that hovers one link is not the run this
+  // script was written to be.
+  for (let i = 0; i < 8; i++) {
+    if ((await page.locator(".cm-s-wikilink").count()) >= LINKS_PER_SUBJECT) break;
+    await page
+      .locator(".cm-scroller")
+      .first()
+      .evaluate((el) => el.scrollBy(0, el.clientHeight * 0.8));
+    await page.waitForTimeout(400);
+  }
+  return props;
 };
 const away = async () => {
   await page.mouse.move(8, 870);
@@ -61,6 +116,43 @@ await newPage();
 
 await page.goto(url, { waitUntil: "load" });
 await page.waitForTimeout(800);
+
+// SAY WHICH SESSION THIS IS BEFORE MEASURING IT. This harness never logged in,
+// so against an instance started WITH ADMIN_PASSWORD_HASH it browsed as a
+// visitor: no editor mounts on an unpublished note, the `.cm-scroller`
+// evaluate times out, and the run printed "browser died (TimeoutError…)" and
+// "the browser crashed (memory?)" — a gate blaming the machine for a session
+// it chose itself. It now signs in when it can (VELLUM_PASSWORD) and refuses
+// with the real reason when it cannot.
+const me = await page.evaluate(async () => await (await fetch("/api/me")).json());
+if (!me.admin) {
+  const password = process.env.VELLUM_PASSWORD ?? "";
+  const res = password
+    ? await page.evaluate(async (pw) => {
+        const r = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: pw }),
+        });
+        return { status: r.status, body: await r.text() };
+      }, password)
+    : null;
+  if (res && res.status === 200) {
+    console.log("[shoot-hover] signed in with $VELLUM_PASSWORD");
+    await page.goto(url, { waitUntil: "load" });
+    await page.waitForTimeout(800);
+  } else {
+    console.error(
+      "[shoot-hover] this session is NOT an admin — no editor mounts, so there is nothing to hover.\n" +
+        `  is this instance password-protected? /api/me says protected=${me.protected === true}, public=${me.public === true}.\n` +
+        "  fix: point the script at an instance started without ADMIN_PASSWORD_HASH,\n" +
+        "  or set VELLUM_PASSWORD=<the password> so this harness can sign in." +
+        (res ? `\n  login attempt returned ${res.status}: ${res.body.slice(0, 120)}` : ""),
+    );
+    await browser.close();
+    process.exit(1);
+  }
+}
 
 const subjects = await page.evaluate(async (want) => {
   const tree = await (await fetch("/api/tree")).json();
@@ -81,6 +173,8 @@ const subjects = await page.evaluate(async (want) => {
   return found;
 }, SUBJECTS);
 
+slowNotes = true; // the scan above reads hundreds of notes; don't hold those back
+
 if (subjects.length === 0) {
   console.log("[shoot-hover] no note with frontmatter + a wikilink in this vault — nothing to test");
   await browser.close();
@@ -89,13 +183,13 @@ if (subjects.length === 0) {
 
 let hovered = 0;
 let opened = 0;
+let survived = 0;
 let shot = false;
 let crashed = 0;
 for (const path of subjects) {
   try {
     await newPage();
-    await open(path);
-    const props = await page.locator(".cm-s-props").count();
+    const props = await open(path);
     console.log(`[subject] ${path}${props ? "" : "  (no frontmatter card rendered!)"}`);
     if (!props) check(false, "the subject renders a frontmatter card (else this proves nothing)", path);
     const links = page.locator(".cm-s-wikilink");
@@ -110,7 +204,17 @@ for (const path of subjects) {
       hovered++;
       if (ok) opened++;
       else console.log(`    dead link #${i + 1}: ${JSON.stringify((await link.innerText()).slice(0, 40))}`);
-      if (ok && !shot) {
+      if (ok) {
+        // The pointer has not moved. Nothing may take the card away.
+        await page.waitForTimeout(900);
+        if ((await card().count()) > 0) survived++;
+        else {
+          console.log(
+            `    card #${i + 1} dismissed itself under a resting pointer: ${JSON.stringify((await link.innerText()).slice(0, 40))}`,
+          );
+        }
+      }
+      if (ok && !shot && (await card().count()) > 0) {
         await page.screenshot({ path: `${out}/hover-frontmatter.png` });
         shot = true;
         check(
@@ -134,6 +238,11 @@ if (crashed) console.log(`[shoot-hover] ${crashed} subject(s) skipped: the brows
 
 check(hovered >= 3, "enough links to be worth calling a test", `${hovered} hovered`);
 check(opened === hovered, "every hovered wikilink opened a card", `${opened}/${hovered}`);
+check(
+  survived === opened,
+  "every card was still open a second later (the pointer never moved)",
+  `${survived}/${opened}`,
+);
 
 // Dismissal and the false-positive guard, on the last surviving page.
 const link = page.locator(".cm-s-wikilink").first();

@@ -13,12 +13,21 @@
 // null, so the card never opens. It is exactly the bug the CLICK path already
 // fixed (livePreview.ts::posFromEvent, whose comment condemns posAtCoords in
 // these words) and it was left in the hover path, where it is silent: the
-// feature simply appears not to exist. Measured on the 1,389-note test vault,
-// stock `hoverTooltip` opened 4 of 7 hovered links across the first four
-// notes carrying frontmatter — all three links of one note were dead — while
-// this implementation opens 7 of 7. Resolving through the DOM node actually
-// under the pointer (caretPositionFromPoint → posAtDOM) is exact, so the card
-// opens on the link the reader is looking at.
+// feature simply appears not to exist. Resolving through the DOM node
+// actually under the pointer (caretPositionFromPoint → posAtDOM) is exact, so
+// the card opens on the link the reader is looking at.
+//
+// Resolving the pointer correctly was only half of it. The card then died on
+// its own: it opens small, GROWS when the excerpt arrives — downward, from a
+// fixed `top`, straight over the pointer that summoned it — and is then
+// lifted back above the link by `repositionTooltips`. The browser reports
+// that dance as mouseleave/mouseenter on a pointer that never moved, and
+// dismissing on it killed 10 of 18 links on the test vault about 200ms after
+// they opened; only short or already-cached targets (which never grow, so
+// never jump) survived, which is why the failure looked random and why the
+// FIRST hover of a note — the one with a cold cache — was the reliable one to
+// lose. `HoverManager.engaged()` is the answer: nothing dismisses a card
+// unless the pointer is genuinely somewhere else.
 //
 // Regression: scripts/shoot-hover.mjs, which hovers EVERY visible link in
 // several notes WITH frontmatter — a bare note, and a single link, are
@@ -37,7 +46,7 @@ import { t } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { renderMarkdown } from "../reading/render.ts";
 import { findHeadingLine, parseWikilink, resolveLink, WIKILINK_RE } from "./links.ts";
-import { notePathFacet, posFromEvent } from "./livePreview.ts";
+import { notePathFacet, posFromEvent, posFromPoint } from "./livePreview.ts";
 
 const FOOTNOTE_RE = /\[\^([^\]\s]+)\]/g;
 
@@ -111,11 +120,14 @@ function card(title: string): {
 
 /** The card floats OUTSIDE contentDOM, so the pointer leaving the text would
  *  otherwise dismiss it before it can be reached (its body holds real links).
- *  Entering the card cancels the pending dismiss; leaving it dismisses at
- *  once. */
+ *  Entering the card cancels the pending dismiss; leaving it *schedules* one,
+ *  which `HoverManager.leave` only carries out if the pointer really has gone
+ *  somewhere else — see the comment on `engaged()`. */
 function keepReachable(dom: HTMLElement, view: EditorView): void {
   dom.addEventListener("mouseenter", () => view.plugin(hoverManager)?.keep());
-  dom.addEventListener("mouseleave", () => view.plugin(hoverManager)?.hide());
+  dom.addEventListener("mouseleave", (event) =>
+    view.plugin(hoverManager)?.leave(event),
+  );
 }
 
 function noteTooltip(
@@ -271,21 +283,27 @@ class HoverManager {
   private restTimer = 0;
   private hideTimer = 0;
   private last: MouseEvent | null = null;
+  /** Last known pointer position in viewport coords. Tracked on the window,
+   *  not on contentDOM, because once a card is open the pointer is frequently
+   *  over the card — which lives outside contentDOM and sends it nothing. */
+  private point: { x: number; y: number } | null = null;
 
   constructor(private readonly view: EditorView) {
     const dom = view.contentDOM;
     dom.addEventListener("mousemove", this.onMove);
-    dom.addEventListener("mouseleave", this.onLeave);
+    dom.addEventListener("mouseleave", this.leave);
     dom.addEventListener("mousedown", this.onDismiss);
     dom.addEventListener("keydown", this.onDismiss);
+    window.addEventListener("mousemove", this.trackPoint, true);
   }
 
   destroy(): void {
     const dom = this.view.contentDOM;
     dom.removeEventListener("mousemove", this.onMove);
-    dom.removeEventListener("mouseleave", this.onLeave);
+    dom.removeEventListener("mouseleave", this.leave);
     dom.removeEventListener("mousedown", this.onDismiss);
     dom.removeEventListener("keydown", this.onDismiss);
+    window.removeEventListener("mousemove", this.trackPoint, true);
     window.clearTimeout(this.restTimer);
     window.clearTimeout(this.hideTimer);
     this.last = null; // a MouseEvent pins its target node; don't outlive the view
@@ -303,6 +321,50 @@ class HoverManager {
     this.show(null);
   }
 
+  /** The pointer left the text, or left the card. Both are only *maybe* a
+   *  dismissal: schedule one and re-decide when it fires. */
+  leave = (event: MouseEvent): void => {
+    this.point = { x: event.clientX, y: event.clientY };
+    window.clearTimeout(this.restTimer);
+    window.clearTimeout(this.hideTimer);
+    this.hideTimer = window.setTimeout(() => {
+      if (this.engaged()) return;
+      this.show(null);
+    }, LEAVE_MS);
+  };
+
+  private trackPoint = (event: MouseEvent): void => {
+    this.point = { x: event.clientX, y: event.clientY };
+  };
+
+  /** Is the pointer STILL on the card, or still on the token that summoned
+   *  it? Asked whenever something claims the pointer has left, because the
+   *  card moves under a motionless pointer and the browser reports those
+   *  moves as boundary events indistinguishable from a real one:
+   *
+   *    the card opens small (title + "…") just above the link → the excerpt
+   *    arrives and the card grows DOWNWARD from its fixed `top`, straight
+   *    over the pointer (contentDOM: mouseleave, card: mouseenter) →
+   *    `repositionTooltips` lifts the grown card back above the link (card:
+   *    mouseleave) → the old handler dismissed on the spot.
+   *
+   *  Net effect: on every link whose target has more than a couple of lines
+   *  of text, the card flashed for ~200ms and died, while short targets and
+   *  already-cached ones (which render full-size in `create` and so never
+   *  jump) kept working — measured 8 of 18 links opening on the 1,388-note
+   *  vault. Only the pointer's own position may end a hover. */
+  private engaged(): boolean {
+    const tip = this.view.state.field(hoverField);
+    const point = this.point;
+    if (!tip || !point) return false;
+    const el = document.elementFromPoint(point.x, point.y);
+    if (!el) return false;
+    if (this.view.dom.contains(el) && el.closest(".cm-s-hovercard")) return true;
+    if (!this.view.contentDOM.contains(el)) return false;
+    const pos = posFromPoint(point.x, point.y, this.view, el);
+    return pos !== null && pos >= tip.pos && pos <= (tip.end ?? tip.pos);
+  }
+
   private show(tip: Tooltip | null): void {
     if (this.view.state.field(hoverField) === tip) return;
     this.view.dispatch({ effects: setHover.of(tip) });
@@ -310,18 +372,13 @@ class HoverManager {
 
   private onDismiss = (): void => this.hide();
 
-  private onLeave = (): void => {
-    window.clearTimeout(this.restTimer);
-    window.clearTimeout(this.hideTimer);
-    this.hideTimer = window.setTimeout(() => this.show(null), LEAVE_MS);
-  };
-
   private onMove = (event: MouseEvent): void => {
     if (event.buttons !== 0) {
       this.hide(); // dragging a selection is not resting
       return;
     }
     this.last = event;
+    this.point = { x: event.clientX, y: event.clientY };
     window.clearTimeout(this.hideTimer);
     const open = this.view.state.field(hoverField);
     if (open) {

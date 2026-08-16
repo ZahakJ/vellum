@@ -57,7 +57,16 @@ function groupBacklinks(backlinks: Backlink[]): BacklinkGroup[] {
 
 // Below this viewport width the panel would squeeze the prose column to a
 // few words per line — start collapsed there and track resizes.
-const NARROW_QUERY = "(max-width: 1000px)";
+//
+// 1000 → 1360, and the number is arithmetic rather than taste: the pane costs
+// 301px, the sidebar 293, and the prose column's box is 760, so 1354 is the
+// first width at which the pane is FREE. Below 1000 it was already collapsing;
+// between 1000 and 1354 it was taking the difference straight out of the
+// measure, which is how 1024 ended up with a 319px reading ribbon — narrower
+// than the same vault gets on a 390px phone. The pane is one click (or
+// Ctrl/Cmd+Shift+B) away at any width, and a click IS a preference: it
+// persists, and the auto-collapse never overrides it.
+const NARROW_QUERY = "(max-width: 1360px)";
 
 export default function BacklinksPanel() {
   const backlinks = useStore((s) => s.backlinks);

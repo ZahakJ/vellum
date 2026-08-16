@@ -8,7 +8,7 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 ```
 ┌──────────┬─────────────────────────────┬───────────┐
 │ sidebar  │ tab bar                     │ backlinks │
-│ 280px    ├─────────────────────────────┤ 300px     │
+│ ≤292px   ├─────────────────────────────┤ 300px     │
 │          │ center content (editor OR   │ (collaps- │
 │          │ graph), own scroll          │  ible)    │
 ├──────────┴─────────────────────────────┴───────────┤
@@ -32,6 +32,19 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
   corner at 50% opacity, which fades out after ~2s and returns on mouse movement (and is
   `pointer-events: none` while faded — no invisible hit targets). `Esc` also leaves.
 - Never let any panel's content overflow the viewport horizontally.
+- **The reading column is monotone in viewport width.** A pane may take grid space only at
+  widths where the prose already has its full 760px box, so no reader is ever better off in a
+  narrower window: the outline pane auto-collapses to its door below 1360, the sidebar takes
+  `clamp(224px, 100vw - 776px, 292px)` and becomes an overlay drawer (☰) at ≤999, and the prose
+  gutter is `min(56px, 7.37%)` — the shipped 56px wherever the measure is full, proportional
+  below it, never stepped. Measured `.cm-line`, en and ar: 648 at every width from 768 up, then
+  597 / 546 / 409 / 333 at 700 / 640 / 480 / 390.
+- **Below 700px, or on ANY coarse pointer, every target in the shell is ≥44px** — tree rows, tag
+  pills, icon buttons, status-bar buttons (and the bar itself), the drawer toggle and the tab bar
+  it sits in. The empty state's tap targets were only ever half of that promise.
+- **A closed drawer is `visibility: hidden`**, like every other collapsed pane: off-screen is not
+  the same as out of the tab order, and a phone reader must not swipe the whole vault before
+  reaching the page.
 
 ## Sidebar
 
@@ -41,7 +54,7 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 - Search input: subtle raised field, 13px, rounded --radius, focus ring in --accent-soft; search
   hits list replaces the tree while active: each hit = title line (serif, 14px) + snippet line
   (12px --text-muted, `<mark>` = gold text, no bg block).
-- Tree: 13px UI font, 26px row height, rows full-width hover --bg-hover rounded 4px, 8px left pad
+- Tree: 13px UI font, 26px row height (44px on a coarse pointer), rows full-width hover --bg-hover rounded 4px, 8px left pad
   per depth. Folders: chevron (▸ rotates 90° when open, 150ms) + name; files: no icon clutter —
   just the name minus `.md`; active note row: --accent-soft bg + --accent 2px left bar. Smooth.
 - Attachments (non-`.md` files) sit under a folder's notes with a 14px type glyph in the
@@ -70,7 +83,8 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 
 ## Editor column
 
-- Content max-width 760px, centered, padding 48px 56px 120px. Line-height 1.7, editor font 16px
+- Content max-width 760px, centered, padding `48px var(--prose-gutter) 120px` (the gutter is
+  56px at every width where the column is at its cap). Line-height 1.7, editor font 16px
   --font-serif for prose. THE TEXT IS SERIF — this is the manuscript feel. Code/inline-code in
   --font-mono 85%.
 - Headings (live preview rendered): h1 1.9em serif + hairline bottom border --border padding 0.2em;
@@ -83,8 +97,14 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
   square, gold fill + white ✓ when checked, text of done items --text-faint strikethrough.
 - Wikilinks: --accent, no underline, hover underline; broken links (unresolvable): dashed
   underline --danger tint. Tags in text: same pill style as sidebar, smaller.
-- Empty state (no note open): centered, the ✦ glyph large in --text-faint, "The vault is open."
-  serif 18px, then keymap hints in a neat 2-col grid of kbd chips.
+- Empty state (no note open): centered, the ✦ glyph large in --text-faint (the token is the
+  whole budget — no opacity over it), "The vault is open." serif 18px, then keymap hints in a
+  neat 2-col grid of kbd chips, dropping to one column once the centre column is too narrow for
+  two (≤1100px viewport). The chips never wrap and the pane keeps a 24px gutter: a centered
+  child wider than its box overflows at both ends in silence. **Below 700px and on any coarse
+  pointer the keymap is replaced, not shrunk** — a keyboard legend on a device with no keyboard
+  is a taunt. The same pane then offers the reader's recent notes and New note / Search notes /
+  Graph view as ≥44px tap targets. Both halves are in the DOM; CSS picks.
 
 ## Backlinks panel
 
@@ -101,8 +121,12 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
   outranks a character count at every width, and a trail with no ceiling is the one item flexbox
   can take every shortfall out of. When it must give, the FOLDERS give: the ancestors are one
   ellipsizing run and the note's own name is the last thing standing. Right segments in GROUPS, each marked once by a hairline (never dots
-  between some neighbours and not others): the counts, the mode pills, admin tools (gear · eye),
+  between some neighbours and not others): BOTH counts together (words · chars and N published),
+  the publish toggle, the backup badge, the mode pills, admin tools (gear · eye),
   the pane toggles, the view controls (☾/☀ · graph), the session control. All hover --text.
+  No `·` anywhere in the cluster, and no hairline on the segment that OPENS it — a separator
+  with nothing on its far side is a stray tick. Below 640px every hairline drops (the groups
+  are neighbours by then) and the bar scrolls rather than clipping.
 
 ## Command palette
 
@@ -134,7 +158,9 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
   are gold — a theme is a room, not a tint: it defines its own ground, type, accent, selection,
   focus ring, graph colors, thirteen callout hues and eight syntax colors, solved against its own
   `--bg`. Readers browse them in the theme picker (grouped dark/light, arrow keys preview live,
-  Enter keeps, Esc restores); nothing in the product cycles blindly through fifteen looks.
+  Enter keeps, Esc restores); nothing in the product cycles blindly through fifteen looks, and
+  nothing LISTS them either — the palette carries one *Themes* row (with a dot showing the theme
+  in force) and not fifteen jumps into rooms the reader has not seen.
 - **Contrast: `--text-faint` is not a text color.** Its bar is 3:1 — the NON-TEXT bar — and it is
   enforced on `--bg` and `--bg-raised` for every theme, so the token may carry UI glyphs (the
   heading fold chevron, the attachment type glyph, the OFF paperclip) and deliberately

@@ -125,6 +125,11 @@ export default function SyncBadge() {
       .catch(() => setCopied(false));
   };
 
+  // No trailing `·`. The badge used to print its own separator dot, which is
+  // half of the two-separator-systems bug the status bar had: `.s-syncwrap`
+  // is a GROUP now (app.css marks it with the same leading hairline every
+  // other right-cluster segment carries), and a group that also emits a dot
+  // is marked twice.
   return (
     <>
       <span className="s-syncwrap" ref={wrapRef}>
@@ -243,9 +248,6 @@ export default function SyncBadge() {
             </div>
           </div>
         )}
-      </span>
-      <span className="s-statusbar__dot" aria-hidden="true">
-        ·
       </span>
     </>
   );

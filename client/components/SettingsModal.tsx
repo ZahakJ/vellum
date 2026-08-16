@@ -1104,7 +1104,7 @@ function useFontPreview(
  *  site, and a link that 404s into the SPA fallback is worse than a name a
  *  reader can search for. */
 const DOC_TOPICS: { key: I18nKey; anchor: string }[] = [
-  { key: "docSiteSettings", anchor: "#site-settings" },
+  { key: "docSiteSettings", anchor: "#settings" },
   { key: "docTheming", anchor: "#theming" },
   { key: "docTypography", anchor: "#typography" },
   { key: "docArabic", anchor: "#arabic--rtl" },

@@ -28,7 +28,7 @@ in vim in another terminal and the change appears here within a heartbeat.
 
 ## Running it somewhere permanent
 
-Vellum is a single Node process (Node ≥ 22.6) listening on port `6801`
+Vellum is a single Node process (Node ≥ 24) listening on port `6801`
 (`PORT` overrides). A systemd unit is all it takes on a home server:
 
 ```ini

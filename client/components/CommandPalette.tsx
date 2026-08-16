@@ -10,7 +10,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   ReactNode,
 } from "react";
-import { THEMES, useStore } from "../state.ts";
+import { useStore } from "../state.ts";
 import type { Theme } from "../state.ts";
 import { search } from "../api.ts";
 import { dailyNotePath, openDailyNote } from "../daily.ts";
@@ -110,8 +110,10 @@ interface Command {
   hint?: () => string;
   /** Commands that need a text argument switch the palette into prompt mode. */
   prompt?: { placeholder: string; initial: () => string };
-  /** Theme-switch commands show a color-dot glyph instead of the ⌘ icon. */
-  themeDot?: Theme;
+  /** Shows a color-dot glyph instead of the ⌘ icon. A thunk, not a value:
+   *  the one row that carries it previews the theme that is ON right now,
+   *  and the table is built once at import. */
+  themeDot?: () => Theme;
   available: (ctx: CommandCtx) => boolean;
 }
 
@@ -142,21 +144,22 @@ const COMMANDS: Command[] = [
     available: ({ openPath, admin }) => admin && openPath !== null,
   },
   {
-    // The browsing surface, not a sixteenth switch: the fifteen rows below
-    // jump straight to a theme by name, this one opens the panel that shows
-    // all of them with a live preview and an Esc that puts things back.
+    // ONE row for fifteen rooms. There used to be sixteen: this one plus a
+    // `Theme: <id>` command per theme, which is 15 of the palette's 41
+    // entries — 37% of the command list spent on one preference, and every
+    // one of them a blind jump. The picker it opens is strictly the better
+    // surface: grouped dark/light, arrow keys preview live against the real
+    // app, Enter keeps, Esc puts back what you started with. A family that is
+    // one parameter with N values belongs behind the surface that shows the
+    // values, not spread across N rows of a list you are trying to search.
+    // The dot previews the theme in force, so the row still answers "which
+    // one am I in" at a glance.
     id: "theme-picker",
     label: () => t("browseThemes"),
     hint: () => t("cmdAppearanceHint"),
+    themeDot: () => useStore.getState().theme,
     available: () => true,
   },
-  ...THEMES.map<Command>((theme) => ({
-    id: `theme-${theme}`,
-    label: () => tf("cmdTheme", { t: theme }),
-    hint: () => t("cmdAppearanceHint"),
-    themeDot: theme,
-    available: () => true,
-  })),
   // Shell layout. Available to visitors too: where the panes sit and how much
   // chrome is on screen is the reader's business, not the admin's.
   {
@@ -185,6 +188,16 @@ const COMMANDS: Command[] = [
   // unreachable and invisible: the first use of it pinned the side forever.
   // The hint says which one is in force, because a list of three options with
   // no marked answer is a list of three questions.
+  //
+  // AUDITED against the theme family and KEPT. The fifteen `Theme:` rows went
+  // because a theme is a ROOM — it has to be looked at, the picker previews it
+  // live, and one row per value was 37% of the list. These three are the
+  // complete enumeration of a three-state preference, each row a finished end
+  // state that runs in one keystroke, with the one in force marked — the same
+  // shape as publish/unpublish, which are two rows for two genuine states.
+  // Collapsing them would trade three direct actions for a modal, a tab and a
+  // scroll (Settings → Appearance & language carries the identical segmented
+  // control), which is the opposite of what the theme change bought.
   ...(["auto", "left", "right"] as const).map<Command>((pref) => ({
     id: `sidebar-side-${pref}`,
     label: () =>
@@ -244,7 +257,7 @@ const COMMANDS: Command[] = [
   {
     id: "delete-current",
     label: () => t("cmdDeleteCurrent"),
-    hint: () => t("cmdIrreversibleHint"),
+    hint: () => t("cmdTrashHint"),
     available: ({ openPath, admin }) => admin && openPath !== null,
   },
   {
@@ -490,11 +503,6 @@ export default function CommandPalette() {
         requestAnimationFrame(() => inputRef.current?.select());
         return;
       }
-      if (command.themeDot) {
-        store.setTheme(command.themeDot);
-        close();
-        return;
-      }
       switch (command.id) {
         case "daily-note":
           void openDailyNote();
@@ -519,7 +527,7 @@ export default function CommandPalette() {
           openThemePicker();
           break;
         case "toggle-sidebar":
-          store.setSidebarCollapsed(!store.sidebarCollapsed);
+          store.toggleSidebar();
           break;
         case "toggle-panel":
           store.setPanelCollapsed(!store.panelCollapsed);
@@ -777,7 +785,7 @@ export default function CommandPalette() {
                         item.command.themeDot ? (
                           <span
                             className="s-palette-dot"
-                            data-theme-dot={item.command.themeDot}
+                            data-theme-dot={item.command.themeDot()}
                           />
                         ) : (
                           <IconCommand />

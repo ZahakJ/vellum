@@ -16,9 +16,27 @@
 // and every panel are --bg-raised, and on the light themes that is the
 // harder ground, not the easier one.
 //
-// 3:1 is the NON-TEXT bar, and it is the bar because --text-faint is not for
-// text: anything a reader has to read — a filename, a count, a label naming
-// a thing — belongs at --text-muted (>= 4.5:1 in every theme here) or above.
+// WHY 3:1 AND NOT SOME OTHER NUMBER. WCAG offers three candidate answers for
+// a token this faint, and only one of them is defensible here:
+//   · 1.4.3 Contrast (Minimum) exempts "incidental" content — pure decoration,
+//     inactive controls, invisible text — from any ratio at all. That is the
+//     exemption the old floor of 0 was silently claiming, and it is false:
+//     the heading fold chevron is an ACTIVE control, and the attachment glyph
+//     and properties rows are content, not decoration. An exemption is not a
+//     floor, and printing "(info)" under it read like coverage.
+//   · 1.4.3 also sets 4.5:1 for body text and 3:1 for large text (>= 18.66px
+//     bold / 24px). Nothing this token paints is large text, so 3:1 cannot be
+//     claimed on the large-text clause — which is exactly why the token must
+//     never carry a filename or a count.
+//   · 1.4.11 Non-text Contrast sets 3:1 for the visual boundaries of user
+//     interface components and for graphical objects required to understand
+//     the content. That is what --text-faint actually paints — glyphs, a
+//     disclosure chevron, machine bookkeeping nobody reads word by word — so
+//     3:1 is the applicable normative minimum, not a compromise between 0 and
+//     4.5. The floor and the token's job are the same statement.
+// The bar therefore constrains the token's USE as much as its value: anything
+// a reader has to read — a filename, a count, a label naming a thing —
+// belongs at --text-muted (>= 4.5:1 in every theme here) or above.
 // See DESIGN.md, "Contrast".
 //
 // The accent check is not decoration. That one pair is read as TEXT twice over:

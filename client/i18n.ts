@@ -163,17 +163,22 @@ const DICT = {
     en: "Show the full vault in the sidebar",
     ar: "عرض الخزانة كاملة في الشريط الجانبي",
   },
-  siteSettings: { en: "Site settings", ar: "إعدادات الموقع" },
+  // "Settings", full stop. "Site settings" said SITE about a panel that also
+  // holds this browser's own theme, the editor's behavior and the backup
+  // credentials, and the product has exactly one settings screen — a qualifier
+  // that distinguishes nothing is a longer word for the same thing. The Arabic
+  // is the dictionary's own term for the noun, as in settingsSaved and
+  // settingsSections — not a fresh coinage.
+  siteSettings: { en: "Settings", ar: "الإعدادات" },
   siteSettingsTitle: {
-    en: "Site settings — identity, home page, behavior, typography, backup",
-    ar: "إعدادات الموقع — الهوية والرئيسية والسلوك والطباعة والنسخ الاحتياطي",
+    en: "Settings — identity, home page, behavior, typography, backup",
+    ar: "الإعدادات — الهوية والرئيسية والسلوك والطباعة والنسخ الاحتياطي",
   },
   previewAsVisitor: { en: "Preview as visitor", ar: "معاينة كزائر" },
   previewAsVisitorTitle: {
     en: "Preview as visitor — see exactly what the public site serves",
     ar: "معاينة كزائر — شاهد الموقع تمامًا كما يظهر للزوار",
   },
-  read: { en: "read", ar: "قراءة" },
   // The button opens the PICKER (fifteen themes are browsed, not cycled), so
   // its tooltip names where you are and what the click does — not the one
   // theme a "next" step would have landed on.
@@ -230,7 +235,10 @@ const DICT = {
   themeGroupDark: { en: "Dark", ar: "داكنة" },
   themeGroupLight: { en: "Light", ar: "فاتحة" },
   themeCurrent: { en: "current", ar: "الحالية" },
-  browseThemes: { en: "Browse themes…", ar: "تصفح السمات…" },
+  // The row opens the picker; the ellipsis and the verb were both saying that
+  // twice. "Themes" names the thing, which is what a command list is for —
+  // and the Arabic is docTheming's own word (السمات).
+  browseThemes: { en: "Themes", ar: "السمات" },
   graph: { en: "graph", ar: "مخطط" },
   graphTitle: { en: "Toggle graph view (Ctrl/Cmd+G)", ar: "تبديل عرض المخطط (Ctrl/Cmd+G)" },
   signIn: { en: "Sign in", ar: "تسجيل الدخول" },
@@ -291,6 +299,9 @@ const DICT = {
   cmdToggleGraph: { en: "Toggle graph", ar: "تبديل المخطط" },
   cmdViewHint: { en: "view", ar: "عرض" },
   cmdToggleReading: { en: "Toggle reading view", ar: "تبديل وضع القراءة" },
+  // No longer a command label — the fifteen `Theme: <id>` palette rows are
+  // gone — but still the blog's theme-button tooltip, which names the theme
+  // in force.
   cmdTheme: { en: "Theme: {t}", ar: "السمة: {t}" },
   cmdAppearanceHint: { en: "appearance", ar: "المظهر" },
   cmdToggleVim: { en: "Toggle vim", ar: "تبديل vim" },
@@ -331,7 +342,11 @@ const DICT = {
   cmdRenameCurrent: { en: "Rename current note", ar: "إعادة تسمية الملاحظة الحالية" },
   cmdMoveHint: { en: "move", ar: "نقل" },
   cmdDeleteCurrent: { en: "Delete current note", ar: "حذف الملاحظة الحالية" },
-  cmdIrreversibleHint: { en: "irreversible", ar: "لا رجعة فيه" },
+  // The palette's delete command runs the SAME two-speed flow the tree row
+  // runs, and its default speed is the recoverable one. The hint names that
+  // default — a hint promising "irreversible" one keystroke before a dialog
+  // promising .trash is the two-guarantees-for-one-gesture defect again.
+  cmdTrashHint: { en: "moves to .trash", ar: "ينقلها إلى ‎.trash‎" },
   cmdModerateComments: { en: "Moderate comments", ar: "الإشراف على التعليقات" },
   cmdMarginaliaHint: { en: "marginalia", ar: "الحواشي" },
   cmdSiteSettingsHint: {
@@ -515,7 +530,7 @@ const DICT = {
     en: "Every setting in this panel is written up in the project README, in the section named beside it.",
     ar: "كل إعداد في هذه اللوحة موثّق في ملف ‎README‎ للمشروع، في القسم المذكور بجانبه.",
   },
-  docSiteSettings: { en: "Site settings", ar: "إعدادات الموقع" },
+  docSiteSettings: { en: "Settings", ar: "الإعدادات" },
   docTheming: { en: "Theming", ar: "السمات" },
   docTypography: { en: "Typography", ar: "الطباعة" },
   docArabic: { en: "Arabic & RTL", ar: "العربية والاتجاه" },
@@ -638,6 +653,11 @@ const DICT = {
   // Lowercase like its six neighbours: the empty state sets these as a caption
   // row, and t("shortcutsTitle") arrived title-cased in the middle of them.
   keyShortcuts: { en: "keyboard shortcuts", ar: "اختصارات لوحة المفاتيح" },
+  // The phone's half of the empty state. A keymap is not an answer on a device
+  // with no keyboard, so below ~700px (and on any coarse pointer) the same
+  // pane offers the notes this reader was last in, plus the three doors the
+  // legend was only naming.
+  emptyRecent: { en: "Recent notes", ar: "ملاحظات حديثة" },
   openSidebar: { en: "Open Notes sidebar", ar: "فتح لوحة الملاحظات" },
   closeSidebar: { en: "Close Notes sidebar", ar: "إغلاق لوحة الملاحظات" },
   exitZen: { en: "Exit zen mode (Esc)", ar: "إنهاء وضع التركيز (Esc)" },

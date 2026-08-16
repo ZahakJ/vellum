@@ -617,9 +617,22 @@
   border-bottom: 1px solid var(--border);
 }
 
-/* RTL article (Arabic/Hebrew title): the meta row sits under the title's
-   right edge instead of stranding itself on the far left. */
+/* THE BYLINE FOLLOWS THE TITLE'S SCRIPT, NOT THE CHROME'S. The h1 aligns
+   itself with dir="auto", so on an Arabic instance an English-titled post put
+   the title hard left and its own date/word-count hard right — one heading
+   split across 670px of empty ground. Both chrome directions × both title
+   scripts, four rules, one outcome: the meta sits under the end of the title
+   it belongs to. (`flex-start` is the CONTAINER's start, which is why the RTL
+   chrome needs the opposite keyword to land on the same physical edge.) */
 .s-blog-article__head--rtl .s-blog-article__meta {
+  justify-content: flex-end;
+}
+
+[dir="rtl"] .s-blog-article__head--rtl .s-blog-article__meta {
+  justify-content: flex-start;
+}
+
+[dir="rtl"] .s-blog-article__head:not(.s-blog-article__head--rtl) .s-blog-article__meta {
   justify-content: flex-end;
 }
 
@@ -826,9 +839,17 @@
   color: var(--text-faint);
 }
 
-/* Marginalia inherits its own stylesheet; give it air. */
+/* Marginalia inherits its own stylesheet; give it air — and the PAGE's column,
+   not a second one inside it. comments.css centres the section at 760px with
+   56px gutters because in the app it is the whole column; here `.s-blog-page`
+   has already set the measure, so those gutters were an inset of ~57px per
+   side against the article: the MARGINALIA rule and heading sat inboard of the
+   SHARE and RELATED headings directly above them, and on a 390px phone the
+   comment form threw away 28% of its width. One column per page. */
 .s-blog-article .s-marginalia {
   margin-top: 40px;
+  max-width: none;
+  padding: 0;
 }
 
 /* ── Locked / missing ──────────────────────────────────────────────────── */
@@ -1052,6 +1073,17 @@
 .s-blog-footer__hint kbd {
   font-size: 0.714rem;
   padding: 0 5px;
+}
+
+/* …and never on a phone. "A keyboard legend on a device with no keyboard is a
+   taunt" is DESIGN.md's own line; the app shell's empty state obeys it on the
+   same trigger, and the blog footer was printing `Ctrl K` to readers holding a
+   390px touchscreen. Nothing is lost: the nav's search field is on screen at
+   every width, which is what the chip was only ever pointing at. */
+@media (max-width: 700px), (pointer: coarse) {
+  .s-blog-footer__hint {
+    display: none;
+  }
 }
 
 /* ── Dashboard home (settings.home.mode = "dashboard") ─────────────────────

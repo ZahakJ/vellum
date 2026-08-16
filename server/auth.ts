@@ -17,6 +17,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { MeData } from "../shared/types.ts";
 import { isNoteVisibleToVisitor, publishedCounts, resolveLink } from "./indexer.ts";
+import { commentsEnabled } from "./comments.ts";
 import { fontsSignature, slotsAreSystem } from "./fonts.ts";
 import { fontSlots, getSettings } from "./settings.ts";
 import { bannerFallback, blogLocale, customCssPath, dataDir, defaultTheme, footerLine, publicLayout, siteLanguage, siteName, tagline } from "./site.ts";
@@ -631,6 +632,11 @@ authRoutes.get("/me", (c) => {
   // describes the public shell) and sent to every session so an admin
   // previewing as a visitor sees exactly what a visitor sees.
   if (settings.languageToggle === true) me.languageToggle = true;
+  // Marginalia, for every session. The reading view used to find this out by
+  // asking /api/comments per note and reading the 404 — one bad response per
+  // note open on every instance with comments off. It is one instance-wide
+  // fact, so it travels with the rest of the shell's configuration.
+  if (commentsEnabled()) me.comments = true;
   // Date/relative-time locale for BOTH shells: the reading view's Marginalia
   // timestamps need it in app layout too, and blogLocale() already derives
   // "ar" from the site language when nothing explicit is configured.
