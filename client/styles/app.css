@@ -100,6 +100,46 @@ kbd {
   background: var(--text-faint);
 }
 
+/* A SCROLL BOUNDARY FADES; IT DOES NOT GUILLOTINE.
+   A flat cut through the middle of a bordered control — a segmented pill
+   sliced across its accent border at the top of the settings body — reads as a
+   rendering fault, not as "there is more above"; in Arabic a flat cut leaves a
+   band of loose tashkeel belonging to no letter. So every scroller that can
+   cut something meaningful wears this: an 18px alpha ramp at whichever end
+   actually has content beyond it. `client/scrollFade.ts` maintains the two
+   attributes (it is a scroll listener and not a static gradient precisely so
+   that a list short enough to fit keeps full contrast at both ends), and with
+   neither of them set the mask is a fully opaque gradient — no paint change,
+   no cost. */
+.s-scrollfade {
+  --fade-top: 0px;
+  --fade-bottom: 0px;
+  /* Prefixed twin for the one engine that still wants it; the shorthand is
+     identical, so there is nothing to keep in sync but the two ramps. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent 100%
+  );
+}
+
+.s-scrollfade[data-more-above="true"] {
+  --fade-top: 18px;
+}
+
+.s-scrollfade[data-more-below="true"] {
+  --fade-bottom: 18px;
+}
+
 /* ------------------------------------------------------ buttons, inputs -- */
 
 button,
@@ -184,6 +224,29 @@ select:focus,
   grid-template-areas:
     "sidebar main panel"
     "status  status status";
+
+  /* ---- the centre column's air (see .s-main below) --------------------- */
+  /* What a COLLAPSED pane leaves behind: its 14px reopen handle, standing at
+     the window edge where the pane was. `.s-main` starts at the collapsed
+     pane's 1px border, so clearing exactly the handle's width puts the
+     column's two gaps on the same footing — each measured from the inner
+     edge of whatever furniture bounds it, door or pane. */
+  --fold-gutter: 14px;
+  /* Air a collapsed pane's own reopen handle must keep, per pane. */
+  --fold-sidebar: 0px;
+  --fold-panel: 0px;
+  /* The same two facts in LOGICAL order — which pane is at the inline start
+     depends on the flip, and nothing below has to know which is which. */
+  --fold-lead: var(--fold-sidebar);
+  --fold-trail: var(--fold-panel);
+}
+
+.s-app--nosidebar {
+  --fold-sidebar: var(--fold-gutter);
+}
+
+.s-app--nopanel {
+  --fold-panel: var(--fold-gutter);
 }
 
 /* Sidebar on the far side (vellum.sidebarSide). The grid areas above already
@@ -194,6 +257,9 @@ select:focus,
   grid-template-areas:
     "panel main sidebar"
     "status status status";
+  /* The panes swapped ends, so the logical aliases swap with them. */
+  --fold-lead: var(--fold-panel);
+  --fold-trail: var(--fold-sidebar);
 }
 
 .s-app--flip .s-sidebar {
@@ -639,6 +705,34 @@ select:focus,
 
 /* ----------------------------------------------------------------- tabs -- */
 
+/* THE NOTE SITS EVENLY BETWEEN WHATEVER BOUNDS IT — in every fold state.
+   The owner's words: "make sure that the margin between open note and
+   left/right bar is correct and nice looking even when bar is closed/folded."
+   That is a statement about the TWO MARGINS BEING THE SAME, and it is the one
+   thing an earlier build did not do.
+
+   That build pinned the column to the WINDOW's centre line instead, padding
+   .s-main to compensate for whichever pane was heavier. It read well in the
+   two SYMMETRIC states and failed in the two that matter. Measured at 1440
+   with the notes sidebar folded: the prose sat 47px from the panel it was
+   pressed against and 327px from the far side of the window — a third of the
+   screen empty on one side, the text jammed against a wall of chrome on the
+   other. Both-folded looked balanced only because the two voids happened to
+   be equal. Single-fold is the common case: a reader folds ONE bar.
+
+   A window centre line is not what the eye measures against; the eye measures
+   against the nearest edge of the furniture beside the text. So `.s-main`
+   claims the whole gap the grid gave it and lets the column centre inside it
+   — the shell is `auto minmax(0,1fr) auto`, so that box already ends exactly
+   at each pane's inner edge — and the ONLY padding left is the width of a
+   collapsed pane's reopen handle, which stands where the pane was and is the
+   furniture on that side. Door and pane are then measured the same way, and
+   the two margins agree in all sixteen combinations of side × sidebar ×
+   panel × dir (worst skew 1px, from the collapsed pane's own 1px border).
+
+   Yes, the column moves when a pane folds — it must: the room it is centred
+   in just changed size. It moves ON THE PANES' OWN 180ms CURVE, so a fold
+   stays one movement, and it lands centred rather than landing shoved. */
 .s-main {
   grid-area: main;
   position: relative;
@@ -646,6 +740,16 @@ select:focus,
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  padding-inline-start: var(--fold-lead);
+  padding-inline-end: var(--fold-trail);
+  transition: padding 0.18s ease;
+}
+
+/* The graph is a canvas, not a column: it wants every pixel the panes are not
+   using, and a 300px inset of empty ground beside it is a smaller graph for
+   no reason. */
+.s-main:has(.s-graph) {
+  padding-inline: 0;
 }
 
 .s-tabs {
@@ -1644,14 +1748,47 @@ select:focus,
    being spent on a character count; `min()` keeps it a fraction of the bar on
    a genuinely narrow window, and below 640px the trail is dropped outright
    (it has other company by then, and the bar starts scrolling). */
+/* …and a CEILING is the other half of that floor. The trail is the only item
+   in the bar whose natural width is unbounded — it is a vault path — and it
+   was therefore the item flexbox took the shortfall out of. Measured on the
+   fixture at 1440 with both mode pills, publish and the published filter up:
+   a two-segment crumb (223px) first gives ground at 1160px, safely under the
+   1200px threshold where the counts drop, which is why the ladder below read
+   as correct. A THREE-segment one (`1 - Source Material › Wiki › Nobel Prize
+   in Physiology or Medicine`, 408px) first gives ground at 1340 — so between
+   1200 and 1340 the trail was crushed to make room for "140 words · 2,012
+   chars", and then sprang back to full at 1200 when the counts left. The bar
+   was better at 1200 than at 1280: the same non-monotonicity the floor was
+   added to fix, moved to a different width by a deeper path.
+   Capping the trail is what makes the ladder path-INDEPENDENT: it can no
+   longer want more than a third of the bar, so it is never the fat item, and
+   the counts' departure never hands it anything back. The full path is still
+   one hover away in the row's title. */
 .s-statusbar__crumbs {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-width: min(20ch, 32%);
+  max-width: min(44ch, 36%);
   overflow: hidden;
   white-space: nowrap;
   color: var(--text-muted);
+}
+
+/* WHEN THE TRAIL MUST GIVE, THE FOLDERS GIVE — NEVER THE NOTE.
+   Every segment shrank equally, so `1 - Source Material › Wiki › Nobel Prize
+   in Physiology or Medicine` truncated to `1 - Source Material › Wiki › Nobel
+   Pri…`: two folder names in full and the one word that answers "which note
+   am I in" cut off. The ancestors are one ellipsizing run (StatusBar groups
+   them, separators included — see the comment there) with a shrink factor
+   twelve times the leaf's, so the path dissolves to `1 - Sourc…`, then to
+   `…`, then to nothing, before the note's own name gives up a character. */
+.s-statusbar__crumbpath {
+  flex: 0 12 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .s-statusbar__crumb {
@@ -1660,7 +1797,15 @@ select:focus,
 }
 
 .s-statusbar__crumb--leaf {
+  flex: 0 1 auto;
+  min-width: 0;
   color: var(--text);
+}
+
+/* Inside the ancestor run the separators are inline text, so they carry their
+   own spacing rather than the parent's flex `gap`. */
+.s-statusbar__crumbpath .s-statusbar__crumb-sep {
+  margin-inline: 6px;
 }
 
 .s-statusbar__crumb-sep {
@@ -1790,7 +1935,13 @@ select:focus,
   width: 100%;
   height: 2.5rem;
   text-align: start;
-  padding: 0 12px 0 14px;
+  /* Logical, not `0 12px 0 14px`: the wider pad belongs beside the icon and
+     the selected row's accent bar, which are at the inline START — the
+     physical shorthand put it on the screen's left in both directions, so in
+     Arabic the row was padded 12px where its bar sits and 14px where nothing
+     does. */
+  padding-block: 0;
+  padding-inline: 14px 12px;
   border-radius: var(--radius);
   font-size: 0.929rem;
   color: var(--text);
@@ -2947,6 +3098,16 @@ button.s-title:hover {
    is one continuous movement rather than a page that flickers apart. What is
    left is the prose, centered on a wider gutter, and a single faint ✕. */
 
+/* Zen closes both panes on its own terms (the store's collapse flags are
+   untouched, so leaving zen restores what the reader had) — and it leaves no
+   reopen handles either. Both facts have to reach the centre column's
+   balance, or it would still be padding itself away from panes that are not
+   there. Declared here rather than beside the other blocks so it wins the
+   equal-specificity race against .s-app--nosidebar / .s-app--nopanel. */
+.s-app--zen {
+  --fold-gutter: 0px;
+}
+
 .s-app--zen .s-tabs,
 .s-app--zen .s-statusbar {
   height: 0;
@@ -3091,6 +3252,12 @@ button.s-title:hover {
     grid-template-areas:
       "main"
       "status";
+    /* No panes in the grid at all here — the sidebar is a fixed overlay
+       drawer and the outline panel is hidden — so there is no reopen handle
+       to clear and the centre column takes the whole width. Last word on this
+       by source order, which is how it beats .s-app--nosidebar and
+       .s-app--nopanel at equal specificity. */
+    --fold-gutter: 0px;
   }
 
   /* Sidebar → overlay drawer (slides in from the left). The desktop collapse
@@ -3262,32 +3429,12 @@ button.s-title:hover {
   scroll-margin-top: 4px;
 }
 
-/* Content sliced flush at the top or bottom of the box reads as a rendering
-   bug; a fade says "there is more" without adding chrome. Both are inert to
-   the pointer, and neither is painted when that edge is the end of the
-   content. */
-.s-smodal__edge {
-  position: absolute;
-  inset-inline: 0;
-  height: 22px;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-}
-
-.s-smodal__edge--on {
-  opacity: 1;
-}
-
-.s-smodal__edge--top {
-  top: 0;
-  background: linear-gradient(to bottom, var(--bg-raised), transparent);
-}
-
-.s-smodal__edge--bottom {
-  bottom: 0;
-  background: linear-gradient(to top, var(--bg-raised), transparent);
-}
+/* The scroll edges are `.s-scrollfade` on the body itself (see the mask near
+   the top of this file). Two absolutely-positioned gradient overlays used to
+   live here; a gradient laid OVER content only hides what it exactly matches,
+   and it did not — a segmented pill still came through the top edge cut across
+   its middle with its accent border flat-cut. A mask removes the alpha, so the
+   row dissolves and nothing has to be colour-matched. */
 
 .s-smodal__note {
   margin: 0;
@@ -4002,7 +4149,18 @@ button.s-title:hover {
    at ~1120px pushed sign-out onto the hidden overflow instead — swapping one
    silent loss for a worse one. Measured on the 1,389-note fixture with
    publish, the published-note filter and both mode pills up. */
-@media (max-width: 1200px) {
+/* 1200 → 1280, and the reason is the crumb's new CEILING rather than a change
+   of heart about word counts. The ceiling is what makes the ladder
+   path-independent, and a ceiling generous enough to be worth having (44ch,
+   about 340px — most of `1 - Source Material › Wiki › Nobel Prize in
+   Physiology or Medicine`) pushes the width at which the trail would start
+   giving ground up to ~1277 in English and ~1224 in Arabic. The ambient pair
+   has to be gone by then, or the trail is crushed at 1280 and springs back at
+   1200 — better at the narrower width, which is the exact failure this whole
+   ladder exists to prevent. Trading a character count at 1280 for a hundred
+   more pixels of the note's own name at every width is the trade this bar is
+   supposed to make. */
+@media (max-width: 1280px) {
   .s-statusbar__counts,
   .s-statusbar__counts + .s-statusbar__dot,
   .s-statusbar__pubcount,

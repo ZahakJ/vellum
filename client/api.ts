@@ -3,6 +3,7 @@
 
 import type {
   Backlink,
+  CustomFontInfo,
   FrontmatterResult,
   GitSyncStatus,
   GraphData,
@@ -48,10 +49,21 @@ export function withPreview(init?: RequestInit): RequestInit | undefined {
  *  first use of preview announce a fault that did not exist. */
 export class ApiError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  /** The server's STABLE name for this failure, when it named one.
+   *
+   *  `message` is the server's English prose. It reaches the reader: every
+   *  `catch` in the app toasts `err.message`, which is how an Arabic-only
+   *  operator came to read "Not a recognized font file (woff2, woff, ttf,
+   *  otf)" inside a fully Arabic settings panel — while the `fontUploadFailed`
+   *  translation written for that moment was never once rendered. A caller
+   *  that can translate a code should prefer it and keep `message` as the
+   *  fallback for whatever the server has not named yet. */
+  readonly code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -80,7 +92,14 @@ async function request<T>(url: string, init?: RequestInit, asAdmin = false): Pro
       typeof (body as { error: unknown }).error === "string"
         ? (body as { error: string }).error
         : `HTTP ${res.status}`;
-    throw new ApiError(message, res.status);
+    const code =
+      body !== null &&
+      typeof body === "object" &&
+      "code" in body &&
+      typeof (body as { code: unknown }).code === "string"
+        ? (body as { code: string }).code
+        : undefined;
+    throw new ApiError(message, res.status, code);
   }
   return body as T;
 }
@@ -195,6 +214,30 @@ export function uploadAttachment(file: File, asAdmin = false): Promise<UploadRes
  *  `asAdmin` bypasses the visitor-preview header (see request). */
 export function listAttachments(asAdmin = false): Promise<string[]> {
   return request<string[]>("/api/attachments", undefined, asAdmin);
+}
+
+// ── Typography: the operator's own faces (admin only) ───────────────────────
+// Always the real admin session (asAdmin), like the settings calls beside
+// them: the Typography tab stays reachable while previewing the public site,
+// and /api/fonts/custom answers a preview session with a 404.
+
+/** Every uploaded face under VELLUM_DATA/fonts/custom. */
+export function listCustomFonts(): Promise<CustomFontInfo[]> {
+  return request<CustomFontInfo[]>("/api/fonts/custom", undefined, true);
+}
+
+/** Upload one .woff2/.woff/.ttf/.otf. The server sniffs the magic bytes and
+ *  400s anything that is not a font, whatever the file is called. */
+export function uploadFont(file: File): Promise<CustomFontInfo> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  // No Content-Type header: the browser sets the multipart boundary itself.
+  return request<CustomFontInfo>("/api/fonts/upload", { method: "POST", body: form }, true);
+}
+
+/** Remove an uploaded face. 409 while a slot still names it. */
+export function deleteCustomFont(file: string): Promise<{ ok: true }> {
+  return request<{ ok: true }>(`/api/fonts/custom/${encodeURIComponent(file)}`, { method: "DELETE" }, true);
 }
 
 /** Instance settings (admin only; VELLUM_DATA/settings.json). */

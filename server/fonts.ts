@@ -19,6 +19,14 @@
 
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { optionFamily } from "../shared/fonts.ts";
+import {
+  cssFormat,
+  customFileOf,
+  customFontExists,
+  isCustomId,
+  listCustomFonts,
+} from "./customFonts.ts";
 import { fontsDir } from "./site.ts";
 import { VaultError } from "./vault.ts";
 
@@ -115,12 +123,22 @@ export function catalogEntry(id: string): CatalogEntry | null {
 export type FontSlot = "prose" | "ui" | "mono" | "arabic";
 export const FONT_SLOTS: FontSlot[] = ["prose", "ui", "mono", "arabic"];
 
-/** Which catalog ids a slot accepts. Text and interface take any Latin-text
+/** Which ids a slot accepts. Text and interface take any Latin-text catalog
  *  face (a sans prose column is a legitimate taste); code takes monospace
  *  only — a proportional face in a code block is never what was meant; the
- *  Arabic slot takes anything that actually covers Arabic. */
+ *  Arabic slot takes anything that actually covers Arabic.
+ *
+ *  An UPLOADED face is allowed in every slot, and that asymmetry is the
+ *  honest one: the catalog's slot rules are knowledge WE have about faces we
+ *  chose, and we have none of it about a file that arrived this morning. The
+ *  name table does not say "monospace" reliably and a cmap scan would answer
+ *  "covers Arabic" for any font carrying three ligatures. Refusing a slot on a
+ *  guess would mean telling an operator his own naskh face "does not cover
+ *  Arabic"; the specimen block, which renders the choice in the actual face,
+ *  is the better judge and it is one row below the picker. */
 export function slotAllows(slot: FontSlot, id: string): boolean {
   if (id === SYSTEM) return true;
+  if (isCustomId(id)) return true;
   const entry = catalogEntry(id);
   if (!entry) return false;
   if (slot === "arabic") return entry.scripts.includes("arabic");
@@ -140,9 +158,25 @@ export interface FontSlots {
   ui: string;
   mono: string;
   arabic: string;
+  /** OPTICAL SIZE OVERRIDE for the Arabic half, in percent (50–300), or null
+   *  for "use the catalog's measured value / none".
+   *
+   *  The catalog carries a measured `sizeAdjust` per Arabic family, because we
+   *  measured those faces. An UPLOADED face has no such number and cannot get
+   *  one — so the operator gets the dial instead, in the one place where the
+   *  two scripts are visible side by side. It applies to whatever face is in
+   *  the Arabic slot, catalog or custom: an operator who thinks Amiri sits a
+   *  shade small beside HIS Latin face is right about his own instance. */
+  arabicSizeAdjust?: number | null;
 }
 
 export const SYSTEM_SLOTS: FontSlots = { prose: SYSTEM, ui: SYSTEM, mono: SYSTEM, arabic: SYSTEM };
+
+/** The band a size-adjust override may sit in. Below ~60% or above ~200% the
+ *  two scripts are no longer "matched", they are one of them shrunk to
+ *  nothing; the wider band is still allowed because display faces exist. */
+export const SIZE_ADJUST_MIN = 50;
+export const SIZE_ADJUST_MAX = 300;
 
 /** Lenient read side (settings.ts::getSettings): unknown / wrongly-slotted
  *  ids drop back to "system" rather than throwing — reads never fail. */
@@ -153,6 +187,15 @@ export function readFontSlots(value: unknown): FontSlots {
   for (const slot of FONT_SLOTS) {
     const id = raw[slot];
     if (typeof id === "string" && slotAllows(slot, id)) out[slot] = id;
+  }
+  const adjust = raw.arabicSizeAdjust;
+  if (
+    typeof adjust === "number" &&
+    Number.isFinite(adjust) &&
+    adjust >= SIZE_ADJUST_MIN &&
+    adjust <= SIZE_ADJUST_MAX
+  ) {
+    out.arabicSizeAdjust = Math.round(adjust);
   }
   return out;
 }
@@ -167,11 +210,29 @@ export function cleanFontSlots(value: unknown, base: FontSlots = SYSTEM_SLOTS): 
   }
   const raw = value as Record<string, unknown>;
   for (const key of Object.keys(raw)) {
-    if (!(FONT_SLOTS as string[]).includes(key)) {
+    if (!(FONT_SLOTS as string[]).includes(key) && key !== "arabicSizeAdjust") {
       throw new VaultError(400, `Unknown settings key: fonts.${key}`);
     }
   }
   const out: FontSlots = { ...base };
+  if (Object.prototype.hasOwnProperty.call(raw, "arabicSizeAdjust")) {
+    const adjust = raw.arabicSizeAdjust;
+    if (adjust === null || adjust === "") {
+      delete out.arabicSizeAdjust;
+    } else if (
+      typeof adjust !== "number" ||
+      !Number.isFinite(adjust) ||
+      adjust < SIZE_ADJUST_MIN ||
+      adjust > SIZE_ADJUST_MAX
+    ) {
+      throw new VaultError(
+        400,
+        `Settings key "fonts.arabicSizeAdjust" must be a percentage between ${SIZE_ADJUST_MIN} and ${SIZE_ADJUST_MAX}, or null`,
+      );
+    } else {
+      out.arabicSizeAdjust = Math.round(adjust);
+    }
+  }
   for (const slot of FONT_SLOTS) {
     if (!Object.prototype.hasOwnProperty.call(raw, slot)) continue;
     const id = raw[slot];
@@ -181,6 +242,14 @@ export function cleanFontSlots(value: unknown, base: FontSlots = SYSTEM_SLOTS): 
     }
     if (typeof id !== "string") {
       throw new VaultError(400, `Settings key "fonts.${slot}" must be a font id, "system" or null`);
+    }
+    // An uploaded face: the SHAPE is checked here (the id must name a
+    // well-formed custom filename); whether that file is actually on disk is
+    // checked by the route, next to the catalog download, because this
+    // function is synchronous and the disk is not.
+    if (isCustomId(id)) {
+      out[slot] = id;
+      continue;
     }
     if (!catalogEntry(id)) {
       throw new VaultError(400, `Unknown font id: ${id} (fonts.${slot})`);
@@ -204,16 +273,31 @@ export function slotsAreSystem(slots: FontSlots): boolean {
   return FONT_SLOTS.every((slot) => slots[slot] === SYSTEM);
 }
 
-/** The distinct catalog ids named by the slots (no "system"). */
+/** The distinct ids named by the slots (no "system"), uploaded ones included. */
 export function slotIds(slots: FontSlots): string[] {
   return [...new Set(FONT_SLOTS.map((slot) => slots[slot]).filter((id) => id !== SYSTEM))];
 }
 
+/** …and the CATALOG half of that list: the only ids that name a family this
+ *  server can download. An uploaded face is already on disk or does not exist,
+ *  which is the route's check, not the fetcher's. */
+export function catalogSlotIds(slots: FontSlots): string[] {
+  return slotIds(slots).filter((id) => !isCustomId(id));
+}
+
+/** The uploaded ids named by the slots — what the delete route consults for
+ *  in-use protection. */
+export function customSlotIds(slots: FontSlots): string[] {
+  return slotIds(slots).filter((id) => isCustomId(id));
+}
+
 /** A short version tag for the current picks: it rides on /api/me and becomes
  *  the ?v= on the stylesheet link, so changing a pick changes the URL and the
- *  browser refetches instead of showing yesterday's faces. */
+ *  browser refetches instead of showing yesterday's faces. The size-adjust
+ *  rides on it too — it changes the emitted CSS without changing a single id. */
 export function fontsSignature(slots: FontSlots): string {
-  return FONT_SLOTS.map((slot) => slots[slot]).join(".");
+  const picks = FONT_SLOTS.map((slot) => slots[slot]).join(".");
+  return slots.arabicSizeAdjust == null ? picks : `${picks}.${slots.arabicSizeAdjust}`;
 }
 
 // ---------------------------------------------------------------- the cache
@@ -561,7 +645,10 @@ async function downloadFamily(id: string): Promise<void> {
  *  so the first failure is reported with its own name; anything already
  *  downloaded stays cached (a later retry resumes from there). */
 export async function ensureFontsCached(ids: string[]): Promise<void> {
-  for (const id of ids) await cacheFamily(id);
+  for (const id of ids) {
+    if (isCustomId(id)) continue; // uploaded: already on disk, nothing to fetch
+    await cacheFamily(id);
+  }
 }
 
 // ---------------------------------------------------------------- CSS
@@ -588,6 +675,38 @@ const ARABIC_BLOCKS: [number, number][] = [
   [0x1ed00, 0x1ed4f], // Ottoman Siyaq numbers
   [0x1ee00, 0x1eeff], // Arabic Mathematical Alphabetic Symbols
 ];
+
+/** The Arabic blocks as a `unicode-range` value, and its complement.
+ *
+ *  A CATALOG face arrives from Google already sliced into subsets, each with
+ *  its own range, so the composite narrows those. An UPLOADED face is one file
+ *  with no range at all — and "no range" means "answers for every codepoint",
+ *  which would make the Arabic and Latin halves of a composite OVERLAP and
+ *  hand the pick to declaration order. So an uploaded face is given the range
+ *  its ROLE implies: the Arabic blocks in the Arabic slot, everything else in
+ *  a Latin slot that stands beside an Arabic face. The two sets stay disjoint,
+ *  which is the invariant the whole composite rests on. */
+const ARABIC_RANGE_CSS = ARABIC_BLOCKS.map(([lo, hi]) => rangeChunk(lo, hi)).join(", ");
+const NON_ARABIC_RANGE_CSS = complementChunks(ARABIC_BLOCKS).join(", ");
+
+function rangeChunk(lo: number, hi: number): string {
+  const hex = (n: number): string => n.toString(16).toUpperCase();
+  return lo === hi ? `U+${hex(lo)}` : `U+${hex(lo)}-${hex(hi)}`;
+}
+
+/** Everything in U+0000–U+10FFFF that the given (sorted, disjoint) blocks do
+ *  not cover. */
+function complementChunks(blocks: [number, number][]): string[] {
+  const sorted = [...blocks].sort((a, b) => a[0] - b[0]);
+  const out: string[] = [];
+  let at = 0;
+  for (const [lo, hi] of sorted) {
+    if (lo > at) out.push(rangeChunk(at, lo - 1));
+    at = Math.max(at, hi + 1);
+  }
+  if (at <= 0x10ffff) out.push(rangeChunk(at, 0x10ffff));
+  return out;
+}
 
 /** [start, end] of one `U+…` chunk ("U+0600-06FF", "U+04??", "U+2010"). */
 function chunkRange(chunk: string): [number, number] | null {
@@ -661,6 +780,30 @@ function faceBlock(
   ].join("\n");
 }
 
+/** One uploaded file as an `@font-face`. It is a single face, so it declares
+ *  one weight and one style and lets the browser synthesize the rest: a
+ *  reader who uploads "MyFace-Regular.woff2" means "set my text in this", not
+ *  "and leave bold unrendered". */
+function customFaceBlock(
+  family: string,
+  file: string,
+  range: string,
+  sizeAdjust: number | null,
+): string {
+  return [
+    "@font-face {",
+    `  font-family: "${family}";`,
+    "  font-style: normal;",
+    "  font-weight: 400;",
+    "  font-display: swap;",
+    ...(sizeAdjust === null ? [] : [`  size-adjust: ${sizeAdjust}%;`]),
+    `  src: url("/api/fonts/custom/${file}") format("${cssFormat(file)}");`,
+    ...(range ? [`  unicode-range: ${range};`] : []),
+    "}",
+    "",
+  ].join("\n");
+}
+
 interface Composite {
   /** The generated family name, or null when both slots are "system". */
   family: string | null;
@@ -677,21 +820,30 @@ async function composite(
   name: string,
   latinId: string,
   arabicId: string,
+  arabicAdjust: number | null,
 ): Promise<Composite> {
   let css = "";
   let any = false;
   if (arabicId !== SYSTEM) {
-    const faces = await readFaces(arabicId);
     // Only the ARABIC half is compensated: the number describes this family's
     // body height against a Latin text face, so it is meaningless (and wrong)
     // on the Latin half — including the case where the same family were ever
-    // picked for both.
-    const adjust = sizeAdjustPercent(catalogEntry(arabicId));
-    for (const face of faces ?? []) {
-      const range = face.range ? filterRange(face.range, isArabicChunk) : "";
-      if (!range) continue; // a Latin-only subset of the Arabic family
-      css += faceBlock(name, arabicId, face, range, adjust);
-      any = true;
+    // picked for both. The operator's own override outranks the measurement.
+    const adjust = arabicAdjust ?? sizeAdjustPercent(catalogEntry(arabicId));
+    if (isCustomId(arabicId)) {
+      const file = customFileOf(arabicId);
+      if (file && (await customFontExists(arabicId))) {
+        css += customFaceBlock(name, file, ARABIC_RANGE_CSS, adjust);
+        any = true;
+      }
+    } else {
+      const faces = await readFaces(arabicId);
+      for (const face of faces ?? []) {
+        const range = face.range ? filterRange(face.range, isArabicChunk) : ARABIC_RANGE_CSS;
+        if (!range) continue; // a Latin-only subset of the Arabic family
+        css += faceBlock(name, arabicId, face, range, adjust);
+        any = true;
+      }
     }
   }
   // Captured BEFORE the Latin loop: whether to carve the Arabic codepoints out
@@ -699,13 +851,21 @@ async function composite(
   // have been emitted so far.
   const hasArabic = any;
   if (latinId !== SYSTEM) {
-    const faces = await readFaces(latinId);
-    for (const face of faces ?? []) {
-      const range =
-        face.range && hasArabic ? filterRange(face.range, (chunk) => !touchesArabic(chunk)) : face.range;
-      if (face.range && !range) continue; // an Arabic-only subset of a Latin family
-      css += faceBlock(name, latinId, face, range, null);
-      any = true;
+    if (isCustomId(latinId)) {
+      const file = customFileOf(latinId);
+      if (file && (await customFontExists(latinId))) {
+        css += customFaceBlock(name, file, hasArabic ? NON_ARABIC_RANGE_CSS : "", null);
+        any = true;
+      }
+    } else {
+      const faces = await readFaces(latinId);
+      for (const face of faces ?? []) {
+        const range =
+          face.range && hasArabic ? filterRange(face.range, (chunk) => !touchesArabic(chunk)) : face.range;
+        if (face.range && !range) continue; // an Arabic-only subset of a Latin family
+        css += faceBlock(name, latinId, face, range, null);
+        any = true;
+      }
     }
   }
   return { family: any ? name : null, css };
@@ -741,7 +901,7 @@ export async function buildFontCss(slots: FontSlots, opts: FontCssOptions): Prom
   const vars: string[] = [];
   for (const slot of ["prose", "ui", "mono"] as const) {
     const name = `${opts.prefix}${slot === "ui" ? "UI" : slot === "mono" ? "Mono" : "Prose"}`;
-    const built = await composite(name, slots[slot], slots.arabic);
+    const built = await composite(name, slots[slot], slots.arabic, slots.arabicSizeAdjust ?? null);
     parts.push(built.css);
     if (built.family) vars.push(`  ${SLOT_VAR[slot].name}: "${built.family}", ${SLOT_VAR[slot].fallback};`);
   }
@@ -760,4 +920,52 @@ export async function buildFontCss(slots: FontSlots, opts: FontCssOptions): Prom
     );
   }
   return `${parts.join("\n")}\n`;
+}
+
+// -------------------------------------------------- the picker's own faces
+
+/** ONE face per font id, under its own `VellumOpt-…` family — what makes the
+ *  font picker render every option IN THE FACE IT NAMES.
+ *
+ *  A list of family names in the UI font is not a font picker: it is a list of
+ *  words that happen to be trademarks, and no reader can tell Literata from
+ *  Source Serif by reading the words "Literata" and "Source Serif". So the
+ *  picker asks for the faces of ONE GROUP at a time (Serif, Sans, Mono,
+ *  Arabic, Your fonts) as that group is opened, and this builds them.
+ *
+ *  Cheap on purpose: regular weight, upright, and NO unicode-range narrowing —
+ *  an option row must render its Latin family name AND its Arabic sample from
+ *  the same declaration. Uncached families are skipped rather than fetched
+ *  here; the route caches first and this reads what landed. */
+export async function buildFaceListCss(ids: string[]): Promise<string> {
+  const parts: string[] = [
+    "/* Generated by Vellum — one face per pickable font, for the settings",
+    "   panel's font picker. Self-hosted like everything else. */",
+    "",
+  ];
+  for (const id of ids) {
+    const family = optionFamily(id);
+    if (isCustomId(id)) {
+      const file = customFileOf(id);
+      if (file && (await customFontExists(id))) parts.push(customFaceBlock(family, file, "", null));
+      continue;
+    }
+    if (!catalogEntry(id)) continue;
+    const faces = await readFaces(id);
+    for (const face of faces ?? []) {
+      // Regular upright only: the picker sets one line of a name and one line
+      // of sample text, and six weights per family across twenty-seven
+      // families is a megabyte of downloads to draw a menu.
+      if (!/400/.test(face.weight) || face.style.startsWith("italic")) continue;
+      parts.push(faceBlock(family, id, face, face.range, null));
+    }
+  }
+  return `${parts.join("\n")}\n`;
+}
+
+/** Every pickable id, catalog + uploaded — what the panel's picker offers and
+ *  what /api/font-faces.css will answer for. */
+export async function pickableIds(): Promise<string[]> {
+  const custom = await listCustomFonts();
+  return [...Object.keys(FONT_CATALOG), ...custom.map((font) => font.id)];
 }

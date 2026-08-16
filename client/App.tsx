@@ -62,6 +62,7 @@ export default function App() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const sidebarSide = useStore((s) => s.sidebarSide);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
+  const panelCollapsed = useStore((s) => s.panelCollapsed);
   const zen = useStore((s) => s.zen);
   const locked = useStore((s) => !s.admin && !s.publicReads);
   const lang = useStore((s) => s.language); // re-render the chrome strings on language change
@@ -411,6 +412,11 @@ export default function App() {
     sidebarOpen ? "s-app--drawer" : "",
     flipped ? "s-app--flip" : "",
     sidebarCollapsed ? "s-app--nosidebar" : "",
+    // The panel's own collapse lives on .s-panel--collapsed and always has —
+    // but the CENTRE column has to know about it too (app.css balances its
+    // gutters against what each end of the shell is actually holding), and a
+    // sibling's class is not something CSS can ask about.
+    panelCollapsed ? "s-app--nopanel" : "",
     zen ? "s-app--zen" : "",
     previewVisitor ? "s-app--preview" : "",
     readingLocked ? "s-app--reading" : "",
@@ -441,8 +447,8 @@ export default function App() {
           type="button"
           className="s-reopen s-reopen--sidebar"
           onClick={() => useStore.getState().setSidebarCollapsed(false)}
-          title={t("showSidebar")}
-          aria-label={t("showSidebar")}
+          title={t("showPaneNotes")}
+          aria-label={t("showPaneNotes")}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M9 6l6 6-6 6" />

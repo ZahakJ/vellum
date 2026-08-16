@@ -407,7 +407,15 @@ function isOpenPath(path: string): boolean {
 }
 
 export const authGuard: MiddlewareHandler = async (c, next) => {
-  if (isOpenPath(c.req.path)) return next();
+  // READ-ONLY openness. The exemptions above exist so a stylesheet and its
+  // faces render for anyone; they are not a hole for WRITES. Once fonts could
+  // be uploaded and deleted under that same /api/fonts/ prefix, a path-only
+  // exemption would have handed an anonymous caller POST /api/fonts/upload and
+  // DELETE /api/fonts/custom/<file> — so the exemption is now scoped to the
+  // methods it was ever meant for, and every mutation under the prefix falls
+  // through to the admin check below like any other.
+  const reading = c.req.method === "GET" || c.req.method === "HEAD";
+  if (reading && isOpenPath(c.req.path)) return next();
   // Preview: the admin session walks the visitor branch below — mutations
   // 401 and PUBLIC=false locks reads, exactly as they would for a stranger.
   if (!isPreviewingVisitor(c)) {

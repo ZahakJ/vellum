@@ -8,10 +8,23 @@ import type { AttachmentInfo, AttachmentKind, NoteData, TreeNode, VaultEvent } f
 
 export class VaultError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** A STABLE machine name for this failure, echoed to the client as
+   *  `{ error, code }`.
+   *
+   *  `message` is English prose written for a log and for `curl`; it is not a
+   *  string any UI should print. It was being printed: `client/api.ts` wraps
+   *  every failure body in an `Error` carrying exactly this text, so an
+   *  Arabic-only operator rejecting a mistyped font file read "Not a
+   *  recognized font file (woff2, woff, ttf, otf)" in an otherwise fully
+   *  Arabic panel — and the `fontUploadFailed` translation that existed for
+   *  the purpose was dead code. A code lets the client say it in the
+   *  reader's language and fall back to the prose for anything unnamed. */
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.name = "VaultError";
     this.status = status;
+    this.code = code;
   }
 }
 

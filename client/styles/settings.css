@@ -1,6 +1,6 @@
 /* Vellum — the settings surface.
    Linked after app.css (client/index.html), and it turns the panel app.css
-   built — a rail beside one long scrolling form — into seven TABS. What
+   built — a rail beside one long scrolling form — into SIX TABS. What
    changed, and why each change is here rather than in app.css:
 
      · the panel sizes to its tab instead of standing at a fixed 860px, since
@@ -17,7 +17,7 @@
 
 /* ── Shape ───────────────────────────────────────────────────────────────── */
 
-/* ONE height for all seven tabs, and that is the whole point of the rule.
+/* ONE height for all six tabs, and that is the whole point of the rule.
    Sizing to the tab — even between a floor and the viewport — meant the panel
    stood at 467px on Appearance and 855px on Typography, and since it is
    centred in the window, every click moved the RAIL as well as the body: the
@@ -39,7 +39,13 @@
    sync) scrolls under it. `align-self: flex-start` keeps it from stretching
    to the full column height, which is what makes `top: 0` mean anything. */
 .s-smodal__rail {
-  width: 190px;
+  /* In REM, not px. `:root[lang="ar"]` multiplies --font-scale (naskh reads
+     smaller than Georgia at the same px) and 1rem is `--font-base × that
+     scale`, so a px rail holds ~6% less Arabic than it holds English: the tab
+     names wrapped to two lines, the rail grew taller than the body it labels,
+     and the panel's whole left column drifted out of rhythm. Expressed in rem
+     the rail grows WITH its own type and holds exactly what it held before. */
+  width: 12.25rem;
   position: sticky;
   top: 0;
   align-self: flex-start;
@@ -55,7 +61,7 @@
 }
 
 /* The selected TAB, not a scroll position: filled, not just tinted, because
-   it is now the only thing on screen saying which of seven panels this is. */
+   it is now the only thing on screen saying which of six panels this is. */
 .s-smodal__railbtn--on {
   background: var(--accent-soft);
   border-inline-start-color: var(--accent);
@@ -126,14 +132,17 @@
    to ~500px, every hint wrapped against a different edge, and no two rows in
    the panel shared a rhythm. */
 .s-smodal__row {
-  grid-template-columns: 224px minmax(0, 1fr);
+  /* Same reason as the rail: a fixed-px label column is a column that holds
+     less Arabic than English. minmax(0, …) so it can still give way rather
+     than push the control out of the panel. */
+  grid-template-columns: minmax(0, 14.45rem) minmax(0, 1fr);
   gap: 10px 18px;
   min-height: 46px;
   padding-block: 2px;
 }
 
 .s-smodal__control {
-  max-width: 380px;
+  max-width: 24.5rem;
 }
 
 /* …except the ones that ARE the width: the type specimen and the sync status
@@ -160,6 +169,28 @@
   max-width: 30ch;
 }
 
+/* The control column is a column of CONTROLS, and they all start at its
+   inline start. Without this the segmented controls and toggles (which are
+   inline-flex and size to their content) centred themselves in an RTL panel
+   under `align-items` inherited from the row, so a three-segment row and a
+   toggle row began at two different places down the same column. */
+.s-smodal__control > * {
+  align-self: stretch;
+}
+
+.s-smodal__control > .s-ctl-seg,
+.s-smodal__control > .s-ctl-num,
+.s-smodal__control > .s-ctl-toggle {
+  align-self: flex-start;
+}
+
+/* The image rows are a field plus its buttons on one line: the field takes
+   the room the buttons do not. (app.css said this in terms of the old
+   .s-bmodal__input class the row no longer uses.) */
+.s-smodal__imgfield .s-ctl-input {
+  flex: 1;
+}
+
 /* The sync status block reads as a paragraph, not as a field value. */
 .s-smodal__sync {
   max-width: none;
@@ -167,22 +198,29 @@
 
 /* ── Scroll edges ────────────────────────────────────────────────────────── */
 
-/* Taller fades: at 18px the gradient read as a hairline shadow rather than as
-   "there is more below". */
-.s-smodal__edge {
-  height: 26px;
+/* The body fades at whichever end has content beyond it (`.s-scrollfade`,
+   app.css) — EXCEPT where a sticky block already owns the top edge. On
+   Typography the specimen is pinned there, carries the panel's own ground and
+   its own gradient tail, and fading ITS top would fade the live preview the
+   whole tab is built around. */
+.s-smodal__body:has(.s-smodal__specwrap) {
+  --fade-top: 0px;
 }
 
 /* ── Appearance: the reader's own theme ──────────────────────────────────── */
 
-.s-smodal__themepick {
-  display: flex;
-  align-items: center;
+/* "Your theme" is a Select-shaped trigger that opens the browsing panel — see
+   the comment on the row in SettingsModal. It only needs the swatch's air and
+   the taller line the miniature forces; everything else is `.s-ctl-select`. */
+.s-smodal__themebtn {
+  min-height: 52px;
   gap: 10px;
+  padding-block: 5px;
 }
 
-.s-smodal__themepick .s-btn {
-  margin-inline-start: auto;
+.s-smodal__themebtn .s-tpick__card {
+  width: 52px;
+  height: 36px;
 }
 
 
@@ -207,7 +245,7 @@
 
 .s-about__row {
   display: grid;
-  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 14.45rem) minmax(0, 1fr);
   gap: 18px;
   align-items: baseline;
   padding: 7px 0;
@@ -279,7 +317,7 @@
 
 .s-about__doc {
   display: grid;
-  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 14.45rem) minmax(0, 1fr);
   gap: 18px;
   align-items: baseline;
   padding: 6px 0;
@@ -317,7 +355,7 @@
 @media (max-width: 720px) {
   /* Sticky is for a rail beside the content; as a top strip it scrolls with
      the panel head. `align-self` has to go back to stretch with it: left at
-     flex-start in the COLUMN layout the strip sized to its seven tabs (701px)
+     flex-start in the COLUMN layout the strip sized to its six tabs (701px)
      instead of to the panel, so `overflow-x: auto` had nothing to scroll and
      the whole modal overflowed sideways on a phone. */
   .s-smodal__rail {
@@ -350,5 +388,174 @@
 
   .s-about__counts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ── Typography: the specimen leads, and it STAYS ─────────────────────────── */
+
+/* The specimen is stuck to the top of the tab's scroller and every picker
+   below opens downward into the space under its own trigger, so the block that
+   answers "what does this look like" is on screen for the whole time the list
+   that changes it is open. It used to sit UNDER the four pickers, where the
+   popover of the last one covered it — which is the same as having no preview
+   at all, and was flagged as exactly that. */
+.s-smodal__specwrap {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* The panel's own ground, so the rows scrolling under it are hidden rather
+     than showing through. THE GROUND HAS TO COVER EVERY PIXEL THE BLOCK
+     OCCUPIES: the 6px this used to spend on `margin-bottom` sat OUTSIDE the
+     painted box, so in the band between the specimen card's border and the
+     next row the tops of whatever was scrolling underneath showed through as
+     a line of disconnected glyph and diacritic fragments — conspicuous in
+     Arabic, where the tashkeel ride high enough to be exactly what survives a
+     6px window. The gap is padding now, and padding is painted. */
+  background: var(--bg-raised);
+  padding-block: 2px 16px;
+}
+
+/* …and the row that is about to pass under it DISSOLVES rather than meeting a
+   hard edge, which is the same rule the scrollers follow (`.s-scrollfade`).
+   The tail hangs below the sticky block, so it costs the layout nothing. */
+.s-smodal__specwrap::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 100%;
+  height: 14px;
+  background: linear-gradient(to bottom, var(--bg-raised), transparent);
+  pointer-events: none;
+}
+
+/* The sticky specimen overlaps whatever is scrolled under it, and the browser
+   does not know that when it scrolls a row into view — a keyboard tab through
+   the pickers, or a programmatic focus, would land the Arabic row UNDER the
+   preview block. Every row in this tab therefore reserves the specimen's
+   height as its scroll margin. */
+[data-section="typography"] .s-smodal__row,
+[data-section="typography"] .s-smodal__sub {
+  scroll-margin-top: 14rem;
+}
+
+.s-smodal__speclabelrow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.s-smodal__speccaption {
+  font-size: 0.857rem;
+  color: var(--text);
+}
+
+.s-smodal__spechint {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+/* "Reset fonts" belongs with the preview it resets, at the far end of its
+   line — logical, so it sits at the panel's trailing edge in both directions. */
+.s-smodal__speclabelrow .s-btn {
+  margin-inline-start: auto;
+}
+
+/* The specimen box, tightened: it is now a sticky control-adjacent block, not
+   a section of its own, so it trades a second sample line per slot for staying
+   on screen while the pickers are open. */
+.s-smodal__specimens {
+  padding: 9px 12px;
+  gap: 3px;
+}
+
+.s-smodal__specimen + .s-smodal__specimen {
+  padding-top: 4px;
+}
+
+.s-smodal__specline {
+  line-height: 1.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The join between the two scripts belongs to neither of them. */
+.s-smodal__specgap {
+  color: var(--text-faint);
+}
+
+/* ── Typography: the operator's own faces ─────────────────────────────────── */
+
+.s-smodal__fonts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.s-smodal__fontlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.s-smodal__fontrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 11px;
+  border-radius: var(--radius);
+  background: var(--bg);
+  /* Same inset ring as the specimen box: --bg on --bg-raised is nearly
+     invisible on the warm light themes, and a row that loses its edge loses
+     its "this is one item" reading. */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-faint) 40%, transparent);
+}
+
+/* The family name is set IN the uploaded face: the row is a specimen as much
+   as an inventory line, which is also the only honest way to show what a file
+   called "MyFace-Regular.woff2" actually is. */
+.s-smodal__fontname {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.02rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.s-smodal__fontmeta {
+  display: flex;
+  gap: 10px;
+  flex: none;
+  font-size: 0.714rem;
+  color: var(--text-faint);
+}
+
+/* A face a slot still names says so, in place of the delete button it does
+   not get. The server 409s the same case; this is the half that explains it
+   before the click rather than after. */
+.s-smodal__fontused {
+  flex: none;
+  font-size: 0.714rem;
+  color: var(--text-muted);
+}
+
+/* ── Narrow ───────────────────────────────────────────────────────────────── */
+
+@media (max-width: 560px) {
+  .s-smodal__fontrow {
+    flex-wrap: wrap;
+  }
+
+  .s-smodal__fontname {
+    flex-basis: 100%;
   }
 }

@@ -15,14 +15,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // Aliased: the panel also installs a window keydown listener, and React's
 // KeyboardEvent would shadow the DOM one that listener is typed with.
-import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
-import type { AboutInfo, FontCatalogEntry } from "../../shared/types.ts";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import type { AboutInfo, CustomFontInfo, FontCatalogEntry } from "../../shared/types.ts";
 import type { SettingsPatch, SettingsResponse } from "../../shared/types.ts";
-import { getSettings, listAttachments, patchSettings, uploadAttachment } from "../api.ts";
+import {
+  ApiError,
+  deleteCustomFont,
+  getSettings,
+  listAttachments,
+  listCustomFonts,
+  patchSettings,
+  uploadAttachment,
+  uploadFont,
+} from "../api.ts";
 import { bannerSrc } from "../banner.ts";
+import { clearFontFaces, faceStack, loadFontFaces } from "../fontFaces.ts";
 import { countPhrase, localeNum, t, tf, type I18nKey } from "../i18n.ts";
-import { UPLOAD_MAX_MB } from "../../shared/limits.ts";
-import { useStore } from "../state.ts";
+import { FONT_UPLOAD_MAX_MB, UPLOAD_MAX_MB } from "../../shared/limits.ts";
+import { defaultSide, useStore, type SidebarSidePref } from "../state.ts";
+import { attachScrollFade } from "../scrollFade.ts";
+import { confirmModal } from "./Confirm.tsx";
+import { FontPicker, SYSTEM_FONT } from "./FontPicker.tsx";
+import { NumberInput, SegmentedControl, TextInput, Toggle, type Segment } from "./controls/Fields.tsx";
+import { isSelectOpen, Select, type SelectGroup } from "./controls/Select.tsx";
 import { isTheme, THEME_GROUPS, THEME_LABELS, THEMES, type Theme } from "../themes.ts";
 import {
   onSyncChange,
@@ -78,10 +93,10 @@ interface Form {
   fontUi: string;
   fontMono: string;
   fontArabic: string;
+  /** Optical size match for the Arabic face, in percent; "" = the catalog's
+   *  own measured value (or none, for an uploaded face). */
+  fontSizeAdjust: string;
 }
-
-/** The "no webfont" choice — the built-in system stacks (server SYSTEM). */
-const SYSTEM_FONT = "system";
 
 function formFrom(s: SettingsResponse): Form {
   return {
@@ -117,10 +132,16 @@ function formFrom(s: SettingsResponse): Form {
     fontUi: s.effective.fonts?.ui ?? SYSTEM_FONT,
     fontMono: s.effective.fonts?.mono ?? SYSTEM_FONT,
     fontArabic: s.effective.fonts?.arabic ?? SYSTEM_FONT,
+    fontSizeAdjust:
+      s.effective.fonts?.arabicSizeAdjust == null ? "" : String(s.effective.fonts.arabicSizeAdjust),
   };
 }
 
-const FONT_KEYS = ["fontProse", "fontUi", "fontMono", "fontArabic"] as const;
+const FONT_KEYS = ["fontProse", "fontUi", "fontMono", "fontArabic", "fontSizeAdjust"] as const;
+
+/** The band the server accepts for fonts.arabicSizeAdjust (server/fonts.ts). */
+const SIZE_ADJUST_MIN = 50;
+const SIZE_ADJUST_MAX = 300;
 
 // Type SPECIMENS, deliberately not in i18n.ts: a Latin sample must stay Latin
 // in an Arabic UI and an Arabic sample Arabic in an English one, or the block
@@ -128,8 +149,8 @@ const FONT_KEYS = ["fontProse", "fontUi", "fontMono", "fontArabic"] as const;
 // on purpose — it is the whole feature in one line: the Arabic slot answers
 // for the Arabic letters and the Latin slot for "Vellum" and the digits,
 // chosen per CHARACTER, with no markup and no language attribute.
-const SPECIMEN_LATIN = "The vault is open — a candlelit room. 0123456789";
-const SPECIMEN_ARABIC = "خَطُّ النَّسْخِ في عمودِ القراءةِ — Vellum ١٢٣٤٥٦٧٨٩";
+const SPECIMEN_LATIN = "The vault is open — a candlelit room 0123";
+const SPECIMEN_ARABIC = "خَطُّ النَّسْخِ في عمودِ القراءةِ ١٢٣٤";
 
 const TAG_RE = /^[\p{L}\p{N}][\p{L}\p{N}_/-]*$/u;
 
@@ -245,6 +266,16 @@ function validate(f: Form): Partial<Record<keyof Form, string>> {
   if (interval !== "" && !/^\d{1,4}$/.test(interval)) errors.syncInterval = t("errInterval");
   else if (Number(interval || "0") > 1440) errors.syncInterval = t("errInterval");
   if (/\s/.test(f.syncToken)) errors.syncToken = t("errTokenSpaces");
+  const adjust = f.fontSizeAdjust.trim();
+  if (adjust !== "") {
+    const n = Number(adjust);
+    if (!/^\d{1,3}$/.test(adjust) || n < SIZE_ADJUST_MIN || n > SIZE_ADJUST_MAX) {
+      errors.fontSizeAdjust = tf("errSizeAdjust", {
+        min: localeNum(SIZE_ADJUST_MIN),
+        max: localeNum(SIZE_ADJUST_MAX),
+      });
+    }
+  }
   return errors;
 }
 
@@ -323,7 +354,16 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
   // All four slots travel together: the server needs the whole set to know
   // which families to have on disk before it writes the file.
   if (FONT_KEYS.some((key) => f[key] !== initial[key])) {
-    patch.fonts = { prose: f.fontProse, ui: f.fontUi, mono: f.fontMono, arabic: f.fontArabic };
+    const adjust = f.fontSizeAdjust.trim();
+    patch.fonts = {
+      prose: f.fontProse,
+      ui: f.fontUi,
+      mono: f.fontMono,
+      arabic: f.fontArabic,
+      // Empty = "no override": the catalog's measured value comes back, and an
+      // uploaded face goes back to none. null is how the server spells that.
+      arabicSizeAdjust: adjust === "" ? null : Number(adjust),
+    };
   }
   return patch;
 }
@@ -535,6 +575,52 @@ function themeLabel(id: string | null): string {
   return t(THEME_LABELS[isTheme(id ?? "") ? (id as Theme) : THEMES[0]].name);
 }
 
+/** A NOTE THAT ONLY REPEATS ITS LABEL IS NOISE.
+ *
+ *  Each theme row carries the raw id as a muted note, because the id is what
+ *  `DEFAULT_THEME` takes in a .env and what `settings.defaultTheme` stores —
+ *  worth showing. In ARABIC it earns that place twice over: the label is an
+ *  Arabic name and the note is the Latin id, two different strings. In English
+ *  it produced Iron gall / iron-gall, Cinnabar / cinnabar, Sumi / sumi, Void /
+ *  void, Basalt / basalt, Nocturne / nocturne, Lapis / lapis, Verdigris /
+ *  verdigris — eight rows of the same word printed twice, ~230px apart at the
+ *  far edge of the row. So the note is dropped exactly when it is derivable
+ *  from the label it sits beside, which is a property of the pair rather than
+ *  of the language: a theme whose English name is not its id keeps it. */
+function noteIsDerivable(label: string, id: string): boolean {
+  return (
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") === id
+  );
+}
+
+/** The theme rows the default-theme picker offers: an "inherit" row naming
+ *  the value in force, then the fifteen themes grouped dark/light. The human
+ *  label is the option's text and the raw id is its muted note (see above). */
+function themeChoices(effective: string | null): SelectGroup[] {
+  return [
+    {
+      id: "inherit",
+      label: "",
+      options: [{ value: "", label: tf("inheritOption", { value: themeLabel(effective) }) }],
+    },
+    ...THEME_GROUPS.map((group) => ({
+      id: group.group,
+      label: t(group.group === "dark" ? "themeGroupDark" : "themeGroupLight"),
+      options: group.themes.map((theme) => {
+        const label = t(THEME_LABELS[theme].name);
+        return {
+          value: theme,
+          label,
+          note: noteIsDerivable(label, theme) ? undefined : theme,
+        };
+      }),
+    })),
+  ];
+}
+
 /** "inherited from SITE_LANG" — the env NAME is a literal to be typed into a
  *  shell or a .env file, so it gets the mono face and its own <bdi> isolate
  *  rather than being interpolated into one text run (which is what tf() would
@@ -586,13 +672,12 @@ function ImageField({
           ⌀
         </span>
       )}
-      <input
-        className="s-bmodal__input"
-        type="text"
+      <TextInput
         value={value}
         placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        spellCheck={false}
+        onChange={onChange}
+        invalid={invalid}
+        label={placeholder}
         dir="ltr"
       />
       <button type="button" className="s-btn" onClick={onOpenPicker}>
@@ -785,77 +870,158 @@ function SyncActions({ stale, disabled }: { stale: boolean; disabled: boolean })
 // Typography — four slots over the self-hosted catalog, plus a live specimen.
 // ---------------------------------------------------------------------------
 
-/** The option groups a slot offers. Text and Interface list the Latin-only
- *  families (the Arabic ones have their own slot, which answers for Arabic
- *  letters in ALL THREE composites — offering them here too would only invite
- *  picking a naskh face as the Latin one); Code lists the monospace family;
- *  Arabic splits naskh/classical from modern/kufi, which is the distinction a
- *  reader is actually choosing between. */
-function fontGroups(
-  catalog: FontCatalogEntry[],
-  slot: "text" | "mono" | "arabic",
-): { key: I18nKey; items: FontCatalogEntry[] }[] {
-  const latin = catalog.filter((f) => !f.scripts.includes("arabic"));
-  const arabic = catalog.filter((f) => f.scripts.includes("arabic"));
-  if (slot === "mono") return [{ key: "fontGroupMono", items: latin.filter((f) => f.category === "mono") }];
-  if (slot === "arabic") {
-    return [
-      { key: "fontGroupArabicNaskh", items: arabic.filter((f) => f.category === "serif") },
-      { key: "fontGroupArabicModern", items: arabic.filter((f) => f.category === "sans") },
-    ];
-  }
-  return [
-    { key: "fontGroupSerif", items: latin.filter((f) => f.category === "serif") },
-    { key: "fontGroupSans", items: latin.filter((f) => f.category === "sans") },
-  ];
+/** WHAT THE SERVER REFUSED, IN THE READER'S LANGUAGE.
+ *
+ *  `client/api.ts` turns every failure body into an `ApiError` carrying the
+ *  server's ENGLISH prose, and every call site here used to toast
+ *  `err.message` — so the commonest failure of this feature (choosing the
+ *  wrong file) printed "Not a recognized font file (woff2, woff, ttf, otf)"
+ *  into a fully Arabic panel, and `t("fontUploadFailed")` was unreachable
+ *  code. The font routes now name their failures with a stable `code`; this
+ *  translates the ones worth naming and keeps the generic line for the rest.
+ *
+ *  Falling back to `err.message` was considered and rejected: the prose is
+ *  English by construction, so showing it is the bug, not the safety net. An
+ *  unnamed failure gets the generic sentence and the detail goes to the
+ *  console, where it was already going. */
+const FONT_ERROR_KEYS: Record<string, I18nKey> = {
+  font_unrecognized: "errFontUnrecognized",
+  font_damaged: "errFontDamaged",
+  font_too_large: "errFontTooLarge",
+  font_no_file: "errFontNoFile",
+  font_bad_body: "errFontNoFile",
+  font_not_found: "errFontNotFound",
+  font_bad_name: "errFontBadName",
+  font_no_free_name: "errFontNoFreeName",
+  font_in_use: "errFontInUse",
+};
+
+function fontErrorText(err: unknown, fallback: I18nKey): string {
+  const code = err instanceof ApiError ? err.code : undefined;
+  const key = code ? FONT_ERROR_KEYS[code] : undefined;
+  if (!key) return t(fallback);
+  // The one code with a number in its sentence; the cap is a client constant
+  // too, so it is not read back off the wire.
+  return key === "errFontTooLarge"
+    ? tf(key, { max: localeNum(FONT_UPLOAD_MAX_MB) })
+    : t(key);
 }
 
-function FontSelect({
-  value,
-  groups,
-  onChange,
+/** The uploaded-face manager: a drop zone and the list of what has been
+ *  uploaded. It sits under the four pickers because it is inventory, not a
+ *  choice — the choosing happens above, where "Your fonts" is one group among
+ *  the catalog's.
+ *
+ *  Deleting is guarded twice: a face a slot still names is not offered a
+ *  delete button at all (the row says which slot holds it), and the server
+ *  409s the same case regardless of what the panel believes. */
+function CustomFonts({
+  fonts,
+  usedBy,
+  busy,
+  onUpload,
+  onDelete,
 }: {
-  value: string;
-  groups: { key: I18nKey; items: FontCatalogEntry[] }[];
-  onChange: (id: string) => void;
+  fonts: CustomFontInfo[];
+  usedBy: (id: string) => string[];
+  busy: boolean;
+  onUpload: (file: File) => void;
+  onDelete: (font: CustomFontInfo) => void;
 }) {
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Each row prints its family name IN that family, which is the only honest
+  // way to show what a file called "MyFace-Regular.woff2" actually is — so the
+  // list asks for its own faces, exactly as a picker group does.
+  useEffect(() => loadFontFaces(fonts.map((font) => font.id)), [fonts]);
   return (
-    <select
-      className="s-bmodal__input s-smodal__select"
-      // The VALUES are Latin family names (Lora, JetBrains Mono, Amiri). In an
-      // RTL panel a select right-aligns its value, which flung every name to
-      // the far edge away from its chevron and left the column ragged; the
-      // names get to keep their own direction and start-alignment.
-      dir="ltr"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      <option value={SYSTEM_FONT}>{t("fontSystem")}</option>
-      {groups.map((group) =>
-        group.items.length === 0 ? null : (
-          <optgroup key={group.key} label={t(group.key)}>
-            {group.items.map((font) => (
-              // Family names are proper nouns — untranslated, like the theme
-              // names one section up.
-              <option key={font.id} value={font.id}>
-                {font.family}
-              </option>
-            ))}
-          </optgroup>
-        ),
+    <div className="s-smodal__fonts">
+      <div
+        className={`s-bmodal__drop${dragOver ? " s-bmodal__drop--over" : ""}`}
+        onClick={() => fileInputRef.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file) onUpload(file);
+        }}
+      >
+        {t(busy ? "working" : "dropFont")}
+        <span className="s-bmodal__drophint">
+          {tf("dropFontHint", { max: localeNum(FONT_UPLOAD_MAX_MB) })}
+        </span>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) onUpload(file);
+            e.target.value = "";
+          }}
+        />
+      </div>
+      {fonts.length === 0 && <p className="s-smodal__note">{t("noCustomFonts")}</p>}
+      {fonts.length > 0 && (
+        <ul className="s-smodal__fontlist">
+          {fonts.map((font) => {
+            const slots = usedBy(font.id);
+            return (
+              <li className="s-smodal__fontrow" key={font.id}>
+                {/* The name is set IN the face: the row is a specimen too. */}
+                <span
+                  className="s-smodal__fontname"
+                  dir="ltr"
+                  style={{ fontFamily: faceStack(font.id, "var(--font-ui-system)") }}
+                >
+                  {font.family}
+                </span>
+                <span className="s-smodal__fontmeta">
+                  <bdi>{font.format}</bdi>
+                  <bdi>{tf("fontSizeKb", { count: localeNum(Math.max(1, Math.round(font.size / 1024))) })}</bdi>
+                </span>
+                {slots.length > 0 ? (
+                  <span className="s-smodal__fontused">{tf("fontInUse", { slots: slots.join(" · ") })}</span>
+                ) : (
+                  <button type="button" className="s-btn s-btn--danger" disabled={busy} onClick={() => onDelete(font)}>
+                    {t("remove")}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       )}
-    </select>
+    </div>
   );
 }
 
 /** The specimen block. Each row renders in its slot's PREVIEW composite
  *  ("VellumPreviewProse" …), which /api/font-preview.css defines from the
  *  picks currently in the form — so the reader sees the faces before saving
- *  anything. The second line of each row is mixed on purpose: the Arabic slot
- *  answers for the Arabic letters and the slot's own face for the Latin ones,
- *  chosen per character. Every family name falls back to the matching
- *  --font-*-system stack, so an unpicked (or not-yet-fetched) slot simply
- *  shows what the site shows today. */
+ *  anything, including the size-adjust dial. Every family name falls back to
+ *  the matching --font-*-system stack, so an unpicked (or not-yet-fetched)
+ *  slot simply shows what the site shows today.
+ *
+ *  ONE line per slot, and it is MIXED on purpose: that single line is the
+ *  whole feature — the Arabic slot answers for the Arabic letters and the
+ *  slot's own face for the Latin ones and the digits, chosen per character,
+ *  with no markup and no language attribute. It used to be two lines (a Latin
+ *  one and a mixed one), which was a better specimen and a worse CONTROL: the
+ *  block stood 305px tall inside a 609px body, and it now has to stay on
+ *  screen while the pickers below it are open. A sample nobody can see beside
+ *  its picker previews nothing.
+ *
+ *  The line keeps the PANEL's direction and holds one inline isolate per run
+ *  (dir on an inline element implies unicode-bidi: isolate), so the Arabic
+ *  shapes and orders right-to-left without being flung to the opposite edge
+ *  of the box — the faces being compared have to begin at the same place. */
 function FontSpecimens() {
   const rows: { key: I18nKey; cls: string }[] = [
     { key: "rowFontProse", cls: "s-smodal__specimen--prose" },
@@ -867,16 +1033,9 @@ function FontSpecimens() {
       {rows.map((row) => (
         <div key={row.key} className={`s-smodal__specimen ${row.cls}`}>
           <span className="s-smodal__speclabel">{t(row.key)}</span>
-          {/* Both lines start at the SAME edge. The block keeps the panel's
-              direction and each sample is an inline isolate inside it (dir on
-              an inline element implies unicode-bidi: isolate), so the Arabic
-              still shapes and orders right-to-left but is not flung to the
-              opposite edge of the box — two faces judged against each other
-              have to begin at the same place. */}
           <span className="s-smodal__specline">
             <bdi dir="ltr">{SPECIMEN_LATIN}</bdi>
-          </span>
-          <span className="s-smodal__specline">
+            <span className="s-smodal__specgap"> · </span>
             <bdi dir="rtl">{SPECIMEN_ARABIC}</bdi>
           </span>
         </div>
@@ -890,13 +1049,23 @@ function FontSpecimens() {
  *  debounced (a select is a burst of changes) and its failures are silent —
  *  the specimen falls back to the system stack, which is a fine preview; a
  *  toast per keystroke is not. */
-function useFontPreview(prose: string, ui: string, mono: string, arabic: string): void {
+function useFontPreview(
+  prose: string,
+  ui: string,
+  mono: string,
+  arabic: string,
+  sizeAdjust: string,
+): void {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const q = new URLSearchParams();
       for (const [slot, id] of [["prose", prose], ["ui", ui], ["mono", mono], ["arabic", arabic]]) {
         if (id && id !== SYSTEM_FONT) q.set(slot, id);
       }
+      // The dial travels with the picks: it changes what the specimen looks
+      // like without changing a single id, and it is judged against the Latin
+      // line beside it or not at all.
+      if (sizeAdjust.trim() !== "" && arabic !== SYSTEM_FONT) q.set("sizeAdjust", sizeAdjust.trim());
       let link = document.head.querySelector<HTMLLinkElement>("link[data-vellum-fontpreview]");
       if ([...q.keys()].length === 0) {
         link?.remove();
@@ -912,7 +1081,7 @@ function useFontPreview(prose: string, ui: string, mono: string, arabic: string)
       if (link.getAttribute("href") !== href) link.setAttribute("href", href);
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [prose, ui, mono, arabic]);
+  }, [prose, ui, mono, arabic, sizeAdjust]);
   // The preview families must not outlive the panel: the saved stylesheet is
   // what the app renders in.
   useEffect(() => () => document.head.querySelector("link[data-vellum-fontpreview]")?.remove(), []);
@@ -945,6 +1114,12 @@ function AboutTab({ about }: { about: AboutInfo | null }) {
     { label: t("aboutRuntime"), value: `Node ${about.node}` },
     { label: t("aboutVault"), value: about.vaultPath, path: true },
     { label: t("aboutData"), value: about.dataPath, path: true },
+    // Where the panel's own answers are kept. The title bar used to say
+    // "— settings.json", which named the file without saying where it was;
+    // this says both, beside the other absolute paths, and only to an admin
+    // (GET /api/settings 404s to everyone else).
+    { label: t("aboutSettingsFile"), value: about.settingsPath, path: true },
+    { label: t("aboutFontsDir"), value: about.customFontsPath, path: true },
   ];
   const counts: { label: string; value: string }[] = [
     { label: t("aboutNotes"), value: localeNum(about.notes) },
@@ -967,6 +1142,8 @@ function AboutTab({ about }: { about: AboutInfo | null }) {
           </div>
         ))}
       </dl>
+
+      <p className="s-smodal__note">{t("aboutSettingsNote")}</p>
 
       <div className="s-smodal__sub">{t("aboutContents")}</div>
       <div className="s-about__counts">
@@ -999,7 +1176,7 @@ function AboutTab({ about }: { about: AboutInfo | null }) {
 // ---------------------------------------------------------------------------
 
 /** The tabs. The rail used to scroll a single ~2,700px document, which made it
- *  a table of contents for a form nobody could see the end of; seven TABS make
+ *  a table of contents for a form nobody could see the end of; six TABS make
  *  each one a short read — most of them fit without scrolling at all — and the
  *  rail becomes navigation rather than a bookmark. Each tab opens with one
  *  sentence saying what it decides, because "Language" and "Publishing" are
@@ -1049,6 +1226,20 @@ export default function SettingsModal() {
   /** The reader's OWN theme (Appearance tab) — a live subscription, so a pick
    *  made in the picker on top of this panel updates the row underneath it. */
   const theme = useStore((s) => s.theme);
+  /** The notes sidebar's edge, same shape as the theme row above it: a DEVICE
+   *  preference, not a site setting, so it saves itself on click and never
+   *  travels with the Save button. Both halves are read — the three-state
+   *  preference drives the control, the resolved edge names what "Auto" is
+   *  doing right now — because "Auto" that does not say which edge it landed
+   *  on is the invisible state this control exists to end. */
+  const sidebarSidePref = useStore((s) => s.sidebarSidePref);
+  /** The edge *Auto* would resolve to — `defaultSide(language)`, NOT the store's
+   *  `sidebarSide`. The resolved side already has any pin folded into it, so on
+   *  an Arabic instance with the pane pinned left it reads "left" while picking
+   *  Auto would move the pane right: the note would be describing the pin
+   *  instead of the option it sits under. */
+  const autoSide = useStore((s) => defaultSide(s.language));
+  const setSidebarSidePref = useStore((s) => s.setSidebarSidePref);
   const close = useCallback(() => setOpen(false), [setOpen]);
 
   const [loaded, setLoaded] = useState<SettingsResponse | null>(null);
@@ -1057,29 +1248,28 @@ export default function SettingsModal() {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [picker, setPicker] = useState<"favicon" | "logo" | "homeBanner" | null>(null);
+  /** The operator's uploaded faces. Its own request rather than a field on
+   *  the settings payload: it changes on upload and delete, several times per
+   *  visit to the Typography tab, while the settings payload does not. */
+  const [customFonts, setCustomFonts] = useState<CustomFontInfo[]>([]);
+  const [fontBusy, setFontBusy] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
   const [tab, setTab] = useState(TABS[0].id);
-  /** Which scroll edges have content beyond them. Without this the content is
-   *  sliced flush at the top and bottom of the box and reads as a rendering
-   *  bug rather than as something that scrolls. */
-  const [edges, setEdges] = useState({ top: false, bottom: false });
-
-  /** Edge fades, from one scroll handler (also run on mount, on resize and on
-   *  every tab change, so the state is right before anything is scrolled). */
-  const syncScrollState = useCallback(() => {
-    const body = bodyRef.current;
-    if (!body) return;
-    const top = body.scrollTop > 2;
-    const bottom = body.scrollTop + body.clientHeight < body.scrollHeight - 2;
-    setEdges((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }));
-  }, []);
-
-  useEffect(() => {
-    syncScrollState();
-    window.addEventListener("resize", syncScrollState);
-    return () => window.removeEventListener("resize", syncScrollState);
-  }, [syncScrollState, form, tab]);
+  /** THE BODY'S SCROLL EDGES ARE A MASK, NOT AN OVERLAY.
+   *
+   *  Two absolutely-positioned gradient `<span>`s used to sit over the top and
+   *  bottom of the scroller, painting `--bg-raised` to transparent. A gradient
+   *  laid over content only hides what it exactly matches, and it did not: at
+   *  the top edge a segmented pill came through cut across its middle with its
+   *  accent border flat-cut, which reads as a rendering fault rather than as
+   *  "there is more above" — the same slice again at the foot against the
+   *  footer rule. `.s-scrollfade` masks the element's own alpha instead, so
+   *  the row genuinely dissolves; and being a mask it cannot disagree with the
+   *  ground it is drawn on. `attachScrollFade` keeps it honest through
+   *  scrolling, resizing, tab changes and rows appearing (the size-adjust row
+   *  comes and goes), which the old handler needed three dependencies to do. */
+  useEffect(() => attachScrollFade(bodyRef.current), []);
 
   /** A new tab starts at ITS top — carrying the previous tab's scroll offset
    *  into a shorter tab lands the reader in the middle of it (or past its
@@ -1137,6 +1327,11 @@ export default function SettingsModal() {
       // in the picker closed the settings panel underneath it (and the picker
       // with it) instead of reverting the previewed theme.
       if (isThemePickerOpen()) return;
+      // Same precedence, one level closer: an open select popover is a
+      // transient surface INSIDE this panel, and its Esc means "put the value
+      // back", not "close the settings". Its own listener is registered later
+      // than this capture-phase one and would otherwise never run.
+      if (isSelectOpen()) return;
       e.stopPropagation();
       setPicker((p) => {
         if (p !== null) return null;
@@ -1153,6 +1348,65 @@ export default function SettingsModal() {
     form?.fontUi ?? SYSTEM_FONT,
     form?.fontMono ?? SYSTEM_FONT,
     form?.fontArabic ?? SYSTEM_FONT,
+    form?.fontSizeAdjust ?? "",
+  );
+
+  const reloadCustomFonts = useCallback(() => {
+    listCustomFonts()
+      .then(setCustomFonts)
+      // A vault with no uploads answers [], so a failure here is a real one —
+      // and still not worth a toast on open: the section renders empty and
+      // the upload path reports its own errors.
+      .catch((err: unknown) => console.error("vellum: listing uploaded fonts failed", err));
+  }, []);
+
+  useEffect(() => reloadCustomFonts(), [reloadCustomFonts]);
+
+  /** The preview faces are a menu's worth of families; they must not outlive
+   *  the panel that draws the menu. */
+  useEffect(() => () => clearFontFaces(), []);
+
+  const uploadCustomFont = useCallback(
+    (file: File) => {
+      if (fontBusy) return;
+      setFontBusy(true);
+      uploadFont(file)
+        .then((font) => {
+          reloadCustomFonts();
+          toast(tf("fontAdded", { name: font.family }));
+        })
+        .catch((err: unknown) => {
+          console.error("vellum: font upload failed", err);
+          toast(fontErrorText(err, "fontUploadFailed"), "error");
+        })
+        .finally(() => setFontBusy(false));
+    },
+    [fontBusy, reloadCustomFonts],
+  );
+
+  const removeCustomFont = useCallback(
+    (font: CustomFontInfo) => {
+      void (async () => {
+        const ok = await confirmModal({
+          title: tf("fontDeleteTitle", { name: font.family }),
+          body: t("fontDeleteBody"),
+          confirmLabel: t("remove"),
+        });
+        if (!ok) return;
+        setFontBusy(true);
+        try {
+          await deleteCustomFont(font.file);
+          reloadCustomFonts();
+          toast(t("fontRemoved"));
+        } catch (err) {
+          console.error("vellum: font delete failed", err);
+          toast(fontErrorText(err, "fontRemoveFailed"), "error");
+        } finally {
+          setFontBusy(false);
+        }
+      })();
+    },
+    [reloadCustomFonts],
   );
 
   const errors = useMemo(() => (form ? validate(form) : {}), [form]);
@@ -1163,11 +1417,23 @@ export default function SettingsModal() {
   const dirty = Object.keys(patch).length > 0;
   const valid = Object.keys(errors).length === 0;
 
+  /** One helper for every control in the panel, because every control in the
+   *  panel now speaks the same language: a string in, a string out. (The old
+   *  one spread a native ChangeEvent handler, which is what tied these rows to
+   *  <select> and <input> in the first place.) */
   const field = <K extends keyof Form>(key: K) => ({
     value: form ? form[key] : "",
-    onChange: (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-      setForm((f) => (f ? { ...f, [key]: e.target.value } : f)),
+    onChange: (value: string) => setForm((f) => (f ? { ...f, [key]: value } : f)),
   });
+
+  /** A three-way row: inherit the env default, or force on / off. The middle
+   *  state is the ROW BEING EMPTY, which is why it is a segment rather than a
+   *  checkbox — a checkbox cannot be "not set". */
+  const onOffSegments = (envValue: boolean): Segment[] => [
+    { value: "", label: t("inheritSegment"), note: envValue ? t("on") : t("off") },
+    { value: "on", label: t("on") },
+    { value: "off", label: t("off") },
+  ];
 
   const save = useCallback(() => {
     if (!form || !initial || saving) return;
@@ -1247,9 +1513,14 @@ export default function SettingsModal() {
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="s-bmodal__head">
-          <span className="s-bmodal__title">
-            {t("siteSettings")} — <em>settings.json</em>
-          </span>
+          {/* The panel's own name, and nothing else. It used to read
+              "Site settings — settings.json", which named an implementation
+              file in the title bar of a settings screen: it told a reader
+              what the product writes rather than what the panel does, and it
+              named a path without saying where that path is. Where the file
+              lives is a FACT about the instance, so it moved to About, beside
+              the vault and data directories. */}
+          <span className="s-bmodal__title">{t("siteSettings")}</span>
           <button type="button" className="s-bmodal__close" onClick={close} aria-label={t("close")}>
             ×
           </button>
@@ -1260,7 +1531,7 @@ export default function SettingsModal() {
 
         {form && eff && (
           <div className="s-smodal__cols">
-            {/* Seven tabs, not seven anchors: the rail switches what the panel
+            {/* Six tabs, not six anchors: the rail switches what the panel
                 is showing, and it is sticky so the whole map stays on screen
                 while a tab scrolls. */}
             <nav
@@ -1290,9 +1561,13 @@ export default function SettingsModal() {
 
             <div className="s-smodal__scroll">
               <div
-                className="s-smodal__body"
+                // data-popbounds: every Select in this panel clamps its
+                // popover to THIS box rather than to the dialog, so a long
+                // list can no longer run over the footer divider and the
+                // Close / Save row (Select.tsx `measure`).
+                className="s-smodal__body s-scrollfade"
+                data-popbounds
                 ref={bodyRef}
-                onScroll={syncScrollState}
                 role="tabpanel"
                 id={`s-smodal-panel-${tab}`}
                 aria-labelledby={`s-smodal-tab-${tab}`}
@@ -1311,11 +1586,11 @@ export default function SettingsModal() {
                     inherited={form.siteName.trim() === ""}
                     env="SITE_NAME"
                   >
-                    <input
-                      className="s-bmodal__input"
-                      type="text"
+                    <TextInput
                       placeholder={eff.siteName}
                       maxLength={81}
+                      label={t("rowSiteName")}
+                      invalid={errors.siteName !== undefined}
                       {...field("siteName")}
                     />
                   </Row>
@@ -1326,11 +1601,11 @@ export default function SettingsModal() {
                     inherited={form.tagline.trim() === ""}
                     env="SITE_TAGLINE"
                   >
-                    <input
-                      className="s-bmodal__input"
-                      type="text"
+                    <TextInput
                       placeholder={eff.tagline ?? "Notes from the canopy…"}
                       maxLength={161}
+                      label={t("rowTagline")}
+                      invalid={errors.tagline !== undefined}
                       {...field("tagline")}
                     />
                   </Row>
@@ -1341,11 +1616,25 @@ export default function SettingsModal() {
                     inherited={form.footer.trim() === ""}
                     env="SITE_FOOTER"
                   >
-                    <input
-                      className="s-bmodal__input"
-                      type="text"
+                    {/* THE ONE FIELD WHOSE CONTENT IS A TEMPLATE.
+                        `© {year} {siteName}` is machine syntax, and in an
+                        Arabic panel an RTL field laid it out as
+                        `{siteName} {year} ©` — measured, tokens at x 538 /
+                        628 / 679 — so the operator was shown one token order
+                        and had to type another. A field cannot be pinned
+                        `ltr` either: this is also the site's footer PROSE, and
+                        this owner writes it in Arabic. `auto` is the honest
+                        answer — the first strong character decides, so the
+                        default template renders exactly as it must be typed
+                        and an Arabic footer stays Arabic. Alignment does not
+                        follow it (controls.css): the field is flushed to the
+                        panel's start edge either way, like every row above. */}
+                    <TextInput
                       placeholder={eff.footer ?? "© {year} {siteName}"}
                       maxLength={201}
+                      dir="auto"
+                      label={t("rowFooter")}
+                      invalid={errors.footer !== undefined}
                       {...field("footer")}
                     />
                   </Row>
@@ -1389,37 +1678,45 @@ export default function SettingsModal() {
                     inherited={form.defaultTheme === ""}
                     env="DEFAULT_THEME"
                   >
-                    <select className="s-bmodal__input s-smodal__select" {...field("defaultTheme")}>
-                      <option value="">
-                        {tf("inheritOption", { value: themeLabel(eff.defaultTheme) })}
-                      </option>
-                      {/* Grouped, because fifteen names in one flat list is the
-                          same "which of these is dark?" guess the picker
-                          exists to end. The GROUP names and the theme labels
-                          are both chrome copy now — an Arabic reader met
-                          "verdigris" and "porphyry" in Latin script here — but
-                          the option VALUE is still the id, which is what
-                          settings.defaultTheme and DEFAULT_THEME take. */}
-                      {THEME_GROUPS.map((group) => (
-                        <optgroup
-                          key={group.group}
-                          label={t(group.group === "dark" ? "themeGroupDark" : "themeGroupLight")}
-                        >
-                          {group.themes.map((theme) => (
-                            <option key={theme} value={theme}>
-                              {`${t(THEME_LABELS[theme].name)} (${theme})`}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
+                    {/* Grouped, because fifteen names in one flat list is the
+                        same "which of these is dark?" guess the picker exists
+                        to end. The GROUP names and the theme labels are both
+                        chrome copy — an Arabic reader met "verdigris" and
+                        "porphyry" in Latin script here — while the raw id
+                        stays the option's VALUE and its muted note, because
+                        that is what settings.defaultTheme and DEFAULT_THEME
+                        take and what a reader has to type into a .env. */}
+                    <Select
+                      label={t("rowDefaultTheme")}
+                      groups={themeChoices(eff.defaultTheme)}
+                      {...field("defaultTheme")}
+                    />
                   </Row>
                   {/* The reader's OWN theme, which is a different thing from
                       the row above it and was previously findable only by
                       clicking a status-bar word until the room changed color.
-                      The picker previews live and reverts on Esc. */}
+                      The picker previews live and reverts on Esc.
+
+                      TWO ROWS THAT ANSWER THE SAME QUESTION WEAR THE SAME
+                      FACE. This one used to be a 58px swatch and a "Browse
+                      themes…" text link flung to opposite ends of the control
+                      column with ~280px of nothing between them, one row under
+                      a full-width Select that chooses a theme — the least
+                      finished-looking row in the panel, in both languages. It
+                      is ONE trigger now, built on `.s-ctl-select` like the row
+                      above it: same measure, same border, same chevron. What
+                      it opens is a browsing panel rather than a list, and that
+                      is the honest difference — fifteen rooms are chosen by
+                      looking at them, which is why the trigger carries the
+                      miniature the picker itself draws. */}
                   <Row label={t("rowYourTheme")} hint={t("hintYourTheme")}>
-                    <div className="s-smodal__themepick">
+                    <button
+                      type="button"
+                      className="s-ctl s-ctl-select s-smodal__themebtn"
+                      aria-haspopup="dialog"
+                      aria-label={t("rowYourTheme")}
+                      onClick={openThemePicker}
+                    >
                       {/* The SAME miniature the picker draws, so the row and
                           the panel it opens are visibly the same object. */}
                       <span className="s-tpick__card" data-theme-swatch={theme} aria-hidden="true">
@@ -1430,11 +1727,21 @@ export default function SettingsModal() {
                           <span className="s-tpick__card-line s-tpick__card-line--short" />
                         </span>
                       </span>
-                      <bdi className="s-smodal__themename">{t(THEME_LABELS[theme].name)}</bdi>
-                      <button type="button" className="s-btn" onClick={openThemePicker}>
-                        {t("browseThemes")}
-                      </button>
-                    </div>
+                      <bdi className="s-ctl-select__value s-smodal__themename">
+                        {t(THEME_LABELS[theme].name)}
+                      </bdi>
+                      <span className="s-ctl-select__note">{t("browseThemes")}</span>
+                      <svg className="s-ctl-select__chev" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                        <path
+                          d="M4 6.5 L8 10.5 L12 6.5"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
                   </Row>
                 
                   <div className="s-smodal__sub">{t("groupLanguage")}</div>
@@ -1444,13 +1751,42 @@ export default function SettingsModal() {
                     inherited={form.language === ""}
                     env="SITE_LANG"
                   >
-                    <select className="s-bmodal__input s-smodal__select" {...field("language")}>
-                      <option value="">{tf("inheritOption", { value: eff.language })}</option>
-                      {/* Language names stay in their own script — that is how a
-                          language picker reads to the person who needs it. */}
-                      <option value="en">English</option>
-                      <option value="ar">العربية</option>
-                    </select>
+                    {/* Language names stay in their own script — that is how
+                        a language picker reads to the person who needs it. */}
+                    <SegmentedControl
+                      label={t("rowLanguage")}
+                      segments={[
+                        { value: "", label: t("inheritSegment"), note: eff.language },
+                        { value: "en", label: "English" },
+                        { value: "ar", label: "العربية" },
+                      ]}
+                      {...field("language")}
+                    />
+                  </Row>
+                  {/* Directly under Language, because it is the ROW ABOVE
+                      that moves it: "auto" means the reading direction's
+                      leading edge, so switching this instance to Arabic
+                      carries the notes sidebar to the right. Naming the edge
+                      it resolved to is the whole point of the note — a
+                      three-state preference whose default state is invisible
+                      is the trap the palette commands were already fixing.
+                      A device preference, so it commits on click like the
+                      theme row and is never part of the Save diff. */}
+                  <Row label={t("rowSidebarSide")} hint={t("hintSidebarSide")}>
+                    <SegmentedControl
+                      label={t("rowSidebarSide")}
+                      value={sidebarSidePref}
+                      onChange={(v) => setSidebarSidePref(v as SidebarSidePref)}
+                      segments={[
+                        {
+                          value: "auto",
+                          label: t("sideAuto"),
+                          note: t(autoSide === "left" ? "sideLeft" : "sideRight"),
+                        },
+                        { value: "left", label: t("sideLeft") },
+                        { value: "right", label: t("sideRight") },
+                      ]}
+                    />
                   </Row>
                   <Row
                     label={t("rowDateLocale")}
@@ -1459,12 +1795,11 @@ export default function SettingsModal() {
                     inherited={form.blogLocale.trim() === ""}
                     env="BLOG_LOCALE"
                   >
-                    <input
-                      className="s-bmodal__input"
-                      type="text"
+                    <TextInput
                       placeholder={eff.blogLocale}
-                      spellCheck={false}
                       dir="ltr"
+                      label={t("rowDateLocale")}
+                      invalid={errors.blogLocale !== undefined}
                       {...field("blogLocale")}
                     />
                   </Row>
@@ -1474,13 +1809,11 @@ export default function SettingsModal() {
                     inherited={form.languageFilter === ""}
                     env="LANGUAGE_FILTER"
                   >
-                    <select className="s-bmodal__input s-smodal__select" {...field("languageFilter")}>
-                      <option value="">
-                        {tf("inheritOption", { value: eff.languageFilter ? t("on") : t("off") })}
-                      </option>
-                      <option value="on">{t("on")}</option>
-                      <option value="off">{t("off")}</option>
-                    </select>
+                    <SegmentedControl
+                      label={t("rowLanguageFilter")}
+                      segments={onOffSegments(eff.languageFilter)}
+                      {...field("languageFilter")}
+                    />
                   </Row>
                   {/* The visitor switch, spelled out. It EXISTS — it has since
                       the language round — but it lived as a two-word row in a
@@ -1492,13 +1825,11 @@ export default function SettingsModal() {
                   <div className="s-smodal__sub">{t("visitorSwitchHead")}</div>
                   <p className="s-smodal__note">{t("visitorSwitchNote")}</p>
                   <Row label={t("rowLanguageToggle")} hint={t("hintLanguageToggle")}>
-                    <select className="s-bmodal__input s-smodal__select" {...field("languageToggle")}>
-                      <option value="">
-                        {tf("inheritOption", { value: eff.languageToggle ? t("on") : t("off") })}
-                      </option>
-                      <option value="on">{t("on")}</option>
-                      <option value="off">{t("off")}</option>
-                    </select>
+                    <SegmentedControl
+                      label={t("rowLanguageToggle")}
+                      segments={onOffSegments(eff.languageToggle)}
+                      {...field("languageToggle")}
+                    />
                   </Row>
                   {(form.languageToggle === "on" || (form.languageToggle === "" && eff.languageToggle)) && (
                     <p className="s-smodal__offnote">{t("visitorSwitchOn")}</p>
@@ -1516,11 +1847,15 @@ export default function SettingsModal() {
                     inherited={form.publicLayout === ""}
                     env="PUBLIC_LAYOUT"
                   >
-                    <select className="s-bmodal__input s-smodal__select" {...field("publicLayout")}>
-                      <option value="">{tf("inheritOption", { value: enumLabel(eff.publicLayout) })}</option>
-                      <option value="app">{t("layoutApp")}</option>
-                      <option value="blog">{t("layoutBlog")}</option>
-                    </select>
+                    <SegmentedControl
+                      label={t("rowPublicLayout")}
+                      segments={[
+                        { value: "", label: t("inheritSegment"), note: enumLabel(eff.publicLayout) },
+                        { value: "app", label: t("layoutApp") },
+                        { value: "blog", label: t("layoutBlog") },
+                      ]}
+                      {...field("publicLayout")}
+                    />
                   </Row>
                   <Row
                     label={t("rowExcludeTags")}
@@ -1529,11 +1864,10 @@ export default function SettingsModal() {
                     inherited={form.excludeTags.trim() === ""}
                     env="EXCLUDE_TAGS"
                   >
-                    <input
-                      className="s-bmodal__input"
-                      type="text"
+                    <TextInput
                       placeholder={eff.excludeTags.length > 0 ? eff.excludeTags.join(", ") : t("phExcludeTags")}
-                      spellCheck={false}
+                      label={t("rowExcludeTags")}
+                      invalid={errors.excludeTags !== undefined}
                       {...field("excludeTags")}
                     />
                   </Row>
@@ -1543,31 +1877,31 @@ export default function SettingsModal() {
                     inherited={form.comments === ""}
                     env="COMMENTS"
                   >
-                    <select className="s-bmodal__input s-smodal__select" {...field("comments")}>
-                      <option value="">
-                        {tf("inheritOption", { value: eff.commentsEnabled ? t("on") : t("off") })}
-                      </option>
-                      <option value="on">{t("on")}</option>
-                      <option value="off">{t("off")}</option>
-                    </select>
+                    <SegmentedControl
+                      label={t("rowComments")}
+                      segments={onOffSegments(eff.commentsEnabled)}
+                      {...field("comments")}
+                    />
                   </Row>
                   <Row label={t("rowShareButtons")} hint={t("hintShareButtons")}>
-                    <select className="s-bmodal__input s-smodal__select" {...field("share")}>
-                      <option value="">
-                        {tf("inheritOption", { value: eff.shareButtons ? t("on") : t("off") })}
-                      </option>
-                      <option value="on">{t("on")}</option>
-                      <option value="off">{t("off")}</option>
-                    </select>
+                    <SegmentedControl
+                      label={t("rowShareButtons")}
+                      segments={onOffSegments(eff.shareButtons)}
+                      {...field("share")}
+                    />
                   </Row>
                   <div className="s-smodal__sub">{t("groupHome")}</div>
                   <p className="s-smodal__note">{t("homeNote")}</p>
                   <Row label={t("rowMode")} hint={t("hintMode")}>
-                    <select className="s-bmodal__input s-smodal__select" {...field("homeMode")}>
-                      <option value="">{tf("inheritOption", { value: enumLabel(eff.home.mode) })}</option>
-                      <option value="note">{t("modeNote")}</option>
-                      <option value="dashboard">{t("modeDashboard")}</option>
-                    </select>
+                    <SegmentedControl
+                      label={t("rowMode")}
+                      segments={[
+                        { value: "", label: t("inheritSegment"), note: enumLabel(eff.home.mode) },
+                        { value: "note", label: t("modeNote") },
+                        { value: "dashboard", label: t("modeDashboard") },
+                      ]}
+                      {...field("homeMode")}
+                    />
                   </Row>
                   <Row
                     label={t("rowHomeNote")}
@@ -1576,12 +1910,11 @@ export default function SettingsModal() {
                     inherited={form.homeNote.trim() === ""}
                     env="HOME_NOTE"
                   >
-                    <input
-                      className="s-bmodal__input"
-                      type="text"
+                    <TextInput
                       placeholder={eff.home.note ?? "Welcome.md"}
-                      spellCheck={false}
                       dir="ltr"
+                      label={t("rowHomeNote")}
+                      invalid={errors.homeNote !== undefined}
                       {...field("homeNote")}
                     />
                   </Row>
@@ -1604,46 +1937,17 @@ export default function SettingsModal() {
 
                 {tab === "typography" && (
                 <section data-section="typography">
-                  <Row label={t("rowFontProse")} hint={t("hintFontProse")}>
-                    <FontSelect
-                      value={form.fontProse}
-                      groups={fontGroups(loaded?.fontCatalog ?? [], "text")}
-                      onChange={(id) => setForm((f) => (f ? { ...f, fontProse: id } : f))}
-                    />
-                  </Row>
-                  <Row label={t("rowFontUi")} hint={t("hintFontUi")}>
-                    <FontSelect
-                      value={form.fontUi}
-                      groups={fontGroups(loaded?.fontCatalog ?? [], "text")}
-                      onChange={(id) => setForm((f) => (f ? { ...f, fontUi: id } : f))}
-                    />
-                  </Row>
-                  <Row label={t("rowFontMono")} hint={t("hintFontMono")}>
-                    <FontSelect
-                      value={form.fontMono}
-                      groups={fontGroups(loaded?.fontCatalog ?? [], "mono")}
-                      onChange={(id) => setForm((f) => (f ? { ...f, fontMono: id } : f))}
-                    />
-                  </Row>
-                  {/* The Arabic slot is not a fourth Latin slot: it is one face
-                      that answers for Arabic letters INSIDE the three above,
-                      per character. Its own sub-heading says so before the
-                      hint has to. */}
-                  <div className="s-smodal__sub">{t("fontArabicHead")}</div>
-                  <p className="s-smodal__note">{t("fontArabicHeadNote")}</p>
-                  <Row label={t("rowFontArabic")} hint={t("hintFontArabic")}>
-                    <FontSelect
-                      value={form.fontArabic}
-                      groups={fontGroups(loaded?.fontCatalog ?? [], "arabic")}
-                      onChange={(id) => setForm((f) => (f ? { ...f, fontArabic: id } : f))}
-                    />
-                  </Row>
-                  {/* Full width, directly under the four selects: choosing a
-                      face is a compare-and-adjust loop, and it only works when
-                      the control and its effect are in the same frame. */}
-                  <Row label={t("fontPreview")} hint={t("fontPreviewNote")} wide>
-                    <FontSpecimens />
-                    <div className="s-smodal__fontfoot">
+                  {/* The specimen leads the tab and STAYS on screen while a
+                      picker is open: it is stuck to the top of the scroller,
+                      and every picker below opens downward into the space
+                      under its own trigger. Choosing a face is a
+                      compare-and-adjust loop — the control and its effect have
+                      to be in one frame, and a popover that covers the effect
+                      is the same bug as no preview at all. */}
+                  <div className="s-smodal__specwrap" data-popclear>
+                    <div className="s-smodal__speclabelrow">
+                      <span className="s-smodal__speccaption">{t("fontPreview")}</span>
+                      <span className="s-smodal__spechint">{t("fontPreviewNote")}</span>
                       <button
                         type="button"
                         className="s-btn"
@@ -1656,6 +1960,7 @@ export default function SettingsModal() {
                                   fontUi: SYSTEM_FONT,
                                   fontMono: SYSTEM_FONT,
                                   fontArabic: SYSTEM_FONT,
+                                  fontSizeAdjust: "",
                                 }
                               : f,
                           )
@@ -1664,7 +1969,101 @@ export default function SettingsModal() {
                         {t("fontReset")}
                       </button>
                     </div>
+                    <FontSpecimens />
+                  </div>
+
+                  <Row label={t("rowFontProse")} hint={t("hintFontProse")}>
+                    <FontPicker
+                      slot="text"
+                      label={t("rowFontProse")}
+                      value={form.fontProse}
+                      catalog={loaded?.fontCatalog ?? []}
+                      custom={customFonts}
+                      onChange={(id) => setForm((f) => (f ? { ...f, fontProse: id } : f))}
+                    />
                   </Row>
+                  <Row label={t("rowFontUi")} hint={t("hintFontUi")}>
+                    <FontPicker
+                      slot="text"
+                      label={t("rowFontUi")}
+                      value={form.fontUi}
+                      catalog={loaded?.fontCatalog ?? []}
+                      custom={customFonts}
+                      onChange={(id) => setForm((f) => (f ? { ...f, fontUi: id } : f))}
+                    />
+                  </Row>
+                  <Row label={t("rowFontMono")} hint={t("hintFontMono")}>
+                    <FontPicker
+                      slot="mono"
+                      label={t("rowFontMono")}
+                      value={form.fontMono}
+                      catalog={loaded?.fontCatalog ?? []}
+                      custom={customFonts}
+                      onChange={(id) => setForm((f) => (f ? { ...f, fontMono: id } : f))}
+                    />
+                  </Row>
+                  {/* The Arabic slot is not a fourth Latin slot: it is one face
+                      that answers for Arabic letters INSIDE the three above,
+                      per character. Its own sub-heading says so before the
+                      hint has to. */}
+                  <div className="s-smodal__sub">{t("fontArabicHead")}</div>
+                  <p className="s-smodal__note">{t("fontArabicHeadNote")}</p>
+                  <Row label={t("rowFontArabic")} hint={t("hintFontArabic")}>
+                    <FontPicker
+                      slot="arabic"
+                      label={t("rowFontArabic")}
+                      value={form.fontArabic}
+                      catalog={loaded?.fontCatalog ?? []}
+                      custom={customFonts}
+                      onChange={(id) => setForm((f) => (f ? { ...f, fontArabic: id } : f))}
+                    />
+                  </Row>
+                  {/* The dial only exists while there IS an Arabic face to
+                      match, and it is the one number in the panel a reader
+                      arrives at by eye: it is set against the specimen two
+                      rows up, which is why it lives here and not in a
+                      config file. */}
+                  {form.fontArabic !== SYSTEM_FONT && (
+                    <Row
+                      label={t("rowSizeAdjust")}
+                      hint={t("hintSizeAdjust")}
+                      error={errors.fontSizeAdjust}
+                    >
+                      <NumberInput
+                        label={t("rowSizeAdjust")}
+                        unit="%"
+                        min={SIZE_ADJUST_MIN}
+                        max={SIZE_ADJUST_MAX}
+                        step={2}
+                        placeholder={t("sizeAdjustAuto")}
+                        invalid={errors.fontSizeAdjust !== undefined}
+                        {...field("fontSizeAdjust")}
+                      />
+                    </Row>
+                  )}
+
+                  {/* Uploading is the answer to the question the catalog
+                      cannot answer: the face an operator already owns. */}
+                  <div className="s-smodal__sub">{t("fontCustomHead")}</div>
+                  <p className="s-smodal__note">{t("fontCustomNote")}</p>
+                  <CustomFonts
+                    fonts={customFonts}
+                    busy={fontBusy}
+                    usedBy={(id) =>
+                      (
+                        [
+                          [form.fontProse, "rowFontProse"],
+                          [form.fontUi, "rowFontUi"],
+                          [form.fontMono, "rowFontMono"],
+                          [form.fontArabic, "rowFontArabic"],
+                        ] as [string, I18nKey][]
+                      )
+                        .filter(([value]) => value === id)
+                        .map(([, key]) => t(key))
+                    }
+                    onUpload={uploadCustomFont}
+                    onDelete={removeCustomFont}
+                  />
                 </section>
                 )}
 
@@ -1677,11 +2076,16 @@ export default function SettingsModal() {
                     running backup at a glance. */}
                 {tab === "sync" && (
                 <section data-section="sync">
+                  {/* A master switch is a SWITCH: two states, both visible,
+                      no list to open to learn there are only two. */}
                   <Row label={t("rowSyncEnabled")} hint={t("hintSyncEnabled")}>
-                    <select className="s-bmodal__input s-smodal__select" {...field("syncEnabled")}>
-                      <option value="off">{t("off")}</option>
-                      <option value="on">{t("on")}</option>
-                    </select>
+                    <Toggle
+                      label={t("rowSyncEnabled")}
+                      onLabel={t("on")}
+                      offLabel={t("off")}
+                      value={form.syncEnabled === "on"}
+                      onChange={(on) => setForm((f) => (f ? { ...f, syncEnabled: on ? "on" : "off" } : f))}
+                    />
                   </Row>
                   {syncOff && <p className="s-smodal__offnote">{t("syncOffNotice")}</p>}
                   <Row
@@ -1690,13 +2094,12 @@ export default function SettingsModal() {
                     error={errors.syncRemote}
                     off={syncOff}
                   >
-                    <input
-                      className="s-bmodal__input"
-                      type="text"
+                    <TextInput
                       placeholder={t("phSyncRemote")}
-                      spellCheck={false}
                       dir="ltr"
                       autoComplete="off"
+                      label={t("rowSyncRemote")}
+                      invalid={errors.syncRemote !== undefined}
                       disabled={syncOff}
                       {...field("syncRemote")}
                     />
@@ -1707,37 +2110,35 @@ export default function SettingsModal() {
                     error={errors.syncBranch}
                     off={syncOff}
                   >
-                    <input
-                      className="s-bmodal__input"
-                      type="text"
+                    <TextInput
                       placeholder="main"
-                      spellCheck={false}
                       dir="ltr"
                       autoComplete="off"
+                      label={t("rowSyncBranch")}
+                      invalid={errors.syncBranch !== undefined}
                       disabled={syncOff}
                       {...field("syncBranch")}
                     />
                   </Row>
                   <Row label={t("rowSyncAuth")} hint={t("hintSyncAuth")} off={syncOff}>
-                    <select
-                      className="s-bmodal__input s-smodal__select"
+                    <SegmentedControl
+                      label={t("rowSyncAuth")}
                       disabled={syncOff}
+                      segments={[
+                        { value: "ssh", label: t("authSsh") },
+                        { value: "token", label: t("authToken") },
+                      ]}
                       {...field("syncAuth")}
-                    >
-                      <option value="ssh">{t("authSsh")}</option>
-                      <option value="token">{t("authToken")}</option>
-                    </select>
+                    />
                   </Row>
                   {form.syncAuth === "token" && (
                     <>
                       <Row label={t("rowSyncUser")} hint={t("hintSyncUser")} off={syncOff}>
-                        <input
-                          className="s-bmodal__input"
-                          type="text"
+                        <TextInput
                           placeholder={t("phSyncUser")}
-                          spellCheck={false}
                           dir="ltr"
                           autoComplete="off"
+                          label={t("rowSyncUser")}
                           disabled={syncOff}
                           {...field("syncUser")}
                         />
@@ -1749,13 +2150,13 @@ export default function SettingsModal() {
                         off={syncOff}
                       >
                         <div className="s-smodal__tokenfield">
-                          <input
-                            className="s-bmodal__input"
+                          <TextInput
                             type="password"
                             placeholder={t(eff.gitSync.tokenSet ? "phTokenStored" : "phTokenNew")}
-                            spellCheck={false}
                             dir="ltr"
                             autoComplete="new-password"
+                            label={t("rowSyncToken")}
+                            invalid={errors.syncToken !== undefined}
                             disabled={syncOff}
                             {...field("syncToken")}
                           />
@@ -1775,14 +2176,14 @@ export default function SettingsModal() {
                     </>
                   )}
                   <Row label={t("rowSyncPull")} hint={t("hintSyncPull")} off={syncOff}>
-                    <select
-                      className="s-bmodal__input s-smodal__select"
+                    <Toggle
+                      label={t("rowSyncPull")}
+                      onLabel={t("on")}
+                      offLabel={t("off")}
                       disabled={syncOff}
-                      {...field("syncPullFirst")}
-                    >
-                      <option value="on">{t("on")}</option>
-                      <option value="off">{t("off")}</option>
-                    </select>
+                      value={form.syncPullFirst === "on"}
+                      onChange={(on) => setForm((f) => (f ? { ...f, syncPullFirst: on ? "on" : "off" } : f))}
+                    />
                   </Row>
                   <Row
                     label={t("rowSyncInterval")}
@@ -1790,17 +2191,23 @@ export default function SettingsModal() {
                     error={errors.syncInterval}
                     off={syncOff}
                   >
-                    <select
-                      className="s-bmodal__input s-smodal__select"
+                    {/* A closed set of SENTENCES, not a number with a decoder
+                        hint under it ("minutes; 0 = manual only"): the panel
+                        has a NumberInput with a unit for the case where a
+                        number is genuinely the value (the Arabic size match),
+                        and this is not that case — "Every 6 hours" and
+                        "Manual only" are the two things a reader is choosing
+                        between. A value hand-written into settings.json
+                        outside the set still gets a row. */}
+                    <Select
+                      label={t("rowSyncInterval")}
                       disabled={syncOff}
+                      options={intervalChoices.map((minutes) => ({
+                        value: String(minutes),
+                        label: intervalLabel(minutes),
+                      }))}
                       {...field("syncInterval")}
-                    >
-                      {intervalChoices.map((minutes) => (
-                        <option key={minutes} value={String(minutes)}>
-                          {intervalLabel(minutes)}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </Row>
                   <Row label={t("rowSyncStatus")} hint={t("hintSyncStatus")} off={syncOff}>
                     <SyncStatusBlock
@@ -1819,18 +2226,6 @@ export default function SettingsModal() {
 
                 {tab === "about" && <AboutTab about={loaded?.about ?? null} />}
               </div>
-              {/* Content beyond an edge gets a fade, so a sliced heading reads
-                  as "there is more" instead of as a rendering bug. */}
-              <span
-                className={`s-smodal__edge s-smodal__edge--top${edges.top ? " s-smodal__edge--on" : ""}`}
-                aria-hidden="true"
-              />
-              <span
-                className={`s-smodal__edge s-smodal__edge--bottom${
-                  edges.bottom ? " s-smodal__edge--on" : ""
-                }`}
-                aria-hidden="true"
-              />
             </div>
           </div>
         )}

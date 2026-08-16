@@ -28,7 +28,22 @@ properties listed in the styles contract; components must use tokens, never hard
 - Dev: vite on **5801** proxies `/api` → 6801. Prod: server statically serves `dist/`.
 - SPA fallback: non-`/api` GETs serve `dist/index.html` when dist exists.
 
-## API (all JSON; errors -> `{ error: string }` with 4xx/5xx)
+## API (all JSON; errors -> `{ error: string, code?: string }` with 4xx/5xx)
+
+`error` is English prose written for a log and for `curl`. It is NOT a string any UI may print —
+and it was being printed: `client/api.ts` wraps every failure body in an `ApiError` carrying that
+text, and every `catch` in the app toasts `err.message`, so an Arabic-only operator rejecting a
+mistyped font file read "Not a recognized font file (woff2, woff, ttf, otf)" inside a fully
+Arabic panel while the `fontUploadFailed` translation written for the moment was dead code.
+`VaultError(status, message, code?)` may name a STABLE code; `onError` echoes it, `ApiError`
+carries it, and a caller that can translate the code must prefer it and keep the generic
+localized line — never `err.message` — as the fallback. Falling back to the prose was considered
+and rejected: it is English by construction, so showing it is the bug. The font routes are the
+first users (`font_unrecognized`, `font_damaged`, `font_too_large`, `font_no_file`,
+`font_bad_body`, `font_not_found`, `font_bad_name`, `font_no_free_name`, `font_in_use` →
+`FONT_ERROR_KEYS` in `SettingsModal.tsx`), because the commonest failure of that feature is one
+an Arabic-only owner hits constantly. The rest of the app's 12 call sites still print `message`;
+that is the pre-existing pattern, and the door is now open.
 
 - `GET  /api/tree` → `TreeNode` (root folder node, path ""). Admin: notes **and** attachments (see "Attachments in the tree"). Visitor: the flat published-note list, notes only.
 - `GET  /api/note?path=a/b.md` → `NoteData`
@@ -70,7 +85,8 @@ interface State {
   vimMode: boolean;                    // persisted "vellum.vim"
   paletteOpen: boolean;
   // Shell layout, all persisted (see "Shell layout" below):
-  sidebarSide: "left" | "right";       // "vellum.sidebarSide"
+  sidebarSidePref: "auto" | "left" | "right"; // "vellum.sidebarSide" (default "auto")
+  sidebarSide: "left" | "right";       // DERIVED: the pref with "auto" resolved
   sidebarCollapsed: boolean;           // "vellum.sidebarCollapsed"
   panelCollapsed: boolean;             // "vellum.panelCollapsed"
   zen: boolean;                        // "vellum.zen"
@@ -136,13 +152,28 @@ Four persisted preferences live on the app root as classes: `s-app--flip`, `s-ap
 `s-app--zen` (plus the pre-existing `s-app--drawer`/`s-app--visitor`). The panel's own collapse
 stays on `.s-panel--collapsed`, as it always did.
 
-- **Side is PHYSICAL, direction is LOGICAL.** `sidebarSide` stores `"left"`/`"right"` because it
-  is a window preference, not a language one: it must survive a language change, and the palette
-  command that sets it names a screen edge in both languages. The grid areas
-  (`"sidebar main panel"`) already follow the inline direction, so the stylesheet only needs the
-  *disagreement*: `flipped = (lang === "ar") === (side === "left")` — an XOR — swaps the two grid
-  areas and hands each pane the other's separator. Only the DEFAULT follows the language
-  (`loadMe()` sets it when nothing is stored), exactly like `DEFAULT_THEME`.
+- **Side is PHYSICAL, direction is LOGICAL — and the preference behind it is THREE-state.**
+  `sidebarSidePref` is `"auto"` (the default), `"left"` or `"right"`; `sidebarSide` is the
+  resolved edge and is derived, never persisted. `"auto"` means "the reading direction's leading
+  edge" and is re-evaluated on **every** language change — `loadMe()` and `setVisitorLang()` both
+  end with `set({ sidebarSide: effectiveSide(pref, language) })`. A pin names a screen edge in
+  both languages and outranks the direction forever.
+  Two-state was a trap: the side followed the language only while NOTHING was stored, so the
+  first use of the palette command pinned it for good, a later switch to Arabic no longer moved
+  it, and there was no way back short of clearing localStorage. A value written by an older
+  build is a bare `"left"`/`"right"` — it was an explicit act then and it stays an explicit pin
+  now, which is the whole migration: nothing is rewritten.
+  The store action is `setSidebarSidePref(pref)` — one action for the palette's three commands
+  and for a Settings → Appearance segmented control. The grid areas (`"sidebar main panel"`)
+  already follow the inline direction, so the stylesheet only needs the *disagreement*:
+  `flipped = (lang === "ar") === (side === "left")` — an XOR — swaps the two grid areas and hands
+  each pane the other's separator.
+- **Panes are named by WHAT THEY ARE, never by the edge they are on.** "Notes sidebar"
+  (`paneNotes`) and "Outline & backlinks" (`paneOutline`), in the status-bar toggles, the palette
+  commands, the shortcut sheet, both reopen handles and each pane's own `aria-label` — with the
+  keystroke in the tooltip. In Arabic the notes sidebar sits right and the outline panel left, so
+  "the left bar" names a different pane in each language, and `Ctrl/Cmd B` looked like it folded
+  the wrong one. A reader of a live Arabic instance asked why "the left bar cannot be folded".
 - **That XOR is also the icon rule.** The pane chevrons (panel header toggle, both reopen
   handles) point at a physical edge, so they answer to *both* switches: `[dir="rtl"]` flips them,
   `.s-app--flip` flips them, and both together cancel. That is why they cannot be a plain
@@ -152,6 +183,34 @@ stays on `.s-panel--collapsed`, as it always did.
   (`--sidebar-w` + 1px for its border) and `overflow: hidden`; its children are pinned to
   `--sidebar-w` so the rows do not reflow to a narrower measure while the pane closes. Same
   pattern the backlinks panel already used. 180ms, both directions, zen included.
+- **THE NOTE'S TWO MARGINS ARE EQUAL IN EVERY FOLD STATE.** The owner's request was "make sure
+  that the margin between open note and left/right bar is correct and nice looking even when bar
+  is closed/folded" — a statement about the two margins AGREEING, and the thing to measure is the
+  gap from the prose to the furniture beside it, not to the window edge.
+  An earlier build pinned the column to the WINDOW's centre line instead, padding `.s-main` to
+  compensate for whichever pane was heavier (`--balance`/`--slack`, both gone now). It read well
+  in the two SYMMETRIC states and failed in the two that matter. Measured at 1440 with the notes
+  sidebar folded: the prose sat **47px** from the panel it was pressed against and **327px** from
+  the far side of the window — a third of the screen empty on one side, the text jammed against a
+  wall of chrome on the other; the same 280px skew with the panel folded instead. Both-folded
+  looked balanced only because the two voids happened to be equal. Single-fold is the common
+  case: a reader folds ONE bar.
+  So the column centres inside the box the grid actually gave it — the shell is
+  `auto minmax(0,1fr) auto`, so that box already ends exactly at each pane's inner edge — and the
+  ONLY padding `.s-main` keeps is `--fold-gutter` (**14px**, the width of a collapsed pane's
+  reopen handle) on whichever side is folded, since the handle stands where the pane was and is
+  the furniture on that side. Door and pane are then measured the same way. Two tokens on
+  `.s-app` carry it, `--fold-sidebar`/`--fold-panel`, aliased into `--fold-lead`/`--fold-trail`,
+  which `.s-app--flip` swaps. The padding transitions on the panes' own 180ms curve: the column
+  does move when a pane folds — it must, the room it is centred in just changed size — but it
+  moves as one movement and it lands centred rather than landing shoved.
+  `.s-app--nopanel` exists for this and only this: the panel's collapse lives on
+  `.s-panel--collapsed`, and a sibling's class is not something CSS can ask about. `.s-app--zen`
+  and the ≤700px drawer breakpoint zero `--fold-gutter` (no panes in the grid, no handles), and
+  `.s-main:has(.s-graph)` drops the padding outright — the graph is a canvas that wants every
+  pixel, not a column. Measured at 1440, all 16 combinations of side × sidebar × panel × dir:
+  the two gaps agree to **1px** (that 1px being the collapsed pane's own border), against a worst
+  skew of **287px** before.
 - **A collapsed pane leaves a door.** `.s-reopen--sidebar` / `.s-reopen--panel` are 14px
   full-height strips on the respective edges — always visible while collapsed (not hover-
   revealed), hidden on phones, hidden in zen.
@@ -299,6 +358,139 @@ Typography, and because it is centred, every click moved the RAIL as well as the
 under the pointer became a different tab, and the next click opened a section nobody chose. The
 two tall tabs scroll, which they always did; short tabs carry empty space, and a tab strip that
 stays put is worth it.
+**Every control in the panel is OURS** (`client/components/controls/*`, `styles/controls.css`).
+The panel was built out of native `<select>`/`<input type=checkbox>`, which draw the operating
+system's widget inside a candlelit manuscript room — and, with twenty-seven fonts, opened an
+OS-drawn *window* that no theme can reach and no panel can contain. The set is `Select`
+(styled trigger + themed popover), `Toggle`, `SegmentedControl`, `TextInput` and `NumberInput`;
+zero native select/checkbox chrome is left anywhere in settings.
+
+- **The popover is a PORTAL on `<body>`, positioned per open from the trigger's rect.** The panel
+  is `overflow: hidden` and its body is a scroller, so an in-flow popover would be clipped by one
+  and dragged by the other. Portals bubble React events through the COMPONENT tree, so the
+  popover stops its own mouse events; outside-clicks are a DOM capture listener.
+- **The BOUNDS are the scrolling region, not the dialog** (`[data-popbounds]`, which
+  `SettingsModal` puts on `.s-smodal__body`), intersected with the viewport — the owner's words
+  were "fits correctly within the settings screen bounds". Clamping to `[role="dialog"]` met that
+  only in the middle: measured at 1440, five popovers reached **58–192px past the footer's top
+  edge**, over the divider and the Close / Save row, which are chrome the reader has to be able to
+  reach WHILE choosing. `[role="dialog"]` remains the fallback for a Select outside the panel.
+- **A STICKY BLOCK IS NOT ROOM** (`[data-popclear]`, on `.s-smodal__specwrap`). At 1280×800 in
+  Arabic the Arabic-face picker flipped above its trigger and covered the live specimen's last
+  line — defeating the preview that is the entire justification for applying the value on
+  highlight. The room above a trigger now starts below any keep-clear block inside the bounds.
+- **Three placements, tried in order: below, flipped above, and OVER THE TRIGGER.** The third is
+  what a native select has always done and it is what makes the first two affordable: clamping to
+  the panel body leaves a picker near the foot of a tab barely 150px on its best side while 340px
+  of clear region sits unused. When neither side can hold a usable list, the list takes the whole
+  clear region. The trigger is the one thing safe to cover — its value is the ticked row inside
+  the list, and the specimen is `[data-popclear]` and therefore outside the region.
+- **TAB COMMITS AND THEN ADVANCES.** It used to `close(true)` and stop, and `close` returns focus
+  to the trigger, so Tab was Enter wearing another key's name: it committed and left the reader on
+  the control they had just finished with. (Shift+Tab was not handled at all, and since the
+  popover is a portal on `<body>`, the browser's own Tab from inside it would have walked off the
+  end of the document rather than through the panel.) It now commits, then steps to the next
+  tabbable inside the same bounds once the trigger has taken focus back.
+- **`grid` is the font picker and nothing else.** Its rows are two lines tall — the specimen IS
+  the option — so a 27-family catalog was judged **three and a half faces at a time** against a
+  340px popover, and the filter only helped a reader who already knew the name they wanted, which
+  is not what a picker is for. `.s-ctl-pop--grid` lays each GROUP's options out in columns (never
+  across a group heading, or "Arabic — naskh" ends up beside a serif face) as **specimen-led
+  cards**: the family name is a small overline and the sample takes the type size, because the
+  question being answered is "what does this look like". Measured: 5–7 whole cards visible at once
+  where the column showed 3. `MIN_GRID_WIDTH` is 540 — at 460 the wider Latin faces ellipsized the
+  specimen, which is a specimen of the ellipsis.
+- **`isSelectOpen()` exists for the same reason `isThemePickerOpen()` does.** The panel's Esc
+  listener is a capture-phase `window` handler registered earlier, so it must stand down while a
+  list is open — Esc there means "put the value back", not "close the settings".
+- **The popover renders only once it has been PLACED**, and everything that reaches into its DOM
+  waits for that pass, not merely for `open`. Focusing on `open` alone silently did nothing (the
+  element did not exist yet), left focus on the trigger, and took the keyboard contract with it:
+  Esc landed outside the popover and never closed it. Same failure as the shell's "focus AFTER the
+  reveal lands" rule, one component down. The trigger also routes its keydown into the popover's
+  handler while open, so Esc cannot be lost to a stray focus.
+- **↑↓ apply the value LIVE** (the theme picker's rule — the specimen is the reason the list is
+  open), **Enter commits the highlighted row**, Esc and an outside click restore the value the
+  popover opened with. **A row CLICK passes the value it won with**, because `activeRef` is
+  assigned during RENDER: a handler that calls `setActive(v)` and closes in the same tick still
+  reads the PREVIOUS highlight, so `close(true)` set the value and then immediately put it back
+  and **every pointer pick in the panel silently did nothing** — only the keyboard worked, since
+  ↑↓ commit on a later keystroke by which time the render has landed. `close(commit, chosen?)`
+  takes the winning row from the caller that already knows it. A control that answers the
+  keyboard and ignores the mouse is worse than the native select it replaced. Filtering moves the highlight to the first match **without** applying it:
+  four keystrokes of "amir" must not be four value changes. Hover never moves the highlight
+  without the pointer actually moving (`mousemove`, not `mouseenter`) — the palette's bug.
+- **Three-way rows are SegmentedControls, not selects**: *Inherit* (carrying the value in force as
+  its note) / On / Off, all three visible. A checkbox cannot express "not set", and a list you must
+  open to learn it holds three items is the wrong shape for three words. **Its HORIZONTAL arrows
+  answer the inline direction** — the segments are laid out by it, so in an Arabic panel
+  `ArrowRight` walks backward and the reader's finger and the highlight move the same way; ↑↓ are
+  direction-free and always mean next/previous. The test is `closest("[dir]")`, not `<html>`, so a
+  control inside an explicitly LTR island (`NumberInput`'s field) is read by the direction it is
+  actually drawn in.
+- **The notes sidebar's edge is a row in Appearance, directly under Language.** Three segments
+  (*Auto* / *Left* / *Right*) on `setSidebarSidePref` — the same action the palette's three
+  commands call, which is the whole point of there being one action. It is a DEVICE preference
+  like *Your theme*: it commits on click and is never part of the Save diff. The *Auto* segment
+  carries the edge it RESOLVED to as its note (the panel's inherit-names-its-source convention),
+  because the default state of a three-state preference must not be the invisible one — and
+  because the row above it is what moves it: switching the instance to Arabic carries the pane to
+  the right while the reader is looking at both rows. Segment labels name a PHYSICAL edge in both
+  languages, exactly as the palette commands do. Two-state rows (Backup,
+  Pull first) are `Toggle`s, and a DISABLED toggle keeps its position (a reader must still be able
+  to read what is configured) but loses its colour — lit, an inert "Pull first · on" was the
+  brightest thing in a column of greyed rows.
+- **`NumberInput` carries its unit INSIDE the field** ("142 %"), with steppers of our own rather
+  than `<input type="number">`'s browser spinners. The field is `dir="ltr"` as a whole: with only
+  the input LTR inside an RTL panel, the logical padding and the logical unit inset resolved to
+  opposite edges and the "%" landed on the digits. *Automatic sync* deliberately stays a closed set
+  of SENTENCES (see below) — the unit control is for the Arabic size match, where a number really
+  is the value.
+- **The panel's fixed measures are in REM, not px.** `:root[lang="ar"]` multiplies `--font-scale`
+  and 1rem is `--font-base × that scale`, so a px rail and a px label column hold ~6% less Arabic
+  than English: tab names wrapped, labels collided with their controls, and the panel lost its
+  rhythm in Arabic — the "weird margin/padding in Arabic mode" report. In rem they grow with their
+  own type.
+
+**A FIELD'S `dir` FIXES ITS ORDER; IT MUST NOT ALSO FIX ITS ALIGNMENT.** This is the `<bdi>` rule
+Select.tsx already applied to the popover rows — "two things being compared have to start at the
+same place" — and the plain inputs in the same panel never got it. Machine text (a URL, a branch,
+a vault path, a BCP-47 tag) is `dir="ltr"` and stays so: `git@host:path` reordered by an RTL
+paragraph is a different string. But `text-align: start` then resolved against the FIELD's
+direction rather than the PANEL's, so in an Arabic panel the logo and favicon paths sat flush LEFT
+while the site name and tagline directly above them sat flush RIGHT — a ~400px jump between
+adjacent rows of one form. Measured across all six tabs in Arabic: **seven fields aligned to the
+opposite edge of the column from their neighbours**, now zero. Two rules in `controls.css` flush
+any disagreeing field to the panel's start edge; `.s-ctl-num__input` is the one deliberate
+exception (its field is an LTR island with the unit pinned at its inline end, so aligning the
+digits to the panel's start would park "142" on the "%").
+
+**The site FOOTER field is `dir="auto"`, because its content is a TEMPLATE.** `© {year}
+{siteName}` is machine syntax, and an RTL field laid it out as `{siteName} {year} ©` — measured,
+the three tokens at x 538 / 628 / 679 — so the operator was shown one token order and had to type
+another, which is the one place a wrong order silently teaches wrong syntax. It cannot be pinned
+`ltr` either: this is also the site's footer PROSE, and an Arabic instance writes it in Arabic.
+`auto` lets the first strong character decide, so the default template renders exactly as it must
+be typed and an Arabic footer stays Arabic. Its ALIGNMENT still follows the panel, per the rule
+above. (The sync tab's `https:// or git@host:path` hint was checked the same way and is already
+correct: its LRM marks put the runs in authored order under an RTL base — measured x 905 / 894 /
+809, reading right-to-left.)
+
+**A NOTE THAT ONLY REPEATS ITS LABEL IS NOISE.** The default-theme rows carry the raw id as a
+muted note because that is what `DEFAULT_THEME` and `settings.defaultTheme` take. In Arabic it
+earns its place twice over (Arabic name, Latin id); in English it printed Iron gall / iron-gall,
+Cinnabar / cinnabar, Sumi / sumi and five more — the same word twice, ~230px apart at the far edge
+of the row. The note is dropped exactly when it is DERIVABLE from its label (lowercase, non-alnum
+→ `-`), which is a property of the pair and not of the language: 0 notes in English, 15 in Arabic.
+
+**"Your theme" and "Default theme" answer the same question and wear the same face.** *Your theme*
+was a 58px swatch and a "Browse themes…" text link flung to opposite ends of the control column
+with ~280px of nothing between, one row under a full-width Select — the least finished-looking row
+in the panel, in both languages. It is one `.s-ctl-select`-shaped trigger now: same measure, same
+border, same chevron, carrying the miniature the picker itself draws. What it opens is a browsing
+panel rather than a list, which is the honest difference — fifteen rooms are chosen by looking at
+them.
+
 **A row that is inheriting NAMES its source, and one disabled state wears one face.** Every
 select read `inherit (en)` / `inherit (off)` / `inherit (iron-gall)` — honest about precedence,
 opaque about where the value came from — so `Row` takes an `env` prop and renders
@@ -308,6 +500,13 @@ interpolation. And with Backup=off the three `<select>`s took the browser's own 
 of `.s-smodal__row--off`'s 0.5 while the Remote URL and Branch `<input>`s took only the row's, so
 `:disabled` inside `.s-smodal__control` now neutralises the UA opacity and sets one
 `--text-muted` on `--bg-raised` treatment for both shapes.
+
+**The panel is called "Site settings", full stop.** It used to read "Site settings —
+settings.json": an implementation file in the title bar of a settings screen, naming a path
+without saying where that path is. Where the file lives is a FACT about the instance, so About
+prints `settingsPath` and `customFontsPath` (both on `AboutInfo`) beside the vault and data
+directories, with one sentence saying that deleting the file returns the instance to its env
+defaults.
 
 `settings.defaultTheme` is parsed leniently like `settings.language`: trimmed **and lowercased**.
 `DEFAULT_THEME` is lowercased by `readEnvTheme()` before validation, so trimming without
@@ -323,7 +522,26 @@ visitors, which is what lets it name absolute paths.
 
 - No default exports except React components. No `any` unless unavoidable. Small files > clever files.
 - Errors surface to the user via `console.error` + a transient `.s-toast` div helper in
-  `client/toast.ts` (`export function toast(msg: string)`) — shell agent owns it.
+  `client/toast.ts` (`export function toast(msg: string)`) — shell agent owns it. The MESSAGE is
+  `t()`/`tf()`, keyed off `ApiError.code` where the server names one; see the API section.
+- **A SCROLL BOUNDARY FADES; IT DOES NOT GUILLOTINE.** `client/scrollFade.ts`
+  (`attachScrollFade(el)`) maintains `data-more-above`/`data-more-below`, and `.s-scrollfade`
+  (app.css) masks an 18px alpha ramp at whichever end actually has content beyond it — so a list
+  short enough to fit keeps full contrast at both ends, and with neither attribute set the mask is
+  a fully opaque gradient. It replaced two absolutely-positioned gradient `<span>`s over the
+  settings body: a gradient laid OVER content only hides what it exactly matches, and it did not —
+  a segmented pill still came through the top edge cut across its middle with its accent border
+  flat-cut, which reads as a rendering fault rather than as "there is more above", and the same
+  slice happened at the foot against the footer rule. A mask removes the alpha, so the row
+  genuinely dissolves and nothing has to be colour-matched. The popover list wears it too (rows
+  were sliced mid-glyph under the sticky filter field). It is OFF at the top of a body that holds
+  a sticky block (`.s-smodal__body:has(.s-smodal__specwrap)`): the specimen owns that edge, paints
+  the panel's own ground and carries its own gradient tail, and fading it would fade the live
+  preview the whole tab is built around. A STICKY BLOCK'S GROUND MUST COVER EVERY PIXEL IT
+  OCCUPIES — `.s-smodal__specwrap` spent 6px of its gap on `margin-bottom`, which is outside the
+  painted box, so the tops of the rows scrolling underneath showed through as a band of
+  disconnected glyph and diacritic fragments (conspicuous in Arabic, where the tashkeel ride high
+  enough to be exactly what survives a 6px window). It is padding now.
 
 ## Folder deletion (server, shipped)
 
@@ -539,7 +757,7 @@ carry that, and none of them may be quiet:
   searched in Arabic.
 - **The bar's order of sacrifice is written down, it is MONOTONIC, and it ends in a scroll.**
   `.s-statusbar` is `overflow: hidden`, so anything past its width vanishes with no scrollbar and
-  no hint. At ≤1200px the two counts go; at ≤640px the pane cluster, the crumb trail and the
+  no hint. At ≤1280px the two counts go; at ≤640px the pane cluster, the crumb trail and the
   separator dots go **and the bar becomes `overflow-x: auto`** (scrollbar hidden), because a phone can always be
   narrower than the controls that must stay — sign-out was falling off that hidden overflow, and
   there is no other way out of a session on a phone. The MODE PILLS never go. Each of those rules
@@ -559,6 +777,34 @@ carry that, and none of them may be quiet:
   an admin bar carrying the counts at ~1120px pushed sign-out onto the hidden overflow instead,
   which is trading one silent loss for a worse one. Measured on the 1,389-note fixture with
   publish, the published-note filter and both mode pills up.
+
+  **A floor alone is not enough, because the trail's natural width is a VAULT PATH.** The crumb
+  was the only unbounded item in the bar, so flexbox took every shortfall out of it. A
+  two-segment crumb (223px) first gives ground at 1160px — safely under the 1200px step, which
+  is why the ladder read as correct. A THREE-segment one (`1 - Source Material › Wiki › Nobel
+  Prize in Physiology or Medicine`, 408px) first gives ground at **1340**: between 1200 and 1340
+  the trail was crushed to make room for "140 words · 2,012 chars" and then sprang back to full
+  at 1200 when the counts left. The bar was better at 1200 than at 1280 — the same
+  non-monotonicity the floor was added to fix, moved to another width by a deeper path. So the
+  trail takes a CEILING as well, `max-width: min(44ch, 36%)`: it can no longer be the fat item,
+  the counts' departure hands it nothing back, and the ladder is path-INDEPENDENT.
+  A ceiling worth having (~340px, most of that three-segment path) puts the first crush at ~1277
+  in English and ~1224 in Arabic, so **the ambient pair now drops at ≤1280 rather than ≤1200** —
+  a character count at 1280 traded for a hundred more pixels of the note's own name at every
+  width, which is the trade this bar exists to make. Re-measured 1440→640 in both languages with
+  the sync badge, publish, the published filter and both mode pills up: the crumb's width is
+  monotonically non-increasing at every step (en 334·334·334·334·334·334·311·271·231·191·131·0,
+  ar 354·…·254·214·154·0) and nothing ever lands on the hidden overflow.
+
+  **When the trail must give, the FOLDERS give — never the note.** Segments shrank equally, so
+  `1 - Source Material › Wiki › Nobel Prize in Physiology or Medicine` truncated to
+  `1 - Source Material › Wiki › Nobel Pri…`: two folder names intact and the one string that
+  answers "which note am I in" cut off. `StatusBar` renders the ancestors and their separators
+  as ONE ellipsizing run (`.s-statusbar__crumbpath`, shrink factor 12) beside the leaf (shrink
+  1), so the path thins to `1 - Sourc…`, then to `…`, then to nothing before the note's name
+  loses a character. Grouping is what keeps that honest: per-segment shrinking left the elided
+  ancestors behind as bare `› ›` chevrons, because a separator between two collapsed spans is
+  still a separator. Each segment keeps its own `dir="auto"` inside the run.
 
   **The right cluster is GROUPS, marked once each by a hairline** — `.s-statusbar__group` for
   admin tools (gear, eye), for the view controls (theme, graph) and for the session control
@@ -652,6 +898,20 @@ Everything visual follows from that attribute:
   Republic about?` → `?What is the Republic about`). `GraphView`/`LocalGraph` therefore set
   `ctx.direction = autoDir(title)` per label; `autoDir()` lives in `i18n.ts` and implements the
   same first-strong-character rule the HTML attribute uses.
+
+**A text FIELD that holds note-derived text takes the value's direction, not the chrome's — but
+only once it has a value.** The command palette's input is the case that bit: in an Arabic shell
+the rename prompt opened pre-filled with `1 - Source Material/Research Page.md` and DREW it as
+`Source Material/Research Page.md - 1`, because the leading digits are bidi-weak and the RTL
+paragraph swept them to the far end. That is the string the reader is about to rename a file to.
+`dir={query === "" ? undefined : "auto"}` is the shape: empty, the field inherits the shell's
+direction so the Arabic placeholder still sets right-aligned — `dir="auto"` reads the VALUE, and
+an empty one resolves to `ltr` in Chrome, which left-aligned «اكتب أمرًا أو ابحث في الملاحظات…»
+inside an RTL panel. Palette hints are `<bdi>` for the same reason (they are localized words, raw
+keystrokes and a real vault path in one column), and `.s-palette-item`'s padding is
+`padding-inline: 14px 12px` — the `0 12px 0 14px` shorthand it replaced put the wider pad on the
+screen's left in both directions, i.e. away from the icon and the selected row's accent bar in
+Arabic.
 
 **Note content is never localized or re-directed.** It renders as authored, per block, with
 `dir="auto"`. The same applies to note-derived text shown inside the chrome — tree labels, tab
@@ -873,7 +1133,112 @@ this is a language decision, not a direction one.
   a `VellumPreview…` prefix and with no `:root` block, so a reader sees faces they have picked but
   not saved. Admin-eyes-only (it can trigger a download) — 404 to visitors like `/api/settings` —
   debounced client-side, and its failures are silent: a specimen falling back to the system stack
-  is a fine specimen; a toast per keystroke is not.
+  is a fine specimen; a toast per keystroke is not. It takes `sizeAdjust` too: the dial changes
+  what the specimen LOOKS like without changing a single id.
+- **`GET /api/font-faces.css?ids=…` is the PICKER's own faces** — one `@font-face` per pickable
+  id under a `VellumOpt-…` family (`shared/fonts.ts::optionFamily`, imported by both sides so the
+  generated sheet and the element naming it cannot drift). A list of family NAMES set in the
+  interface font is a list of trademarks; every option row is drawn in the face it names, and the
+  Arabic ones carry an Arabic sample. Regular upright only, no range narrowing (one row must set
+  its Latin name and its Arabic sample from one declaration), asked for a GROUP at a time as that
+  group first appears — twenty-seven families at once is a megabyte of downloads to draw a menu.
+  Admin-eyes-only and forgiving, exactly like the preview sheet. `client/fontFaces.ts` owns the
+  `<link>`s and drops them all when the panel unmounts.
+
+**The specimen block leads the Typography tab and is STICKY.** It sat under the four pickers,
+where the last picker's popover covered it — a preview a control hides previews nothing, which a
+gate has already called. It is now one MIXED line per slot (Latin and Arabic in one run: that
+single line IS the feature) rather than two, because a 305px block inside a 609px body cannot
+also stay on screen. Rows in that tab carry `scroll-margin-top` for it.
+
+## Uploaded fonts (server/customFonts.ts)
+
+The catalog answers "one of ours"; this answers "the face I licensed", which for a serious Arabic
+instance is the only possible answer. Ids are `custom:<file>` (`shared/fonts.ts`), valid in
+**every** slot.
+
+- **The format comes from the MAGIC BYTES** — `wOF2` / `wOFF` / `0x00010000` / `true` / `OTTO` —
+  never from the extension and never from the multipart content type, both of which are
+  caller-controlled text. A PNG renamed `.woff2` is a 400, which matters because the file is about
+  to be served back with a font MIME. `ttcf` (a collection) is refused: `@font-face` cannot name
+  one face inside one.
+- **The header is also read for STRUCTURE** (`hasPlausibleTableDirectory`): a table count in
+  1…512 and a table directory that fits inside the file carrying it. Magic bytes say "claims to be
+  a font", not "a browser can use this" — a 4.9 MB file of the literal `wOF2` plus 4,900,000 zero
+  bytes passed the sniff, was stored, was served with a font MIME and rendered nothing, which the
+  operator has no way to diagnose. Anything that survives is still only *probably* a font (the
+  browser stays the authority); anything that fails cannot possibly be one, so it is a `400`
+  (`font_damaged`) at upload time rather than a mystery afterwards. No decompression happens here.
+- **EVERY DECOMPRESSION IS A BOMB UNTIL IT IS BOUNDED.** `brotliDecompressSync` and `inflateSync`
+  allocate whatever the stream expands to, synchronously, on the event loop, from uploaded bytes.
+  Verified: an 800-byte file claiming one `name` table over a brotli stream of 900 MB of zeroes
+  drove RSS from **189 MB to 2.96 GB** and answered `200` — a ~1.9-million-to-one amplification
+  the 5 MB body cap does nothing about, and a handful in parallel is an OOM kill on any 1–2 GB
+  VPS. The WOFF1 path was the same class (`origLength` is caller-controlled and was never used as
+  a bound; a 917 KB `.woff` expanded to 900 MB). Both calls now take `maxOutputLength`, bounded by
+  the file's OWN arithmetic first — a WOFF2 stream is exactly the concatenation of its tables, so
+  the directory states its length; a WOFF1 entry states its `origLength` — and clamped by a
+  32 MB `MAX_DECOMPRESSED_BYTES`. Node throws before the allocation, and both calls already sit
+  inside `nameTableBytes()`'s try/catch, so a bomb degrades to the filename-derived family exactly
+  as an unreadable font always has. Re-measured after: **RSS +120 KB, 10 ms**, still a 200.
+- **The stored NAME is a slug this module builds** (lowercase, `[a-z0-9-]`, collision-suffixed,
+  known extension) and every entry point re-checks that shape, so no caller string is ever joined
+  into a path, a route param, or the unencoded `url()` in the generated stylesheet. That ASCII
+  constraint stays; what changed is the FALLBACK. `slugify` answering the literal `"font"` was
+  paid for by exactly the reader this feature exists for: `خط-عربي.otf` kept nothing and became
+  `font.otf`, then `font-2.otf`, `font-3.otf`. `storedStem()` asks the font's own family name next,
+  so that file is stored `amiri.otf`; `"font"` is the third answer, not the first.
+- **Concurrent uploads are SERIALIZED, and the index tmp file is per WRITER.** `writeIndex()` used
+  a fixed `index.json.tmp` for every writer, and `saveCustomFont()` did a non-atomic
+  read/await/write around it. Verified with four parallel POSTs of four distinct faces all named
+  `race.ttf`: three `500`s (`ENOENT: rename index.json.tmp -> index.json`) whose bytes were on
+  disk anyway — the admin told the upload failed while the font appeared on refresh — and only
+  **two files** left of four, one of them labelled with a different font's family, because
+  `access`-then-`write` let several writers pick the same free name. The tmp name now carries
+  pid + random, and the whole critical section (pick a free name, write the bytes with `wx`, merge
+  the index row) runs behind one promise chain that never rejects. `deleteCustomFont` shares it.
+  Re-measured: 4/4 `200`, four files, four correct family names, zero server errors.
+- **The two font READ routes `lstat`, not `stat`.** `stat` follows symlinks: a link named
+  `symlink.woff2` planted in `VELLUM_DATA/fonts/custom` served `/etc/passwd` to an anonymous
+  request, `200`, `Content-Type: font/woff2`, on a route deliberately exempt from the auth guard.
+  Nothing in the API can create such a link — names are generated — but both directories are also
+  written by hand (the `custom.css` escape hatch is the whole point of one of them), and
+  lstat-and-reject costs one letter. `listCustomFonts` and `customFontExists` follow suit, so a
+  link is not advertised in a list that the route would 404.
+- **`POST /api/fonts/upload` is admin-only**, capped at 5 MB on the wire (`bodyLimit`,
+  `shared/limits.ts`) and again on the decoded bytes.
+- **The FAMILY name is read from the font's own `name` table** where the file allows it: sfnt
+  directly, WOFF1 through its per-table zlib, WOFF2 through one brotli pass over the compressed
+  stream (only `glyf`/`loca` are ever transformed, so `name` sits at the sum of the preceding
+  stored lengths). Anything unreadable falls back to the filename stem — a picker row saying
+  "upload-3" is not a picker row. Failure is never an error: the upload succeeds either way.
+- **`/api/fonts/*` is open for READS ONLY.** That prefix is exempt from the auth guard so a
+  visitor's browser can fetch the face BYTES (the same reason `custom.css` is open) — once fonts
+  could be uploaded and deleted under it, a path-only exemption would have handed an anonymous
+  caller `POST /api/fonts/upload` and `DELETE /api/fonts/custom/<file>`. The guard now scopes the
+  exemption to GET/HEAD, and `GET /api/fonts/custom` (the inventory, as opposed to the bytes)
+  gates itself with `isPublishLimited` like `/api/settings`.
+- **Deleting is guarded twice**: a face a slot still names shows which slot instead of a delete
+  button, and `DELETE /api/fonts/custom/:file` 409s that case regardless of what the panel
+  believes. The confirm dialog is the ordinary `confirmModal`.
+- **A custom face gets the unicode-range its ROLE implies.** A catalog family arrives pre-sliced
+  by Google with a range per subset; an upload is one file with no range at all, and "no range"
+  means "answers for every codepoint" — which would make the two halves of a composite OVERLAP and
+  hand the pick to declaration order. So the Arabic slot narrows a custom face to the Arabic
+  blocks and a Latin slot standing beside an Arabic face carves those blocks out (the complement
+  is computed from the same `ARABIC_BLOCKS` table). The disjointness invariant holds for uploads
+  exactly as for the catalog.
+- **`settings.fonts.arabicSizeAdjust`** (50–300, or null) overrides the measured `size-adjust` for
+  whatever is in the Arabic slot. The catalog's numbers were measured against Lora; an uploaded
+  face cannot be, so the operator gets the dial — set by eye against the specimen, which is the
+  only way this number is ever really set. It rides in `fontsSignature()`, so a changed dial gives
+  the browser a new stylesheet URL like a changed pick does.
+- **Slot rules are relaxed for uploads, deliberately.** `slotAllows` knows a catalog face is
+  monospace or covers Arabic because we chose it; it knows nothing about a file that arrived this
+  morning, and refusing an operator his own naskh face on a guess ("does not cover Arabic") would
+  be worse than letting the specimen answer. Existence on disk IS checked, next to the catalog
+  download in `PATCH /api/settings`, under the same "the faces are on disk before settings.json
+  names them" rule.
 
 ## Backup & sync (server/gitSync.ts)
 
