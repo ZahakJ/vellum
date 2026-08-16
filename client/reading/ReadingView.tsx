@@ -7,13 +7,16 @@ import { useEffect, useRef } from "react";
 import { getNote } from "../api.ts";
 import Marginalia from "../components/Marginalia.tsx";
 import { t, tf } from "../i18n.ts";
+import { Lru } from "../lru.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { renderMarkdown } from "./render.ts";
 import "./reading.css";
 
-/** Scroll positions survive tab switches; module-level so remounts keep them. */
-const scrollPositions = new Map<string, number>();
+/** Scroll positions survive tab switches; module-level so remounts keep them.
+ *  Bounded because "every note read this session" is the whole vault on a
+ *  long day — 256 is far more history than a reader ever walks back through. */
+const scrollPositions = new Lru<number>({ max: 256 });
 
 function publishActive(host: HTMLElement): void {
   const heads = host.querySelectorAll<HTMLElement>(".s-rv-h[id]");

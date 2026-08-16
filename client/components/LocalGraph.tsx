@@ -8,15 +8,16 @@
 // threshold) or double-click navigates. HiDPI canvas; the rAF loop parks
 // itself when the sim has settled and nothing needs drawing, and while the
 // tab is hidden. Collapse state persists in localStorage; the whole section
-// stays fresh through SSE because the store's tree identity changes on vault
-// events.
+// stays fresh through SSE because the shared graph cache is invalidated on
+// vault events (client/graphCache.ts).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GraphData, GraphNode } from "../../shared/types.ts";
-import { getGraph } from "../api.ts";
+import { useNoteNeighborhood } from "../graphCache.ts";
 import { autoDir, localeNum, t } from "../i18n.ts";
+import { Lru } from "../lru.ts";
 import { useStore } from "../state.ts";
-import { mixColors, readThemeColors } from "./GraphView.tsx";
+import { mixColors, readThemeColors } from "./graphColors.ts";
 
 const COLLAPSED_KEY = "vellum.localgraph-collapsed";
 
@@ -40,7 +41,11 @@ const PULSE_MS = 900; // one-shot center pulse on note switch
 
 /** Positions survive note switches so clicking a neighbor animates gently
  *  instead of reshuffling the whole pane. Values are offsets from center. */
-const lastOffsets = new Map<string, { x: number; y: number }>();
+/** Where each node last settled, so revisiting a note redraws the same shape
+ *  instead of exploding from the seed again. Bounded LRU rather than the old
+ *  "clear the whole map at 800": eviction should cost the OLDEST note its
+ *  remembered layout, not every note its layout at once. */
+const lastOffsets = new Lru<{ x: number; y: number }>({ max: 800 });
 
 function readCollapsed(): boolean {
   try {
@@ -272,7 +277,6 @@ function createMiniSim(
       n.y = Math.max(-by, Math.min(by, n.y));
       if (!n.isCenter) lastOffsets.set(n.id, { x: n.x, y: n.y });
     }
-    if (lastOffsets.size > 800) lastOffsets.clear(); // unbounded-growth guard
   }
 
   function draw() {
@@ -628,31 +632,25 @@ function createMiniSim(
 
 export default function LocalGraph() {
   const openPath = useStore((s) => s.openPath);
-  const tree = useStore((s) => s.tree);
   const admin = useStore((s) => s.admin);
   useStore((s) => s.language); // re-render the chrome strings on language change
-  const [data, setData] = useState<GraphData | null>(null);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const simRef = useRef<MiniSim | null>(null);
 
-  // The tree object is replaced on every vault SSE event, so keying the graph
-  // fetch on it keeps the neighborhood live (edits, publishes, renames).
-  useEffect(() => {
-    if (!tree) return;
-    let cancelled = false;
-    getGraph()
-      .then((d) => {
-        if (!cancelled) setData(d);
-      })
-      .catch((err: unknown) => {
-        console.error("vellum: loading local graph failed", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [tree]);
+  // Just this note's neighborhood, sliced server-side (`/api/graph?around=`).
+  // This panel used to download the ENTIRE vault graph — 534 kB on the
+  // 1,388-note fixture, ~4 MB on a 10k-note vault — on every app open and
+  // again on every vault event, in order to draw a dozen nodes.
+  //
+  // Fetched even while COLLAPSED, deliberately: the collapsed header still
+  // shows the neighbor count, and it is the only way back into the pane, so
+  // gating the fetch on `!collapsed` made a collapsed local graph disappear
+  // from the panel entirely. That gate was worth considering when the fetch
+  // was the whole vault graph; against a ~3 kB slice it buys nothing and
+  // costs the reader the control.
+  const data = useNoteNeighborhood(openPath);
 
   const hood = useMemo(() => deriveHood(data, openPath), [data, openPath]);
   const isEmpty = hood !== null && hood.neighborCount === 0;

@@ -5,21 +5,12 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { VaultEvent } from "../shared/types.ts";
 import { subscribeEvents } from "./api.ts";
+import { coalesce } from "./coalesce.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
-import BlogShell from "./blog/BlogShell.tsx";
-import BacklinksPanel from "./components/BacklinksPanel.tsx";
-import BannerModal from "./components/BannerModal.tsx";
-import CommandPalette from "./components/CommandPalette.tsx";
+import { invalidateVaultGraph } from "./graphCache.ts";
 import ConfirmHost from "./components/Confirm.tsx";
-import GraphView from "./components/GraphView.tsx";
 import LoginModal from "./components/LoginModal.tsx";
-import ModerationPanel from "./components/ModerationPanel.tsx";
 import PreviewBanner from "./components/PreviewBanner.tsx";
-import ReadingView from "./reading/ReadingView.tsx";
-import SettingsModal from "./components/SettingsModal.tsx";
-import Sidebar from "./components/Sidebar.tsx";
-import StatusBar from "./components/StatusBar.tsx";
-import Tabs from "./components/Tabs.tsx";
 import { openDailyNote } from "./daily.ts";
 import { t, tf } from "./i18n.ts";
 import { applyUrl, installRouter, syncUrl } from "./router.ts";
@@ -33,14 +24,43 @@ const SELF_SAVE_WINDOW_MS = 1500;
 /** How long zen's ✕ lingers before fading out (any mouse move brings it back). */
 const ZEN_HINT_MS = 2000;
 
+/** Trailing window for whole-vault refreshes driven by the SSE stream. Above
+ *  the watcher's own 100ms debounce, so a burst arrives as one wave, and far
+ *  below the threshold at which a tree feels stale. */
+const SSE_COALESCE_MS = 250;
+
 /** macOS binds Ctrl+B to emacs-style "char left" inside CodeMirror and reads
  *  Cmd as the app modifier — so plain Ctrl+B there belongs to the editor. */
 const IS_MAC = /Mac|iP(hone|ad|od)/.test(navigator.platform);
 
-// The CodeMirror editor is the heaviest part of the client and anonymous
-// visitors (reading view only) never need it — load it on demand so the
-// first-paint bundle stays lean.
+// Everything below this line is a SURFACE, not a shell: exactly one of the
+// two shells is ever mounted, and most of the app shell's modals never open
+// at all. Reaching them through lazy() is what gives rollup a boundary to
+// split on — build/chunks.ts then regroups them so each surface arrives as
+// one request rather than a waterfall of per-component chunks.
+//
+// ConfirmHost, LoginModal and PreviewBanner deliberately stay static above:
+// all three render in the BLOG branch as well, so making them lazy would
+// drag the app-shell chunk back into an anonymous reader's first paint —
+// the exact cost this split exists to remove.
+//
+// The CodeMirror editor keeps its own chunk (its dependencies dwarf every
+// other surface). That boundary is ASSERTED, not assumed:
+// `node scripts/check-bundle.mjs` fails the build if CodeMirror, the vim
+// keymap, KaTeX or the graph engine ever reappear in what a first paint
+// downloads.
 const Editor = lazy(() => import("./components/Editor.tsx"));
+const BlogShell = lazy(() => import("./blog/BlogShell.tsx"));
+const ReadingView = lazy(() => import("./reading/ReadingView.tsx"));
+const GraphView = lazy(() => import("./components/GraphView.tsx"));
+const Sidebar = lazy(() => import("./components/Sidebar.tsx"));
+const Tabs = lazy(() => import("./components/Tabs.tsx"));
+const StatusBar = lazy(() => import("./components/StatusBar.tsx"));
+const BacklinksPanel = lazy(() => import("./components/BacklinksPanel.tsx"));
+const CommandPalette = lazy(() => import("./components/CommandPalette.tsx"));
+const BannerModal = lazy(() => import("./components/BannerModal.tsx"));
+const ModerationPanel = lazy(() => import("./components/ModerationPanel.tsx"));
+const SettingsModal = lazy(() => import("./components/SettingsModal.tsx"));
 
 export default function App() {
   const view = useStore((s) => s.view);
@@ -128,9 +148,27 @@ export default function App() {
   // and a stream opened as admin would keep leaking unpublished paths after
   // logout. A fresh EventSource carries the current cookie.
   useEffect(() => {
-    const onEvent = (ev: VaultEvent) => {
+    // Whole-vault refreshes are COALESCED; per-event bookkeeping below is not.
+    // One changed file and sixty changed files leave the tree, the backlinks,
+    // the tag list and the publish marks in the same place, so a burst pays
+    // for one round of each instead of sixty (client/coalesce.ts spells out
+    // the numbers this replaced).
+    const refreshVault = coalesce(() => {
       const store = useStore.getState();
       void store.loadTree();
+      void store.refreshBacklinks();
+      // Keep publish marks + "N published" fresh (external edits can flip
+      // frontmatter flags too).
+      if (store.admin) void store.loadPublished();
+    }, SSE_COALESCE_MS);
+
+    const onEvent = (ev: VaultEvent) => {
+      const store = useStore.getState();
+      refreshVault();
+      // The link graph is the most expensive of the lot and has its own
+      // debounce and its own shared cache, so it is invalidated rather than
+      // refetched here.
+      invalidateVaultGraph();
 
       // New/renamed files may satisfy embeds that 404'd earlier.
       if (ev.kind === "created" || ev.kind === "renamed") clearBrokenEmbeds();
@@ -153,11 +191,6 @@ export default function App() {
           }
         }
       }
-
-      void store.refreshBacklinks();
-      // Keep publish marks + "N published" fresh (external edits can flip
-      // frontmatter flags too).
-      if (store.admin) void store.loadPublished();
     };
     return subscribeEvents(onEvent);
   }, [admin]);
@@ -318,7 +351,12 @@ export default function App() {
   if (blogVisitor) {
     return (
       <>
-        <BlogShell />
+        {/* The fallback is the empty shell, not a spinner: the blog chunk is
+            one request behind the entry and a flash of chrome-then-content
+            reads worse than a beat of the page background. */}
+        <Suspense fallback={<div className="s-blog" />}>
+          <BlogShell />
+        </Suspense>
         <PreviewBanner />
         <ConfirmHost />
       </>
@@ -338,6 +376,11 @@ export default function App() {
 
   return (
     <div className={shellClass}>
+      {/* One boundary for the whole app shell. Every component inside it
+          resolves from the SAME chunk (build/chunks.ts groups them), so this
+          is a single request, and one fallback avoids the panes popping in
+          one at a time. */}
+      <Suspense fallback={null}>
       <Sidebar />
       {/* Mobile drawer chrome: backdrop dismisses; the toggle floats over the
           main column. Both are display:none above the narrow breakpoint. */}
@@ -453,12 +496,13 @@ export default function App() {
           </button>
         </div>
       )}
-      <PreviewBanner />
       {paletteOpen && <CommandPalette />}
-      {loginOpen && <LoginModal />}
       {bannerModalOpen && admin && <BannerModal />}
       {moderationOpen && admin && <ModerationPanel />}
       {settingsOpen && admin && <SettingsModal />}
+      </Suspense>
+      <PreviewBanner />
+      {loginOpen && <LoginModal />}
       <ConfirmHost />
     </div>
   );

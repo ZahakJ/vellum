@@ -5,9 +5,10 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
-import { createFolder, getGraph, getTags, search } from "../api.ts";
+import { createFolder, getTags, search } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
 import { collectNotes, resolveLink, type NoteRef } from "../editor/links.ts";
+import { useVaultGraph } from "../graphCache.ts";
 import { countPhrase, localeNum, t, tf, type Lang } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
@@ -277,22 +278,17 @@ export default function Sidebar() {
   }, [tree]);
 
   // Visitor topic sections need per-note tags; /api/graph carries them (and
-  // is publish-scoped for visitors). Keyed on the tree so SSE keeps it fresh.
-  const [noteTags, setNoteTags] = useState<Map<string, string[]> | null>(null);
-  useEffect(() => {
-    if (admin) return;
-    let cancelled = false;
-    getGraph()
-      .then((data) => {
-        if (!cancelled) setNoteTags(new Map(data.nodes.map((n) => [n.id, n.tags])));
-      })
-      .catch((err: unknown) => {
-        console.error("vellum: loading note tags failed", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [admin, tree]);
+  // is publish-scoped for visitors). It comes from the shared cache, which is
+  // what keeps SSE freshness without refetching the whole vault graph once
+  // per changed file (client/graphCache.ts).
+  const visitorGraph = useVaultGraph(!admin);
+  const noteTags = useMemo<Map<string, string[]> | null>(
+    () =>
+      visitorGraph
+        ? new Map(visitorGraph.nodes.map((n) => [n.id, n.tags] as [string, string[]]))
+        : null,
+    [visitorGraph],
+  );
 
   // Dismiss the context menu on any outside click or Escape.
   useEffect(() => {

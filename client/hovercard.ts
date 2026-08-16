@@ -25,6 +25,7 @@
 // so a mouse click never doubles as a hover) opens one and carries an
 // `aria-describedby` to it, which is what makes the `role="tooltip"` true.
 
+import { Lru } from "./lru.ts";
 import "./styles/hovercard.css";
 
 const OPEN_MS = 350;
@@ -41,9 +42,33 @@ const MIN_ROOM = 140;
 /** Tallest a card may grow, as a fraction of the viewport. */
 const MAX_VH = 0.72;
 /** Rendered bodies kept for the session. A card is one detached DOM tree per
- *  note; on a 1,388-note vault an evening of browsing would otherwise keep
- *  every one of them. */
+ *  note — headings, paragraphs, figures, sometimes a rendered KaTeX block —
+ *  so the cost per entry is a live subtree, not a string. On a 1,388-note
+ *  vault an evening of browsing would otherwise keep every one of them; on a
+ *  10k-note vault it is the whole vault, rendered. */
 const CACHE_MAX = 24;
+
+/** Retained entries in the most recently installed card cache. Diagnostics
+ *  only — `scripts/check-hovercache.mjs` asserts the bound against a real
+ *  browsing session rather than trusting the constant above. */
+export function hoverCardCacheSize(): number {
+  return liveCache?.size ?? 0;
+}
+
+let liveCache: Lru<HTMLElement> | null = null;
+
+declare global {
+  interface Window {
+    /** Read-only size probe for the hover-card cache, so the perf gate can
+     *  observe the LRU from outside the bundle. It exposes a single number
+     *  and no vault content, and nothing in the app reads it. */
+    __vellumHoverCardCacheSize?: () => number;
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.__vellumHoverCardCacheSize = hoverCardCacheSize;
+}
 
 export interface HoverCardConfig {
   /** Delegation root — only links inside it get previews. */
@@ -73,7 +98,12 @@ let cardSeq = 0;
 export function installHoverCards(config: HoverCardConfig): () => void {
   if (unwanted()) return () => {};
 
-  const cache = new Map<string, HTMLElement>();
+  // Bounded LRU (client/lru.ts). The eviction used to be spelled out inline
+  // here and nowhere else; sharing the class is what lets the same bound —
+  // and the same "a re-hit is a use" recency rule — cover the editor's note
+  // caches too, and lets the harness read `size` back out.
+  const cache = new Lru<HTMLElement>({ max: CACHE_MAX });
+  liveCache = cache;
   let card: HTMLElement | null = null;
   let anchor: Element | null = null;
   let openPath: string | null = null;
@@ -186,6 +216,8 @@ export function installHoverCards(config: HoverCardConfig): () => void {
     const body = document.createElement("div");
     body.className = "s-hovercard__body";
 
+    // `Lru.get` freshens on a hit and `Lru.set` evicts the least recently used
+    // entry before storing, so the cache holds the last CACHE_MAX notes read.
     let rendered = cache.get(path) ?? null;
     if (!rendered) {
       let built: HTMLElement | null = null;
@@ -196,17 +228,8 @@ export function installHoverCards(config: HoverCardConfig): () => void {
       }
       if (gen !== generation) return; // pointer left (or moved on) meanwhile
       if (!built) return; // refused / empty — no card, no trace
-      // Oldest-first eviction: a Map iterates in insertion order, and a re-hit
-      // re-inserts below, so the cache holds the last CACHE_MAX notes read.
-      if (cache.size >= CACHE_MAX) {
-        const oldest = cache.keys().next();
-        if (!oldest.done) cache.delete(oldest.value);
-      }
       cache.set(path, built);
       rendered = built;
-    } else {
-      cache.delete(path);
-      cache.set(path, rendered); // freshen: this note is the most recent again
     }
     if (gen !== generation) return;
 
@@ -338,6 +361,7 @@ export function installHoverCards(config: HoverCardConfig): () => void {
   return () => {
     close();
     cache.clear();
+    if (liveCache === cache) liveCache = null;
     root.removeEventListener("pointerover", onOver as EventListener);
     root.removeEventListener("pointerout", onOut as EventListener);
     root.removeEventListener("focusin", onFocusIn as EventListener);
