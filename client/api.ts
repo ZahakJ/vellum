@@ -10,6 +10,7 @@ import type {
   MeData,
   NoteData,
   PostMeta,
+  PublishedPaths,
   PublishResult,
   SearchHit,
   SettingsPatch,
@@ -135,10 +136,17 @@ export function renameNote(path: string, toPath: string): Promise<{ ok: true }> 
   return request<{ ok: true }>("/api/rename", json("POST", { path, toPath }));
 }
 
-export function deleteNote(path: string): Promise<{ ok: true }> {
-  return request<{ ok: true }>(`/api/note?path=${encodeURIComponent(path)}`, {
-    method: "DELETE",
-  });
+/** Delete ONE note. Same two speeds as `deleteFolder`, because a note is not
+ *  a cheaper thing to lose than a folder: the default MOVES it to the vault's
+ *  `.trash/` (the answer carries where it landed), `permanent` erases it. */
+export function deleteNote(
+  path: string,
+  permanent = false,
+): Promise<{ ok: true; trashPath?: string }> {
+  return request<{ ok: true; trashPath?: string }>(
+    `/api/note?path=${encodeURIComponent(path)}${permanent ? "&permanent=true" : ""}`,
+    { method: "DELETE" },
+  );
 }
 
 export function createFolder(path: string): Promise<{ ok: true }> {
@@ -273,15 +281,23 @@ export function syncNow(): Promise<GitSyncStatus> {
 }
 
 /**
- * The set of published note paths, as an anonymous visitor would see them.
- * Trick: `credentials: "omit"` drops the admin session cookie, so the server
- * answers with the visitor-facing flat tree of published notes — no extra
- * endpoint needed. Only meaningful when a password hash is configured AND
- * public reads are open (otherwise the request 401s / returns the full tree).
+ * The set of published note paths — the ADMIN's own view of publish state,
+ * from an admin-only route (GET /api/published; 404 for anyone else).
+ *
+ * It used to be read off `/api/tree` with `credentials: "omit"` — the admin's
+ * session dropped so the server would answer as if to a stranger. That was
+ * one trick with three consequences: the owner's publish marks were built
+ * from a VISITOR surface and inherited the visitor's languageFilter, which
+ * CONTRACTS.md forbids on an admin surface; a just-published note's star lit
+ * optimistically and was then removed again by the next refresh, with no
+ * message; and the whole thing only existed when a password hash was
+ * configured AND public reads were open, so an open local vault had no
+ * publish marks at all. X-Vellum-Preview exists precisely so a session never
+ * has to pretend to be someone else.
  */
 export async function getPublishedPaths(): Promise<Set<string>> {
-  const tree = await request<TreeNode>("/api/tree", { credentials: "omit" });
-  return new Set((tree.children ?? []).map((n) => n.path));
+  const { paths } = await request<PublishedPaths>("/api/published");
+  return new Set(paths);
 }
 
 /** Throws with the server's message ("Invalid password", rate limit…) on failure. */

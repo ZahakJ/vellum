@@ -343,6 +343,19 @@ export interface PublishedCounts {
   total: number;  // all indexed notes
 }
 
+// GET /api/published (ADMIN ONLY) → PublishedPaths.
+// The admin UI's own source for "which notes are published" — the server's
+// publish set, with no visitor filter applied to it. It exists because the
+// panel used to learn this by fetching /api/tree with `credentials: "omit"`:
+// a session pretending to be anonymous, which handed an ADMIN surface the
+// visitor's languageFilter (CONTRACTS.md: "Admin surfaces are never
+// filtered") and made a just-published note's star flicker back off.
+// Admin-only, because a language-hidden published note's path is precisely
+// what every public surface is withholding.
+export interface PublishedPaths {
+  paths: string[]; // vault-relative, sorted
+}
+
 // POST /api/publish { path, publish: boolean } (admin only) → PublishResult
 export interface PublishResult {
   ok: true;

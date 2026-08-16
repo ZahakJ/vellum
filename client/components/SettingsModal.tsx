@@ -643,12 +643,17 @@ function ImageField({
   value,
   placeholder,
   invalid,
+  disabled,
   onChange,
   onOpenPicker,
 }: {
   value: string;
   placeholder: string;
   invalid?: boolean;
+  /** The row is inert (a switch above it is off). The field AND both of its
+   *  buttons go with it — a live "Pick…" beside a dimmed field is the same
+   *  invisible-state bug the dimming is there to prevent. */
+  disabled?: boolean;
   onChange: (v: string) => void;
   onOpenPicker: () => void;
 }) {
@@ -677,14 +682,15 @@ function ImageField({
         placeholder={placeholder}
         onChange={onChange}
         invalid={invalid}
+        disabled={disabled}
         label={placeholder}
         dir="ltr"
       />
-      <button type="button" className="s-btn" onClick={onOpenPicker}>
+      <button type="button" className="s-btn" disabled={disabled} onClick={onOpenPicker}>
         {t("pick")}
       </button>
       {isImage && (
-        <button type="button" className="s-btn" onClick={() => onChange("")} aria-label={t("clear")}>
+        <button type="button" className="s-btn" disabled={disabled} onClick={() => onChange("")} aria-label={t("clear")}>
           ×
         </button>
       )}
@@ -1488,6 +1494,16 @@ export default function SettingsModal() {
   /** The master switch is off: every control below it in Backup & sync is
    *  inert, and says so. */
   const syncOff = form?.syncEnabled !== "on";
+  /** settings.home.mode and the home banner are read by the BLOG shell only —
+   *  server/auth.ts sends `me.home` inside `if (publicLayout() === "blog")`,
+   *  and BlogDashboard mounts from BlogShell. PUBLIC_LAYOUT defaults to "app",
+   *  where both were offered live, with no note and no disabled state: an
+   *  operator picked Dashboard, uploaded a hero, got a success toast, and the
+   *  site did not change. Read from the FORM (like syncOff) so switching
+   *  Public layout to blog lights them up in the same breath, before the save.
+   *  The Home NOTE row between them stays live on purpose — the app shell
+   *  opens it at boot. */
+  const homeOff = (form?.publicLayout || eff?.publicLayout) !== "blog";
   /** The sync fields hold unsaved edits, so the two actions must wait for the
    *  save rather than act on a remote the form no longer shows. */
   const syncStale =
@@ -1892,9 +1908,11 @@ export default function SettingsModal() {
                   </Row>
                   <div className="s-smodal__sub">{t("groupHome")}</div>
                   <p className="s-smodal__note">{t("homeNote")}</p>
-                  <Row label={t("rowMode")} hint={t("hintMode")}>
+                  {homeOff && <p className="s-smodal__offnote">{t("homeBlogOnlyNotice")}</p>}
+                  <Row label={t("rowMode")} hint={t("hintMode")} off={homeOff}>
                     <SegmentedControl
                       label={t("rowMode")}
+                      disabled={homeOff}
                       segments={[
                         { value: "", label: t("inheritSegment"), note: enumLabel(eff.home.mode) },
                         { value: "note", label: t("modeNote") },
@@ -1923,11 +1941,13 @@ export default function SettingsModal() {
                     hint={t("hintHomeBanner")}
                     error={errors.homeBanner}
                     inherited={form.homeBanner.trim() === ""}
+                    off={homeOff}
                   >
                     <ImageField
                       value={form.homeBanner}
                       placeholder={t("phVaultImageOrUrl")}
                       invalid={errors.homeBanner !== undefined}
+                      disabled={homeOff}
                       onChange={(v) => setForm((f) => (f ? { ...f, homeBanner: v } : f))}
                       onOpenPicker={() => setPicker("homeBanner")}
                     />

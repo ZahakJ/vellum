@@ -3,19 +3,30 @@
    janking, and the lightbox viewer.
 
    Logical properties throughout (CONTRACTS, "Localization & RTL"): every one
-   of these rows lives in a pane that mirrors wholesale in Arabic. Colors are
-   tokens only — an attachment row is deliberately QUIETER than a note row
-   (--text-faint at rest, --text-muted on hover), because notes are the
-   writing and these are the things the writing points at. */
+   of these rows lives in a pane that mirrors wholesale in Arabic.
+
+   Colors are tokens only, and the row's QUIET comes from its glyph and its
+   place under the notes — not from painting the FILENAME in --text-faint.
+   That is where it started (faint at rest, muted on hover), and it put a
+   name the reader has to read at 3.3:1 on iron-gall and 2.5:1 on parchment,
+   under a gate that scored the pair against a minimum of zero. Names, the
+   extension badge and the footer counts now sit on --text-muted (6.2–7.4:1,
+   AA at these sizes); --text-faint keeps the type glyph, which is a glyph and
+   is held to the 3:1 non-text bar the gate now enforces. The cost is honest:
+   at rest an attachment row is now the same value as a note row, so the
+   hierarchy is carried by structure instead of by contrast — the type glyph
+   in the chevron slot, the extension badge, the position under the folder's
+   notes, and the paperclip filter that can remove them entirely. A filename
+   the reader cannot read is not a quieter filename. */
 
 /* ------------------------------------------------------------ tree rows -- */
 
 .s-tree__item--att {
-  color: var(--text-faint);
+  color: var(--text-muted);
 }
 
 .s-tree__item--att:hover {
-  color: var(--text-muted);
+  color: var(--text);
 }
 
 /* The type glyph takes the chevron's slot, so attachment names line up with
@@ -30,13 +41,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* No opacity fade: 0.85 composited the token back down to 2.56:1 on
+     iron-gall — under the 3:1 non-text bar, and invisible to a gate that
+     reads tokens, not blends. The glyph rests at the full token. */
   color: var(--text-faint);
-  opacity: 0.85;
 }
 
 .s-tree__item--att:hover .s-tree__glyph {
   color: var(--accent);
-  opacity: 1;
 }
 
 /* Extension badge on the row: tiny, uppercase, only where the glyph alone
@@ -46,8 +58,12 @@
   font-size: 0.643rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-faint);
-  opacity: 0.75;
+  /* 10px uppercase is the smallest type in the tree, and it was --text-faint
+     at 0.75 opacity — ~2.5:1, worse than the token it was already too faint
+     for. It rests on the full --text-muted now (5.0:1 at the worst theme);
+     the size, the letterspacing and the uppercase keep it subordinate to the
+     name without taking the contrast out. */
+  color: var(--text-muted);
 }
 
 /* A folder is rendered in chunks; this row asks for the next one. Never a
@@ -85,7 +101,7 @@
   background: none;
   border: none;
   border-radius: 4px;
-  color: var(--text-faint);
+  color: var(--text-muted);
   font-family: var(--font-ui);
   font-size: 0.857rem;
   font-style: italic;
@@ -116,7 +132,7 @@
   background: none;
   border: 1px solid transparent;
   border-radius: 999px;
-  color: var(--text-faint);
+  color: var(--text-muted);
   font-family: var(--font-ui);
   font-size: 0.786rem;
   cursor: pointer;
@@ -142,7 +158,10 @@
 }
 
 .s-attfilter--off .s-attfilter__clip {
-  opacity: 0.6;
+  /* The OFF state is a state, not a disabled control, so it is a token step
+     (--text-faint, floored at 3:1 by the gate) rather than an opacity fade —
+     0.6 put the clip at 2.47:1 on parchment. */
+  color: var(--text-faint);
 }
 
 .s-attfilter__clip {

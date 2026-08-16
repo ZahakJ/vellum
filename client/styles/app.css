@@ -576,7 +576,7 @@ select:focus,
 .s-tags__total {
   margin-inline-start: auto;
   font-size: 0.714rem;
-  color: var(--text-faint);
+  color: var(--text-muted);
 }
 
 .s-tags__list {
@@ -620,20 +620,29 @@ select:focus,
   color: var(--accent);
 }
 
+/* The count is TEXT — how many notes wear this tag — and it sits on the
+   pill's --bg-hover ground, where --text-faint measures 2.73:1 at the worst
+   theme. --text-muted holds 4.53:1 there; the weight and size keep it
+   subordinate to the tag name beside it. */
 .s-tag__count {
-  color: var(--text-faint);
+  color: var(--text-muted);
   font-weight: 400;
   font-size: 0.786rem;
 }
 
 /* --------------------------------------------------------- sidebar foot -- */
 
+/* "1,391 notes · 60 files" — a count of the reader's own vault, at 12px.
+   It was --text-faint, i.e. 3.2:1 at best and 2.5:1 on parchment, under a
+   gate that scored that pair against a minimum of zero. --text-faint carries
+   glyphs and machine bookkeeping; a number the reader is meant to read is
+   --text-muted (DESIGN.md, "Contrast"). */
 .s-sidebar-foot {
   flex: none;
   padding: 7px 16px 8px;
   border-top: 1px solid var(--border);
   font-size: 0.786rem;
-  color: var(--text-faint);
+  color: var(--text-muted);
   user-select: none;
 }
 
@@ -3049,6 +3058,33 @@ select:focus,
 .s-confirm--grave {
   border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), 0 0 0 1px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+/* The prompt shape of the same dialog (Confirm.tsx promptModal) — one field
+   and one line under it. The row is a flex box because .s-bmodal__input, the
+   product's one text input, is flex:1 wherever it lives. */
+.s-confirm__field {
+  display: flex;
+  margin-top: 12px;
+}
+
+/* What the name will actually become ("Creates ideas/Untitled.md"), or why it
+   cannot. It is always present — a line that appears on the first keystroke
+   would resize the dialog under the pointer. `--text-muted`, not
+   `--text-faint`: faint is this product's NON-TEXT bar (3:1, for UI glyphs
+   like the fold chevron), and this line is the sentence the reader is being
+   asked to check before a file is written. */
+.s-confirm__note {
+  margin: 6px 0 0;
+  min-height: 1.35em;
+  font-size: 0.857rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.s-confirm__note--bad {
+  color: var(--danger);
 }
 
 /* ------------------------------------------------- wordmark as a button -- */

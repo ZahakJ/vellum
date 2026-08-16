@@ -250,7 +250,14 @@ export default function StatusBar() {
           </span>
         </>
       )}
-      {admin && authProtected && publishedCounts && (
+      {/* Publish state, wherever an admin is signed in. This used to hang off
+          `authProtected` as well, which meant the segment (and with it the
+          only route to the published filter) vanished on an open local vault
+          and on every PUBLIC=false instance — while the publish TOGGLE two
+          segments to the left stayed, still saying "Published — live for
+          visitors". Offering the act and hiding the state is the one thing
+          this bar exists to prevent. */}
+      {admin && publishedCounts && (
         <>
           <button
             type="button"

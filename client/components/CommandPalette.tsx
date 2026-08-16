@@ -15,7 +15,7 @@ import type { Theme } from "../state.ts";
 import { search } from "../api.ts";
 import { dailyNotePath, openDailyNote } from "../daily.ts";
 import { t, tf, type I18nKey } from "../i18n.ts";
-import { confirmModal } from "./Confirm.tsx";
+import { confirmModal, confirmModalEx } from "./Confirm.tsx";
 import { runSyncNow, syncSnapshot } from "../sync.ts";
 import { toast } from "../toast.ts";
 import type { SearchHit } from "../../shared/types.ts";
@@ -536,18 +536,38 @@ export default function CommandPalette() {
         case "delete-current":
           if (store.openPath) {
             const path = store.openPath;
-            void confirmModal({
-              title: t("deleteNoteTitle"),
-              body: tf("deleteNoteBody", { path }),
-            }).then((ok) => {
-              if (!ok) return;
+            const name = path.split("/").pop() ?? path;
+            const remove = (permanent: boolean) => {
               useStore
                 .getState()
-                .deleteNote(path)
+                .deleteNote(path, { permanent })
                 .catch((err: unknown) => {
                   console.error("CommandPalette: delete failed", err);
                   toast(t("couldNotDeleteNote"));
                 });
+            };
+            // The same two speeds the tree's own delete offers (Sidebar.tsx):
+            // one command must not be the harsher one just because it was
+            // reached from the palette.
+            void confirmModalEx({
+              title: tf("deleteNoteTitle", { name }),
+              body: tf("deleteNoteBody", { path }),
+              confirmLabel: t("moveToTrash"),
+              extraLabel: t("deletePermanently"),
+            }).then((result) => {
+              if (result === "confirm") {
+                remove(false);
+                return;
+              }
+              if (result !== "extra") return;
+              void confirmModal({
+                title: tf("deleteNotePermTitle", { name }),
+                body: tf("deleteNotePermBody", { path }),
+                confirmLabel: t("deletePermanently"),
+                grave: true,
+              }).then((ok) => {
+                if (ok) remove(true);
+              });
             });
           }
           break;

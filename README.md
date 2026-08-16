@@ -7,7 +7,7 @@
 <p align="center"><a href="https://zahakj.github.io/vellum/"><strong>✦ Visit the project site ✦</strong></a></p>
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-b8912f.svg)](LICENSE)
-[![Node ≥ 22](https://img.shields.io/badge/node-%E2%89%A5%2022-339933?logo=node.js&logoColor=white)](package.json)
+[![Node ≥ 24](https://img.shields.io/badge/node-%E2%89%A5%2024-339933?logo=node.js&logoColor=white)](package.json)
 
 > A *vellum* was the candlelit room where manuscripts were copied and illuminated. This one runs on `localhost`.
 
@@ -26,6 +26,11 @@ Obsidian is excellent — and if it fits, use it. Vellum exists for the gap it l
 | ![The fifteen themes](docs/screenshots/themes.png)<br>*Fifteen hand-tuned themes — eleven dark, four light — each defining its whole palette.* | <img src="docs/screenshots/mobile.png" alt="Blog home on a phone" width="320"><br>*The public site, phone-sized.* |
 
 ## Quickstart
+
+**Node ≥ 24** (`node --version`). Vellum's server is TypeScript that Node runs directly, with no
+build step and no transpiler — that needs type stripping on by default, `--env-file-if-exists`, and
+an unflagged `node:sqlite` (the comments database), which all line up at 24. It is declared in
+`package.json` under `engines`, so `npm install` will tell you if you are below it.
 
 ```sh
 git clone https://github.com/ZahakJ/vellum.git
@@ -69,7 +74,30 @@ ADMIN_PASSWORD_HASH='$argon2id$v=19$m=65536,...'
 SESSION_SECRET=some-long-random-string   # e.g. openssl rand -hex 32
 ```
 
-With a hash set, visitors get the **reading view**: fully rendered notes, search, graph, backlinks — but no editor and no create/rename/delete anywhere. A quiet "Sign in" link in the status bar opens the login modal; a correct password sets a signed, httpOnly 30-day session cookie and unlocks editing on the spot, no reload. Login attempts are rate-limited (10/min/IP). Set `PUBLIC=false` to require login even for reading, and `HOME_NOTE` to pick the note fresh visitors land on.
+With a hash set, visitors get the **reading view**: fully rendered notes, search, graph, backlinks — but no editor and no create/rename/delete anywhere. A quiet "Sign in" link in the status bar opens the login modal; a correct password sets a signed, httpOnly session cookie and unlocks editing on the spot, no reload. Set `PUBLIC=false` to require login even for reading, and `HOME_NOTE` to pick the note fresh visitors land on.
+
+**`PUBLIC=false` requires a password, and says so by refusing to start.** Without
+`ADMIN_PASSWORD_HASH` there is no session for the flag to require, so "private" would have meant the
+opposite of itself: every anonymous request treated as a full admin. Rather than boot into that,
+Vellum prints the `npm run hash-password` line and exits. (Running deliberately open on a trusted
+network is still fine — just don't also claim to be private.) For the same reason, **backup & sync
+needs a password in every mode**: without one, anyone who can reach the port could point the remote
+at their own server and push your whole vault to it.
+
+**Sessions.** The cookie is httpOnly, `SameSite=Lax`, `Secure` whenever the request arrives over
+HTTPS (directly, or via `X-Forwarded-Proto` from an address listed in `TRUSTED_PROXIES` — set
+`SECURE_COOKIES=true`/`false` to decide it yourself, e.g. `false` for LAN-over-http), and lives
+**7 days**, renewed automatically while you are using the app. **Signing out signs you out
+everywhere**, on every device, immediately: sessions carry an epoch stored in `VELLUM_DATA`, and
+logging out bumps it. **Changing `ADMIN_PASSWORD_HASH` does the same** — every cookie issued under
+the old password stops working the moment the new one is in place, which is the whole point of
+changing it after a laptop goes missing. (Upgrading Vellum also invalidates existing sessions once;
+you sign in again.)
+
+**Login rate limit.** 10 failed attempts per minute per IP, plus a global ceiling, and the slot is
+taken *before* the password is checked — so a thousand simultaneous guesses are still ten guesses.
+At most two password verifications run at once (each argon2id hash costs 64 MB by design), so login
+traffic can't starve the process that is also serving your notes.
 
 As the signed-in admin you can **preview as visitor** at any time — the eye icon in the status bar, or "Preview as visitor" in the command palette. It is not a client-side imitation: every request is re-scoped server-side through the exact code path a stranger's request takes (published-only tree, search, graph, feed of events), so what you see is byte-for-byte what the public site serves. A slim gold banner marks the mode; "Exit preview" returns you to the full app on the same note.
 
@@ -85,8 +113,10 @@ All `.env` keys (npm scripts load the file automatically via `node --env-file-if
 | `VELLUM_VAULT` | Vault directory (default `./vault`) |
 | `ADMIN_PASSWORD_HASH` | argon2id hash from `npm run hash-password`; unset → open local mode |
 | `SESSION_SECRET` | Signs session cookies; unset → ephemeral, sessions die on restart |
-| `PUBLIC` | `false` requires login even to read (default: reading is public) |
-| `TRUSTED_PROXIES` | Comma-separated IPs/CIDRs allowed to set `X-Forwarded-For` (e.g. `127.0.0.1,::1`); unset → header ignored, rate limit uses the socket address |
+| `PUBLIC` | `false` requires login even to read (default: reading is public). Refuses to start without `ADMIN_PASSWORD_HASH` |
+| `TRUSTED_PROXIES` | Comma-separated IPs/CIDRs allowed to set `X-Forwarded-For` / `X-Forwarded-Proto` (e.g. `127.0.0.1,::1`); unset → both headers ignored, rate limit uses the socket address |
+| `SECURE_COOKIES` | `true`/`false` to force the session cookie's `Secure` flag; unset → derived from the request scheme (and `X-Forwarded-Proto` from a trusted proxy) |
+| `HOST` | Bind address (default `0.0.0.0`). A non-loopback bind with no password prints a loud warning: everyone who can reach the port is an admin |
 | `HOME_NOTE` | Vault-relative note fresh visitors land on, e.g. `index.md` |
 | `COMMENTS` | `on` enables reader comments under published notes (default off) |
 | `VELLUM_DATA` | Server data directory — the comments SQLite db, your `custom.css`, and `fonts/` (your own files, plus the self-hosted catalog cache in `fonts/catalog/`; default `./data`) |
@@ -120,7 +150,9 @@ it decides —
   **visitor switch**.
 - **Publishing & comments** — public layout (`app`/`blog`), excluded tags, the comments and
   share-button toggles, and the home page visitors land on at `/`: classic `note` mode with a
-  chosen home note, or the `dashboard` magazine layout, plus an optional hero banner.
+  chosen home note, or the `dashboard` magazine layout, plus an optional hero banner. The last
+  two are read by the **blog** layout and by nothing else, so with `Public layout: app` the
+  panel greys them and says so — an app-layout instance opens the home note at `/`.
 - **Typography** — four font slots (text / interface / code / Arabic script) over a curated,
   self-hosted catalog *or* faces you upload yourself, with a live specimen that stays on screen
   while you choose. See [Typography](#typography).
@@ -263,7 +295,9 @@ leading one under RTL) and carries the reader back up with a gold shimmer; it li
 of the way of the footer and the comment box rather than sitting on them, and jumps instantly
 with no shimmer when `prefers-reduced-motion` is set.
 
-**Dashboard home.** Prefer a magazine front page over the note-style home? Set
+**Dashboard home.** Prefer a magazine front page over the note-style home? (Blog mode only —
+in the default `app` layout `/` opens the home note and this setting is inert, which the
+settings panel says on the row itself.) Set
 `home.mode: "dashboard"` in `VELLUM_DATA/settings.json` (`{ "home": { "mode": "dashboard" } }`,
 picked up live — or via the admin `PATCH /api/settings` endpoint) and `/` becomes: a full-width hero carrying the site name (or
 logo) and tagline over a banner image (`home.banner` — an https URL or a vault attachment;
@@ -866,7 +900,7 @@ inside the editor stays redo; `Ctrl Shift Z` enters zen there.
 
 ```
 ┌────────────────────────────┐        ┌─────────────────────────────┐
-│  Client — React + CM6      │  HTTP  │  Server — Hono (Node ≥22.6) │
+│  Client — React + CM6      │  HTTP  │  Server — Hono (Node ≥ 24)  │
 │  live preview · reading    │◄──────►│  /api: tree · note · file   │
 │  view · graph · palette    │  SSE   │  search · graph · backlinks │
 │  outline · zustand store   │        │  tags · resolve             │

@@ -5,13 +5,26 @@
 // that carries them (the palette, the status bar, a click) — the question the
 // reader is asking is "how do I do X", not "which key does X".
 //
-// Esc closes. Opened from the status-bar ?, the palette, or Ctrl/Cmd+/.
+// Esc closes. Opened from the status-bar ?, the palette, or Ctrl/Cmd+/ (in
+// the blog shell, Ctrl/Cmd+/ is the only door — there is no status bar and no
+// palette there).
+//
+// TWO filters, and they are the same rule twice. `admin` drops the rows a
+// read-only session cannot act on; `shell` drops the rows the mounted shell
+// does not have. A blog visitor was being served the APP's sheet: Command
+// palette, Graph view, Zen mode, Browse themes "via Status bar", and both
+// pane toggles — six rows naming controls that are not on the page, three of
+// them lit as buttons that ran commands into a shell holding no such state.
+// CONTRACTS.md: rows that light up must DO something.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { openDailyNote } from "../daily.ts";
 import { t, type I18nKey } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { openThemePicker } from "./ThemePicker.tsx";
+
+/** Which shell is mounted around the sheet. */
+export type Shell = "app" | "blog";
 
 /** One row: a label, and either a key sequence or the surface that carries it. */
 interface Binding {
@@ -22,6 +35,10 @@ interface Binding {
   via?: I18nKey;
   /** Only meaningful for a session that may write to the vault. */
   admin?: boolean;
+  /** Only meaningful in ONE shell. Unmarked rows work in both (Ctrl/Cmd+K is
+   *  answered by the sidebar's search box in the app and by the blog's own
+   *  overlay; Esc, a click on a link and this sheet exist everywhere). */
+  shell?: Shell;
   /** What the row DOES, when the shell can do it from here. Rows carried a
    *  hover highlight while being plain divs — an affordance lie: the pointer
    *  lit a row that answered to nothing, and a screenshot of the sheet showed
@@ -37,6 +54,7 @@ interface Group {
   title: I18nKey;
   items: Binding[];
 }
+
 
 /** True when `word` starts a WORD in `hay` — `\b` is ASCII-only in JS, and
  *  this sheet is searched in Arabic too. */
@@ -78,13 +96,23 @@ const GROUPS: Group[] = [
   {
     title: "scGroupNav",
     items: [
-      { label: "scPalette", keys: ["Ctrl/Cmd", "P"], run: () => useStore.getState().setPaletteOpen(true) },
+      {
+        label: "scPalette",
+        keys: ["Ctrl/Cmd", "P"],
+        shell: "app",
+        run: () => useStore.getState().setPaletteOpen(true),
+      },
       {
         label: "scSearch",
         keys: ["Ctrl/Cmd", "K"],
         run: () => window.dispatchEvent(new CustomEvent("vellum:quicksearch")),
       },
-      { label: "scGraph", keys: ["Ctrl/Cmd", "G"], run: () => useStore.getState().setView("graph") },
+      {
+        label: "scGraph",
+        keys: ["Ctrl/Cmd", "G"],
+        shell: "app",
+        run: () => useStore.getState().setView("graph"),
+      },
       { label: "cmdDailyNote", keys: ["Ctrl/Cmd", "D"], admin: true, run: () => void openDailyNote() },
       { label: "newNote", keys: ["Ctrl/Cmd", "N"], admin: true },
       { label: "scFollowLink", via: "scFollowLinkKey" },
@@ -92,7 +120,16 @@ const GROUPS: Group[] = [
       // that a click on one opens a viewer or that the arrows walk the folder.
       { label: "scOpenFile", via: "scFollowLinkKey", admin: true },
       { label: "scWalkFiles", keys: ["← / →"], admin: true },
-      { label: "scEscape", keys: ["Esc"] },
+      // Two labels, one key: the app's Esc leaves zen, and zen is not a thing
+      // the blog shell has. The blog row still names preview, which is true
+      // for the admin looking through it — the only other reader of this sheet.
+      { label: "scEscape", keys: ["Esc"], shell: "app" },
+      { label: "scEscapeBlog", keys: ["Esc"], shell: "blog" },
+      // Ctrl/Cmd+/ documents itself, and it is the ONE binding both shells
+      // carry with no surface of its own — so it closes the group every
+      // reader can see rather than hiding under "Panels", which the blog
+      // shell does not have.
+      { label: "scHelp", keys: ["Ctrl/Cmd", "/"] },
     ],
   },
   {
@@ -120,7 +157,12 @@ const GROUPS: Group[] = [
         admin: true,
         run: () => useStore.getState().toggleReading(),
       },
-      { label: "cmdZen", keys: ["Ctrl/Cmd", "Shift", "Z"], run: () => useStore.getState().setZen(true) },
+      {
+        label: "cmdZen",
+        keys: ["Ctrl/Cmd", "Shift", "Z"],
+        shell: "app",
+        run: () => useStore.getState().setZen(true),
+      },
       { label: "cmdToggleVim", via: "scViaStatusBar", admin: true, run: () => useStore.getState().toggleVim() },
       {
         label: "previewAsVisitor",
@@ -128,7 +170,7 @@ const GROUPS: Group[] = [
         admin: true,
         run: () => void useStore.getState().setPreviewVisitor(true),
       },
-      { label: "browseThemes", via: "scViaStatusBar", run: () => openThemePicker() },
+      { label: "browseThemes", via: "scViaStatusBar", shell: "app", run: () => openThemePicker() },
     ],
   },
   {
@@ -146,6 +188,7 @@ const GROUPS: Group[] = [
       {
         label: "cmdTogglePaneNotes",
         keys: ["Ctrl/Cmd", "B"],
+        shell: "app",
         run: () => {
           const s = useStore.getState();
           s.setSidebarCollapsed(!s.sidebarCollapsed);
@@ -154,17 +197,17 @@ const GROUPS: Group[] = [
       {
         label: "cmdTogglePaneOutline",
         keys: ["Ctrl/Cmd", "Shift", "B"],
+        shell: "app",
         run: () => {
           const s = useStore.getState();
           s.setPanelCollapsed(!s.panelCollapsed);
         },
       },
-      { label: "scHelp", keys: ["Ctrl/Cmd", "/"] },
     ],
   },
 ];
 
-export default function ShortcutsHelp() {
+export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
   const open = useStore((s) => s.shortcutsOpen);
   const setOpen = useStore((s) => s.setShortcutsOpen);
   const admin = useStore((s) => s.admin);
@@ -183,7 +226,7 @@ export default function ShortcutsHelp() {
     const words = q ? q.split(/\s+/) : [];
     const scored = GROUPS.map((group) => {
       const items = group.items
-        .filter((item) => !item.admin || admin)
+        .filter((item) => (!item.admin || admin) && (!item.shell || item.shell === shell))
         .map((item) => ({ item, score: score(item, group, words) }))
         .filter((row) => row.score >= 0)
         // Stable within a score: the authored order is a curriculum.
@@ -200,7 +243,7 @@ export default function ShortcutsHelp() {
     // they were looking. Ranking sorts the groups too, or the winning row is
     // still under whichever heading the authored order happens to put first.
     return q ? [...scored].sort((a, b) => b.best - a.best) : scored;
-  }, [query, admin]);
+  }, [query, admin, shell]);
 
   if (!open) return null;
 

@@ -174,6 +174,13 @@ export function buildPropsCard(yaml: string, opts: PropsCardOpts): HTMLElement |
       : `${p}__row`;
     const k = document.createElement("span");
     k.className = `${p}__key`;
+    // Key and values are note-derived text inside chrome, so each takes its
+    // OWN direction (CONTRACTS, "Localization & RTL") — and each value is a
+    // separate isolate, because `aliases: [مقال, Essay]` is a list of runs,
+    // not one string: joined into a single text node an RTL base direction
+    // reorders the runs around the commas and the list stops matching what
+    // the file says.
+    k.dir = "auto";
     k.textContent = key;
     row.appendChild(k);
     const v = document.createElement("span");
@@ -181,7 +188,12 @@ export function buildPropsCard(yaml: string, opts: PropsCardOpts): HTMLElement |
     if (key.toLowerCase() === "tags") {
       for (const value of values) v.appendChild(opts.makeTag(value));
     } else {
-      v.textContent = values.join(", ");
+      values.forEach((value, i) => {
+        if (i > 0) v.appendChild(document.createTextNode(", "));
+        const one = document.createElement("bdi");
+        one.textContent = value;
+        v.appendChild(one);
+      });
     }
     row.appendChild(v);
     body.appendChild(row);

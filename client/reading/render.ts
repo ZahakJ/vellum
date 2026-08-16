@@ -555,6 +555,10 @@ function propsCard(yaml: string): HTMLElement | null {
       pill.type = "button";
       pill.className = "s-rv-tag";
       pill.dataset.tag = value;
+      // dir="auto", not "ltr": the chip is its own content and the tag can be
+      // Arabic. Without the isolate the neutral `#` is swept to the display
+      // end by an RTL base direction and the chip reads `matrix#`.
+      pill.dir = "auto";
       pill.textContent = `#${value}`;
       return pill;
     },

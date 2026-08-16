@@ -23,6 +23,7 @@ import StatusBar, { vimSubCopy } from "./components/StatusBar.tsx";
 import Tabs from "./components/Tabs.tsx";
 import { openDailyNote } from "./daily.ts";
 import { t, tf } from "./i18n.ts";
+import { promptNewNote } from "./prompts.ts";
 import { applyUrl, installRouter, syncUrl } from "./router.ts";
 import { recentPublishWrite, useStore } from "./state.ts";
 import { dismissToasts, toast } from "./toast.ts";
@@ -288,16 +289,29 @@ export default function App() {
         }
         return;
       }
-      // Ctrl/Cmd+P, +K and +B are ALWAYS ours — swallow them before any early
-      // return so the browser's print dialog / address-bar search / bookmarks
-      // bar can never fire, modal open or not, and regardless of what CM does
-      // downstream. (Ctrl+Shift+B is Chrome's bookmark bar, plain Ctrl+B is
-      // Firefox's bookmarks sidebar: both have to die here.)
-      if (key === "p" || key === "k" || key === "b") e.preventDefault();
+      // Which shell this keystroke is landing in. The blog mounts no palette,
+      // no graph, no panes and no zen — so every binding below except
+      // Ctrl/Cmd+K (its search overlay answers that one) belongs to the
+      // BROWSER there, and taking it would be theft: an anonymous reader lost
+      // the print dialog and Firefox's bookmarks sidebar to two commands that
+      // do not exist on the page. Same predicate as the blogVisitor render
+      // branch below, read from the store because this listener never re-binds.
+      const blogShell =
+        store.authReady && !store.admin && store.publicLayout === "blog";
+      // Ctrl/Cmd+P, +K and +B are ALWAYS ours IN THE APP SHELL — swallowed
+      // before any early return so the browser's print dialog / address-bar
+      // search / bookmarks bar can never fire, modal open or not, and
+      // regardless of what CM does downstream. (Ctrl+Shift+B is Chrome's
+      // bookmark bar, plain Ctrl+B is Firefox's bookmarks sidebar: both have
+      // to die here.)
+      if (key === "k" || (!blogShell && (key === "p" || key === "b"))) e.preventDefault();
       // A modal dialog owns the keyboard: app-level shortcuts firing behind
       // the login/banner/moderation/confirm overlays would steal focus (e.g.
       // Ctrl+K focusing the sidebar search under the modal) or stack modals.
       if (modalUp(store) || store.shortcutsOpen) return;
+      // Ctrl/Cmd+K is the blog reader's one command; the rest act on chrome
+      // that is not on their page.
+      if (blogShell && key !== "k") return;
       if (key === "p" && e.shiftKey) {
         // Ctrl/Cmd+Shift+P: publish toggle (admin, note open) — never the palette.
         if (store.admin && store.openPath) void store.togglePublish(store.openPath);
@@ -359,11 +373,9 @@ export default function App() {
       } else if (key === "n") {
         if (!store.admin) return;
         e.preventDefault();
-        const path = window.prompt(t("newNotePathPrompt"), "Untitled.md");
-        if (!path) return;
-        const trimmed = path.trim().replace(/^\/+|\/+$/g, "");
-        if (!trimmed) return;
-        void store.createNote(trimmed.endsWith(".md") ? trimmed : `${trimmed}.md`);
+        // Our dialog, not the OS box: prompts.ts owns the naming rule and
+        // shows what the typed name becomes (see client/prompts.ts).
+        void promptNewNote("");
       }
     };
     // Capture phase: run ahead of CodeMirror/vim handlers so a stopPropagation
@@ -385,7 +397,9 @@ export default function App() {
             covering its masthead — preview exists to JUDGE that masthead. */}
         <PreviewBanner />
         <BlogShell />
-        <ShortcutsHelp />
+        {/* The sheet knows which shell it is in and drops the rows this one
+            does not have — six of them named controls the blog never mounts. */}
+        <ShortcutsHelp shell="blog" />
         <ConfirmHost />
       </>
     );

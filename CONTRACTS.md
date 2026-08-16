@@ -3,8 +3,13 @@
 Read this whole file before writing code. `shared/types.ts` is the wire contract; import from it with
 `import type { ... } from "../shared/types.ts"` (server) / `"../../shared/types.ts"` (client). All
 imports use explicit `.ts`/`.tsx` extensions (tsconfig has `allowImportingTsExtensions` + `verbatimModuleSyntax`;
-type-only imports must use `import type`). TS strict. Node ≥ 22.6 runs `.ts` directly (type stripping):
-server code must use only erasable TS (no enums/namespaces/parameter-properties).
+type-only imports must use `import type`). TS strict. **Node ≥ 24** (`engines` in package.json, and the README says the same number):
+Node runs `.ts` directly there with no flag, so server code must use only erasable TS (no
+enums/namespaces/parameter-properties). The floor is 24 rather than 22.6 because three things on
+the boot path need more than type stripping: `node:sqlite` is imported unconditionally by
+`server/comments.ts` (flagged before 22.13), every npm script passes `--env-file-if-exists` (22.9+),
+and type stripping itself is only on by default from 22.18 — a clean clone on the number the docs
+used to print died at `npm start` on an unknown flag.
 
 ## Identity & design language
 
@@ -50,7 +55,7 @@ that is the pre-existing pattern, and the door is now open.
 - `PUT  /api/note?path=` body `{ content: string }` → `NoteData` (writes file; creates parent dirs)
 - `POST /api/note` body `{ path: string }` → `NoteData` (create empty; 409 if exists)
 - `POST /api/rename` body `{ path, toPath }` → `{ ok: true }` (also rewrites `[[wikilinks]]` in other notes that pointed at the old name)
-- `DELETE /api/note?path=` → `{ ok: true }`
+- `DELETE /api/note?path=&permanent=<bool>` → `{ ok: true, trashPath?: string }` (default MOVES to `.trash/`; see "Note deletion")
 - `POST /api/folder` body `{ path }` → `{ ok: true }`
 - `GET  /api/search?q=` → `SearchHit[]` (max 50, minisearch, prefix+fuzzy)
 - `GET  /api/graph` → `GraphData` (nodes = all md files, edges = resolved wikilinks)
@@ -59,7 +64,41 @@ that is the pre-existing pattern, and the door is now open.
 - `GET  /api/events` → SSE stream of `VaultEvent` (chokidar watcher; debounced 100ms; events named `message`, JSON data)
 
 Path safety: every path param normalized, must resolve inside vault, must not contain `..`; only
-`.md` files served/written by note endpoints (400 otherwise). Wikilink resolution: `[[Name]]`
+`.md` files served/written by note endpoints (400 otherwise).
+
+**Containment is checked against the FILESYSTEM, not against the string — on reads as well as
+writes.** `safeAbs()` resolves the path with `realpath` (falling back to the deepest existing
+ancestor for a file about to be created, and refusing a DANGLING symlink outright, since a write
+would follow it) and requires the result to sit inside the vault's own realpath; anything else is a
+`404`, never a message that would confirm the link exists. The lexical `startsWith` check that used
+to stand alone answered a different question — "does this STRING stay inside the vault" — while
+every `fs` call under it followed links, so one `ln -s /etc evil` in the vault turned
+`/api/file?path=evil/passwd` into an anonymous filesystem reader (the publish allowlist admits any
+path a published note embeds), and `note-link.md → /etc/passwd` into a readable *and writable* note.
+Pointing such a link at `VELLUM_DATA` exfiltrated `git-credentials.json`, whose `0600` mode is
+irrelevant when the server reads it for you. Three layers now hold, and each is independently
+sufficient: `safeAbs()` realpath containment; `statAttachment()` uses **`lstat` + `isFile()`** (the
+same rule the two font routes already followed); and the tree walk, the index walk and the chokidar
+watcher (`followSymlinks: false`) all skip links, so an escaping link never enters the index and
+therefore never enters the publish allowlist. Consequence, by design: a symlink pointing OUT of the
+vault is invisible to the whole app and cannot be read, written or deleted through any API — remove
+it with the filesystem. A symlink pointing back INSIDE the vault still resolves and still works.
+
+**Every response below `/api` is `Vary: Cookie, X-Vellum-Preview` and, unless the route said
+otherwise, `Cache-Control: private, no-store`** (one middleware in `api.ts`, above the auth routes
+so `/api/me` is covered). Every one of these bodies differs by session cookie AND by the preview
+header, and none of them said so; the README recommends nginx in front, where a shared cache may
+hand an admin's whole vault tree to the next anonymous visitor. Routes that set their own
+`Cache-Control` keep it, and anything marked `immutable` (the content-addressed font routes, which
+hold no session-varying byte) is skipped entirely so a CDN can still cache it. The SPA shell,
+`/feed.xml` and the static assets get the same treatment in `index.ts`, plus the origin's security
+headers: `Content-Security-Policy` (`script-src 'self'`, `frame-ancestors 'none'`, `object-src
+'none'`, `base-uri 'none'`; `style-src` keeps `'unsafe-inline'` because React style props, KaTeX and
+the generated banner gradients are inline by design; `img-src`/`media-src` allow remote https/http
+because `banner:` URLs and raw `<img>` in notes are documented features), `X-Frame-Options: DENY`,
+`X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. Without those the admin UI —
+permanent delete, publish, settings PATCH, sync — was framable and clickjackable, and the
+hand-rolled HTML sanitizer in `client/reading/rawHtml.ts` had no backstop behind it. Wikilink resolution: `[[Name]]`
 matches file basename (no `.md`, case-insensitive); shortest-path winner on duplicates;
 `[[Name|alias]]` and `[[Name#heading]]` variants parse (link target is `Name`).
 
@@ -67,8 +106,56 @@ matches file basename (no `.md`, case-insensitive); shortest-path winner on dupl
 
 - `server/vault.ts` — vault root resolution, safe path helpers, tree/read/write/create/rename/delete/mkdir, chokidar watcher exposing `onEvent(cb)`.
 - `server/indexer.ts` — in-memory index rebuilt incrementally from watcher: minisearch (fields title+content), link graph, backlinks, tags. Exports `search(q)`, `graph()`, `backlinks(path)`, `tags()`, `resolveLink(name): string | null`.
+  **A note over `MAX_INDEXED_MD_BYTES` (2 MB) gets a MINIMAL record — path, title, publish flag,
+  banner, date, frontmatter tags, read from the file's first 64 KB — never a dropped one.** It used
+  to be removed from the index entirely, and `/api/note`'s visitor gate reads `publishedSet`: a note
+  its owner had marked `publish: true` answered **404 to visitors** while the admin's own request
+  succeeded, and it was absent from the tree, `/api/posts`, RSS and the injected `<head>` — with
+  nothing logged and a comment claiming the opposite ("still readable via /api/note"). Now only
+  full-text search and the link graph degrade (no body is read, so no minisearch entry, no links, no
+  excerpt); the skip is `console.warn`ed once per file and counted in the boot line
+  ("N by metadata only").
 - `server/api.ts` — `export const api: Hono` implementing routes above.
 - `server/index.ts` — arg/env parsing, seed-on-missing (copy `vault-seed/` → vault), mount `api` at `/api`, static `dist/` + SPA fallback, listen 6801 with startup banner.
+
+## Auth & sessions (server/auth.ts)
+
+- **`PUBLIC=false` without `ADMIN_PASSWORD_HASH` is a `ConfigError` and the process exits** (see
+  README). `authGuard` short-circuits on `if (!config.passwordHash) return next()` and `isAdmin()`
+  answers true unconditionally in that mode, both *before* the `publicReads` check — so the one flag
+  an operator sets meaning "lock this down" was the flag that was silently inert, on an instance
+  that answered `/api/me` with `{"admin":true,"protected":false}` and accepted anonymous
+  `PUT /api/note`, `GET /api/settings` and `PATCH gitSync` → `POST /api/sync/now`. A non-loopback
+  `HOST` with no hash is a loud warning, not a refusal: open-on-the-LAN is a documented use.
+- **Backup & sync needs a real credential in EVERY mode** (`isProtected()`): `POST /api/sync/init`,
+  `POST /api/sync/now`, `GET /api/sync/status` and any `PATCH /api/settings` carrying
+  `gitSync`/`gitToken`/`gitUser` answer `403 sync_needs_password` in open local mode. "Everyone is
+  admin" is defensible for editing notes on a trusted LAN; it is not defensible for "send my vault
+  to an address the caller chose".
+- **The session token is `v2.<epoch>.<expiry>.<hmac>`**, still stateless, with two revocation
+  inputs baked into the signature: a `sessionEpoch` integer in `VELLUM_DATA/session-epoch`, and a
+  fingerprint of the password hash (derived through `SESSION_SECRET`). `POST /api/logout` bumps the
+  epoch, so signing out ends every session on every device — it used to only `deleteCookie()`,
+  leaving a captured cookie valid for 30 days after logout *and* after a password change, with the
+  only real revocation being an `.env` edit plus a restart. Changing `ADMIN_PASSWORD_HASH` now
+  invalidates every token by itself. TTL is **7 days with sliding refresh** (reissued by `authGuard`
+  once past half-life, so an active admin never meets the login modal), and the cookie carries
+  `Secure` derived from `X-Forwarded-Proto` — honored only from `TRUSTED_PROXIES`, exactly like
+  `X-Forwarded-For` — or the request's own scheme, with a `SECURE_COOKIES` override for
+  LAN-over-http.
+- **The login rate-limit slot is consumed BEFORE the argon2 verify and refunded on success.** The
+  old order (read window → `await argon2.verify` → record failure) meant every request in a
+  concurrent volley read the window before any of them wrote it: measured, one 200-way parallel
+  burst evaluated **200/200 guesses against a limit of 10 per minute**. It was also an
+  unauthenticated amplifier — each in-flight verify is argon2id m=65536 p=4, 64 MiB and four
+  threadpool jobs, on the same libuv pool every `fs` call shares. There is now a global window
+  (`GLOBAL_MAX_ATTEMPTS`) behind the per-IP one and a semaphore of `VERIFY_MAX_CONCURRENT` = 2
+  verifies with a bounded queue (a full queue is a `429`, never a park). `POST /api/comments` always
+  had this shape; the login route now matches it.
+- **`/api/me` never names the home note to a caller who could not read it.** `homeNoteVisible()`
+  gated on publication and the languageFilter but not on `publicReads`, so `me.homeNote` (and
+  `home.note`) travelled to anonymous callers on a `PUBLIC=false` vault whose entire premise is that
+  nothing is readable without a session — one clause short of the leak the function exists to close.
 
 ## Client state (shell agent owns; file `client/state.ts`)
 
@@ -298,6 +385,17 @@ and the graph vignette, the `--sw-*` swatch machinery, the picker panel) and `st
   `sandstone` with the hexes nudged (4.1 ΔE ground, 11.7 ΔE accent) — two of only FOUR light
   themes in one room — and now opens on the brightest paper in the set under a yellower burnt
   gold.
+- **`--text-faint` against `--bg` and `--bg-raised` is a PASS in that gate too, at the 3:1
+  non-text bar.** It printed "(info)" against a minimum of ZERO — a number the gate could never
+  enforce, which reads like coverage and is worse than printing nothing: parchment shipped at
+  2.50:1, and text kept being moved onto the one token nothing could fail (attachment filenames
+  at 14.4px, the sidebar footer counts, the tag counts). The floor is what makes the token's
+  remit real: **`--text-faint` is for UI glyphs and for deliberately de-emphasized machine
+  bookkeeping — never for a name, a count or a label the reader must read**, which is
+  `--text-muted` (4.5:1 or better everywhere) or `--text`. Parchment's faint was retuned
+  `#a2947c` → `#8d7f66` (3.30:1 / 3.60:1). And **opacity is invisible to the gate**: a 0.85 fade
+  over a token already at its floor is a way of failing the floor without failing the check, so
+  glyph fades were replaced by token steps.
 - **`--accent` against `--bg` is a PASS in that gate, not an "(info)" line.** That pair is read as
   type twice over: wikilinks and tag pills are `--accent` on `--bg` inside the prose, and the lit
   mode pill is an `--accent` fill carrying `--bg` letters — the same two colors, swapped. While it
@@ -364,6 +462,20 @@ system's widget inside a candlelit manuscript room — and, with twenty-seven fo
 OS-drawn *window* that no theme can reach and no panel can contain. The set is `Select`
 (styled trigger + themed popover), `Toggle`, `SegmentedControl`, `TextInput` and `NumberInput`;
 zero native select/checkbox chrome is left anywhere in settings.
+
+**And zero `window.*` dialogs are left anywhere in the app.** `Confirm.tsx` now hosts a
+`promptModal()` beside `confirmModal()` — same panel, same focus trap, one field — because the
+four creation flows (`Ctrl/Cmd+N`, the sidebar's New note, the tree's "New note here", New
+folder) were still drawing `window.prompt()`. An OS box takes neither the theme, the type scale
+nor RTL mirroring, and its OK/Cancel were the only untranslated chrome on an Arabic instance;
+it is also a functional risk, because once a browser's "prevent additional dialogs" box is
+ticked `prompt()` returns `null` forever and there is no working new-note path left, silently.
+The prompt's own rule: `check(raw)` is the caller's entire naming rule (`client/prompts.ts`),
+run on every keystroke, and the dialog PRINTS what it makes of the text — "Creates
+ideas/Deep Work.md" — then resolves with exactly that string. The `.md` and the folder used to
+be appended in silence, so "I typed Ideas" was answered in the tree rather than in the dialog.
+The field is `dir="auto"`; traversal (`..`) and dot-names are refused in the dialog, in the
+instance's language, instead of arriving as an English 400 in a toast.
 
 - **The popover is a PORTAL on `<body>`, positioned per open from the trigger's rect.** The panel
   is `overflow: hidden` and its body is a scroller, so an in-flow popover would be clipped by one
@@ -501,6 +613,20 @@ of `.s-smodal__row--off`'s 0.5 while the Remote URL and Branch `<input>`s took o
 `:disabled` inside `.s-smodal__control` now neutralises the UA opacity and sets one
 `--text-muted` on `--bg-raised` treatment for both shapes.
 
+**A row that does nothing HERE says so, in the same voice.** `settings.home.mode` and
+`settings.home.banner` are read by the blog shell alone — `/api/me` sends `me.home` inside
+`if (publicLayout() === "blog")` and `BlogDashboard` mounts only from `BlogShell` — but the Mode
+segmented control and the home-banner `ImageField` were offered live, ungated and unannotated,
+under copy promising the opposite. `PUBLIC_LAYOUT` defaults to `app`, so the ordinary case was:
+pick Dashboard, upload a hero, get a success toast, and the site does not change. Both rows now
+take `off` + `disabled` (`ImageField` grew a `disabled` that reaches its field AND its Pick/×
+buttons — a live "Pick…" beside a dimmed field is the same bug wearing a badge) whenever the
+effective public layout is not `blog`, with one `.s-smodal__offnote` above them naming the
+switch: the Backup=off idiom, applied to the row that needed it just as much. The gate reads the
+FORM, like `syncOff` does, so flipping Public layout to blog lights the rows up in the same
+breath, before the save. The Home NOTE row between them stays live on purpose — the app shell
+opens it at boot.
+
 **The panel is called "Site settings", full stop.** It used to read "Site settings —
 settings.json": an implementation file in the title bar of a settings screen, naming a path
 without saying where that path is. Where the file lives is a FACT about the instance, so About
@@ -543,6 +669,26 @@ visitors, which is what lets it name absolute paths.
   disconnected glyph and diacritic fragments (conspicuous in Arabic, where the tashkeel ride high
   enough to be exactly what survives a 6px window). It is padding now.
 
+## Note deletion (server, shipped)
+
+`DELETE /api/note?path=<rel>&permanent=<bool>` → `{ ok: true, trashPath?: string }`
+
+- **The safety gradient used to run backwards.** Deleting a FOLDER — rare, two dialogs deep, up to
+  1,214 notes at once — moved to `.trash/` and was recoverable; deleting ONE note — the
+  high-frequency, one-click operation on a tree row and in the command palette — was an
+  unconditional `fs.rm` with no trash and no undo anywhere in the product. The irreversible
+  operation was the cheap one. Obsidian trashes single files by default; so does this now.
+- **Default:** the note is *moved* to `.trash/` at the vault root (created on demand), with the
+  same counter the folder route uses — placed before the extension, so `draft.md` becomes
+  `draft.md`, then `draft-2.md`, `draft-3.md`… and a trashed note is still an openable `.md` file.
+  `EXDEV` (a bind-mounted sub-tree) falls back to copy-then-remove.
+- **`permanent=true`** (also `1`/`yes`/`on`, parsed exactly as on `DELETE /api/folder`) → `fs.rm`;
+  no `trashPath` in the response. This is the escalated path the client asks a second question for.
+- Errors: `400` non-`.md` path or traversal, `404` when the note does not exist.
+- **Events:** the watcher's own `unlink` for the moved file carries it (`{kind:"deleted"}`, 100 ms
+  debounce, as before); `.trash` is ignored everywhere, so the arrival at the far end is silent.
+- Vault API: `deleteNote(rel, opts?: { permanent?: boolean }): Promise<{ trashPath? }>`.
+
 ## Folder deletion (server, shipped)
 
 `DELETE /api/folder?path=<rel>&permanent=<bool>` → `{ notes: number, trashPath?: string }`
@@ -582,6 +728,19 @@ from the client's own tree (`countNotes`), which counts exactly what the server 
 nodes with no `attachment` marker**, under the same ignore rules. (It used to count every file
 node, which was the same thing until the tree started carrying attachments; a plain count would
 now promise to move "1,214 notes" when it meant 800 notes and 414 images.)
+
+**A single note deletes at the same two speeds, from both surfaces.** `DELETE /api/note` grew
+the folder route's `?permanent=` (same `1/true/yes/on` parsing, same `.trash/` destination),
+and the client side is the folder pattern verbatim: `api.deleteNote(path, permanent)` →
+`state.deleteNote(path, {permanent})`, driven by `confirmModalEx` with `extraLabel: Delete
+permanently` and a second, `grave` dialog behind it. Both entry points — the tree's context menu
+and the palette's *Delete note* — run the identical pair, because a command must not be the
+harsher one merely because it was reached from the palette. Until this landed, one dialog said
+"This cannot be undone" over an `fs.rm` while the folder one line above it in the same context
+menu promised `.trash` — the same gesture, two different guarantees, and the harsher one applied
+to the object an owner deletes most often. The store action closes the tab, reloads the tree,
+refreshes backlinks, refreshes publish state (a published note leaving the vault changes the
+public site) and toasts `noteTrashedToast` / `noteDeletedToast`.
 
 **The second dialog must LOOK like the second dialog.** `ConfirmOptions.grave` (Confirm.tsx) is
 what carries the escalation, and it is safety, not styling: the danger button is filled
@@ -635,9 +794,15 @@ and the owner of a real instance read that as lost files. Fixing it is three pie
 
 Client side (`Sidebar.tsx`, `AttachmentViewer.tsx`, `styles/attachments.css`):
 
-- **Attachment rows are quieter than note rows** (`--text-faint`, `--text-muted` on hover), carry
-  a 14px type glyph in the chevron's slot, keep their extension in the label (it is half of what
-  the name says) and carry the full name as a `title` — the pane is 292px and these names are not.
+- **Attachment rows are quieter than note rows STRUCTURALLY, not by contrast.** They carry a 14px
+  type glyph in the chevron's slot, keep their extension in the label (it is half of what the
+  name says), sit under the folder's notes, answer to the paperclip filter, and carry the full
+  name as a `title` — the pane is 292px and these names are not. The NAME itself rests on
+  `--text-muted` (`--text` on hover), like a note row: a filename is text, it is 14.4px, and on
+  `--text-faint` it measured 3.3:1 at best and 2.50:1 on parchment. Only the type glyph is
+  `--text-faint`, and at full opacity — the 0.85 fade it used to carry put it at 2.56:1, under
+  the same 3:1 bar the fold chevron is held to. Same for the extension badge (10px uppercase,
+  `--text-muted`) and the footer counts.
 - **The filter is visible in both states.** "Show attachments" lives in the sidebar footer as a
   paperclip beside the counts (`localStorage["vellum.show-attachments"]`, default ON, admin only)
   and in the tree's context menu. ON: gold clip, "1,176 files". OFF: grey clip, "**1,176 files
@@ -742,7 +907,9 @@ carry that, and none of them may be quiet:
   the hovered heading ever showed one, nothing on screen said a document folds at all, and on a
   touch device folding was unreachable. Naming it in the `Ctrl/Cmd+/` sheet was documenting an
   invisible control, not fixing one. It rests at full strength in `--text-faint` (a UI glyph,
-  held to the 3:1 non-text bar), steps to `--text-muted` on the line and to `--accent` on itself.
+  held to the 3:1 non-text bar — a bar `check-contrast.mjs` now ENFORCES, on both grounds, which
+  is what made parchment's 2.50:1 faint a failure instead of a footnote), steps to `--text-muted`
+  on the line and to `--accent` on itself.
   The sheet now names the KEYSTROKE too (`Ctrl/Cmd Shift [` / `]`, `Ctrl/Cmd Alt [` / `]`).
 - **`ShortcutsHelp` rows that light up must DO something.** Every row carried a hover highlight
   while being a plain `div` — an affordance lie that read as a selection. Rows with a `run`
@@ -755,6 +922,19 @@ carry that, and none of them may be quiet:
   is still under whichever heading the authored order happens to put first). `\b` is ASCII-only
   in JS, so the word-boundary test is a `\p{L}\p{N}` lookbehind done by hand — this sheet is
   searched in Arabic.
+  **Rows are filtered by SHELL as well as by session.** The blog visitor was being served the
+  app's sheet: `admin` dropped the write rows, but Command palette (Ctrl/Cmd+P — nothing
+  mounted), Graph view, Zen mode, Browse themes "via Status bar" (a surface the blog has not
+  got) and both pane toggles survived — six rows naming controls that are not on the page, three
+  of them `<button>`s firing commands into a shell that holds none of that state. So `Binding`
+  carries `shell?: "app" | "blog"`, filtered exactly like `admin`, and `App.tsx` mounts
+  `<ShortcutsHelp shell="blog" />` in the blog branch. What survives there is what is true
+  there: Ctrl/Cmd+K (the blog's own search overlay answers it), a click on a wikilink, Esc and
+  Ctrl/Cmd+/ itself — which is why `scHelp` moved to the end of NAVIGATION, the one group both
+  shells have. **And the keyboard follows the same line**: `App.tsx` swallowed `p`/`k`/`b`
+  unconditionally, ahead of every shell check, so an anonymous reader lost the browser's print
+  dialog and Firefox's bookmarks sidebar to two commands that do not exist for them. Only `k` is
+  taken in the blog shell; everything else returns before it acts.
 - **The bar's order of sacrifice is written down, it is MONOTONIC, and it ends in a scroll.**
   `.s-statusbar` is `overflow: hidden`, so anything past its width vanishes with no scrollbar and
   no hint. At ≤1280px the two counts go; at ≤640px the pane cluster, the crumb trail and the
@@ -929,6 +1109,30 @@ it stays on the chrome's side. `dir="auto"` directly on the element is right onl
 element *is* the content: a rendered note block, a comment body, a search snippet, an inline
 flex item whose alignment comes from the flex container.
 
+**A `#tag` CHIP is one of those: the chip IS its content, so the isolate goes on the chip.** Both
+properties-card renderers (`livePreview.ts` and `reading/render.ts`, one `makeTag` each) built the
+label as a bare `#${value}` text node with no isolation, and `#` is bidi-neutral: under an RTL base
+direction the paragraph swept it to the display end and every Latin tag rendered **`matrix#`** — in
+the editor and in the reading view, collapsed and expanded. Measured with Range geometry, the hash
+sat at x 918 against the `m` at 873. The chips take `dir="auto"` (never `ltr`: a tag can be Arabic,
+and an Arabic tag must keep its hash on the RIGHT), which is what the sidebar's `<bdi>` tag pill
+had right all along. Property KEYS and VALUES are isolated for the same reason, each value in its
+own `<bdi>` — `aliases: [مقال, Essay]` is a list of runs, not one string, and joined into a single
+text node an RTL base reorders the runs around the commas. `check-i18n` reads dictionaries and the
+DOM reads correct in source order, so **both are blind to this whole class**: the guard is
+`scripts/shoot-rtl.mjs`, which measures rendered glyph x in both surfaces and exits 1.
+
+**The editor's hover previews resolve the pointer through the DOM, never `posAtCoords`.**
+`hoverPreview.ts` runs its own rest timer and a `showTooltip` StateField instead of CodeMirror's
+`hoverTooltip`, because `hoverTooltip` uses `posAtCoords` — the call `livePreview.ts::posFromEvent`
+was written to replace on the click path, since it maps through the vertical line layout and drifts
+by whole lines in a note carrying a block widget (frontmatter card, `$$` math, an image). The
+drifted position lands on a line with no link and the card silently never opens; measured on the
+1,389-note fixture, stock `hoverTooltip` opened 4 of 7 hovered links across the first four notes
+with frontmatter, against 7 of 7 now. Guard: `scripts/shoot-hover.mjs`, which hovers EVERY visible
+link in several notes WITH frontmatter — a bare note, and a single link, are exactly the cases that
+kept passing while the feature was dead.
+
 Server side: `siteLanguage()` in `server/site.ts` merges `settings.language` over `SITE_LANG`
 (default `en`); `/api/me` sends `language` to **every** session (visitors included), and
 `blogLocale()` falls back to the site language when neither `settings.blogLocale` nor
@@ -988,6 +1192,20 @@ surface (every blog count derives from the filtered post list), so this reveals 
 permalink did not already.
 
 Admin surfaces are never filtered.
+
+**…which is why the admin's publish state has its own route.** `GET /api/published` →
+`{ paths }` is the unfiltered publish set, gated exactly like `/api/attachments` (a 404 for
+anyone the publish limit applies to, because a language-hidden published note's path is
+precisely what every public surface withholds). It replaces a trick: the client used to learn
+which notes were published by fetching `/api/tree` with `credentials: "omit"` — its own session
+dropped so the server would answer as if to a stranger. That handed an ADMIN surface the
+visitor's `languageHidden()` rule, so a just-published Arabic note on an `en` instance lit its
+star optimistically and had it removed again by the next refresh, with no message; and it made
+the whole feature conditional on `authProtected && publicReads`, so an open local vault and
+every `PUBLIC=false` instance had no publish marks and no published filter at all — while the
+publish TOGGLE beside them stayed, still toasting "live for visitors". A session must never
+impersonate another session to read its own state: `X-Vellum-Preview` exists so that the one
+place which *does* want the visitor's view says so out loud and keeps its cookie.
 
 **Routes that write a note must emit their own event BEFORE reindexing.** `visitorEvent()` in
 `server/api.ts` samples `isNoteVisibleToVisitor()` synchronously, then awaits `whenIndexed()` and
@@ -1285,6 +1503,21 @@ as a visitor is refused too; the POSTs are mutations the auth guard already 401s
   the patch and are *staged*; `patchSettings()` discards leftovers at the start and writes them
   only after `persist()` succeeds. A patch that 400s on a later key must not have changed the
   credential.
+- **`.trash/` NEVER REACHES THE REMOTE.** The `.gitignore` seed used to write `.trash/` only when
+  it created the file, and the append path for an EXISTING `.gitignore` bailed at
+  `if (rel === null) return;` — `rel` being the data directory's path inside the vault, which is
+  null in the default arrangement (`./data`, next to the app). So on the two commonest real vaults,
+  "already a git repository" and "already has a .gitignore", `.trash/` was never ignored and
+  `git add -A` committed and pushed it: deleting a 1,214-note folder became permanent history on
+  the operator's remote, and the entire justification for the trash model ("recoverable from disk",
+  "invisible to tree/indexer/watcher", *local*) quietly stopped holding. The base rules
+  (`.trash/`, `.obsidian/workspace*.json`) are now appended unconditionally to an existing file,
+  `seedGitignore()` runs on every pass rather than only when VELLUM_DATA is inside the vault, and
+  a trash that an older build already committed is un-tracked (`git rm -r --cached
+  --ignore-unmatch -- .trash`) before anything is staged — a rule alone changes nothing about what
+  git already tracks. The eviction stages a deletion, so the next commit removes the trash from the
+  tracked tree; anything an older build already PUSHED stays in the remote's history until the
+  operator rewrites it, which is theirs to do and not something a backup tool may do for them.
 - **VELLUM_DATA never reaches the repo, and that is enforced against git's answer.** The token
   file lives in the instance data directory, which is outside the vault by default — but when it
   is INSIDE one, `seedGitignore()` runs unconditionally in `initRepo()` (not only when the vault

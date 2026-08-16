@@ -44,15 +44,17 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 - Tree: 13px UI font, 26px row height, rows full-width hover --bg-hover rounded 4px, 8px left pad
   per depth. Folders: chevron (▸ rotates 90° when open, 150ms) + name; files: no icon clutter —
   just the name minus `.md`; active note row: --accent-soft bg + --accent 2px left bar. Smooth.
-- Attachments (non-`.md` files) sit under a folder's notes, dimmer (--text-faint, hover
-  --text-muted), with a 14px type glyph in the chevron's slot and their extension kept in the
-  label; notes keep the no-icon rule above. The footer counts them beside the notes and carries
+- Attachments (non-`.md` files) sit under a folder's notes with a 14px type glyph in the
+  chevron's slot and their extension kept in the label; notes keep the no-icon rule above. The
+  row reads at --text-muted like a note row (--text on hover): a FILENAME is text, and the
+  quiet is carried by the glyph, the extension badge and the position under the notes — not by
+  painting the name at 3.3:1. Only the glyph is --text-faint, at full opacity. The footer counts them beside the notes and carries
   the paperclip that hides them — and a folder the filter empties says "N files hidden" rather
   than opening onto nothing.
 - Tags section pinned under tree: header "Tags" 11px uppercase --text-faint letterspaced; pills:
-  12px, 3px 8px, --bg-hover bg, rounded-full, `#` in --accent, count in --text-faint; hover fills
-  --accent-soft.
-- Sidebar footer: "N notes" 11px --text-faint, with the attachment count + paperclip toggle at
+  12px, 3px 8px, --bg-hover bg, rounded-full, `#` in --accent, count in --text-muted (the pill's
+  ground is --bg-hover, where --text-faint measures 2.7:1); hover fills --accent-soft.
+- Sidebar footer: "N notes" 11px --text-muted, with the attachment count + paperclip toggle at
   the inline end (admin, when the vault has any).
 - Attachment viewer: full-viewport scrim rgba(0,0,0,.72) + 4px blur (the ‹ › handles are painted
   for that scrim — accent-tinted ground, lit rim, --text glyph — not for the page behind them), the file at natural size
@@ -124,7 +126,7 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
   --accent ring, radius-matched. Custom scrollbars: 8px, thumb --border hover --text-faint,
   transparent track. ::selection --accent-soft. No layout shift on hover anywhere.
 - **All fifteen** themes must pass: contrast ≥ 4.5:1 body text, ≥ 3:1 muted, accent ≥ 4.5:1 on its
-  own ground **and ≥ 18 ΔE from its own body text** (`check-contrast.mjs` walks every block in
+  own ground, ≥ 3:1 faint on **both** grounds **and ≥ 18 ΔE from its own body text** (`check-contrast.mjs` walks every block in
   tokens.css). That last one is not a contrast ratio and cannot be: a theme whose accent is a
   shade of its own type — sumi shipped one — has no accent channel at all, and every argument for
   the lit mode pill collapses with it. "No two themes share a hex" is likewise satisfiable and
@@ -133,6 +135,15 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
   focus ring, graph colors, thirteen callout hues and eight syntax colors, solved against its own
   `--bg`. Readers browse them in the theme picker (grouped dark/light, arrow keys preview live,
   Enter keeps, Esc restores); nothing in the product cycles blindly through fifteen looks.
+- **Contrast: `--text-faint` is not a text color.** Its bar is 3:1 — the NON-TEXT bar — and it is
+  enforced on `--bg` and `--bg-raised` for every theme, so the token may carry UI glyphs (the
+  heading fold chevron, the attachment type glyph, the OFF paperclip) and deliberately
+  de-emphasized machine bookkeeping (the properties card's `dg-*`/uuid rows). Anything the
+  reader has to READ — a filename, a count, a label naming a thing — is `--text-muted` (4.5:1 or
+  better in all fifteen) or `--text`. The pair used to print `(info)` against a minimum of zero;
+  parchment sat at 2.50:1 and text kept moving onto the one token nothing could fail. **Opacity
+  is invisible to the gate**: `--text-faint` at 0.85 is 2.56:1 on iron-gall, so a fade over a
+  token that is already at its floor is a way of failing the floor without failing the check.
 
 ## Hard rules
 
