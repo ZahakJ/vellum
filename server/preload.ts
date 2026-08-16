@@ -24,6 +24,10 @@ import path from "node:path";
 
 interface ManifestEntry {
   file: string;
+  /** Rollup's name for the chunk — the module's basename for a shared or
+   *  dynamic chunk, which is the only handle such an entry has (see
+   *  `rootKey`). */
+  name?: string;
   css?: string[];
   imports?: string[];
 }
@@ -70,6 +74,29 @@ function closure(m: Manifest, key: string, seen: Set<string>): void {
 }
 
 /**
+ * The manifest key for a source module — by its own path where vite kept one,
+ * else by the chunk vite emitted it as.
+ *
+ * A module that is reached through a dynamic import AND shared between chunks
+ * is not keyed by its source path at all: rollup emits it as
+ * `_BlogShell-D2p6y_Fz.js`, whose only tie back to the source is `name`. So
+ * the blog branch of `preloadTags` — a lookup of `"blog/BlogShell.tsx"` —
+ * matched nothing, `keys.size` was 0 and the function returned "": measured,
+ * an anonymous blog request got ZERO preloads while an admin request got 27,
+ * the exact inversion of the round trip this module exists to remove, and on
+ * the surface the header names as the one that matters ("it lands on the
+ * public surface").
+ */
+function rootKey(m: Manifest, root: string): string | null {
+  if (m[root]) return root;
+  const base = root.slice(root.lastIndexOf("/") + 1).replace(/\.[jt]sx?$/, "");
+  for (const [key, entry] of Object.entries(m)) {
+    if (entry.name === base && entry.file.endsWith(".js")) return key;
+  }
+  return null;
+}
+
+/**
  * `<link>` tags for the shell this request will actually mount.
  *
  * `blog` — the visitor shell of a PUBLIC_LAYOUT=blog instance.
@@ -92,7 +119,10 @@ export function preloadTags(distDir: string, shell: "blog" | "app"): string {
           "components/BacklinksPanel.tsx",
         ];
   const keys = new Set<string>();
-  for (const root of roots) if (m[root]) closure(m, root, keys);
+  for (const root of roots) {
+    const key = rootKey(m, root);
+    if (key) closure(m, key, keys);
+  }
   if (keys.size === 0) return "";
 
   const out: string[] = [];

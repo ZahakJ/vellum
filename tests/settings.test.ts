@@ -301,6 +301,27 @@ describe("per-key validators", () => {
     assert.equal(getSettings().home?.mode, "dashboard", "an unrelated key was dropped");
     assert.equal(getSettings().home?.note, undefined);
   });
+
+  // The RAW value is judged before it is cleaned. `cleanValue` REPAIRS control
+  // characters (a run of them becomes a space), so running it first made the
+  // `control` reason unreachable: "med\0ia" was answered 200 and stored as the
+  // folder "med ia" — a folder the author never typed.
+  it("refuses a control character in attachments.folder instead of repairing it", () => {
+    // Spelled as escapes: a literal control byte in a source file is invisible.
+    for (const ch of ["\u0000", "\u0009", "\u001f", "\u007f"]) {
+      assert.match(
+        refuse({ attachments: { folder: `med${ch}ia` } }),
+        /control characters/,
+        `accepted U+${ch.charCodeAt(0).toString(16).padStart(4, "0")}`,
+      );
+      assert.equal(getSettings().attachments?.folder, undefined, "nothing was stored");
+    }
+  });
+
+  it("still tolerates surrounding whitespace on a good folder", () => {
+    patchSettings({ attachments: { folder: "media/uploads\n" } });
+    assert.equal(getSettings().attachments?.folder, "media/uploads");
+  });
 });
 
 describe("the stored file", () => {

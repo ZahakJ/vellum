@@ -889,6 +889,16 @@ visitors, which is what lets it name absolute paths.
   `aria-activedescendant` + a `.s-tree__item--cursor` class (arrows/Home/End/Enter/F2/Delete/
   Shift+F10; Left and Right are LOGICAL, so they swap in RTL). The tab bar is a roving-tabindex
   `role="tablist"`; the palette and the blog search are `combobox` + `listbox`/`option`.
+  **The sidebar's tag shelf is ONE tab stop too**, for the reason the tree beside it is: on the
+  1,388-note fixture it is 113 pills, and 113 plain buttons put 120 sidebar stops between the
+  reader and every control after the pane (measured: the first control past the sidebar arrived at
+  stop #121; it now arrives at #10). `.s-tags__list` is a single-select `role="listbox"` — which is
+  what it already behaved like, one tag filtering at a time — its pills are `role="option"` with
+  `aria-selected`, and the tab stop ROVES with the focus rather than living on the container:
+  these are real buttons and there are a hundred of them, not a thousand, so moving the stop is one
+  attribute on two nodes. Left/Right step one pill in READING order (they swap in RTL), Up/Down
+  step a visual ROW of the wrapped shelf, Home/End reach its ends. Tab enters at the reader's own
+  cursor, else at the tag currently filtering, else at the first pill.
 - **Names.** Every icon-only control has an `aria-label`. A placeholder is never a label. Settings
   rows render a real `<label for>` and wire `aria-describedby` / `aria-invalid` onto their one
   control child (`Row` does this — call sites pass a single element).
@@ -1477,7 +1487,12 @@ so an upgrade changes nothing until an admin says otherwise — which is why `PA
   control characters) **plus dot-folders** — a dot-folder is invisible to the tree, the indexer
   and the watcher, so an attachment written into one would never resolve again. `folderError()`
   returns a REASON KEY, not a sentence: the server renders it into a 400, the settings panel
-  into localized inline copy, and the two can never drift apart.
+  into localized inline copy, and the two can never drift apart. **The RAW value is judged before
+  it is cleaned.** `cleanValue()` REPAIRS control characters (every run becomes a space), so
+  running it first made `FOLDER_PROBLEM.control` unreachable: `PATCH {attachments:{folder:"med\0ia"}}`
+  answered 200 and stored the folder `med ia`, which is not what this line says happens. Nothing
+  unsafe reached the disk either way — the bug was an API storing a folder the author never
+  typed. A trailing newline is still tolerated (`folderError` trims first).
 - **Existing attachments are never moved.** The setting decides where the NEXT upload goes;
   embeds resolve by basename, so nothing breaks either way. Fonts (`VELLUM_DATA/fonts`) and
   `custom.css` keep their dedicated locations.
@@ -1894,7 +1909,11 @@ this is a language decision, not a direction one.
   own date/word-count hard right — one heading split across 670px of empty ground. Four rules
   (chrome dir × title script) put the meta under the end of the title it belongs to;
   `flex-start` is the CONTAINER's start, which is why the RTL chrome needs the opposite keyword
-  to reach the same physical edge.
+  to reach the same physical edge. **The INDEX CARD gets the same four rules**
+  (`.s-blog-entry__text--rtl`, set from `isRtlText(post.title)` exactly as the article head is):
+  the fix landed on the article page alone, so the split it describes went on reproducing on every
+  card of the home page — measured at 1440 on an Arabic instance, an English-titled card put its
+  title at x=545 and its byline group at 849–1061, and now starts both at 545.
 - **No keyboard legend on a touch device**, in the footer as well as in the app's empty state:
   `.s-blog-footer__hint` (the `Ctrl K` chip) is `display: none` under `(max-width: 700px),
   (pointer: coarse)`. Nothing is lost — the nav's search field is on screen at every width, and
@@ -2944,6 +2963,33 @@ the rail sits on the inline-start edge and a reader who just crossed between two
 columns with the horizontal arrows should not have to switch hands to walk the column they landed
 in. Selection follows focus (an "automatic" tablist), which is right here because every panel is
 instant and none of them loses anything on the way past.
+
+**The panel's trail is drawn ONCE.** The preset detail names the open preset and nothing else
+(`.s-dsgp-detail__crumbleaf`); it used to draw a root of its own — "Presets › Broadsheet" about
+100px under the panel's "Design your site › Presets" — and two breadcrumbs on one screen saying
+different things answer "where you are" twice, with the shorter one winning the eye.
+
+### Getting into and out of the designer
+
+The panel is a modal surface and goes through the same primitive as every other one:
+**`useDialog(panelRef)`** (`client/a11y.ts`). It carried `role="dialog" aria-modal="true"` without
+it, and all three halves were missing — measured at 1280×800 on an Arabic instance: focus never
+entered the panel (after Enter on the status-bar glyph `activeElement` was still the glyph), ONE
+Tab from the opener landed on the Settings gear BEHIND the modal (the whole app was tabbable
+underneath it), and closing left the reader on `<body>`, which is precisely the "sent back to the
+top of the document" failure `useDialog`'s restore half exists to prevent. Escape is NOT delegated
+to the hook: the panel owns three inner layers (a `Select` popover, the section sheet, the preset
+detail) and its own capture-phase listener is what knows their order — it now asks
+`isConfirmOpen()` too, so an Esc meant for a question the panel just asked cannot close the panel
+out from under it.
+
+**Leaving with unsaved work asks first.** Esc, the `×` and a click on the backdrop all run the
+same `requestClose()`: clean, it closes; dirty, it raises the standard confirm ("Close without
+saving?" / Discard) and only closes on an explicit Discard. Esc used to discard silently — the bar
+read "1 change not saved yet", one keystroke later the panel was gone and reopening it said
+"Everything saved". The panel's own Esc comment argues at length against making Esc "a trapdoor …
+with the design under edit still unsaved behind it" for the preset detail; this is the same
+trapdoor one level further out.
 
 ## Backup & sync (server/gitSync.ts)
 

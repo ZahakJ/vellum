@@ -10,7 +10,7 @@ import { notePathToUrl } from "../router.ts";
 import { useStore } from "../state.ts";
 import { topicUrl } from "./nav.ts";
 import { isLabelled as tagIsLabelled, label as tagLabel, useTagLabels } from "../tagLabels.ts";
-import { formatDate, NavLink } from "./util.tsx";
+import { formatDate, isRtlText, NavLink } from "./util.tsx";
 
 export function TagChips({ tags }: { tags: string[] }) {
   // Subscribe so a label edited in Settings repaints every chip on the page
@@ -125,7 +125,14 @@ export default function PostList({
     <div className="s-blog-list">
       {posts.map((post) => (
         <article key={post.path} className="s-blog-entry">
-          <div className="s-blog-entry__text">
+          {/* THE CARD'S BYLINE FOLLOWS ITS OWN TITLE'S SCRIPT, the same four
+              rules the article page already got. The h2 aligns itself with
+              dir="auto", so on an Arabic instance an English-titled post put
+              the title hard left and its meta hard right — one entry split
+              across the width of the column, on every card in the list. */}
+          <div
+            className={`s-blog-entry__text${isRtlText(post.title) ? " s-blog-entry__text--rtl" : ""}`}
+          >
             {/* h2 under the page's h1 — this list is only ever rendered by
                 BlogHome and BlogTopic, both of which now head their page at
                 level 1, and a jump from 1 straight to 3 is a hole in the

@@ -117,6 +117,21 @@ function enqueue(pending: Pending): void {
   else preMountQueue.push(pending);
 }
 
+/** Is a confirm/prompt dialog on screen right now?
+ *
+ *  The same "ask the outer surface" precedence `SectionPicker` and the preset
+ *  gallery already keep, for the same measured reason: Esc is claimed by every
+ *  layer at once, all of them listen in the CAPTURE phase on `window`, and
+ *  capture order is registration order — so a panel mounted BEFORE this
+ *  dialog wins, and one Esc closed the whole surface out from under a reader
+ *  who only meant to dismiss the question it had just asked them. Read
+ *  synchronously off `show()` rather than off a render, because the surface
+ *  that asks is asking inside a keydown. */
+let dialogOpen = false;
+export function isConfirmOpen(): boolean {
+  return dialogOpen;
+}
+
 /** Ask the user to confirm a destructive action, and find out HOW they left:
  *  "confirm" only on an explicit confirm (click or Enter), "extra" on the
  *  optional quiet third route, "cancel" for everything else. */
@@ -161,6 +176,7 @@ export default function ConfirmHost() {
    *  select its stem from a DOM node that already holds the value. */
   const show = useCallback((next: Pending | null) => {
     currentRef.current = next;
+    dialogOpen = next !== null;
     setCurrent(next);
     setRaw(next?.kind === "prompt" ? next.opts.value ?? "" : "");
   }, []);

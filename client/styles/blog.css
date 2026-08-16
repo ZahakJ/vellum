@@ -575,6 +575,26 @@
   color: var(--accent);
 }
 
+/* THE SAME RULES AS `.s-blog-article__head`, on the card. The article page's
+   byline learned to sit under the end of the title it belongs to; the index
+   card had not, so at 1440 an English-titled post on an Arabic instance put
+   its title at 545..742 and its byline group at 849..1061 — the "670px of
+   empty ground" split, reproduced once per entry. Both now start at 545.
+   (`flex-start` is the CONTAINER's start,
+   which is why the RTL chrome needs the opposite keyword to land on the same
+   physical edge.) */
+.s-blog-entry__text--rtl .s-blog-meta {
+  justify-content: flex-end;
+}
+
+[dir="rtl"] .s-blog-entry__text--rtl .s-blog-meta {
+  justify-content: flex-start;
+}
+
+[dir="rtl"] .s-blog-entry__text:not(.s-blog-entry__text--rtl) .s-blog-meta {
+  justify-content: flex-end;
+}
+
 .s-blog-entry__excerpt {
   margin: 10px 0 0;
   font-family: var(--font-serif);

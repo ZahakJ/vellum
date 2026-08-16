@@ -138,6 +138,35 @@ function rowId(path: string): string {
   return `s-tree-row-${encodeURIComponent(path)}`;
 }
 
+/** Up/Down inside a WRAPPED row of chips: the index of the nearest chip on the
+ *  next (`dir` 1) or previous (`dir` -1) visual line, measured from the centre
+ *  of the one you are on. `offsetTop` is the line: chips on one line share it,
+ *  and it is the only thing that knows where the text wrapped. Returns -1 when
+ *  there is no such line. */
+function rowStep(chips: HTMLElement[], at: number, dir: 1 | -1): number {
+  const from = chips[at];
+  if (!from) return -1;
+  const line = from.offsetTop;
+  const centre = from.offsetLeft + from.offsetWidth / 2;
+  /** Is `a` further along in the travel direction than `b`? */
+  const beyond = (a: number, b: number): boolean => (a - b) * dir > 0;
+  let bestLine: number | null = null;
+  let best = -1;
+  let bestDx = Infinity;
+  for (let i = 0; i < chips.length; i++) {
+    const top = chips[i].offsetTop;
+    // Only lines strictly past the current one, and only the FIRST such line.
+    if (!beyond(top, line)) continue;
+    if (bestLine !== null && beyond(top, bestLine)) continue;
+    const dx = Math.abs(chips[i].offsetLeft + chips[i].offsetWidth / 2 - centre);
+    if (bestLine !== null && top === bestLine && dx >= bestDx) continue;
+    bestLine = top;
+    bestDx = dx;
+    best = i;
+  }
+  return best;
+}
+
 function findNode(root: TreeNode | null, path: string): TreeNode | null {
   if (!root) return null;
   if (root.path === path) return root;
@@ -387,6 +416,11 @@ export default function Sidebar() {
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [tags, setTags] = useState<TagCount[]>([]);
   const [tagsCollapsed, setTagsCollapsed] = useState(loadTagsCollapsed);
+  /** Which tag pill currently carries the shelf's single tab stop. Null until
+   *  the reader moves it; the derivation below is what decides where Tab
+   *  lands before that, and it re-decides whenever the tag list changes under
+   *  it (an SSE reindex can drop the tag the cursor was parked on). */
+  const [tagCursor, setTagCursor] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [showAttachments, setShowAttachments] = useState(loadShowAttachments);
@@ -818,6 +852,48 @@ export default function Sidebar() {
     [cursor, moveCursor, startRename, tree],
   );
 
+  // ── The tag shelf's single tab stop ──────────────────────────────────────
+  /** Where Tab enters the shelf: the reader's own cursor while it still names
+   *  a tag, else the tag currently filtering the search (so Tab lands on the
+   *  filter you are looking at), else the first pill. */
+  const tagStop = useMemo(() => {
+    const has = (tag: string | null): boolean =>
+      tag !== null && tags.some((entry) => entry.tag === tag);
+    if (has(tagCursor)) return tagCursor;
+    const filtering = query.trim().startsWith("#") ? query.trim().slice(1) : null;
+    if (has(filtering)) return filtering;
+    return tags[0]?.tag ?? null;
+  }, [tagCursor, query, tags]);
+
+  /**
+   * ARROWS WALK THE PILLS. The shelf is a WRAPPED grid, so both axes have to
+   * mean something: Left/Right step one pill in READING order (logical, so
+   * they swap under RTL — the same rule the tree's Left/Right keep), and
+   * Up/Down step a visual ROW, landing on the pill nearest the one you left in
+   * the inline direction. Home/End go to the ends of the shelf. Geometry comes
+   * out of the DOM rather than the model because only the DOM knows where the
+   * lines broke.
+   */
+  const onTagsKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const rtl = document.documentElement.getAttribute("dir") === "rtl";
+    const pills = [...e.currentTarget.querySelectorAll<HTMLElement>(".s-tag")];
+    const at = pills.findIndex((pill) => pill === document.activeElement);
+    if (at < 0) return;
+    let to = -1;
+    if (e.key === "Home") to = 0;
+    else if (e.key === "End") to = pills.length - 1;
+    else if (e.key === (rtl ? "ArrowLeft" : "ArrowRight")) to = at + 1;
+    else if (e.key === (rtl ? "ArrowRight" : "ArrowLeft")) to = at - 1;
+    else if (e.key === "ArrowDown") to = rowStep(pills, at, 1);
+    else if (e.key === "ArrowUp") to = rowStep(pills, at, -1);
+    else return;
+    if (to < 0 || to >= pills.length) return;
+    e.preventDefault();
+    const next = pills[to];
+    setTagCursor(next.dataset.tag ?? null);
+    next.focus();
+  }, []);
+
   const noteCount = useMemo(() => countNotes(tree), [tree]);
   const attachmentCount = useMemo(() => countAttachments(tree), [tree]);
 
@@ -1209,15 +1285,42 @@ export default function Sidebar() {
             <span className="s-tags__total">{localeNum(tags.length)}</span>
           </button>
           {!tagsCollapsed && (
-          <div className="s-tags__list">
+          /* ONE TAB STOP FOR THE WHOLE TAG SHELF, for the reason the tree
+             beside it is one: on the 1,388-note fixture this list is 113
+             pills, and 113 plain buttons made the sidebar 120 tab stops —
+             measured, the first control PAST the pane arrived at stop #121,
+             and arrives at #10 now. Same argument, same pane; the tree took
+             it and this list had not. A single-select listbox is
+             what it already behaves like (one tag filters, clicking it again
+             clears), so the roles say so and `aria-selected` carries the state
+             the gold pill was carrying alone. Roving tabindex rather than
+             `aria-activedescendant`: these are real buttons, there are a
+             hundred of them and not a thousand, and moving the stop is one
+             attribute on two nodes. */
+          <div
+            className="s-tags__list"
+            role="listbox"
+            aria-label={t("tags")}
+            onKeyDown={onTagsKeyDown}
+          >
             {tags.map(({ tag, count }) => {
               const active = query.trim() === `#${tag}`;
               return (
               <button
                 key={tag}
                 type="button"
+                role="option"
+                data-tag={tag}
+                aria-selected={active}
+                tabIndex={tag === tagStop ? 0 : -1}
                 className={active ? "s-tag s-tag--active" : "s-tag"}
-                onClick={() => setQuery(active ? "" : `#${tag}`)}
+                onClick={() => {
+                  // The stop follows the pointer too, so the arrows continue
+                  // from where the reader last clicked (the tree does the
+                  // same on mousedown, for the same reason).
+                  setTagCursor(tag);
+                  setQuery(active ? "" : `#${tag}`);
+                }}
                 title={tf(active ? "clearTagFilter" : "searchTag", { tag })}
               >
                 {/* The hash belongs TO the tag name, so the two share one

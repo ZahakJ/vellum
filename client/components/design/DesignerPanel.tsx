@@ -20,6 +20,7 @@
 //     resettable to stock defaults.
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -28,6 +29,7 @@ import {
   type ReactNode,
 } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { useDialog } from "../../a11y.ts";
 import {
   type DesignChrome,
   type HeadingCase,
@@ -46,7 +48,7 @@ import { countPhrase, localeNum, t, tf, type I18nKey } from "../../i18n.ts";
 import { notePathToUrl } from "../../router.ts";
 import { useStore } from "../../state.ts";
 import { toast } from "../../toast.ts";
-import { confirmModal } from "../Confirm.tsx";
+import { confirmModal, isConfirmOpen } from "../Confirm.tsx";
 import { SegmentedControl, TextInput, Toggle } from "../controls/Fields.tsx";
 import { isSelectOpen } from "../controls/Select.tsx";
 import {
@@ -506,6 +508,11 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
   // because a popover whose open flag lives in another component is a popover
   // that eventually opens with nothing to close it.)
   const fileRef = useRef<HTMLInputElement | null>(null);
+  /** The dialog panel itself — what `useDialog` traps Tab inside of. */
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  /** `dirty`, readable from handlers that must not be re-created (the Esc
+   *  listener registers once and has to see the CURRENT draft). */
+  const dirtyRef = useRef(false);
   /** The shipped catalog, once. `null` while the chunk is in flight — the
    *  gallery has no loading state of its own, so the tab shows the panel's. */
   const [presets, setPresets] = useState<readonly Preset[] | null>(null);
@@ -572,12 +579,24 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
+  // THE DESIGNER IS A MODAL SURFACE AND NOW SAYS SO IN THE ONE WAY THAT
+  // COUNTS. It carried `role="dialog" aria-modal="true"` while every other
+  // modal in the product went through `useDialog` and it did not: focus never
+  // entered the panel on open, ONE Tab from the status-bar glyph landed on the
+  // Settings gear BEHIND the aria-modal overlay (the whole app was tabbable
+  // underneath it), and closing left the reader on <body> — the top of the
+  // document, which is precisely the failure a11y.ts was written to end.
+  // Escape is NOT delegated to the hook: this panel has three layers of its
+  // own (Select, the section sheet, the preset detail) and the effect below is
+  // the thing that knows their order.
+  useDialog(panelRef);
+
   // Esc closes — unless an inner layer owns it (a Select popover, the
-  // add-a-section sheet), which is the same precedence the settings panel and
-  // the theme picker already keep. Both listeners are capture-phase on
-  // `window` and this one is registered first, so asking is the ONLY way the
-  // inner surface can win: one Esc used to close the whole designer out from
-  // under an open picker.
+  // add-a-section sheet, a confirm dialog stacked on top), which is the same
+  // precedence the settings panel and the theme picker already keep. Both
+  // listeners are capture-phase on `window` and this one is registered first,
+  // so asking is the ONLY way the inner surface can win: one Esc used to close
+  // the whole designer out from under an open picker.
   //
   // THE GALLERY'S DRILL-IN IS A THIRD LAYER, and it is the one a reader is
   // most likely to press Esc inside: they opened a preset to look at it. So
@@ -585,21 +604,44 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
   // closes the panel once there is nothing left to step out of. Anything else
   // makes Esc a trapdoor: one keystroke from browsing a catalog to no panel at
   // all, with the design under edit still unsaved behind it.
+  //
+  // AND THE LAST STEP OUT IS NOT FREE EITHER. Esc used to throw the draft
+  // away without a word — the bar could read "one change not saved yet", one
+  // keystroke later the panel was gone and reopening it said "everything
+  // saved". The overlay's backdrop and the × did the same thing, so a stray
+  // click outside was enough. The comment above reasons at length about not
+  // making Esc a trapdoor "with the design under edit still unsaved behind
+  // it"; this is that same trapdoor, one level further out.
+  const requestClose = useCallback(() => {
+    if (!dirtyRef.current) {
+      onClose();
+      return;
+    }
+    void confirmModal({
+      title: t("designCloseUnsavedTitle"),
+      body: t("designCloseUnsavedBody"),
+      confirmLabel: t("designDiscard"),
+    }).then((ok) => {
+      if (ok) onClose();
+    });
+  }, [onClose]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== "Escape" || isSelectOpen() || isSectionPickerOpen()) return;
+      if (e.key !== "Escape" || isSelectOpen() || isSectionPickerOpen() || isConfirmOpen()) return;
       e.preventDefault();
       if (isPresetDetailOpen()) {
         closePresetDetail();
         return;
       }
-      onClose();
+      requestClose();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+  }, [requestClose]);
 
   const dirty = draft !== null && JSON.stringify(draft) !== saved;
+  dirtyRef.current = dirty;
   /** How many decisions the bar is holding. Recomputed only when the draft or
    *  the stored document actually moves — a diff per keystroke of a heading
    *  field is a diff per keystroke. */
@@ -879,8 +921,18 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
   const previewContent = usePreviewBuild({ posts, pages, noteMode: "fetch" });
 
   return (
-    <div className="s-dsgr-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="s-dsgr" role="dialog" aria-modal="true" aria-label={t("designTitle")} lang={language}>
+    <div
+      className="s-dsgr-overlay"
+      onMouseDown={(e) => e.target === e.currentTarget && requestClose()}
+    >
+      <div
+        ref={panelRef}
+        className="s-dsgr"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("designTitle")}
+        lang={language}
+      >
         <header className="s-dsgr__head">
           <h1 className="s-dsgr__title">{t("designTitle")}</h1>
           <div className="s-dsgr__layout">
@@ -897,7 +949,12 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
               ]}
             />
           </div>
-          <button type="button" className="s-dsgr__close" aria-label={t("close")} onClick={onClose}>
+          <button
+            type="button"
+            className="s-dsgr__close"
+            aria-label={t("close")}
+            onClick={requestClose}
+          >
             ✕
           </button>
         </header>

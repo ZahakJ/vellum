@@ -5,39 +5,29 @@
 // sidebar, the force-directed graph engine, the settings/moderation modals or
 // CodeMirror; an admin opening the vault must not pay for the blog shell.
 //
-// Two mechanisms cooperate, and BOTH are required:
+// What actually does that work is `client/App.tsx`: it reaches every heavy
+// surface through `React.lazy()`, so rollup sees a dynamic import boundary and
+// never hoists them into the entry chunk. Rollup's own splitting then groups
+// what crossed the boundary — a shared module reached by one surface lands in
+// that surface's chunk, one reached by two becomes a shared chunk — and
+// `npm run check-bundle` measures the result per surface on every build.
 //
-//   1. `client/App.tsx` reaches the heavy surfaces through `React.lazy()`, so
-//      rollup sees a dynamic import boundary and never hoists them into the
-//      entry. That alone is what keeps them out of the first request.
-//   2. This function then GROUPS what crossed the boundary, so the ten lazy
-//      components of one surface arrive as one request instead of ten. Without
-//      it a cold admin paint costs a waterfall of tiny chunks.
+// THIS FILE NAMES EXACTLY ONE GROUP: React. Everything else is left to rollup
+// on purpose. An earlier version carried a table of per-surface regexes
+// (blog / reading / sharedUi / graph / editor / appShell) that `chunkFor` never
+// consulted — every non-node_modules module returned `undefined` — so the
+// documented half of a "BOTH required" mechanism had never run, and the
+// budgets it was supposed to defend were being met without it. A policy table
+// nothing reads is worse than no table: it is a description of the build that
+// is not true. If per-surface grouping is ever needed, add it here AND read it
+// in `chunkFor` in the same change.
 //
-// Grouping alone would not help (rollup would still hoist a statically
-// imported module into the entry chunk and merely name the group), and lazy
-// imports alone would shatter each surface into per-component chunks — so a
-// change to either half needs a look at the other.
-//
-// Anything not named here keeps rollup's automatic placement: the CodeMirror
-// language modes, the vim keymap and KaTeX are already reached only through
-// dynamic imports inside the editor/renderer and split themselves correctly.
+// The CodeMirror language modes, the vim keymap and KaTeX are reached only
+// through dynamic imports inside the editor/renderer and split themselves
+// correctly.
 
-const rx = {
-  // Both shells and the reading renderer live under client/.
-  blog: /[\\/]client[\\/]blog[\\/]/,
-  reading: /[\\/]client[\\/]reading[\\/]/,
-  /** Components BOTH shells render. They must not sit in `app-shell`: the
-   *  blog chunk statically imports them, which would make an anonymous
-   *  article reader download the sidebar, the palette and the settings modal
-   *  as a transitive dependency. `reading` is where they belong — every
-   *  surface that renders one already needs the markdown renderer. */
-  sharedUi: /[\\/]client[\\/]components[\\/](Marginalia\.tsx|snippet\.tsx)$/,
-  graph: /[\\/]client[\\/]components[\\/](GraphView|LocalGraph)\.tsx$/,
-  editor: /[\\/]client[\\/](editor[\\/]|components[\\/]Editor\.tsx$)/,
-  appShell: /[\\/]client[\\/]components[\\/]/,
-  react: /[\\/]node_modules[\\/](react|react-dom|scheduler|use-sync-external-store)[\\/]/,
-};
+/** React and the runtime that must not be duplicated across chunks. */
+const REACT = /[\\/]node_modules[\\/](react|react-dom|scheduler|use-sync-external-store)[\\/]/;
 
 /**
  * `manualChunks` in function form: module id → chunk name (or undefined to
@@ -51,7 +41,7 @@ export function chunkFor(id: string): string | undefined {
   // correctly, and NAMING them would be actively wrong: it would fuse ~60
   // per-language grammars that load one at a time into a single chunk.
   if (path.includes("/node_modules/")) {
-    return rx.react.test(path) ? "vendor-react" : undefined;
+    return REACT.test(path) ? "vendor-react" : undefined;
   }
   return undefined;
 }
