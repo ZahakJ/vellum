@@ -555,6 +555,108 @@ const DICT = {
   homeBannerSet: { en: "Home banner set", ar: "تم تعيين غلاف الرئيسية" },
   homeBannerRemoved: { en: "Home banner removed", ar: "تمت إزالة غلاف الرئيسية" },
   homeBannerFailed: { en: "Saving the banner failed", ar: "فشل حفظ الغلاف" },
+
+  // ── Attachments: dropping files, and what a delete really takes ─────────
+  // The refusal copy is spoken BEFORE anything is uploaded, so it names both
+  // what was turned away and what would have been welcome.
+  attachKinds: { en: "images, audio, video and PDF", ar: "الصور والصوت والفيديو وملفات PDF" },
+  refuseType: {
+    en: "{files} can’t be attached ({exts}) — Vellum takes {kinds}.",
+    ar: "تعذّر إرفاق {files} ({exts}) — المقبول هو {kinds}.",
+  },
+  refuseSize: {
+    en: "{files} are over the {max} MB limit.",
+    ar: "{files} تتجاوز الحد ({max} ميغابايت).",
+  },
+  someFilesRefused: { en: "Some files can’t be attached", ar: "بعض الملفات لا يمكن إرفاقها" },
+  unknownType: { en: "unknown type", ar: "نوع غير معروف" },
+  uploadTheRest: { en: "Upload {files}?", ar: "هل تريد رفع {files}؟" },
+  upload: { en: "Upload", ar: "رفع" },
+  filesAdded: { en: "Added {files} to {folder}", ar: "أُضيفت {files} إلى {folder}" },
+  // Covers both reasons a stored name can differ from the dropped one — the
+  // folder already held it, or it needed sanitizing — because the reader's
+  // question is the same either way: what is it called now?
+  savedAsName: {
+    en: "“{from}” was saved as “{to}”.",
+    ar: "حُفظ “{from}” باسم “{to}”.",
+  },
+  undo: { en: "Undo", ar: "تراجع" },
+  uploadUndone: { en: "Moved {files} to .trash", ar: "نُقلت {files} إلى ‎.trash‎" },
+  uploadUndoFailed: {
+    en: "Couldn’t undo every upload — check the server log.",
+    ar: "تعذّر التراجع عن كل الملفات المرفوعة — راجع سجل الخادم.",
+  },
+  vaultRoot: { en: "the vault root", ar: "جذر الخزانة" },
+  // A list separator, not a sentence: Arabic uses its own comma (U+060C).
+  listSep: { en: ", ", ar: "، " },
+  countsWithAttachments: { en: "{notes}, {attachments}", ar: "{notes}، {attachments}" },
+  referencedBy: {
+    en: "{count} of them referenced by {notes}",
+    ar: "{count} منها مُشار إليها في {notes}",
+  },
+  folderTrashTail: {
+    en: "All of it moves to the vault’s .trash folder — recoverable from disk.",
+    ar: "سيُنقل ذلك كله إلى مجلد ‎.trash‎ داخل الخزانة — يمكن استرجاعه من القرص.",
+  },
+  folderPermTail: {
+    en: "All of it will be erased from disk. This cannot be undone.",
+    ar: "سيُمحى ذلك كله من القرص. لا يمكن التراجع عن هذا.",
+  },
+  attachmentStillEmbedded: {
+    en: "This file is still embedded by {notes}.",
+    ar: "هذا الملف ما زال مُضمَّنًا في {notes}.",
+  },
+  deleteAttachmentTitle: { en: "Move “{name}” to .trash?", ar: "نقل “{name}” إلى ‎.trash‎؟" },
+  attachmentTrashBody: {
+    en: "“{path}” moves to the vault’s .trash folder — recoverable from disk.",
+    ar: "سيُنقل “{path}” إلى مجلد ‎.trash‎ داخل الخزانة — يمكن استرجاعه من القرص.",
+  },
+  deleteAttachmentPermTitle: { en: "Permanently delete “{name}”?", ar: "حذف “{name}” نهائيًا؟" },
+  attachmentPermBody: {
+    en: "“{path}” will be erased from disk. This cannot be undone.",
+    ar: "سيُمحى “{path}” من القرص. لا يمكن التراجع عن هذا.",
+  },
+  attachmentTrashedToast: { en: "Moved “{name}” to .trash", ar: "نُقل “{name}” إلى ‎.trash‎" },
+  attachmentDeletedToast: { en: "Deleted “{name}” permanently", ar: "حُذف “{name}” نهائيًا" },
+  deleteFailed: { en: "Delete failed", ar: "فشل الحذف" },
+  dropFilesTitle: { en: "Drop files to attach them here", ar: "أفلت الملفات لإرفاقها هنا" },
+
+  // ── Settings: where new attachments go ──────────────────────────────────
+  groupAttachments: { en: "Attachments", ar: "المرفقات" },
+  rowAttachmentLocation: { en: "New attachments", ar: "المرفقات الجديدة" },
+  hintAttachmentLocation: {
+    en: "Where an upload is written. Existing attachments are never moved.",
+    ar: "أين يُكتب الملف المرفوع. لا تُنقل المرفقات الموجودة أبدًا.",
+  },
+  locVaultRoot: { en: "Vault root", ar: "جذر الخزانة" },
+  locSameFolder: { en: "Same folder as the note", ar: "نفس مجلد الملاحظة" },
+  locSubfolder: { en: "Subfolder of the note’s folder", ar: "مجلد فرعي داخل مجلد الملاحظة" },
+  locSpecified: { en: "Specified folder", ar: "مجلد محدد" },
+  rowAttachmentFolder: { en: "Attachment folder", ar: "مجلد المرفقات" },
+  hintAttachmentFolder: {
+    en: "Vault-relative; created on demand",
+    ar: "نسبي إلى الخزانة؛ يُنشأ عند الحاجة",
+  },
+  hintAttachmentSubfolder: {
+    en: "Name only; sits inside the note’s folder",
+    ar: "الاسم فقط؛ داخل مجلد الملاحظة",
+  },
+  errFolderTraversal: {
+    en: "Must stay inside the vault (no “..”)",
+    ar: "يجب أن يبقى داخل الخزانة (بدون “..”)",
+  },
+  errFolderAbsolute: {
+    en: "Must be a vault-relative folder",
+    ar: "يجب أن يكون مسارًا نسبيًا داخل الخزانة",
+  },
+  errFolderDotfolder: {
+    en: "Dot-folders are invisible to the vault",
+    ar: "المجلدات التي تبدأ بنقطة غير مرئية للخزانة",
+  },
+  errFolderControl: {
+    en: "Control characters are not allowed",
+    ar: "لا يُسمح بمحارف التحكم",
+  },
 } satisfies Record<string, Entry>;
 
 export type I18nKey = keyof typeof DICT;
@@ -633,6 +735,8 @@ export function tf(key: I18nKey, vars: Record<string, string | number>): string 
 
 type CountUnit =
   | "notes"
+  | "attachments"
+  | "files"
   | "publishedNotes"
   | "links"
   | "words"
@@ -644,6 +748,17 @@ type CountUnit =
 
 const UNITS: Record<CountUnit, { en: [string, string]; ar: { one: string; two: string; few: string; many: string } }> = {
   notes: { en: ["note", "notes"], ar: { one: "ملاحظة واحدة", two: "ملاحظتان", few: "ملاحظات", many: "ملاحظة" } },
+  // What a folder holds besides notes — the half the delete dialog used to
+  // leave out. "Attachment" is the vault's word for a non-markdown file;
+  // "file" is what the reader is dragging, before it is anything of ours.
+  attachments: {
+    en: ["attachment", "attachments"],
+    ar: { one: "مرفق واحد", two: "مرفقان", few: "مرفقات", many: "مرفقًا" },
+  },
+  files: {
+    en: ["file", "files"],
+    ar: { one: "ملف واحد", two: "ملفان", few: "ملفات", many: "ملفًا" },
+  },
   // The visitor graph HUD counts published notes specifically.
   publishedNotes: {
     en: ["published note", "published notes"],

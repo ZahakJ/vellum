@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getNote, listAttachments, uploadAttachment } from "../api.ts";
+import { confirmDeleteAttachment } from "../attachments.ts";
 import { bannerFromContent, bannerSrc } from "../banner.ts";
 import { localeNum, t, tf } from "../i18n.ts";
 import { UPLOAD_MAX_MB } from "../../shared/limits.ts";
@@ -212,18 +213,40 @@ export default function BannerModal() {
               </div>
             )}
             {filtered.slice(0, 200).map((p) => (
-              <button
-                key={p}
-                type="button"
-                className="s-bmodal__item"
-                onClick={() => apply(p)}
-                disabled={busy}
-              >
-                <img className="s-bmodal__thumb" src={bannerSrc(p)} alt="" loading="lazy" />
-                <span className="s-bmodal__itempath" dir="ltr">
-                  {p}
-                </span>
-              </button>
+              // Row, not a lone button: the picker is where the vault's
+              // attachments are actually browsed, so it is where deleting one
+              // belongs — and a delete button nested inside the pick button
+              // would be an invalid (and unreachable) control.
+              <div key={p} className="s-attach-row">
+                <button
+                  type="button"
+                  className="s-bmodal__item"
+                  onClick={() => apply(p)}
+                  disabled={busy}
+                >
+                  <img className="s-bmodal__thumb" src={bannerSrc(p)} alt="" loading="lazy" />
+                  <span className="s-bmodal__itempath" dir="ltr">
+                    {p}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="s-attach-del"
+                  title={t("delete")}
+                  aria-label={tf("deleteAttachmentTitle", { name: p })}
+                  disabled={busy}
+                  onClick={() => {
+                    // The confirm names every note that still embeds this
+                    // file: deleting one is exactly as quiet as deleting the
+                    // folder it lives in, and just as breaking.
+                    void confirmDeleteAttachment(p).then((gone) => {
+                      if (gone) setAttachments((list) => (list ?? []).filter((x) => x !== p));
+                    });
+                  }}
+                >
+                  ×
+                </button>
+              </div>
             ))}
           </div>
         </div>

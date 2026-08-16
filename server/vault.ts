@@ -352,6 +352,62 @@ export async function deleteFolder(
   return trashPath ? { notes, trashPath } : { notes };
 }
 
+/** Free name for a FILE moved into `.trash/`: "fig.png", "fig-2.png", … —
+ *  the counter goes before the extension, so the trashed copy still opens. */
+async function trashFileDestination(name: string): Promise<string> {
+  const trashAbs = path.join(vaultRoot, TRASH_DIR);
+  await fs.mkdir(trashAbs, { recursive: true });
+  const ext = path.posix.extname(name);
+  const base = ext ? name.slice(0, -ext.length) : name;
+  for (let n = 1; ; n++) {
+    const candidate = n === 1 ? name : `${base}-${n}${ext}`;
+    const abs = path.join(trashAbs, candidate);
+    if (!(await exists(abs))) return abs;
+  }
+}
+
+/** Delete one non-markdown file (an attachment), same two speeds as a folder:
+ *  by default it MOVES to the vault's `.trash/` and stays recoverable from
+ *  disk; `permanent` unlinks it. Markdown goes through deleteNote — this
+ *  route exists because attachments are the files no other delete could
+ *  reach, and the one a note may still be embedding. */
+export async function deleteAttachment(
+  rel: string,
+  opts?: { permanent?: boolean },
+): Promise<{ trashPath?: string }> {
+  const relPath = normalizeRel(rel);
+  if (!relPath) throw new VaultError(400, "File path required");
+  if (relPath.toLowerCase().endsWith(".md")) {
+    throw new VaultError(400, "Markdown is deleted via /api/note");
+  }
+  if (isIgnoredRel(relPath)) throw new VaultError(400, `Invalid file path: ${rel}`);
+  const abs = safeAbs(relPath);
+  let stat;
+  try {
+    stat = await fs.lstat(abs);
+  } catch {
+    throw new VaultError(404, `File not found: ${relPath}`);
+  }
+  if (stat.isDirectory()) throw new VaultError(400, `Not a file: ${relPath}`);
+  suppress(relPath);
+  let trashPath: string | undefined;
+  if (opts?.permanent) {
+    await fs.rm(abs, { force: true });
+  } else {
+    const destAbs = await trashFileDestination(path.posix.basename(relPath));
+    try {
+      await fs.rename(abs, destAbs);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+      await fs.cp(abs, destAbs);
+      await fs.rm(abs, { force: true });
+    }
+    trashPath = `${TRASH_DIR}/${path.basename(destAbs)}`;
+  }
+  emit({ kind: "deleted", path: relPath });
+  return trashPath ? { trashPath } : {};
+}
+
 async function exists(abs: string): Promise<boolean> {
   try {
     await fs.access(abs);
