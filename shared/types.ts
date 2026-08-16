@@ -207,7 +207,7 @@ export interface MeData {
   footer?: string;     // SITE_FOOTER resolved (default "© <year> <SITE_NAME>")
   blogLocale?: string; // BLOG_LOCALE — BCP47 tag the client uses for date formatting (default "en")
   bannerFallback?: "generated" | "none"; // BANNER_FALLBACK — blog list/article hero for notes without a banner
-  shareButtons?: boolean; // blog article share row (settings.shareButtons, default off)
+  shareButtons?: boolean; // blog article share row (settings.shareButtons, default ON; absent = on)
   home?: HomeSettings; // settings.home — what "/" renders for blog visitors (absent = note mode)
   logo?: string;       // settings.logo — site logo image (banner-style value)
   favicon?: boolean;   // settings.favicon set — /favicon.ico serves it (client repoints its icon link)
@@ -370,7 +370,7 @@ export interface SettingsData {
   excludeTags?: string[];
   /** Marginalia comments on/off (overrides COMMENTS). */
   commentsEnabled?: boolean;
-  /** Show the share-links row under blog articles (default off). */
+  /** Show the share-links row under blog articles (default ON). */
   shareButtons?: boolean;
   /** Favicon: vault-relative image path (uploaded attachment), served at
    *  /favicon.ico. Absent → the built-in glyph. */
