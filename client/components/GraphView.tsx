@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { getGraph } from "../api.ts";
+import { useVaultGraph, vaultGraphFailed } from "../graphCache.ts";
 import { autoDir, countPhrase, t } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import type { GraphData, GraphNode } from "../../shared/types.ts";
+import { mixColors, readThemeColors } from "./graphColors.ts";
 
 // ---------------------------------------------------------------------------
 // Simulation tuning. Forces are scaled by a cooling factor ("alpha") so the
@@ -44,65 +45,15 @@ interface SimEdge {
   b: SimNode;
 }
 
-export interface ThemeColors {
-  text: string;
-  muted: string;
-  faint: string;
-  accent: string;
-  border: string;
-  bg: string;
-  fontUI: string;
-  /** Idle (non-hover) edge stroke — lifted above --border in both themes
-   *  so the web is visible at rest, still well below hover brightness. */
-  idleEdge: string;
-  idleEdgeAlpha: number;
-}
-
-export function readThemeColors(): ThemeColors {
-  const cs = getComputedStyle(document.documentElement);
-  const token = (name: string, fallback: string) =>
-    cs.getPropertyValue(name).trim() || fallback;
-  const border = token("--border", "#333");
-  const muted = token("--text-muted", "#999");
-  const dark =
-    document.documentElement.getAttribute("data-theme") !== "parchment";
-  return {
-    text: token("--text", "#ddd"),
-    muted,
-    faint: token("--text-faint", "#666"),
-    accent: token("--accent", "#c9a227"),
-    border,
-    bg: token("--bg", "#16130e"),
-    fontUI: token("--font-ui", "system-ui, sans-serif"),
-    idleEdge: dark ? mixColors(border, muted, 0.35) : mixColors(border, muted, 0.3),
-    idleEdgeAlpha: dark ? 0.6 : 0.62,
-  };
-}
-
-/** Parse #rgb/#rrggbb to [r,g,b]; null for anything else. */
-function parseHex(color: string): [number, number, number] | null {
-  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
-  if (!m) return null;
-  let h = m[1];
-  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
-  return [
-    parseInt(h.slice(0, 2), 16),
-    parseInt(h.slice(2, 4), 16),
-    parseInt(h.slice(4, 6), 16),
-  ];
-}
-
-/** Blend a → b by t (0..1). Falls back to `a` when a color isn't hex. */
-export function mixColors(a: string, b: string, t: number): string {
-  const ca = parseHex(a);
-  const cb = parseHex(b);
-  if (!ca || !cb) return a;
-  const ch = ca.map((v, i) => Math.round(v + (cb[i] - v) * t));
-  return `rgb(${ch[0]}, ${ch[1]}, ${ch[2]})`;
-}
-
 function nodeRadius(links: number): number {
   return 4 + Math.min(10, Math.sqrt(links) * 2.4);
+}
+
+/** Pack a spatial-grid cell into one non-negative integer (see `step`). */
+const GRID_BIAS = 5000;
+const GRID_SPAN = GRID_BIAS * 2;
+function gridKey(gx: number, gy: number): number {
+  return (gx + GRID_BIAS) * GRID_SPAN + (gy + GRID_BIAS);
 }
 
 /** FNV-1a 32-bit hash — stable seed source for the initial layout. */
@@ -147,6 +98,25 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
   const neighbors = new Map<SimNode, Set<SimNode>>();
 
   let colors = readThemeColors();
+
+  // Node fills are a blend of accent → bg by degree. Computed inline, that is
+  // two hex parses, two array allocations and a template string PER NODE PER
+  // FRAME — ~2,800 of them at 1,388 nodes, before the canvas re-parses each
+  // resulting string. The blend is a smooth ramp, so a quantized lookup table
+  // is visually identical (33 steps across a 0.35 lightness range is well
+  // under a perceptible increment) and costs nothing per frame.
+  const SHADES = 33;
+  let shades: string[] = [];
+  let orphanFill = "";
+  let rimStroke = "";
+  function buildPalette(): void {
+    shades = Array.from({ length: SHADES }, (_, i) =>
+      mixColors(colors.accent, colors.bg, 0.45 - 0.35 * (i / (SHADES - 1))),
+    );
+    orphanFill = mixColors(colors.accent, colors.bg, 0.62);
+    rimStroke = mixColors(colors.accent, colors.bg, 0.25);
+  }
+  buildPalette();
   let width = 0; // CSS px
   let height = 0;
   let dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -273,10 +243,19 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
   /** One integration step: grid-bucketed repulsion, springs, gravity, damping. */
   function step() {
     // Spatial grid so repulsion is ~O(n) for the vault sizes we care about.
+    //
+    // The cell key is a NUMBER, not `${gx},${gy}`. At 1,388 nodes the string
+    // form allocated ~14,000 strings per frame (one per insert, nine per
+    // lookup) and hashed every one of them — a measurable slice of a 22 ms
+    // frame, for a key that is two small integers. `GRID_BIAS` keeps the
+    // packed value non-negative for coordinates within ±(BIAS·cell), which at
+    // 560 px cells is ±2.8 million world pixels: far outside any layout the
+    // simulation produces, and out-of-range nodes still land in *a* bucket,
+    // so the worst case is a slightly wrong neighbor set, never a crash.
     const cell = REPULSE_RADIUS;
-    const grid = new Map<string, SimNode[]>();
+    const grid = new Map<number, SimNode[]>();
     for (const n of nodes) {
-      const key = `${Math.floor(n.x / cell)},${Math.floor(n.y / cell)}`;
+      const key = gridKey(Math.floor(n.x / cell), Math.floor(n.y / cell));
       const bucket = grid.get(key);
       if (bucket) bucket.push(n);
       else grid.set(key, [n]);
@@ -291,7 +270,7 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
       const cy = Math.floor(n.y / cell);
       for (let gx = cx - 1; gx <= cx + 1; gx++) {
         for (let gy = cy - 1; gy <= cy + 1; gy++) {
-          const bucket = grid.get(`${gx},${gy}`);
+          const bucket = grid.get(gridKey(gx, gy));
           if (!bucket) continue;
           for (const o of bucket) {
             if (o === n) continue;
@@ -399,14 +378,14 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
         hoverSet && hoverSet.has(n)
           ? colors.accent
           : orphan
-            ? mixColors(colors.accent, colors.bg, 0.62)
-            : mixColors(colors.accent, colors.bg, 0.45 - 0.35 * degree);
+            ? orphanFill
+            : shades[Math.min(SHADES - 1, (degree * (SHADES - 1)) | 0)];
       ctx!.beginPath();
       ctx!.arc(sx, sy, rk, 0, Math.PI * 2);
       ctx!.fill();
 
       // 1px rim.
-      ctx!.strokeStyle = mixColors(colors.accent, colors.bg, 0.25);
+      ctx!.strokeStyle = rimStroke;
       ctx!.lineWidth = 1;
       ctx!.stroke();
 
@@ -493,6 +472,7 @@ function createSim(canvas: HTMLCanvasElement, wrap: HTMLElement): Sim {
 
   const themeObserver = new MutationObserver(() => {
     colors = readThemeColors();
+    buildPalette(); // the shade table is derived from the theme, not the data
     needsDraw = true;
   });
   themeObserver.observe(document.documentElement, {
@@ -703,32 +683,47 @@ export default function GraphView() {
     null,
   );
 
+  // Shared with the local graph and the visitor sidebar — one /api/graph for
+  // the whole app (client/graphCache.ts), not one per consumer.
+  const data = useVaultGraph();
+  /** The layout is seeded from scratch by `setData`, so a refresh would fling
+   *  every node back to its seed position and restart the simulation under
+   *  the reader's pointer. The graph view is a snapshot for as long as it is
+   *  open, exactly as it was before it shared this cache: apply the first
+   *  graph that arrives, then leave the sim alone. Closing and reopening the
+   *  view picks up everything that changed meanwhile. */
+  const appliedRef = useRef(false);
+
   useEffect(() => {
     const wrap = wrapRef.current;
     const canvas = canvasRef.current;
     if (!wrap || !canvas) return;
 
-    let disposed = false;
     const sim = createSim(canvas, wrap);
     simRef.current = sim;
-
-    getGraph()
-      .then((data) => {
-        if (disposed) return;
-        setStats({ notes: data.nodes.length, links: data.edges.length });
-        sim.setData(data);
-      })
-      .catch((err: unknown) => {
-        console.error("GraphView: failed to load graph", err);
-        toast(t("graphLoadFailed"));
-      });
+    appliedRef.current = false;
 
     return () => {
-      disposed = true;
       simRef.current = null;
       sim.destroy();
     };
   }, []);
+
+  useEffect(() => {
+    if (!data || appliedRef.current) return;
+    const sim = simRef.current;
+    if (!sim) return;
+    appliedRef.current = true;
+    setStats({ notes: data.nodes.length, links: data.edges.length });
+    sim.setData(data);
+  }, [data]);
+
+  // The graph view is the one surface where a failed /api/graph leaves an
+  // empty screen rather than a missing garnish, so it is the one that says so.
+  const graphFailed = vaultGraphFailed();
+  useEffect(() => {
+    if (graphFailed && !appliedRef.current) toast(t("graphLoadFailed"));
+  }, [graphFailed]);
 
   return (
     <div className="s-graph" ref={wrapRef}>

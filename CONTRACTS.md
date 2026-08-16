@@ -35,7 +35,13 @@ properties listed in the styles contract; components must use tokens, never hard
 - `DELETE /api/note?path=` → `{ ok: true }`
 - `POST /api/folder` body `{ path }` → `{ ok: true }`
 - `GET  /api/search?q=` → `SearchHit[]` (max 50, minisearch, prefix+fuzzy)
-- `GET  /api/graph` → `GraphData` (nodes = all md files, edges = resolved wikilinks)
+- `GET  /api/graph` → `GraphData` (nodes = all md files, edges = resolved wikilinks).
+  `?around=<path>` narrows it to that note, its direct wikilink neighbors in either
+  direction, and the edges among that set — same shape, a fraction of the bytes, and the
+  same visitor filtering (a slice of the already-filtered graph, never of the raw index).
+  An unknown or filtered-away centre answers `{nodes:[],edges:[]}`, so "no neighborhood"
+  and "not yours to see" are indistinguishable. Both forms are memoized per audience
+  (`server/graphCache.ts`); `/api/tree` is memoized the same way (`server/treeCache.ts`).
 - `GET  /api/backlinks?path=` → `Backlink[]`
 - `GET  /api/tags` → `TagCount[]` (from `#tag` inline + frontmatter `tags:`)
 - `GET  /api/events` → SSE stream of `VaultEvent` (chokidar watcher; debounced 100ms; events named `message`, JSON data)

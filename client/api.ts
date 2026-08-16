@@ -129,6 +129,14 @@ export function getGraph(): Promise<GraphData> {
   return request<GraphData>("/api/graph");
 }
 
+/** One note's neighborhood: the note, its direct wikilink neighbors (both
+ *  directions) and the edges among them. Same shape as `getGraph`, a fraction
+ *  of the bytes — the backlinks panel's local graph needs a dozen nodes, not
+ *  the whole vault. */
+export function getLocalGraph(path: string): Promise<GraphData> {
+  return request<GraphData>(`/api/graph?around=${encodeURIComponent(path)}`);
+}
+
 export function getBacklinks(path: string): Promise<Backlink[]> {
   return request<Backlink[]>(`/api/backlinks?path=${encodeURIComponent(path)}`);
 }

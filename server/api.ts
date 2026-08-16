@@ -36,7 +36,6 @@ import {
 } from "./comments.ts";
 import {
   backlinks,
-  graph,
   indexFile,
   isAllowedAttachment,
   isNotePublished,
@@ -54,10 +53,12 @@ import {
 } from "./indexer.ts";
 import { setFrontmatterLine, setPublishFlag, yamlQuote } from "./publish.ts";
 import { patchSettings, settingsAssetPaths, settingsResponse } from "./settings.ts";
+import { sendEncoded } from "./compress.ts";
+import { graphBody, invalidateGraph, localGraphJson } from "./graphCache.ts";
+import { invalidateTree, treeBody } from "./treeCache.ts";
 import { attachmentsDir, customCssPath, fontsDir } from "./site.ts";
 import {
   VaultError,
-  buildTree,
   createFolder,
   createNote,
   deleteFolder,
@@ -195,6 +196,26 @@ api.get("/fonts/:file", async (c) => {
 
 api.use("*", authGuard);
 
+// Any write can reshape the vault, and the watcher that would notice is
+// debounced 100 ms — long enough for the client's own "create note, then
+// refetch the tree" round trip to be answered from a stale memo. Dropping it
+// up front costs one directory walk on the next read and removes the race
+// entirely. See server/treeCache.ts for the full invalidation contract.
+api.use("*", async (c, next) => {
+  const writes = c.req.method !== "GET" && c.req.method !== "HEAD";
+  if (writes) {
+    invalidateTree();
+    invalidateGraph();
+  }
+  await next();
+  // Again on the way out: a concurrent read that arrived mid-write could have
+  // re-memoized the pre-write state between those two points.
+  if (writes) {
+    invalidateTree();
+    invalidateGraph();
+  }
+});
+
 api.onError((err, c) => {
   if (err instanceof VaultError) {
     return c.json({ error: err.message }, err.status as ContentfulStatusCode);
@@ -237,7 +258,11 @@ function publishedTree(): TreeNode {
 
 api.get("/tree", async (c) => {
   if (isPublishLimited(c)) return c.json(publishedTree());
-  return c.json(await buildTree());
+  // Memoized (server/treeCache.ts): the walk, its JSON and its compressed
+  // forms are rebuilt only after something could have changed the vault's
+  // shape. Was a full recursive readdir per request — ~29 ms and 171 kB on
+  // the 1,388-note fixture, asked for on every vault event.
+  return sendEncoded(c, await treeBody());
 });
 
 api.get("/note", async (c) => {
@@ -735,7 +760,22 @@ api.delete("/comments/:id", (c) => {
 
 api.get("/search", (c) => c.json(search(c.req.query("q") ?? "", isPublishLimited(c))));
 
-api.get("/graph", (c) => c.json(graph(isPublishLimited(c))));
+// `?around=<path>` answers with just that note's neighborhood — the shape the
+// backlinks panel's local graph draws. Without it the panel pulled the ENTIRE
+// vault graph (534 kB on the 1,388-note fixture, ~4 MB on a 10k-note vault)
+// on every app open in order to render a dozen nodes. Both forms are memoized
+// per audience; see server/graphCache.ts.
+api.get("/graph", (c) => {
+  const publishedOnly = isPublishLimited(c);
+  const around = c.req.query("around");
+  if (around === undefined || around === "") return sendEncoded(c, graphBody(publishedOnly));
+  // Slices are small and there are as many as there are notes, so they are
+  // built per request and compressed by the ordinary middleware rather than
+  // memoized per path.
+  return c.body(localGraphJson(normalizeRel(around), publishedOnly), 200, {
+    "Content-Type": "application/json",
+  });
+});
 
 api.get("/backlinks", (c) => {
   const notePath = requiredQuery(c.req.query("path"), "path");
