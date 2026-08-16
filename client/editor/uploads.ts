@@ -1,9 +1,16 @@
-// Paste / drop image uploads. Pasting an image from the clipboard (or
-// dropping image files onto the editor) uploads it through POST /api/upload
-// and inserts `![[name.png]]` where the cursor (or drop point) was. While the
+// Paste / drop attachment uploads. Pasting a file from the clipboard (or
+// dropping files onto the editor) uploads it through POST /api/upload and
+// inserts `![[name.png]]` where the cursor (or drop point) was. While the
 // request is in flight a small "Uploading name…" widget holds the spot — its
 // position is a decoration in a StateField, so it rides along correctly even
 // if the author keeps typing around it.
+//
+// Every type /api/upload accepts is welcome here, not images alone (a PDF and
+// an interview recording are attachments too — see shared/attachments.ts).
+// Anything the server would refuse is refused HERE, before the upload, with a
+// toast naming the kinds that are welcome; and the upload carries the open
+// note's folder, which is what the "same folder" / "subfolder" attachment
+// locations are relative to.
 
 import { StateEffect, StateField, type Extension } from "@codemirror/state";
 import {
@@ -13,6 +20,7 @@ import {
   type DecorationSet,
 } from "@codemirror/view";
 import { uploadAttachment } from "../api.ts";
+import { droppedFiles, refuseFiles, sortFiles } from "../attachments.ts";
 import { getLang, t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
@@ -113,9 +121,30 @@ function uploadName(file: File): string {
   return `Pasted image ${stamp}${ext}`;
 }
 
-function imageFiles(data: DataTransfer | null): File[] {
-  if (!data) return [];
-  return Array.from(data.files).filter((f) => f.type.startsWith("image/"));
+/** The files of a paste/drop the server would take. Anything else is left to
+ *  CodeMirror (a text paste is still a text paste) unless it is a FILE we had
+ *  to turn away — then the reader is told why, before anything is uploaded.
+ *  Returns null when the event is not about files at all. */
+function attachableFiles(data: DataTransfer | null): File[] | null {
+  const files = droppedFiles(data);
+  if (files.length === 0) return null;
+  const sorted = sortFiles(files);
+  if (sorted.ok.length === 0 && sorted.wrongType.length + sorted.tooBig.length > 0) {
+    void refuseFiles(sorted);
+    return [];
+  }
+  if (sorted.wrongType.length + sorted.tooBig.length > 0) void refuseFiles(sorted);
+  return sorted.ok;
+}
+
+/** The vault folder the editor's uploads happen in — the open note's own
+ *  folder. It is what the "same folder"/"subfolder" attachment-location modes
+ *  are relative to; the other modes ignore it. */
+function contextDir(): string {
+  const open = useStore.getState().openPath;
+  if (!open) return "";
+  const i = open.lastIndexOf("/");
+  return i === -1 ? "" : open.slice(0, i);
 }
 
 function startUploads(
@@ -135,7 +164,7 @@ function startUploads(
   files.forEach((file, i) => {
     const id = ids[i];
     const named = new File([file], uploadName(file), { type: file.type });
-    uploadAttachment(named)
+    uploadAttachment(named, false, contextDir())
       .then((result) => {
         labelById.delete(id);
         if (!view.dom.isConnected) return;
@@ -162,18 +191,22 @@ function startUploads(
 const handlers = EditorView.domEventHandlers({
   paste(event, view) {
     if (!useStore.getState().admin) return false;
-    const files = imageFiles(event.clipboardData);
-    if (files.length === 0) return false;
+    const files = attachableFiles(event.clipboardData);
+    if (files === null) return false;
+    // Files were on the clipboard, so this paste is ours even when every one
+    // of them was refused — falling through would paste their NAMES as text.
     event.preventDefault();
+    if (files.length === 0) return true;
     const { from, to } = view.state.selection.main;
     startUploads(view, files, from, to);
     return true;
   },
   drop(event, view) {
     if (!useStore.getState().admin) return false;
-    const files = imageFiles(event.dataTransfer);
-    if (files.length === 0) return false;
+    const files = attachableFiles(event.dataTransfer);
+    if (files === null) return false;
     event.preventDefault();
+    if (files.length === 0) return true;
     const pos =
       view.posAtCoords({ x: event.clientX, y: event.clientY }) ??
       view.state.selection.main.head;

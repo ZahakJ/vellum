@@ -1,5 +1,7 @@
 // Shared types — the wire contract between server and client. Do not drift from these.
 
+import type { AttachmentMode } from "./attachments.ts";
+
 export interface TreeNode {
   name: string;          // file or folder basename, e.g. "Ideas.md" or "projects"
   path: string;          // vault-relative POSIX path, e.g. "projects/Ideas.md"; "" for root
@@ -143,6 +145,20 @@ export interface SettingsData {
   /** Site logo image (https URL or vault path) shown in place of the
    *  site-name text where a logo fits (masthead, sidebar, dashboard hero). */
   logo?: string;
+  /** Where new attachments are written (Obsidian's "Default location for new
+   *  attachments"). Absent → mode "specified" with ATTACHMENTS_DIR as the
+   *  folder, i.e. exactly what instances did before this key existed.
+   *  Existing attachments are never moved by a change here. */
+  attachments?: AttachmentSettings;
+}
+
+export interface AttachmentSettings {
+  /** vault-root | same-folder | subfolder | specified (see shared/attachments.ts). */
+  mode?: AttachmentMode;
+  /** The folder the two folder-bearing modes use: a vault-relative path for
+   *  "specified", a relative subfolder name for "subfolder". Path-safe, never
+   *  a dot-folder, created on demand. */
+  folder?: string;
 }
 
 /** What /api/settings answers: the stored keys (settings.json verbatim,
@@ -168,6 +184,8 @@ export interface EffectiveSettings {
   favicon: string | null;
   logo: string | null;
   home: Required<Pick<HomeSettings, "mode">> & Omit<HomeSettings, "mode">;
+  /** Always resolved: the mode in force and the folder it uses. */
+  attachments: Required<AttachmentSettings>;
 }
 
 /** PATCH /api/settings body: only the named keys change; null (or "") clears
@@ -192,6 +210,10 @@ export interface SettingsPatch {
     banner?: string | null;
   } | null;
   logo?: string | null;
+  attachments?: {
+    mode?: AttachmentMode | null;
+    folder?: string | null;
+  } | null;
 }
 
 export interface PublishedCounts {
@@ -206,9 +228,32 @@ export interface PublishResult {
   published: boolean; // publish state after the toggle
 }
 
-// POST /api/upload (admin only): multipart image → saved under ATTACHMENTS_DIR.
+// POST /api/upload (admin only): multipart file (field "file") → saved under
+// the folder the attachment-location setting resolves to. The optional field
+// "dir" carries the vault folder the upload happened in (the open note's
+// folder, the tree row dropped on) — it is what the "same folder" and
+// "subfolder" modes are relative to, and it is ignored by the other two.
 export interface UploadResult {
   path: string; // vault-relative path of the stored attachment
+}
+
+// GET /api/impact?path=<rel> (admin only): what a delete would really take.
+// A folder answers for everything under it; a single attachment answers for
+// itself. This is the ONE surface that knows an attachment is still embedded
+// somewhere — the tree carries only markdown, so a folder holding four images
+// and no notes read as "0 notes" and deleted silently.
+export interface DeleteImpact {
+  path: string;             // normalized vault-relative path
+  kind: "folder" | "attachment";
+  notes: number;            // .md files that would go (0 for an attachment)
+  attachments: number;      // non-md files that would go (1 for an attachment)
+  /** How many of those attachments are embedded/linked by a note that would
+   *  SURVIVE the delete — i.e. how many live references this breaks. */
+  referenced: number;
+  /** The surviving notes doing the referencing (path + title), capped at a
+   *  handful so the dialog can name them; `referencingNotes` is the total. */
+  referencing: { path: string; title: string }[];
+  referencingNotes: number;
 }
 
 // POST /api/frontmatter { path, key, value } (admin only) → FrontmatterResult.

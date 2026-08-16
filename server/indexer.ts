@@ -583,6 +583,110 @@ export function registerAttachment(relPath: string): void {
   addAttachment(relPath);
 }
 
+/** All indexed attachments under a folder (recursive). */
+export function attachmentsUnder(relFolder: string): string[] {
+  const prefix = `${relFolder}/`;
+  return [...attachmentPaths].filter((p) => p.startsWith(prefix)).sort();
+}
+
+/** All indexed notes under a folder (recursive) — the admin-side count, so
+ *  unlike visibleNotesUnder() it hides nothing. */
+export function notesUnder(relFolder: string): string[] {
+  const prefix = `${relFolder}/`;
+  return [...notes.keys()].filter((p) => p.startsWith(prefix)).sort();
+}
+
+// ---------------------------------------------- who still points at a file
+
+/** Markdown link/image destinations: ![alt](path "title"), [text](path).
+ *  Angle-bracket destinations (<my file.png>) included — spaces are legal
+ *  there and common in vaults migrated from Obsidian. */
+const MD_DEST_RE = /!?\[[^\]\n]*\]\(\s*(?:<([^>\n]*)>|([^)\s]+))/g;
+
+/** Resolve one reference written INSIDE `fromNote` to a vault path, or null.
+ *  Handles the three forms a note can name an attachment by: the wikilink
+ *  basename (`![[fig.png]]`), a vault-relative path, and a path relative to
+ *  the note's own folder — the last two being what a markdown `![](…)` link
+ *  carries. External URLs and anchors are not references to anything local. */
+function resolveRef(fromNote: string, rawTarget: string): string | null {
+  const target = rawTarget.trim();
+  if (target === "" || /^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith("#")) return null;
+  let decoded = target.split("#")[0];
+  try {
+    decoded = decodeURIComponent(decoded);
+  } catch {
+    // a lone % is legal in a filename — keep the raw form
+  }
+  const cleaned = decoded.replace(/\\/g, "/").replace(/^\.?\/+/, "").replace(/\/+$/, "");
+  if (cleaned === "") return null;
+  if (attachmentPaths.has(cleaned)) return cleaned;
+  const dir = path.posix.dirname(fromNote);
+  const relToNote = path.posix.normalize(dir === "." ? cleaned : `${dir}/${cleaned}`);
+  if (attachmentPaths.has(relToNote)) return relToNote;
+  // Last: basename resolution, the way an embed does it.
+  const byBase = resolveEmbed(path.posix.basename(cleaned));
+  return byBase !== null && attachmentPaths.has(byBase) ? byBase : null;
+}
+
+/** attachment path → the notes that embed or link it. Built on demand (the
+ *  delete dialogs are the only caller) and never cached: it must describe the
+ *  vault as it is at the instant the reader is being asked to destroy part of
+ *  it, and a stale answer here is exactly the failure this whole surface
+ *  exists to prevent. Both reference syntaxes count — `![[fig.png]]` and
+ *  `![](attachments/fig.png)` — plus a note's `banner:` frontmatter, which is
+ *  a reference the reader never sees in the body. */
+function attachmentReferrers(): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
+  const add = (attachment: string, notePath: string): void => {
+    let set = map.get(attachment);
+    if (!set) map.set(attachment, (set = new Set()));
+    set.add(notePath);
+  };
+  for (const record of notes.values()) {
+    for (const link of record.links) {
+      const resolved = resolveEmbed(link.target);
+      if (resolved && attachmentPaths.has(resolved)) add(resolved, record.path);
+    }
+    for (const m of record.body.matchAll(MD_DEST_RE)) {
+      const resolved = resolveRef(record.path, m[1] ?? m[2] ?? "");
+      if (resolved) add(resolved, record.path);
+    }
+    const banner = resolveBanner(record);
+    if (banner && attachmentPaths.has(banner)) add(banner, record.path);
+  }
+  return map;
+}
+
+/** How many of `attachments` are still referenced, and by which notes — the
+ *  answer a delete confirmation needs. Notes inside `doomed` are excluded:
+ *  they are going away in the same act, so they are not breakage. */
+export function attachmentUsage(
+  attachments: string[],
+  doomed: (notePath: string) => boolean,
+): { referenced: number; referencing: string[] } {
+  const referrers = attachmentReferrers();
+  const referencing = new Set<string>();
+  let referenced = 0;
+  for (const attachment of attachments) {
+    const from = referrers.get(attachment);
+    if (!from) continue;
+    let live = false;
+    for (const notePath of from) {
+      if (doomed(notePath)) continue;
+      live = true;
+      referencing.add(notePath);
+    }
+    if (live) referenced++;
+  }
+  return { referenced, referencing: [...referencing].sort() };
+}
+
+/** A note's display title (sanitized, as every other surface shows it), or
+ *  its basename when the note is not indexed. */
+export function noteTitle(relPath: string): string {
+  return notes.get(relPath)?.title ?? path.posix.basename(relPath, ".md");
+}
+
 // --------------------------------------------------------------------- posts
 
 const EXCERPT_MAX = 220;
