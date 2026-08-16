@@ -8,6 +8,12 @@
 import { Children, cloneElement, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, ReactElement, ReactNode } from "react";
 import { useDialog } from "../a11y.ts";
+import {
+  folderError,
+  isAttachmentMode,
+  modeUsesFolder,
+  type FolderProblem,
+} from "../../shared/attachments.ts";
 import type { SettingsPatch, SettingsResponse } from "../../shared/types.ts";
 import { getSettings, listAttachments, patchSettings, uploadAttachment } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
@@ -38,6 +44,8 @@ interface Form {
   homeMode: string;     // "" | "note" | "dashboard"
   homeNote: string;
   homeBanner: string;
+  attachMode: string;   // "" | vault-root | same-folder | subfolder | specified
+  attachFolder: string; // vault-relative folder (specified) / name (subfolder)
 }
 
 function formFrom(s: SettingsResponse): Form {
@@ -59,6 +67,8 @@ function formFrom(s: SettingsResponse): Form {
     homeMode: s.home?.mode ?? "",
     homeNote: s.home?.note ?? "",
     homeBanner: s.home?.banner ?? "",
+    attachMode: s.attachments?.mode ?? "",
+    attachFolder: s.attachments?.folder ?? "",
   };
 }
 
@@ -108,7 +118,24 @@ const ENUM_LABELS: Partial<Record<string, I18nKey>> = {
   dashboard: "modeDashboard",
   app: "layoutApp",
   blog: "layoutBlog",
+  "vault-root": "locVaultRoot",
+  "same-folder": "locSameFolder",
+  subfolder: "locSubfolder",
+  specified: "locSpecified",
 };
+
+/** The server's folder rules, spoken in the reader's language. The same
+ *  refusals the 400 would carry — said inline instead, before the save.
+ *  "tooLong" is not here: it is a budget, so it uses the shared maxChars copy
+ *  every other length-capped field uses. */
+const FOLDER_ERRORS: Partial<Record<FolderProblem, I18nKey>> = {
+  traversal: "errFolderTraversal",
+  absolute: "errFolderAbsolute",
+  dotfolder: "errFolderDotfolder",
+  control: "errFolderControl",
+};
+
+const FOLDER_MAX = 180; // mirrors server settings.ts
 
 function enumLabel(value: string): string {
   const key = ENUM_LABELS[value];
@@ -150,6 +177,13 @@ function validate(f: Form): Partial<Record<keyof Form, string>> {
   }
   const faviconError = imageRefError(f.favicon, false);
   if (faviconError) errors.favicon = faviconError;
+  const folder = f.attachFolder.trim();
+  if (folder.length > FOLDER_MAX) errors.attachFolder = maxChars(FOLDER_MAX);
+  else {
+    const problem = folderError(folder);
+    const key = problem && FOLDER_ERRORS[problem];
+    if (key) errors.attachFolder = t(key);
+  }
   return errors;
 }
 
@@ -186,6 +220,17 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
   if (f.comments !== initial.comments) {
     patch.commentsEnabled = f.comments === "" ? null : f.comments === "on";
     patch.shareButtons = f.share === "" ? null : f.share === "on";
+  }
+  if (
+    f.attachMode !== initial.attachMode ||
+    f.attachFolder.trim() !== initial.attachFolder.trim()
+  ) {
+    patch.attachments = {
+      // "specified" is the default, so choosing it clears the key rather than
+      // pinning the same behaviour absence already gives.
+      mode: isAttachmentMode(f.attachMode) && f.attachMode !== "specified" ? f.attachMode : null,
+      folder: f.attachFolder.trim() === "" ? null : f.attachFolder.trim(),
+    };
   }
   if (
     f.homeMode !== initial.homeMode ||
@@ -675,6 +720,49 @@ export default function SettingsModal() {
                 invalid={errors.homeBanner !== undefined}
                 onChange={(v) => setForm((f) => (f ? { ...f, homeBanner: v } : f))}
                 onOpenPicker={() => setPicker("homeBanner")}
+              />
+            </Row>
+
+            {/* Obsidian's "Default location for new attachments", named the
+                same way so a migrating vault owner finds what they expect.
+                Every upload path obeys it — editor paste and drop, the tree's
+                file drop, the banner picker — and nothing already on disk
+                moves when it changes. */}
+            <div className="s-smodal__group">{t("groupAttachments")}</div>
+            <Row label={t("rowAttachmentLocation")} hint={t("hintAttachmentLocation")}>
+              <select className="s-bmodal__input s-smodal__select" {...field("attachMode")}>
+                <option value="">
+                  {tf("inheritOption", { value: enumLabel(eff.attachments.mode) })}
+                </option>
+                <option value="vault-root">{t("locVaultRoot")}</option>
+                <option value="same-folder">{t("locSameFolder")}</option>
+                <option value="subfolder">{t("locSubfolder")}</option>
+                <option value="specified">{t("locSpecified")}</option>
+              </select>
+            </Row>
+            {/* The folder field belongs to two of the four modes; under the
+                other two it would be a control that quietly does nothing, so
+                it is disabled rather than left to mislead. */}
+            <Row
+              label={t("rowAttachmentFolder")}
+              hint={t(
+                (form.attachMode || eff.attachments.mode) === "subfolder"
+                  ? "hintAttachmentSubfolder"
+                  : "hintAttachmentFolder",
+              )}
+              error={errors.attachFolder}
+            >
+              <input
+                className="s-bmodal__input"
+                type="text"
+                placeholder={eff.attachments.folder}
+                maxLength={FOLDER_MAX + 1}
+                spellCheck={false}
+                dir="ltr"
+                disabled={!modeUsesFolder(
+                  isAttachmentMode(form.attachMode) ? form.attachMode : eff.attachments.mode,
+                )}
+                {...field("attachFolder")}
               />
             </Row>
 

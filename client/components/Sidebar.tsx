@@ -3,9 +3,21 @@
 // double-click; context menu for new note / new folder / rename / delete.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
+import type {
+  DragEvent as ReactDragEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+} from "react";
 import type { SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
 import { createFolder, getTags, search } from "../api.ts";
+import {
+  deleteImpact,
+  dragFileCount,
+  dragHasFiles,
+  droppedFiles,
+  impactSentence,
+  uploadDroppedFiles,
+} from "../attachments.ts";
 import { bannerSrc } from "../banner.ts";
 import { collectNotes, resolveLink, type NoteRef } from "../editor/links.ts";
 import { useVaultGraph } from "../graphCache.ts";
@@ -394,31 +406,78 @@ export default function Sidebar() {
   // repeats. Erasing it outright is the quiet third route in the dialog, and
   // it asks a second time — by then the reader has read the word "permanently"
   // twice and clicked it twice.
-  const confirmDeleteFolder = (node: TreeNode) => {
+  //
+  // What the dialog SAYS comes from the server, not from this tree. The tree
+  // holds markdown only, so a folder left holding four images after its note
+  // moved out described itself as "0 notes" — and deleting it silently took
+  // four figures out of a published essay. /api/impact counts the attachments
+  // too, and how many of them a note that SURVIVES the delete still embeds.
+  const confirmDeleteFolder = async (node: TreeNode) => {
+    const impact = await deleteImpact(node.path);
+    // The client's own count is the fallback, never the headline: it is right
+    // about notes and blind to everything else.
+    const summary = impact ? impactSentence(impact) : null;
     const count = countPhrase(countNotes(node), "notes");
-    void confirmModalEx({
+    const result = await confirmModalEx({
       title: tf("deleteFolderTitle", { name: node.name }),
-      body: tf("deleteFolderBody", { count }),
+      body: summary
+        ? `${summary}. ${t("folderTrashTail")}`
+        : tf("deleteFolderBody", { count }),
       confirmLabel: t("moveToTrash"),
       extraLabel: t("deletePermanently"),
-    }).then((result) => {
-      if (result === "confirm") {
-        void deleteFolder(node.path);
-        return;
-      }
-      if (result !== "extra") return;
-      void confirmModal({
-        title: tf("deleteFolderPermTitle", { name: node.name }),
-        body: tf("deleteFolderPermBody", { count }),
-        confirmLabel: t("deletePermanently"),
-        // Nothing here is recoverable, so nothing here looks like the dialog
-        // that was: red at rest, and Enter is not armed (Confirm.tsx).
-        grave: true,
-      }).then((ok) => {
-        if (ok) void deleteFolder(node.path, { permanent: true });
-      });
     });
+    if (result === "confirm") {
+      void deleteFolder(node.path);
+      return;
+    }
+    if (result !== "extra") return;
+    const ok = await confirmModal({
+      title: tf("deleteFolderPermTitle", { name: node.name }),
+      // The escalation repeats the same inventory: the reader must not have
+      // to remember what the first dialog said about what is inside.
+      body: summary ? `${summary}. ${t("folderPermTail")}` : tf("deleteFolderPermBody", { count }),
+      confirmLabel: t("deletePermanently"),
+      // Nothing here is recoverable, so nothing here looks like the dialog
+      // that was: red at rest, and Enter is not armed (Confirm.tsx).
+      grave: true,
+    });
+    if (ok) void deleteFolder(node.path, { permanent: true });
   };
+
+  // Dropping OS files anywhere on the tree attaches them to the vault: onto a
+  // folder row for that folder, onto the tree's own ground for the root. The
+  // attachment-location setting has the last word on where they actually land
+  // (the toast names it), and every type /api/upload accepts is welcome —
+  // anything else is refused before a byte goes on the wire.
+  const onDropFiles = useCallback((dir: string, files: File[]) => {
+    if (!useStore.getState().admin) return;
+    void uploadDroppedFiles(files, dir);
+  }, []);
+
+  // The tree's own ground = the vault root. Its drag state is separate from
+  // the rows' so a row's highlight never leaves the whole pane lit.
+  const [rootDrag, setRootDrag] = useState(0);
+  const rootDropProps = admin
+    ? {
+        onDragEnter: (e: ReactDragEvent) => {
+          if (dragHasFiles(e.dataTransfer)) setRootDrag(dragFileCount(e.dataTransfer));
+        },
+        onDragOver: (e: ReactDragEvent) => {
+          if (!dragHasFiles(e.dataTransfer)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        },
+        onDragLeave: (e: ReactDragEvent) => {
+          if (e.currentTarget === e.target) setRootDrag(0);
+        },
+        onDrop: (e: ReactDragEvent) => {
+          if (!dragHasFiles(e.dataTransfer)) return;
+          e.preventDefault();
+          setRootDrag(0);
+          onDropFiles("", droppedFiles(e.dataTransfer));
+        },
+      }
+    : {};
 
   // The context menu opens at the pointer, but the pointer can be anywhere —
   // and with the sidebar on the trailing edge (RTL by default, or a reader who
@@ -820,11 +879,13 @@ export default function Sidebar() {
         </nav>
       ) : (
         <nav
-          className="s-tree"
+          className={`s-tree${rootDrag > 0 ? " s-tree--dropping" : ""}`}
           aria-label={t("vaultTree")}
+          title={rootDrag > 0 ? t("dropFilesTitle") : undefined}
           onContextMenu={(e) => {
             if (tree && e.target === e.currentTarget) openMenu(e, tree);
           }}
+          {...rootDropProps}
         >
           {/* One tab stop for the whole vault. `aria-activedescendant` names
               the row the reader is on (see the tree keyboard model above);
@@ -858,11 +919,13 @@ export default function Sidebar() {
                 setSize={tree.children?.length ?? 1}
                 renaming={renaming}
                 lang={lang}
+                admin={admin}
                 onOpen={openNote}
                 onStartRename={startRename}
                 onCommitRename={commitRename}
                 onCancelRename={cancelRename}
                 onMenu={openMenu}
+                onDropFiles={onDropFiles}
               />
             ))}
           </div>
@@ -1131,11 +1194,17 @@ interface TreeRowProps {
    *  live language change busts memo() on every row and re-renders the
    *  t() tooltips, without paying for a store subscription per row. */
   lang: Lang;
+  /** Passed down rather than subscribed to per row: only an admin may drop
+   *  files, and 1.4k store subscriptions to learn one boolean is not a price
+   *  worth paying. */
+  admin: boolean;
   onOpen(path: string): void;
   onStartRename(path: string): void;
   onCommitRename(node: TreeNode, name: string): void;
   onCancelRename(): void;
   onMenu(e: ReactMouseEvent, node: TreeNode): void;
+  /** Files dropped on this row: attach them to `dir`. */
+  onDropFiles(dir: string, files: File[]): void;
 }
 
 // Memoized: with stable callbacks from Sidebar, a folder toggle re-renders
@@ -1160,10 +1229,51 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
     persistExpanded();
   };
 
+  // File drop. The target folder is this row when it IS a folder, and the
+  // row's parent when it is a note — dropping onto a note means "beside this
+  // note", which is the answer a reader expects and the one the same-folder
+  // attachment mode would have given anyway.
+  const dropDir = isFolder ? node.path : parentOf(node.path);
+  // dragenter/dragleave fire for every child element the pointer crosses, so
+  // the state is a DEPTH, not a boolean: a plain flag flickers off the moment
+  // the pointer reaches the row's own label.
+  const dragDepth = useRef(0);
+  const [dropCount, setDropCount] = useState(0);
+  const dropProps = props.admin
+    ? {
+        onDragEnter: (e: ReactDragEvent) => {
+          if (!dragHasFiles(e.dataTransfer)) return;
+          e.stopPropagation();
+          dragDepth.current++;
+          setDropCount(dragFileCount(e.dataTransfer));
+        },
+        onDragOver: (e: ReactDragEvent) => {
+          if (!dragHasFiles(e.dataTransfer)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "copy";
+        },
+        onDragLeave: (e: ReactDragEvent) => {
+          if (!dragHasFiles(e.dataTransfer)) return;
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDropCount(0);
+        },
+        onDrop: (e: ReactDragEvent) => {
+          if (!dragHasFiles(e.dataTransfer)) return;
+          e.preventDefault();
+          e.stopPropagation(); // the tree's own ground must not also take it
+          dragDepth.current = 0;
+          setDropCount(0);
+          props.onDropFiles(dropDir, droppedFiles(e.dataTransfer));
+        },
+      }
+    : {};
+
   const classes = [
     "s-tree__item",
     isFolder ? "s-tree__item--folder" : "s-tree__item--file",
     isActive ? "s-tree__item--active" : "",
+    dropCount > 0 ? "s-tree__item--dropping" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -1175,6 +1285,7 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
         data-tree-path={node.path}
         className={classes}
         style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
+        {...dropProps}
         onClick={() => (isFolder ? toggle() : props.onOpen(node.path))}
         onDoubleClick={(e) => {
           e.stopPropagation();
@@ -1219,6 +1330,11 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
               </span>
             )}
           </span>
+        )}
+        {/* How many files are about to land here — chrome, so it sits
+            OUTSIDE the label's isolate and keeps the row's own direction. */}
+        {dropCount > 0 && (
+          <span className="s-drop-count">{countPhrase(dropCount, "files")}</span>
         )}
       </div>
       {isFolder && isOpen && (
