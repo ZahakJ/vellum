@@ -152,7 +152,13 @@ it decides —
   browser only, with *Themes*), the **language** (English / العربية), which edge the
   **notes sidebar** sits on (*Auto* follows the language — Arabic carries it to the right — or
   pin it to a screen edge for good), the date locale, the language filter and the optional
-  **visitor switch**.
+  **visitor switch** — plus the three localization rows below it: the **date calendar**
+  (Gregorian / Hijri / both, with a live specimen of today), the **note layout** pair (text
+  direction and alignment for note prose, which any note may override from its own
+  frontmatter), and the **tag labels** table — display names for canonical tags, for a front
+  end that should read «برمجيات» over a vault that keeps `#software`. See
+  [Hijri dates](#hijri-dates), [Note direction & alignment](#note-direction--alignment) and
+  [Localised tag labels](#localised-tag-labels).
 - **Publishing & comments** — public layout (`app`/`blog`), excluded tags, the comments and
   share-button toggles, and the home page visitors land on at `/`: classic `note` mode with a
   chosen home note, or the `dashboard` magazine layout, plus an optional hero banner. The last
@@ -228,11 +234,29 @@ direct link to a filtered-out note still opens it — see [Language filter](#lan
 
 ### Note banners
 
-Give any note a hero image with a `banner:` frontmatter line — a vault-relative attachment
-path (`banner: attachments/cover.png`) or an https URL. It renders as a wide hero above the
-note in the editor and reading view, and in blog mode as the article hero and a right-aligned
-thumbnail in the post list. A published note's banner attachment is automatically
+Give any note a hero image with a `banner:` frontmatter line. It renders as a wide hero above
+the note in the editor and reading view, and in blog mode as the article hero and a
+right-aligned thumbnail in the post list. A published note's banner attachment is automatically
 visitor-fetchable; unpublished notes' attachments stay invisible as always.
+
+**Four forms are accepted, tried in this order** — the same ladder every image reference in
+Vellum climbs, including the site logo and the dashboard hero:
+
+| What you write | What it finds |
+| --- | --- |
+| `banner: https://example.com/cover.jpg` | the URL itself (https only — an `http://` banner would be mixed content, so it is refused rather than rendered) |
+| `banner: Media/cover.png` | that exact path from the vault root |
+| `banner: cover.png` *(note in `Trips/`)* | `Trips/cover.png` — beside the note, where Obsidian keeps a note's own images. `img/cover.png` and `../shared/cover.png` work the same way |
+| `banner: cover.png` *(no such neighbour)* | any `cover.png` in the vault, resolved exactly as `![[cover.png]]` resolves it: case-insensitive, shortest path wins |
+
+A **bare filename is the form most people write**, and it used to be the one form that did not
+work — it was sent to the vault root and 404'd — while wikilinks and embeds had always found a
+file by name from anywhere. It works now, and so does the note's own folder.
+
+If the value names nothing, **you are told**. As the signed-in admin the hero is replaced by a
+dashed card naming the value that failed, with **Set banner…** beside it. Visitors see nothing
+at all: a stranger cannot fix your typo, and blog posts fall back to the generated gradient.
+(Before this, a broken banner deleted itself, which made a typo and "no banner" identical.)
 
 As admin you rarely touch the YAML: the command palette's **Set banner…** (also a quiet button
 on the properties card) opens a modal to paste a URL, pick from the vault's image attachments,
@@ -240,6 +264,65 @@ or upload a file (drag & drop or picker; png/jpeg/webp/gif/svg, 10 MB max, bytes
 the upload lands in `ATTACHMENTS_DIR`). The write is a surgical one-line frontmatter edit —
 the rest of the file is untouched. Posts without a banner get a subtle generated gradient in
 the blog list and article hero (`BANNER_FALLBACK=none` turns that off).
+
+### Templates
+
+Point Vellum at a folder of template notes and it fills them in for you — the same syntax
+Obsidian's core Templates plugin uses, so **the templates in a vault you brought over work
+unmodified**.
+
+The folder is `Settings → Publishing → Templates folder`. Leave it empty and Vellum finds one
+itself, as long as the answer is unambiguous: a folder called `Templates`, `_templates` or
+`قوالب`, with a leading ordering prefix allowed (`4 - Templates`, `04. Templates`). Two
+plausible candidates and no root-level tie-break means it stays unset rather than guessing —
+a wrong guess would hide real posts from your blog. **Notes in the templates folder never
+appear in the post list** (or RSS, or the dashboard), even when they carry `publish: true`
+so the notes made from them inherit it.
+
+Two commands, both in the palette, both on a keystroke, and "New note from template…" is also
+in the tree's right-click menu on any folder (where it creates *into that folder*):
+
+| | |
+| --- | --- |
+| **Insert template…** (`Ctrl/Cmd Alt T`) | drops the template's body at the cursor of the open note |
+| **New note from template…** (`Ctrl/Cmd Alt Shift T`) | asks for a name, creates the note with the template applied, and opens it |
+
+Both open a picker that **previews the template with its placeholders already filled** — what
+is about to land, not what the file says. (`Ctrl/Cmd Alt` rather than the obvious `Ctrl/Cmd T`:
+that one is the browser's new tab, and `Ctrl/Cmd Shift T` reopens a closed one. Neither is
+takeable.)
+
+**Placeholders** — Obsidian's, plus two:
+
+| Placeholder | Becomes |
+| --- | --- |
+| `{{date}}` | `2026-08-16` |
+| `{{time}}` | `05:23` |
+| `{{date:FORMAT}}` / `{{time:FORMAT}}` | moment-style tokens: `YYYY MM DD HH mm ss`, `MMMM`/`MMM` month names, `dddd`/`ddd` weekdays, `A`/`a`, and `[literal text]` in brackets. Named formats too: `{{date:long}}`, `full`, `medium`, `short` |
+| `{{title}}` / `{{Title}}` | the new note's filename, as typed and in Title Case |
+| `{{hdate}}` / `{{date:hijri}}` | the Umm al-Qura Hijri date |
+
+Anything else is **left exactly as written** — `{{cursor}}`, a Templater expression, a stray
+`{{`. Blanking a token Vellum does not implement would destroy text you typed and hide the
+fact that the template expects something we do not do.
+
+Dates follow the site's settings where a reader can see them and stay machine-shaped where
+something has to parse them: the named formats (`{{date:long}}`) and `{{hdate}}` use
+`settings.dateCalendar` and the instance's numeral system, while the token formats stay
+Gregorian and Western-digit — `{{date}}` is `YYYY-MM-DD` by Obsidian's definition, and it
+lands in `date:` frontmatter lines and filenames where `١٤٤٨-٠٢-١٣` parses as nothing.
+
+**Frontmatter is merged, never stacked, and identity is never copied.** Inserting into a note
+that already has a `---` block folds the template's keys into it — one block, no key twice,
+and **the note's own values win** (its `publish:`, its `date:`, its `tags:` are facts about
+that note; the template's are defaults). Identity keys (`id`, `uuid`, `guid`, `permalink`,
+`slug`) are **minted fresh**, in the same shape as the template's own value: a uuid stays a
+uuid, a 16-digit timestamp stays 16 digits. A template carrying `id:` used to hand the same id
+to every note ever made from it.
+
+**Template for new notes** (also in Settings) applies one template to every note created from
+inside Vellum — `Ctrl/Cmd N`, the sidebar's `+`, the tree menu. Off by default: new notes are
+born empty, as they always were.
 
 ### Comments
 
@@ -444,6 +527,122 @@ belongs to no language and is shown under either setting rather than guessed at.
 > which would otherwise announce a hidden note's path the moment it changed — all apply it. If a
 > note should not be public at all, unpublish it (`publish: false`); that is the switch with
 > teeth.
+
+#### Hijri dates
+
+An Arabic site often dates its writing by the Hijri calendar, and until now Vellum could only
+print Gregorian. **Settings → Appearance & language → Date calendar** (settings key
+`dateCalendar`) takes three values:
+
+| | prints |
+| --- | --- |
+| `gregorian` *(default)* | `15 August 2026` / `١٥ أغسطس ٢٠٢٦` |
+| `hijri` | `٢ صفر ١٤٤٨ هـ` |
+| `both` | one with the other parenthesised beside it |
+
+`both` is ordered by the **site language**: an Arabic instance leads with the Hijri date and
+puts the Gregorian one in brackets, an English instance does the reverse. The panel prints a
+live specimen of today under whichever segment is highlighted, so you can see the answer before
+you save it.
+
+The Hijri calendar is **Umm al-Qura** (`islamic-umalqura`). Intl offers four Islamic calendars:
+`islamic` is observational and its answer drifts by a day between platforms; the two tabular
+variants never drift but are not what anyone's wall calendar says. Umm al-Qura is both stable
+and recognisable, so it is the one Vellum uses — this is a display convention, not a preference
+with a long tail. Month names come from `Intl` and digits from the same numeral rule everything
+else uses (`BLOG_LOCALE`), so nothing is hand-spelled and one instance never mixes two numbering
+systems on a line.
+
+It reaches **every human-facing date**: blog post meta and dashboard cards, comment timestamps
+(the relative "5 minutes ago" keeps its wording and gains the absolute date in its tooltip),
+the moderation rows, the backup badge and the settings panel. **Daily notes keep their ISO
+filenames** — `daily/2026-08-16.md` still sorts, still resolves as `[[2026-08-16]]`, still opens
+in Obsidian — but outside Gregorian mode the status bar names the open one in the calendar you
+chose.
+
+> **RSS is deliberately untouched.** `/feed.xml` keeps RFC-822 Gregorian `<pubDate>`s whatever
+> this setting says. That is a wire format an aggregator parses, not a date a person reads.
+
+#### Note direction & alignment
+
+Two settings under **Appearance & language → Note layout**, applied identically in the editor,
+the reading view and blog articles:
+
+- **Text direction** (`textDirection`): `auto` *(default)*, `ltr`, `rtl`. `auto` is what shipped
+  before — every block takes its own direction from its own first strong letter, which is what a
+  bilingual vault wants. Pinning one makes the whole document read that way.
+- **Text alignment** (`textAlign`): `start` *(default)*, `left`, `right`, `center`, `justify`.
+
+**Any note overrides both from its own frontmatter**, and the note wins:
+
+```yaml
+---
+dir: rtl
+align: justify
+---
+```
+
+(`direction:` and `text-align:` are accepted as spellings of the same two keys, as are
+`centre`/`centered` and `justified`.)
+
+A note that disagrees with the site default **says so**: a chip in its properties card, beside
+the tag pills where the frontmatter is, and a quiet segment in the status bar. Both carry the
+same tooltip, which names each half and where it came from — *Direction: RTL — set by this
+note · Alignment: Justified — the site default*. A setting that silently changes how the text
+under your caret behaves is the trap the mode pills exist to close, and this is the same rule.
+
+**Code blocks, tables and display maths never take a centred or justified measure**, and never
+take a pinned direction either: `const x = 1;` inside a right-to-left document renders as
+`;const x = 1`, and a `|---|---|` table rule stops lining up with its own header. They keep the
+reading direction's leading edge and resolve their own direction per line, in the editor and in
+the rendered view alike. Callouts, quotes and lists are prose and follow the note. A `.tex`
+note takes the direction (an Arabic paper is written right to left) and refuses the measure —
+its source is markup end to end.
+
+#### Localised tag labels
+
+A vault's tags are English because tags are addresses: `#software` is in your files, in your
+links, in `EXCLUDE_TAGS`, in every URL you have shared. But an Arabic front end should say
+«برمجيات». Both are true at once, because a label is **display only** — nothing here ever
+rewrites a note.
+
+There are two places to put a label, and the first one is better:
+
+**1 — the tag's own page**, so the naming travels with the vault. Put a note at
+`tags/<tag>.md` (the folder is **Settings → Tags folder**, `tagsFolder`, default `tags`; nested
+tags nest, so `#lang/arabic` is `tags/lang/arabic.md`) and give it a `labels:` map:
+
+```markdown
+---
+labels:
+  ar: برمجيات
+  en: Software
+---
+
+Notes about software: the craft, not the industry.
+```
+
+Clone the vault, sync it, open it in Obsidian — the label is still there, because it is a note.
+A bare `labels: برمجيات` is read as the Arabic label, which is what a hand-written Arabic tag
+page actually says.
+
+**2 — `settings.tagLabels`**, for tags with no page of their own: a compact table in
+**Settings → Appearance & language → Tag labels**, one row per tag with a column per language.
+A tag page outranks it, per language, so a page naming only an Arabic label does not erase an
+English one set here.
+
+Every tag surface uses the label: the blog's topic nav and topic pages, post chips, the
+dashboard cards, the sidebar tag cloud and topic sections, the properties card in the editor
+and the reading view, and the hover previews. Everything else stays **canonical**:
+
+- **URLs keep canonical slugs.** `/topic/software` is what the site draws and what your links
+  point at. The localised spelling is accepted as a redirect — `/topic/برمجيات` lands on the
+  same page and quietly rewrites the address — because a reader copies the word they can see.
+- **Frontmatter is untouched**, `EXCLUDE_TAGS` and the language filter keep matching the real
+  value, and the tooltip on a labelled chip names the canonical tag.
+- **Search answers to both spellings.** Typing «برمجيات» finds the notes tagged `#software`, and
+  typing `software` still does. The query is expanded, not the index — so editing a label takes
+  effect immediately, with no reindex.
 
 ### Theming
 
@@ -864,6 +1063,20 @@ fix it reported misses up to **82 characters** — the owner's "click near the s
 caret lands about 25 words in"; after it, zero. Needs an admin session (open local mode is fine)
 and `CHROMIUM=/usr/bin/chromium`; it restores the instance language and deletes its fixture
 however the run ends.
+`npm run check-sections` (`node scripts/check-sections.mjs`) is the **section-surgery** gate, and
+it needs no browser and no server. Dragging a heading in the outline rewrites the note — a block of
+lines leaves one place and arrives in another, with the moved subtree re-levelled — which is the
+most destructive operation in the product that is not called "delete": it runs on a keyless
+gesture, it is one 4px slip away by accident, and the reader is looking at a forty-row outline
+rather than at the 1,200 lines it is rearranging, so a single dropped paragraph would be invisible
+until the day it was needed. The gate generates thousands of documents out of the shapes that break
+naive implementations — YAML frontmatter, code fences whose bodies contain `### ` lines, headings
+that skip levels, empty sections, a section at end of file, CRLF, no trailing newline — and asserts
+the reorder is a **permutation**: it may change the order of a note's lines and the depth of the
+moved subtree's own headings, and it may add a blank line at a seam; it may never lose a line and
+never duplicate one. It also asserts that a section cannot be dropped inside itself, that a
+zero-distance move is a no-op, and that extraction's two halves cover the original exactly.
+`SEED=…` replays a failure, `ROUNDS=…` sets the sample size.
 `node scripts/check-contrast.mjs` is the accessibility gate for `client/styles/tokens.css`:
 every theme must keep body text ≥ 4.5:1, secondary text ≥ 3:1, and the accent ≥ 4.5:1 against
 the page — the accent pair is read as text twice over (wikilinks and tag pills in the prose, and
@@ -876,6 +1089,18 @@ carries one value per theme *group* and is held to 4.5:1 against every ground in
 fixed-ink tier carries one hex for all fifteen and is held to 3:1, WCAG 1.4.11's non-text floor,
 which is the most a fixed colour can promise. The gate prints both, and checks the stylesheet's
 values against the module's.
+`node scripts/check-excerpt.mjs <url>` is the **tag-in-prose** gate. DESIGN.md's hard rule is that
+a snippet outside the editor either STRIPS markdown or RENDERS it; removing a `#` and leaving the
+word standing in the sentence is neither, and it shipped — a post ending "…it buys the reader a
+breath. #design #typography" printed on the front page as "…it buys the reader a breath. design
+typography". The three surfaces that flow through one stripper (`stripInlineMd`) are all walked
+from one fixture whose body **ends** in a tag line: the post excerpt (`/api/posts` — blog cards,
+RSS, `og:description`), the search snippet (`/api/search`), and the backlink context line
+(`/api/backlinks`). It also checks the other direction — that the stripped sentence survives and
+that the tags still appear where tags belong (`post.tags`, and the search index still matches
+them) — so a stripper that passes by deleting everything fails too. Needs an admin session (open
+local mode, or `VELLUM_PASSWORD` for an instance with `ADMIN_PASSWORD_HASH`); it deletes both
+fixtures however the run ends. No browser needed.
 
 ## Features
 
@@ -885,11 +1110,16 @@ values against the module's.
 - **Wikilinks with autocomplete** — type `[[` and pick any note; `[[Name|alias]]` and `[[Name#heading]]` supported (type `#` inside the brackets to complete headings); heading links render as `Note › Heading` and jump straight to the heading; renames rewrite every link that pointed at the old name
 - **Click to follow, click to create** — plain click follows a rendered link; clicking an unresolved (dashed) link creates the note, Obsidian-style
 - **Frontmatter properties card** — YAML frontmatter collapses to a neat key/value card with clickable tag pills while your cursor is outside it
+- **Templates, Obsidian-compatible** — `{{date}}`, `{{time}}`, `{{title}}`, `{{date:FORMAT}}` (plus `{{hdate}}` for the Hijri date); insert one at the cursor or start a new note from one, with a picker that previews the filled result. Frontmatter merges into the note's own block instead of stacking a second one, and an `id:` in the template is minted fresh rather than copied into every note — see [Templates](#templates)
 - **Paste or drop images** — an image on your clipboard (or dragged from a file manager) uploads into `ATTACHMENTS_DIR` and lands as `![[name.png]]` at the cursor, with an "Uploading…" placeholder holding the spot while it's in flight
 - **Slash commands** — type `/` at the start of a line for a fuzzy menu of inserts: callout, code fence (with language search), table skeleton, task list, math block, divider, today's date, daily-note link
 - **Callout & fence autocomplete** — `> [!` suggests every callout type with its icon and color; ` ``` ` suggests languages as you type
 - **Hover previews** — rest on a `[[wikilink]]` and a floating card shows the target note's rendered opening (`[[Note#Heading]]` previews from that heading); footnote refs preview their definition
 - **Heading folding** — a chevron sits beside every heading (visible at rest, not on hover — a control nobody can see is a control nobody finds, and there is no hover on a phone); click it, or `Ctrl/Cmd Shift [` / `]`, to fold a section down to a "N folded lines" chip. `Ctrl/Cmd Alt [` / `]` folds or opens everything
+- **Section actions on every heading** — a ⋯ beside the fold chevron (and a right-click on any heading line, or on any outline row) opens one menu: copy a `[[Note#Heading]]` link to the section, copy the section as Markdown, **extract it into a new note** with a `[[link]]` left standing where it was, fold or unfold everything below it, select it, focus it
+- **Drag a heading in the outline to move that whole section** — heading, body and every subheading travel as one block, with a drop rule showing the depth it will land at *before* you let go; drag toward the reading direction to nest deeper, or rest on a row for a moment to drop inside it. One transaction, so `Ctrl/Cmd Z` takes it back — and the toast carries an Undo button too. `npm run check-sections` property-tests the rewrite against frontmatter, nested headings and code fences containing `###` lines
+- **Focus one section** — `Ctrl/Cmd Alt F` collapses everything except the section your cursor is in; `Esc` puts the note back exactly as it was, folds and all. `Ctrl/Cmd Alt ↑` / `↓` jump to the previous or next heading (they scroll, in reading view). Fold state is remembered per note across reloads
+- **Auto-numbered headings** — off by default; the outline's `1.` button turns them on for reading view, and `numbered: true` in a note's frontmatter numbers it for everyone, including on the blog. Nothing is written into your markdown
 - **List/quote continuation** — `Enter` continues `-` lists, `- [ ]` tasks, numbered lists, and `>` quotes; `Enter` on an empty item exits. `Ctrl/Cmd ↑/↓` moves the current line. Pasting a URL over selected text makes a markdown link
 - **Folder delete, Obsidian-safe** — right-click a folder in the sidebar: "Delete folder" *moves* the whole subtree to the vault's `.trash/`, so it is recoverable from disk (the dialog names the folder and counts the notes first); a quieter "Delete permanently" beside it erases instead, behind its own confirmation
 - **Text formatting on the keys you already know** — `Ctrl/Cmd B` / `I` / `U`, plus strikethrough (`Ctrl/Cmd Shift X`) and highlight (`Ctrl/Cmd Shift H`) on Obsidian's own bindings. Every one toggles, works with no selection (markers inserted, caret between them), and applies per line across a multi-line selection
@@ -1034,6 +1264,8 @@ that `citekey:`, and is otherwise left alone.
 | `Ctrl/Cmd Shift X` | Strikethrough |
 | `Ctrl/Cmd Shift H` | Highlight |
 | Right-click / `Shift F10` | Formatting menu for the selection — text style, structure, insert, colour |
+| `Ctrl/Cmd Alt T` | Insert template… at the cursor |
+| `Ctrl/Cmd Alt Shift T` | New note from template… |
 | `Ctrl/Cmd Alt B` | Collapse / reopen the **Notes sidebar** |
 | `Ctrl/Cmd Alt Shift B` | Collapse / reopen **Outline & backlinks** |
 | `Ctrl/Cmd Shift Z` | Zen mode — all chrome steps aside (`Esc` returns) |

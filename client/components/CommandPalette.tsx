@@ -18,8 +18,9 @@ import {
 import type { Theme } from "../state.ts";
 import { search } from "../api.ts";
 import { dailyNotePath, openDailyNote } from "../daily.ts";
+import { insertTemplateCommand, newNoteFromTemplateCommand } from "../templateActions.ts";
 import { t, tf, type I18nKey } from "../i18n.ts";
-import { isNotePath, stripNoteExt } from "../../shared/noteFormat.ts";
+import { isNotePath, noteLabelOf, stripNoteExt } from "../../shared/noteFormat.ts";
 import { confirmModal, confirmModalEx } from "./Confirm.tsx";
 import { moveViaPicker } from "./MovePicker.tsx";
 import { runSyncNow, syncSnapshot } from "../sync.ts";
@@ -161,6 +162,23 @@ const COMMANDS: Command[] = [
     id: "daily-note",
     label: () => t("cmdDailyNote"),
     hint: () => dailyNotePath(),
+    available: ({ admin }) => admin,
+  },
+  // Templates. Two rows, because they are two different actions on two
+  // different objects — one edits the note you are in, the other makes a new
+  // one — and collapsing them into "Templates…" would put a mode question in
+  // front of both. The hints print the keystrokes, which is the only place
+  // outside the Ctrl/Cmd+/ sheet that they appear.
+  {
+    id: "insert-template",
+    label: () => t("cmdInsertTemplate"),
+    hint: () => "Ctrl/Cmd Alt T",
+    available: ({ admin, openPath }) => admin && openPath !== null,
+  },
+  {
+    id: "new-from-template",
+    label: () => t("cmdNewFromTemplate"),
+    hint: () => "Ctrl/Cmd Alt Shift T",
     available: ({ admin }) => admin,
   },
   {
@@ -560,6 +578,12 @@ export default function CommandPalette() {
         case "daily-note":
           void openDailyNote();
           break;
+        case "insert-template":
+          void insertTemplateCommand();
+          break;
+        case "new-from-template":
+          void newNoteFromTemplateCommand();
+          break;
         case "toggle-graph":
           store.setView(store.view === "graph" ? "editor" : "graph");
           break;
@@ -610,7 +634,10 @@ export default function CommandPalette() {
         case "delete-current":
           if (store.openPath) {
             const path = store.openPath;
-            const name = path.split("/").pop() ?? path;
+            // The name the TAB and the tree row wear, not the byte on disk:
+            // this command is reached from a palette that just listed the note
+            // as "Welcome" (move.ts `itemLabel`, Sidebar's row label).
+            const name = noteLabelOf(path);
             const remove = (permanent: boolean) => {
               useStore
                 .getState()

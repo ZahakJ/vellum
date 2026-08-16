@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AttachmentKind, TreeNode } from "../../shared/types.ts";
 import { getNumerals, localeNum, t } from "../i18n.ts";
+import { metaSepText } from "../metaSep.tsx";
 import { toNumerals } from "../../shared/numerals.ts";
 import "../styles/attachments.css";
 
@@ -158,7 +159,7 @@ export default function AttachmentViewer({ items, index, onIndex, onClose }: Pro
     if (item.attachment.ext) parts.push(item.attachment.ext.toUpperCase());
     if (dims) parts.push(`${localeNum(dims.w)} × ${localeNum(dims.h)}`);
     if (item.attachment.size > 0) parts.push(formatSize(item.attachment.size));
-    return parts.join(" · ");
+    return parts.join(metaSepText());
   }, [item?.attachment, dims]);
 
   if (!item) return null;

@@ -6,7 +6,8 @@
 // TRUSTED_PROXIES, PORT, HOST, VELLUM_VAULT, VELLUM_DATA, PUBLIC.
 // Keys: siteName, tagline, footer, defaultTheme, publicLayout, blogLocale,
 // language, languageFilter, languageToggle, excludeTags, commentsEnabled, shareButtons,
-// favicon, logo, home { mode, note, banner }.
+// favicon, logo, home { mode, note, banner }, templatesFolder, defaultTemplate,
+// dateCalendar, textDirection, textAlign, tagsFolder, tagLabels.
 // Unknown keys in the file are preserved verbatim on every write so external
 // tooling (or future settings) can share the file safely; unknown keys in a
 // PATCH are a 400 (strict allowlist).
@@ -23,6 +24,28 @@ import type {
   SettingsResponse,
 } from "../shared/types.ts";
 import { THEMES as THEME_IDS } from "../shared/themes.ts";
+// Localization: the calendar, the note-layout pair and the tag-label map.
+// Shapes and validators live in shared/, so the client's editor and this
+// file's PATCH handlers cannot drift on what a valid value is.
+import { DEFAULT_DATE_CALENDAR, isDateCalendar, type DateCalendar } from "../shared/dates.ts";
+import {
+  DEFAULT_TEXT_ALIGN,
+  DEFAULT_TEXT_DIRECTION,
+  isTextAlign,
+  isTextDirection,
+  TEXT_ALIGNS,
+  TEXT_DIRECTIONS,
+  type TextAlign,
+  type TextDirection,
+} from "../shared/textLayout.ts";
+import {
+  cleanLabelEntry,
+  cleanTagLabels,
+  DEFAULT_TAGS_FOLDER,
+  tagKey,
+  TAG_LABEL_MAX,
+  type TagLabelMap,
+} from "../shared/tagLabels.ts";
 import { envHomeNote } from "./auth.ts";
 import { commentsEnabled } from "./comments.ts";
 // Backup & sync: the gitSync validators and the write-only credential store
@@ -51,7 +74,14 @@ import {
 } from "./site.ts";
 import { customDir } from "./customFonts.ts";
 import { catalogList, cleanFontSlots, readFontSlots, slotsAreSystem } from "./fonts.ts";
-import { listImageAttachments, publishedCounts, tags } from "./indexer.ts";
+import {
+  detectTagsFolder,
+  detectTemplatesFolder,
+  listImageAttachments,
+  publishedCounts,
+  resolveImageRef,
+  tags,
+} from "./indexer.ts";
 import { getVaultRoot, normalizeRel, safeAbs, VaultError } from "./vault.ts";
 
 const SETTINGS_FILE = "settings.json";
@@ -218,6 +248,13 @@ export function getSettings(): SettingsData {
   if (typeof raw.shareButtons === "boolean") out.shareButtons = raw.shareButtons;
   str("favicon", VALUE_MAX);
   str("logo", VALUE_MAX);
+  // ── Templates ────────────────────────────────────────────────────────────
+  if (typeof raw.templatesFolder === "string" && raw.templatesFolder.trim() !== "") {
+    out.templatesFolder = raw.templatesFolder.trim();
+  }
+  if (typeof raw.defaultTemplate === "string" && raw.defaultTemplate.trim() !== "") {
+    out.defaultTemplate = raw.defaultTemplate.trim();
+  }
   const home = raw.home;
   if (typeof home === "object" && home !== null && !Array.isArray(home)) {
     const h = home as Record<string, unknown>;
@@ -236,7 +273,40 @@ export function getSettings(): SettingsData {
     const fonts = readFontSlots(raw.fonts);
     if (!slotsAreSystem(fonts)) out.fonts = fonts;
   }
+  // ── Localization: calendar, note layout, tag labels ──────────────────────
+  // Reads never throw: a hand-edited settings.json naming a calendar nobody
+  // implemented falls back to the default rather than taking the instance
+  // down, exactly like an unknown theme id above.
+  if (isDateCalendar(raw.dateCalendar)) out.dateCalendar = raw.dateCalendar;
+  if (isTextDirection(raw.textDirection)) out.textDirection = raw.textDirection;
+  if (isTextAlign(raw.textAlign)) out.textAlign = raw.textAlign;
+  if (typeof raw.tagsFolder === "string" && raw.tagsFolder.trim() !== "") {
+    out.tagsFolder = raw.tagsFolder.trim();
+  }
+  if (raw.tagLabels !== undefined) {
+    const labels = cleanTagLabels(raw.tagLabels);
+    if (Object.keys(labels).length > 0) out.tagLabels = labels;
+  }
   return out;
+}
+
+/** The calendar every human-facing date on this instance is printed in.
+ *  No env counterpart, for the same reason `languageToggle` has none: it is a
+ *  runtime editorial decision whose default ("gregorian") is the one that
+ *  changes nothing. */
+export function dateCalendar(): DateCalendar {
+  return getSettings().dateCalendar ?? DEFAULT_DATE_CALENDAR;
+}
+
+/** The SITE default direction/alignment for note prose. A note's own
+ *  frontmatter `dir:`/`align:` beats both, and the client resolves that pair —
+ *  the server only says what the site asked for. */
+export function textDirection(): TextDirection {
+  return getSettings().textDirection ?? DEFAULT_TEXT_DIRECTION;
+}
+
+export function textAlign(): TextAlign {
+  return getSettings().textAlign ?? DEFAULT_TEXT_ALIGN;
 }
 
 /** The typography slots in effect (every slot present, "system" when unset).
@@ -270,6 +340,9 @@ export function effectiveSettings(): EffectiveSettings {
     shareButtons: s.shareButtons ?? true,
     favicon: s.favicon ?? null,
     logo: s.logo ?? null,
+    templatesFolder: templatesFolder(),
+    templatesFolderDetected: s.templatesFolder === undefined && templatesFolder() !== null,
+    defaultTemplate: defaultTemplate(),
     home: {
       mode: s.home?.mode ?? "note",
       ...(s.home?.note ?? envHomeNote() ? { note: s.home?.note ?? envHomeNote() ?? undefined } : {}),
@@ -279,6 +352,17 @@ export function effectiveSettings(): EffectiveSettings {
     // `tokenSet` (and the non-secret username) and nothing more.
     gitSync: gitSyncEffective(),
     fonts: fontSlots(),
+    // Localization. `tagLabels` is the STORED map only — the tag pages' own
+    // labels are merged in by server/tagLabels.ts at read time and must never
+    // be folded in here: the settings editor writes this key back whole, and
+    // a prefill carrying a label the vault owns would copy that label into
+    // settings.json the first time the panel is saved.
+    dateCalendar: dateCalendar(),
+    textDirection: textDirection(),
+    textAlign: textAlign(),
+    tagsFolder: tagsFolder(),
+    tagsFolderDetected: s.tagsFolder === undefined && detectTagsFolder() !== null,
+    tagLabels: s.tagLabels ?? {},
   };
 }
 
@@ -335,8 +419,72 @@ export function settingsAssetPaths(): Set<string> {
     } catch {
       // malformed path — nothing to allow
     }
+    // The value as WRITTEN and the file it RESOLVES to are two different
+    // paths whenever the admin typed a bare filename ("mark.svg" for
+    // "brand/mark.svg") — the same ladder every note banner climbs
+    // (indexer.ts resolveImageRef). Allowlisting only the literal string is
+    // how a logo the admin can see in the panel 404s for every visitor.
+    const resolved = resolveImageRef(value);
+    if (resolved !== null && !/^https:/i.test(resolved)) out.add(resolved);
   }
   return out;
+}
+
+// ── Templates ───────────────────────────────────────────────────────────────
+
+/** The templates folder in force: the stored setting, else the unambiguous
+ *  auto-detection (indexer.ts). Null when neither answers — and null is a
+ *  real answer: the two template commands then say the folder is unset
+ *  rather than offering an empty picker. */
+export function templatesFolder(): string | null {
+  const stored = getSettings().templatesFolder;
+  if (stored) {
+    try {
+      const rel = normalizeRel(stored);
+      safeAbs(rel);
+      return rel === "" ? null : rel;
+    } catch {
+      return null; // stored garbage — fall back to nothing, never to a guess
+    }
+  }
+  return detectTemplatesFolder();
+}
+
+/** Where this instance's tag pages live: the stored setting, else the
+ *  unambiguous auto-detection, else the documented `tags` default.
+ *
+ *  It resolves like `templatesFolder()` above and it sits here, beside it,
+ *  rather than in `server/tagLabels.ts` where the first version of it lived —
+ *  the two fields answer the same question about the same vault and a reader
+ *  comparing them should not have to read two files to learn that only one of
+ *  them looks. Unlike templates this one never answers null: an unlabelled
+ *  chip is a correct chip, so falling back to the documented folder name costs
+ *  nothing, while a null templates folder has to make the picker say so. */
+export function tagsFolder(): string {
+  const stored = getSettings().tagsFolder;
+  if (stored) {
+    try {
+      const rel = normalizeRel(stored);
+      safeAbs(rel);
+      if (rel !== "") return rel;
+    } catch {
+      // stored garbage — fall through to detection, never to a crash
+    }
+  }
+  return detectTagsFolder() ?? DEFAULT_TAGS_FOLDER;
+}
+
+/** The template applied to new notes, or null (the default). */
+export function defaultTemplate(): string | null {
+  const stored = getSettings().defaultTemplate;
+  if (!stored) return null;
+  try {
+    const rel = normalizeRel(stored);
+    safeAbs(rel);
+    return isNotePath(rel) ? rel : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The configured favicon as a safe vault-relative path, or null. */
@@ -372,6 +520,33 @@ function stringKey(
     if (cleaned === null) delete raw[key];
     else raw[key] = cleaned;
   };
+}
+
+/** A settings value that names a place INSIDE the vault → its relative path.
+ *
+ *  AN ABSOLUTE PATH IS REFUSED, NOT REWRITTEN. `normalizeRel()` strips a
+ *  leading slash before `path.isAbsolute()` could ever see one, so
+ *  `{"templatesFolder": "/etc"}` came back 200 and was stored as `etc`, and
+ *  `{"defaultTemplate": "/etc/passwd.md"}` as `etc/passwd.md`. `safeAbs()`
+ *  kept both inside the vault, so nothing escaped — but the admin who typed an
+ *  absolute path silently got a DIFFERENT folder from the one they named,
+ *  while `..`, a dotdir and a note-where-a-folder-belongs all answer with a
+ *  clear 400. A path that cannot mean what it says is an error, not a hint. */
+function vaultRel(clean: string, key: string): string {
+  if (/^(?:[/\\]|[A-Za-z]:[/\\])/.test(clean)) {
+    throw new VaultError(
+      400,
+      `Settings key "${key}" must be a path inside the vault, not an absolute one`,
+    );
+  }
+  let rel: string;
+  try {
+    rel = normalizeRel(clean);
+    safeAbs(rel); // traversal / ignored-dir rejection
+  } catch {
+    throw new VaultError(400, `Settings key "${key}" is not a valid vault path`);
+  }
+  return rel;
 }
 
 const PATCH_HANDLERS: Record<string, PatchHandler> = {
@@ -456,6 +631,29 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
   favicon: stringKey("favicon", (v) => cleanVaultImage(v, "favicon")),
   // A logo may be an https URL or a vault image path.
   logo: stringKey("logo", (v) => cleanImageRef(v, "logo")),
+  // ── Templates ────────────────────────────────────────────────────────────
+  // A FOLDER, not a note: no extension check, and clearing it hands the key
+  // back to auto-detection rather than to "no templates at all".
+  templatesFolder: stringKey("templatesFolder", (v) => {
+    const clean = cleanValue(v, "templatesFolder");
+    if (clean === null) return null;
+    const rel = vaultRel(clean, "templatesFolder");
+    if (rel === "") return null;
+    if (isNotePath(rel)) {
+      throw new VaultError(400, 'Settings key "templatesFolder" must be a folder, not a note');
+    }
+    return rel;
+  }),
+  defaultTemplate: stringKey("defaultTemplate", (v) => {
+    const clean = cleanValue(v, "defaultTemplate");
+    if (clean === null) return null;
+    const rel = vaultRel(clean, "defaultTemplate");
+    if (rel === "") return null;
+    if (!isNotePath(rel)) {
+      throw new VaultError(400, 'Settings key "defaultTemplate" must be a note path (.md, .tex or .latex)');
+    }
+    return rel;
+  }),
   home: (raw, value) => {
     if (value === null) {
       delete raw.home;
@@ -485,13 +683,7 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
         const clean = cleanValue(h.note, "home.note");
         if (clean === null) delete current.note;
         else {
-          let rel: string;
-          try {
-            rel = normalizeRel(clean);
-            safeAbs(rel);
-          } catch {
-            throw new VaultError(400, 'Settings key "home.note" is not a valid vault path');
-          }
+          const rel = vaultRel(clean, "home.note");
           if (!isNotePath(rel)) {
             throw new VaultError(400, 'Settings key "home.note" must be a note path (.md, .tex or .latex)');
           }
@@ -539,6 +731,109 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     const slots = cleanFontSlots(value, readFontSlots(raw.fonts));
     if (slotsAreSystem(slots)) delete raw.fonts; // all system = the default
     else raw.fonts = { ...slots };
+  },
+  // ── Localization: calendar, note layout, tag labels ──────────────────────
+  // Three closed enums and one map. The enums are validated STRICTLY (an
+  // unknown value is a 400, not a silent fallback) for the reason
+  // `languageFilter` gives: a typo in a value the panel offers as a fixed set
+  // of buttons is a mistake worth answering, and there is no ambiguity about
+  // the canonical form to coerce to.
+  dateCalendar: (raw, value) => {
+    if (value === null || value === "") {
+      delete raw.dateCalendar;
+      return;
+    }
+    if (!isDateCalendar(value)) {
+      throw new VaultError(400, 'Settings key "dateCalendar" must be "gregorian", "hijri" or "both"');
+    }
+    if (value === DEFAULT_DATE_CALENDAR) delete raw.dateCalendar; // the default stores nothing
+    else raw.dateCalendar = value;
+  },
+  textDirection: (raw, value) => {
+    if (value === null || value === "") {
+      delete raw.textDirection;
+      return;
+    }
+    if (!isTextDirection(value)) {
+      throw new VaultError(400, `Settings key "textDirection" must be one of: ${TEXT_DIRECTIONS.join(", ")}`);
+    }
+    if (value === DEFAULT_TEXT_DIRECTION) delete raw.textDirection;
+    else raw.textDirection = value;
+  },
+  textAlign: (raw, value) => {
+    if (value === null || value === "") {
+      delete raw.textAlign;
+      return;
+    }
+    if (!isTextAlign(value)) {
+      throw new VaultError(400, `Settings key "textAlign" must be one of: ${TEXT_ALIGNS.join(", ")}`);
+    }
+    if (value === DEFAULT_TEXT_ALIGN) delete raw.textAlign;
+    else raw.textAlign = value;
+  },
+  tagsFolder: stringKey("tagsFolder", (v) => {
+    const clean = cleanValue(v, "tagsFolder", VALUE_MAX);
+    if (clean === null) return null;
+    let rel: string;
+    try {
+      rel = normalizeRel(clean);
+      safeAbs(rel); // traversal / ignored-tree rejection
+    } catch {
+      throw new VaultError(400, 'Settings key "tagsFolder" is not a valid vault path');
+    }
+    if (rel === "" || isNotePath(rel)) {
+      throw new VaultError(400, 'Settings key "tagsFolder" must be a folder, not a note');
+    }
+    // Stored even when it equals the default: an operator who typed "tags"
+    // meant to pin it, and a vault that later grows a `topics/` convention
+    // must not silently inherit a changed default.
+    return rel;
+  }),
+  // REPLACED WHOLE, never merged. The settings editor holds the entire map on
+  // screen, so a merging PATCH would make deleting a row impossible — the row
+  // would come back on the next read. Malformed entries are dropped rather
+  // than 400ed for the same reason the excludeTags array drops them: this is a
+  // bulk key-value editor, and one bad row must not lose the other forty.
+  tagLabels: (raw, value) => {
+    if (value === null) {
+      delete raw.tagLabels;
+      return;
+    }
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new VaultError(400, 'Settings key "tagLabels" must be an object or null');
+    }
+    // A CAP ON THE MAP, not only on its keys and labels. Its sibling
+    // `excludeTags` has capped its LENGTH at TAGS_MAX since the day it was
+    // written; this one capped a key at 50 characters and a label at 60 and
+    // then accepted as many of them as were sent. A 5,000-entry PATCH was
+    // taken with a 200: settings.json grew to 378 KB and GET /api/settings to
+    // 489 KB — a response the settings panel fetches every time it opens. No
+    // visitor could see any of it (/api/tag-labels stayed at 46 bytes), which
+    // makes this a self-inflicted wound rather than a hole, and the fix is
+    // still the same number the sibling key already uses: a vault with more
+    // than TAGS_MAX localized tags wants a tags FOLDER, which is the other
+    // half of this feature.
+    if (Object.keys(value).length > TAGS_MAX) {
+      throw new VaultError(
+        400,
+        `Settings key "tagLabels" holds too many tags (${TAGS_MAX} max) — a tag with a page in the tags folder is named there instead`,
+      );
+    }
+    const map: TagLabelMap = {};
+    for (const [rawTag, rawLabels] of Object.entries(value as Record<string, unknown>)) {
+      const tag = tagKey(rawTag);
+      if (tag === "") continue;
+      if (tag.length > TAG_LABEL_MAX || !/^[\p{L}\p{N}][\p{L}\p{N}_/-]*$/u.test(tag)) {
+        throw new VaultError(
+          400,
+          `Settings tagLabels key ${JSON.stringify(rawTag)} is not a simple tag (letters/digits/_-/, ≤ ${TAG_LABEL_MAX} chars)`,
+        );
+      }
+      const entry = cleanLabelEntry(rawLabels);
+      if (Object.keys(entry).length > 0) map[tag] = entry;
+    }
+    if (Object.keys(map).length === 0) delete raw.tagLabels;
+    else raw.tagLabels = map;
   },
 };
 

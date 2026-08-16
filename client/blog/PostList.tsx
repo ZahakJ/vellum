@@ -5,19 +5,34 @@
 import type { PostMeta } from "../../shared/types.ts";
 import { bannerSrc, generatedBannerCss } from "../banner.ts";
 import { countPhrase, t } from "../i18n.ts";
+import { MetaSep } from "../metaSep.tsx";
 import { notePathToUrl } from "../router.ts";
 import { useStore } from "../state.ts";
 import { topicUrl } from "./nav.ts";
+import { isLabelled as tagIsLabelled, label as tagLabel, useTagLabels } from "../tagLabels.ts";
 import { formatDate, NavLink } from "./util.tsx";
 
 export function TagChips({ tags }: { tags: string[] }) {
+  // Subscribe so a label edited in Settings repaints every chip on the page
+  // without a reload — the map arrives asynchronously and may change under a
+  // long-lived blog session.
+  useTagLabels();
   if (tags.length === 0) return null;
   return (
     <span className="s-blog-chips">
+      {/* Canonical URL, localised word: `topicUrl(tag)` keeps the slug the
+          site has always used, and the `title` names the canonical tag so a
+          reader of a labelled chip can still learn what to type. */}
       {tags.map((tag) => (
-        <NavLink key={tag} url={topicUrl(tag)} className="s-blog-chip" dir="auto">
+        <NavLink
+          key={tag}
+          url={topicUrl(tag)}
+          className="s-blog-chip"
+          dir="auto"
+          title={tagIsLabelled(tag) ? `#${tag}` : undefined}
+        >
           <span className="s-blog-chip__hash">#</span>
-          {tag}
+          {tagLabel(tag)}
         </NavLink>
       ))}
     </span>
@@ -30,9 +45,7 @@ export function PostMetaLine({ post, locale }: { post: PostMeta; locale: string 
       <time className="s-blog-meta__date" dateTime={post.date}>
         {formatDate(post.date, locale)}
       </time>
-      <span className="s-blog-meta__dot" aria-hidden="true">
-        ·
-      </span>
+      <MetaSep className="s-blog-meta__dot" />
       <span>{countPhrase(post.readingMinutes, "readMinutes")}</span>
       {/* No `·` before the chips, and the reason is a phone: the meta line
           WRAPS, and at 390 the chips went to their own line while the

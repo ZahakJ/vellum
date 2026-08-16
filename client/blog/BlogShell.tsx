@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { stripBidiControls } from "../../shared/bidi.ts";
 import type { PostMeta } from "../../shared/types.ts";
 import { getNote, getPosts } from "../api.ts";
-import { bannerSrc } from "../banner.ts";
+import { useBannerSrc } from "../components/BannerImg.tsx";
 import { installHoverCards } from "../hovercard.ts";
 import { t, tf } from "../i18n.ts";
 import LoginModal from "../components/LoginModal.tsx";
@@ -136,6 +136,10 @@ export default function BlogShell() {
   const tree = useStore((s) => s.tree);
   const homeMode = useStore((s) => s.home?.mode ?? "note");
   const logo = useStore((s) => s.logo);
+  // Same ladder as every other typed image reference (client/banner.ts): an
+  // unresolvable value leaves the masthead on its wordmark rather than on a
+  // broken image icon.
+  const logoSrc = useBannerSrc(logo).src;
   // Chrome strings come from t(); subscribing to the language re-renders the
   // shell when the admin switches it in settings (loadMe → store), or when a
   // visitor flips the EN/ع switch — no reload either way.
@@ -350,14 +354,14 @@ export default function BlogShell() {
     <div className="s-blog" ref={attachScroll}>
       {!dashboardHome && (
         <header className="s-blog-mast">
-          {!logo && (
+          {!logoSrc && (
             <div className="s-blog-mast__star" aria-hidden="true">
               ✦
             </div>
           )}
           <NavLink url="/" className="s-blog-mast__name" dir="auto">
-            {logo ? (
-              <img className="s-blog-mast__logo" src={bannerSrc(logo)} alt={siteName} />
+            {logoSrc ? (
+              <img className="s-blog-mast__logo" src={logoSrc} alt={siteName} />
             ) : (
               siteName
             )}

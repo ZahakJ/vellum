@@ -9,7 +9,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PostMeta } from "../../shared/types.ts";
 import { bannerSrc, generatedBannerCss } from "../banner.ts";
+import { useBannerSrc } from "../components/BannerImg.tsx";
 import { countPhrase, localeNum, t } from "../i18n.ts";
+import { MetaSep } from "../metaSep.tsx";
 import { notePathToUrl } from "../router.ts";
 import { useStore } from "../state.ts";
 import HomeBannerModal from "./HomeBannerModal.tsx";
@@ -69,9 +71,7 @@ function Card({ post, locale }: { post: PostMeta; locale: string }) {
           <time className="s-blog-meta__date" dateTime={post.date}>
             {formatDate(post.date, locale)}
           </time>
-          <span className="s-blog-meta__dot" aria-hidden="true">
-            ·
-          </span>
+          <MetaSep className="s-blog-meta__dot" />
           <span>{countPhrase(post.readingMinutes, "readMinutes")}</span>
         </div>
         {post.excerpt !== "" && (
@@ -125,7 +125,15 @@ export default function BlogDashboard({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [bannerBroken, setBannerBroken] = useState(false);
 
-  const banner = home?.banner ?? null;
+  // The hero image and the logo are values an ADMIN TYPED into settings, so
+  // both climb the resolution ladder (client/banner.ts): "mark.svg" is allowed
+  // to mean brand/mark.svg, exactly as it does in a note's `banner:`. A hero
+  // that resolves to nothing falls through to the generated gradient — the
+  // page's own designed fallback, and the right answer on a page full of
+  // strangers.
+  const heroBanner = useBannerSrc(home?.banner ?? null);
+  const logoSrc = useBannerSrc(logo);
+  const banner = heroBanner.src;
 
   // Most-discussed row: a right-edge fade signals "more cards this way" while
   // there is horizontal overflow left to scroll — and disappears at the end
@@ -179,16 +187,16 @@ export default function BlogDashboard({
         {banner && !bannerBroken && (
           <img
             className="s-dash-hero__img"
-            src={bannerSrc(banner)}
+            src={banner}
             alt=""
             onError={() => setBannerBroken(true)}
           />
         )}
         <div className="s-dash-hero__scrim" aria-hidden="true" />
         <div className="s-dash-hero__inner">
-          {logo ? (
+          {logo && logoSrc.src ? (
             <NavLink url="/" className="s-dash-hero__logolink" aria-hidden={false}>
-              <img className="s-dash-hero__logo" src={bannerSrc(logo)} alt={siteName} />
+              <img className="s-dash-hero__logo" src={logoSrc.src} alt={siteName} />
             </NavLink>
           ) : (
             <h1 className="s-dash-hero__name" dir="auto">

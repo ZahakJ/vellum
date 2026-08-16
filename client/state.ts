@@ -10,13 +10,31 @@ import * as api from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import { collectNotes, resolveLink } from "./editor/links.ts";
 import { setLang, setNumeralLocale, t, tf } from "./i18n.ts";
+// Localization the shell pushes into plain modules rather than into the store:
+// the calendar (client/dates.ts), the note-prose layout defaults
+// (client/textLayout.ts) and the tag-label map (client/tagLabels.ts). Same
+// shape as setLang above — imperative DOM (the properties card, the editor's
+// decorations, the blog nav's measuring pass) has no store to subscribe to.
+import { setDateCalendar } from "./dates.ts";
+import { setSiteTextLayout } from "./textLayout.ts";
+import { loadTagLabels } from "./tagLabels.ts";
+import { DEFAULT_DATE_CALENDAR, isDateCalendar, type DateCalendar } from "../shared/dates.ts";
+import {
+  DEFAULT_TEXT_ALIGN,
+  DEFAULT_TEXT_DIRECTION,
+  isTextAlign,
+  isTextDirection,
+  type TextAlign,
+  type TextDirection,
+} from "../shared/textLayout.ts";
 import type { Lang } from "./i18n.ts";
 import { readVisitorLang, writeVisitorLang } from "./langPref.ts";
 import { isTheme, THEMES } from "./themes.ts";
 import type { Theme } from "./themes.ts";
 import { isPublishedContent } from "./publish.ts";
+import { applyDefaultTemplate } from "./templateActions.ts";
 import { toast } from "./toast.ts";
-import { noteTitleOf } from "../shared/noteFormat.ts";
+import { noteLabelOf, noteTitleOf } from "../shared/noteFormat.ts";
 
 /** A note path as the reader knows it: the basename, minus `.md`. The toast
  *  that names a note is a sentence, not a file listing — and tf() bidi-isolates
@@ -191,6 +209,17 @@ export interface State {
   home: HomeSettings | null;
   /** settings.logo — site logo image (banner-style value), blog mode. */
   logo: string | null;
+  /** settings.dateCalendar — which calendar every human-facing date on this
+   *  instance prints in. The formatting itself lives in client/dates.ts (a
+   *  plain module, like i18n); this copy is here so React chrome that must
+   *  re-render on a live settings change has something to subscribe to. */
+  dateCalendar: DateCalendar;
+  /** settings.textDirection / settings.textAlign — the SITE default for note
+   *  prose. Same arrangement: client/textLayout.ts does the work, the store
+   *  carries the value so the status bar's "this note differs" segment and
+   *  the settings panel re-render when it moves. */
+  textDirection: TextDirection;
+  textAlign: TextAlign;
   /** Merge a fresh home config into the store (the dashboard's banner save). */
   setHome(home: HomeSettings | null): void;
 
@@ -476,11 +505,48 @@ function clearStoredPreview(): void {
 // the preview ended on kept open, per "exit returns to the same note").
 let previewSnapshot: { tabs: string[]; open: string | null } | null = null;
 
-// Publish toggles rewrite the open note's file server-side; their SSE
-// "changed" echo must not be mistaken for an external edit (App checks this).
-let lastPublishWrite = 0;
-export function recentPublishWrite(windowMs: number): boolean {
-  return Date.now() - lastPublishWrite < windowMs;
+// ── Our own writes ──────────────────────────────────────────────────────────
+//
+// Every write this client makes comes back to it as an SSE "changed" event,
+// and App's handler has to tell that echo apart from somebody editing the file
+// in Obsidian. It used to do that from ONE side — a publish toggle and a
+// banner set stamped a timestamp here, and an ordinary autosave was recognised
+// only AFTERWARDS, by watching `dirty` fall from true to false.
+//
+// THAT WAS TOO LATE, AND NOT BY A LITTLE. The server writes the file and
+// notifies its subscribers before it answers the PUT, so the echo overtakes
+// the response: measured on this vault, the SSE frame landed at t=4237ms and
+// the PUT resolved at t=4239ms. In those two milliseconds `dirty` is still
+// true and no save has yet "finished", which is exactly the state the handler
+// reads as an external edit — so every autosave, on every note, raised
+// "changed on disk — your unsaved edits were kept" about the reader's own
+// typing. The alarm that exists to report a conflict was reporting the
+// reader to themselves.
+//
+// So a write is claimed BEFORE it is sent, by the code that sends it, and it
+// is claimed PER PATH: a save to one note must not swallow a genuine external
+// change to another. The publish and banner paths already had the instinct
+// (their comment says "SSE echo arrives before the response"); this is that
+// instinct made general and moved to the one place every writer can reach.
+const selfWrites = new Map<string, number>();
+
+/** "This client is writing `path` right now." Call it immediately BEFORE the
+ *  request, never after it resolves. */
+export function markSelfWrite(path: string): void {
+  const now = Date.now();
+  selfWrites.set(path, now);
+  // Bounded opportunistically: a session that edits hundreds of notes must not
+  // grow this forever, and anything older than a minute can answer no.
+  if (selfWrites.size > 64) {
+    for (const [p, at] of selfWrites) if (now - at > 60_000) selfWrites.delete(p);
+  }
+}
+
+/** True when this client wrote `path` within `windowMs` — the test App's SSE
+ *  handler asks before calling a "changed" event somebody else's edit. */
+export function recentSelfWrite(path: string, windowMs: number): boolean {
+  const at = selfWrites.get(path);
+  return at !== undefined && Date.now() - at < windowMs;
 }
 
 /** Resolve once `dirty[path]` clears (autosave landed), or after timeoutMs. */
@@ -604,6 +670,9 @@ export const useStore = create<State>()((set, get) => {
     bannerFallback: "generated",
     home: null,
     logo: null,
+    dateCalendar: DEFAULT_DATE_CALENDAR,
+    textDirection: DEFAULT_TEXT_DIRECTION,
+    textAlign: DEFAULT_TEXT_ALIGN,
     setHome: (home) => set({ home }),
     bannerModalOpen: false,
     settingsOpen: false,
@@ -647,6 +716,16 @@ export const useStore = create<State>()((set, get) => {
         const languageToggle = me.languageToggle === true;
         const language: Lang = (languageToggle ? readVisitorLang() : null) ?? siteLang;
         const locale = me.blogLocale?.trim() || "en";
+        // The calendar and the note-layout pair are pushed into their plain
+        // modules BEFORE the store commit, exactly as applyLanguage pushes the
+        // dictionary: a component re-rendering off `dateCalendar` must already
+        // see siteDate() answering in the new calendar, or the first paint
+        // after a settings save shows the old one.
+        const calendar: DateCalendar = isDateCalendar(me.dateCalendar) ? me.dateCalendar : DEFAULT_DATE_CALENDAR;
+        const noteDir: TextDirection = isTextDirection(me.textDirection) ? me.textDirection : DEFAULT_TEXT_DIRECTION;
+        const noteAlign: TextAlign = isTextAlign(me.textAlign) ? me.textAlign : DEFAULT_TEXT_ALIGN;
+        setDateCalendar(calendar);
+        setSiteTextLayout(noteDir, noteAlign);
         applyLanguage(language, locale); // before set(): re-renders already see t() in the new language
         // "auto" is re-evaluated on EVERY language change, not only on a
         // fresh install: switching the instance to Arabic moves the notes
@@ -672,7 +751,15 @@ export const useStore = create<State>()((set, get) => {
           bannerFallback: me.bannerFallback === "none" ? "none" : "generated",
           home: me.home ?? null,
           logo: me.logo ?? null,
+          dateCalendar: calendar,
+          textDirection: noteDir,
+          textAlign: noteAlign,
         });
+        // The tag-label map is scoped by session (a visitor is told about
+        // visible tags only), so it is refetched on every /api/me — which is
+        // also every sign-in, sign-out and preview toggle. Failures are silent:
+        // an unlabelled chip renders its canonical tag, which is correct.
+        void loadTagLabels();
         // DEFAULT_THEME applies only while the user has made no explicit
         // choice (nothing in localStorage) — and is deliberately NOT
         // persisted, so a changed server default keeps reaching them.
@@ -834,7 +921,7 @@ export const useStore = create<State>()((set, get) => {
             ? get().openPublished!
             : isPublishedContent((await api.getNote(path)).content);
         const next = publish ?? !current;
-        lastPublishWrite = Date.now(); // SSE echo arrives before the response
+        markSelfWrite(path); // the SSE echo arrives before the response
         const result = await api.publishNote(path, next);
         set((s) => {
           const publishedPaths = s.publishedPaths ? new Set(s.publishedPaths) : null;
@@ -866,7 +953,7 @@ export const useStore = create<State>()((set, get) => {
         // the server-side line edit and the editor buffer don't clobber each
         // other, and claim the SSE echo as our own write.
         if (get().dirty[path]) await waitForClean(path, 2000);
-        lastPublishWrite = Date.now();
+        markSelfWrite(path);
         await api.setFrontmatter(path, "banner", value);
         // The note's bytes changed on disk: refresh the open editor/reading
         // pane so its buffer carries the new frontmatter.
@@ -993,6 +1080,13 @@ export const useStore = create<State>()((set, get) => {
     createNote: (path) =>
       guarded(`creating ${path}`, async () => {
         await api.createNote(path);
+        // The default template, when the instance has one configured (off by
+        // default — a product that silently writes into every new note is a
+        // product that has to be fought). It runs BEFORE the note opens, so
+        // the editor loads the templated content rather than an empty buffer
+        // it would then have to be told about. A failure here is logged and
+        // the note stays empty: creation must not depend on it.
+        await applyDefaultTemplate(path);
         await get().loadTree();
         get().openNote(path);
         // A just-created note is empty — reading view would be a blank pane.
@@ -1010,7 +1104,10 @@ export const useStore = create<State>()((set, get) => {
     deleteNote: (path, opts) =>
       guarded(`deleting ${path}`, async () => {
         const permanent = opts?.permanent === true;
-        const name = path.split("/").pop() ?? path;
+        // The tree's own label, like the dialog that asked and the tab that
+        // closed — a toast reading “Welcome.md” after a row reading "Welcome"
+        // is the same file wearing two names in two seconds.
+        const name = noteLabelOf(path);
         await api.deleteNote(path, permanent);
         get().closeTab(path);
         await get().loadTree();

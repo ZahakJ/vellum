@@ -20,7 +20,7 @@ import type { MeData } from "../shared/types.ts";
 import { isNoteVisibleToVisitor, publishedCounts, resolveLink } from "./indexer.ts";
 import { commentsEnabled } from "./comments.ts";
 import { fontsSignature, slotsAreSystem } from "./fonts.ts";
-import { fontSlots, getSettings } from "./settings.ts";
+import { dateCalendar, fontSlots, getSettings, textAlign, textDirection } from "./settings.ts";
 import { bannerFallback, blogLocale, customCssPath, dataDir, defaultTheme, footerLine, languageFilterEnabled, publicLayout, siteLanguage, siteName, tagline } from "./site.ts";
 import { normalizeRel } from "./vault.ts";
 
@@ -645,6 +645,18 @@ authRoutes.get("/me", (c) => {
   // timestamps need it in app layout too, and blogLocale() already derives
   // "ar" from the site language when nothing explicit is configured.
   me.blogLocale = blogLocale();
+  // The CALENDAR those dates are printed in, and the note-prose layout pair.
+  // All three travel to every session and in both shells: the app's own
+  // moderation rows, sync status and About print dates too, and the editor
+  // and reading view need the layout as much as a blog article does. Sent
+  // only when they differ from the default, so the payload of a default
+  // instance is byte-for-byte what it was.
+  const calendar = dateCalendar();
+  if (calendar !== "gregorian") me.dateCalendar = calendar;
+  const noteDir = textDirection();
+  if (noteDir !== "auto") me.textDirection = noteDir;
+  const noteAlign = textAlign();
+  if (noteAlign !== "start") me.textAlign = noteAlign;
   const theme = defaultTheme();
   if (theme) me.defaultTheme = theme;
   if (customCssPath()) me.customCss = true;

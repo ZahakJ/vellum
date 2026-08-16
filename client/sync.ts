@@ -8,7 +8,8 @@
 
 import type { GitSyncStatus } from "../shared/types.ts";
 import { getSyncStatus, syncInit, syncNow } from "./api.ts";
-import { localeDigits, t } from "./i18n.ts";
+import { siteDate } from "./dates.ts";
+import { t } from "./i18n.ts";
 import { toast } from "./toast.ts";
 
 /** When a sync ran, in the instance's date locale. `hour: "numeric"`, not
@@ -18,12 +19,14 @@ import { toast } from "./toast.ts";
 export function syncWhen(iso: string, locale: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString(locale, {
+  // Through client/dates.ts, so a backup that ran on ٢ صفر is reported on
+  // ٢ صفر — the panel that answers "is my writing somewhere else yet" must
+  // not be the one surface still printing a different calendar.
+  return siteDate(date, locale, {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-    ...localeDigits(locale),
   });
 }
 

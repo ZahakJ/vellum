@@ -3,25 +3,22 @@
 // for middle-click / copy-link semantics, client-side navigation on plain click).
 
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
-import { localeDigits } from "../i18n.ts";
+import { siteDate } from "../dates.ts";
 import { go } from "./nav.ts";
 
-/** ISO date → localized long date ("14 August 2026", "١٤ أغسطس ٢٠٢٦"…).
- *  A bad BCP47 tag falls back to "en" rather than throwing at render time. */
+/** ISO date → localized long date ("14 August 2026", "١٤ أغسطس ٢٠٢٦",
+ *  "٢ صفر ١٤٤٨ هـ"…) in whatever calendar the instance is set to.
+ *
+ *  The formatting itself moved to `client/dates.ts` — the ONE place a date is
+ *  rendered for a human — when the calendar became a setting: the blog card,
+ *  the moderation row and the backup badge each holding their own
+ *  `Intl.DateTimeFormat` call was survivable with one calendar and is not
+ *  survivable with three. A bad BCP47 tag (and an ICU build with no Umm
+ *  al-Qura data) still falls back rather than throwing at render time. */
 export function formatDate(iso: string, locale: string): string {
-  const date = new Date(iso);
   // UTC keeps date-only frontmatter honest: "2026-08-02" is UTC midnight and
   // must never render as August 1 for readers west of Greenwich.
-  const options: Intl.DateTimeFormatOptions = {
-    dateStyle: "long",
-    timeZone: "UTC",
-    ...localeDigits(locale),
-  };
-  try {
-    return new Intl.DateTimeFormat(locale, options).format(date);
-  } catch {
-    return new Intl.DateTimeFormat("en", { dateStyle: "long", timeZone: "UTC" }).format(date);
-  }
+  return siteDate(iso, locale, { dateStyle: "long", timeZone: "UTC" });
 }
 
 /** True when the text's first letter belongs to a right-to-left script

@@ -22,11 +22,13 @@ import ShortcutsHelp from "./components/ShortcutsHelp.tsx";
 import Sidebar from "./components/Sidebar.tsx";
 import StatusBar, { vimSubCopy } from "./components/StatusBar.tsx";
 import Tabs from "./components/Tabs.tsx";
+import TemplatePicker from "./components/TemplatePicker.tsx";
 import { openDailyNote } from "./daily.ts";
 import { t, tf } from "./i18n.ts";
 import { promptNewNote } from "./prompts.ts";
+import { insertTemplateCommand, newNoteFromTemplateCommand } from "./templateActions.ts";
 import { applyUrl, installRouter, syncUrl } from "./router.ts";
-import { recentPublishWrite, sidebarIsDrawer, useStore } from "./state.ts";
+import { recentSelfWrite, sidebarIsDrawer, useStore } from "./state.ts";
 import { dismissToasts, toast } from "./toast.ts";
 
 /** Writes made by our own autosave echo back through the watcher; ignore
@@ -236,9 +238,15 @@ export default function App() {
       } else if (ev.kind === "changed" && ev.path === store.openPath) {
         // A publish toggle rewrites the file too; its echo is handled by
         // togglePublish's own bumpReload, not the external-change path.
+        // Two ways to recognise our own write, and the FIRST is the one
+        // that catches an autosave: every writer claims the path before it
+        // sends the request, because the echo overtakes the response by a
+        // couple of milliseconds (state.ts::markSelfWrite). The dirty→clean
+        // stamp stays as the belt to that braces — it still answers for a
+        // write some future path forgets to claim.
         const selfSave =
-          Date.now() - lastSaveRef.current < SELF_SAVE_WINDOW_MS ||
-          recentPublishWrite(SELF_SAVE_WINDOW_MS);
+          recentSelfWrite(ev.path, SELF_SAVE_WINDOW_MS) ||
+          Date.now() - lastSaveRef.current < SELF_SAVE_WINDOW_MS;
         if (!selfSave) {
           if (store.dirty[ev.path]) {
             toast(tf("changedOnDisk", { path: ev.path }));
@@ -368,6 +376,8 @@ export default function App() {
       // platforms (macOS Option+B is "∫"), so they are matched on the
       // PHYSICAL key as well. `key` alone still answers everything else.
       const bKey = key === "b" || (e.altKey && e.code === "KeyB");
+      // Same physical-key trick, same reason: macOS Option+T is "†".
+      const tKey = key === "t" || (e.altKey && e.code === "KeyT");
       // Ctrl/Cmd+/ — the list of every binding, including this one. Handled
       // ahead of the modal guard so it opens (and closes) from anywhere.
       if (key === "/" || key === "?") {
@@ -484,6 +494,21 @@ export default function App() {
         // Our dialog, not the OS box: prompts.ts owns the naming rule and
         // shows what the typed name becomes (see client/prompts.ts).
         void promptNewNote("");
+      } else if (tKey && e.altKey && !e.getModifierState("AltGraph")) {
+        // TEMPLATES WEAR ALT, and it is not a stylistic choice. Ctrl/Cmd+T is
+        // the browser's new tab and Ctrl/Cmd+Shift+T reopens a closed one —
+        // neither is takeable, and a keystroke that fights the browser is a
+        // keystroke that loses. Alt is the same escape hatch the pane toggles
+        // took when Ctrl/Cmd+B became bold, and the pair keeps that shape:
+        // one key, Shift picks the second command. AltGraph is excluded for
+        // the same reason it is there (European layouts report Right-Alt as
+        // ctrl+alt). A desktop that eats Ctrl+Alt+T at the WM layer still
+        // leaves the palette and the tree's folder menu.
+        if (!store.admin) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) void newNoteFromTemplateCommand();
+        else if (store.openPath) void insertTemplateCommand();
       }
     };
     // Capture phase: run ahead of CodeMirror/vim handlers so a stopPropagation
@@ -764,6 +789,10 @@ export default function App() {
       {bannerModalOpen && admin && <BannerModal />}
       {moderationOpen && admin && <ModerationPanel />}
       {settingsOpen && admin && <SettingsModal />}
+      {/* Always mounted (like ConfirmHost): the two template commands await a
+          promise from it, and a host that only exists once something has
+          already opened it cannot be the thing that opens. */}
+      {admin && <TemplatePicker />}
       <ConfirmHost />
     </div>
   );

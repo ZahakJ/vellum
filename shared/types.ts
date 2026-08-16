@@ -105,6 +105,19 @@ export interface MeData {
    *  changed pick refetches instead of showing yesterday's faces. Sent to
    *  every session: the faces are the public site's own typography. */
   fonts?: string;
+  /** settings.dateCalendar — which calendar every human-facing date on this
+   *  instance is printed in. Sent to EVERY session and in BOTH shells: blog
+   *  post meta, dashboard cards, comment timestamps, moderation rows, sync
+   *  status and About all read it, and an admin previewing as a visitor must
+   *  see the visitor's calendar. Absent = "gregorian". RSS is deliberately
+   *  untouched — the XML keeps RFC-822 Gregorian, which is a wire format. */
+  dateCalendar?: DateCalendarSetting;
+  /** settings.textDirection / settings.textAlign — the SITE default for note
+   *  prose in the editor, the reading view and blog articles. A per-note
+   *  `dir:`/`align:` in frontmatter beats both. Absent = "auto" / "start",
+   *  i.e. exactly the behaviour that shipped before this existed. */
+  textDirection?: TextDirectionSetting;
+  textAlign?: TextAlignSetting;
 }
 
 // GET /api/posts (visitor-safe): published notes as blog posts, newest first.
@@ -188,13 +201,52 @@ export interface SettingsData {
   /** Site logo image (https URL or vault path) shown in place of the
    *  site-name text where a logo fits (masthead, sidebar, dashboard hero). */
   logo?: string;
+  /** Templates folder (vault-relative), Obsidian's core-Templates setting.
+   *  Absent → the server auto-detects an unambiguously named folder
+   *  ("Templates", "_templates", "قوالب"); ambiguity means unset, never a
+   *  guess. Notes inside it are stencils: they never appear in the post list. */
+  templatesFolder?: string;
+  /** Template applied to every NEW note (vault-relative note path). Absent —
+   *  the default — means new notes are born empty, as they always have been. */
+  defaultTemplate?: string;
   /** Git backup & sync (off by default). The token, when one is used, is NOT
    *  here — it lives in VELLUM_DATA/git-credentials.json (0600). */
   gitSync?: GitSyncSettings;
   /** Typography: catalog ids (or "system") per slot. Chosen faces are cached
    *  under VELLUM_DATA/fonts/catalog/ and served from this instance only. */
   fonts?: FontSlotSettings;
+  // ── Localization: calendar, note layout, tag labels ──────────────────────
+  // (See "Hijri dates", "Note alignment" and "Localised tag labels" in
+  // CONTRACTS.md. All three are DISPLAY decisions: nothing here ever changes
+  // a byte in the vault, and RSS keeps RFC-822 Gregorian regardless.)
+  /** Calendar human-facing dates are rendered in. Default "gregorian".
+   *  "hijri" is Umm al-Qura; "both" prints one with the other parenthesised,
+   *  ordered by the site language. */
+  dateCalendar?: DateCalendarSetting;
+  /** Base direction for note PROSE (editor, reading view, blog article).
+   *  Default "auto" — every block takes its own direction from its first
+   *  strong character, which is the behaviour that shipped. */
+  textDirection?: TextDirectionSetting;
+  /** Alignment for note prose. Default "start" — the reading direction's
+   *  leading edge. A per-note `align:` in frontmatter beats this. */
+  textAlign?: TextAlignSetting;
+  /** Where a tag's own page lives ("tags" by default). A note at
+   *  `<tagsFolder>/<tag>.md` may carry `labels: { ar: … }`, which outranks
+   *  the `tagLabels` map below. */
+  tagsFolder?: string;
+  /** Display labels for canonical tags: tag → language → label. For tags
+   *  with no page of their own. Never rewrites frontmatter; URLs,
+   *  EXCLUDE_TAGS and the language filter keep matching the canonical tag.
+   *  Shape and resolution live in `shared/tagLabels.ts` (`TagLabelMap`). */
+  tagLabels?: Record<string, Record<string, string>>;
 }
+
+/** Mirrors `DateCalendar` in shared/dates.ts (types.ts stays import-free, the
+ *  same bargain `NoteAnchorInfo` strikes with shared/tex.ts). */
+export type DateCalendarSetting = "gregorian" | "hijri" | "both";
+/** Mirrors `TextDirection` / `TextAlign` in shared/textLayout.ts. */
+export type TextDirectionSetting = "auto" | "ltr" | "rtl";
+export type TextAlignSetting = "start" | "left" | "right" | "center" | "justify";
 
 /** What /api/settings answers: the stored keys (settings.json verbatim,
  *  validated) plus `effective` — the merged values the site is actually
@@ -246,10 +298,31 @@ export interface EffectiveSettings {
   shareButtons: boolean;
   favicon: string | null;
   logo: string | null;
+  /** The templates folder actually in force: the stored value when set, the
+   *  auto-detected one otherwise, null when neither. The client reads THIS —
+   *  a detected folder is as real as a configured one. */
+  templatesFolder: string | null;
+  /** Whether `templatesFolder` above was auto-detected rather than stored, so
+   *  the settings panel can say so instead of showing an empty field beside a
+   *  feature that is quietly working. */
+  templatesFolderDetected: boolean;
+  defaultTemplate: string | null;
   home: Required<Pick<HomeSettings, "mode">> & Omit<HomeSettings, "mode">;
   gitSync: GitSyncEffective;
   /** Typography slots in effect (every slot present, "system" when unset). */
   fonts: FontSlotsEffective;
+  /** Localization: the three display settings in force (defaults filled in)
+   *  plus the tag-label map the settings editor prefills from. */
+  dateCalendar: DateCalendarSetting;
+  textDirection: TextDirectionSetting;
+  textAlign: TextAlignSetting;
+  tagsFolder: string;
+  /** True when `tagsFolder` was auto-detected rather than configured — the
+   *  same fact `templatesFolderDetected` carries for the field above it, so
+   *  the panel can say which folder it found instead of leaving the reader to
+   *  guess whether an empty field means "tags" or "the one in your vault". */
+  tagsFolderDetected: boolean;
+  tagLabels: Record<string, Record<string, string>>;
 }
 
 /** PATCH /api/settings body: only the named keys change; null (or "") clears
@@ -274,6 +347,10 @@ export interface SettingsPatch {
     banner?: string | null;
   } | null;
   logo?: string | null;
+  /** Templates folder; null (or "") clears it back to auto-detection. */
+  templatesFolder?: string | null;
+  /** Template for new notes; null (or "") turns the default back off. */
+  defaultTemplate?: string | null;
   /** Git sync configuration; null clears the whole key. */
   gitSync?: {
     enabled?: boolean | null;
@@ -293,6 +370,25 @@ export interface SettingsPatch {
    *  400, and the server caches the chosen families before it stores them —
    *  a failed download is a 502 and settings.json is left untouched. */
   fonts?: FontSlotSettings | null;
+  /** Localization (null clears each back to its default). `tagLabels` is
+   *  replaced WHOLE, not merged: the settings editor holds the entire map on
+   *  screen, so a partial merge would make deleting a row impossible. */
+  dateCalendar?: DateCalendarSetting | null;
+  textDirection?: TextDirectionSetting | null;
+  textAlign?: TextAlignSetting | null;
+  tagsFolder?: string | null;
+  tagLabels?: Record<string, Record<string, string>> | null;
+}
+
+// GET /api/tag-labels → TagLabelsResponse. The DISPLAY names of the vault's
+// tags, merged from the tag pages' own frontmatter and settings.tagLabels.
+// Open to visitors (a chip's word is what the public site paints) but scoped
+// like every other tag surface: a visitor is told about visible tags only, so
+// the map cannot become an oracle for EXCLUDE_TAGS or for a tag carried solely
+// by language-filtered notes.
+export interface TagLabelsResponse {
+  /** canonical tag → language tag → label. */
+  labels: Record<string, Record<string, string>>;
 }
 
 // ── Typography (settings.fonts) ────────────────────────────────────────────
@@ -512,6 +608,22 @@ export interface NoteAnchorInfo {
 export interface AnchorsResponse {
   path: string;
   anchors: NoteAnchorInfo[];
+}
+
+// GET /api/banner?value=&note= → BannerResolution. One `banner:` value (or a
+// settings image reference) run down the resolution ladder: an https URL
+// passes through, a vault-relative path is checked, then the same path
+// relative to the referring note's own folder, then the basename through the
+// resolver `![[embeds]]` use. A miss is 200 with `path: null` — a typo'd
+// banner is an ordinary state of a vault, not an error — and null is what the
+// admin surfaces turn into the "missing image" placeholder and the visitor
+// surfaces turn into nothing at all.
+export interface BannerResolution {
+  /** Echo of the value asked about, so a late response can be matched. */
+  value: string;
+  /** An https URL, a vault-relative attachment path, or null (unresolvable —
+   *  or, for a visitor, resolvable but not theirs to fetch). */
+  path: string | null;
 }
 
 // GET /api/xref?label= | ?cite= → XrefResponse. The VAULT-WIDE half of LaTeX

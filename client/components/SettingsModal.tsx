@@ -29,6 +29,12 @@ import {
   uploadFont,
 } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
+// The calendar specimen: the panel shows what a choice PRINTS, in this
+// instance's own locale and numerals, before the reader commits to it.
+import { siteDateIn } from "../dates.ts";
+import "../styles/localization.css";
+import { useBannerSrc } from "./BannerImg.tsx";
+import { refreshTemplateSettings } from "../templates.ts";
 import { clearFontFaces, faceStack, loadFontFaces } from "../fontFaces.ts";
 import { countPhrase, localeNum, t, tf, type I18nKey } from "../i18n.ts";
 import { FONT_UPLOAD_MAX_MB, UPLOAD_MAX_MB } from "../../shared/limits.ts";
@@ -75,6 +81,13 @@ interface Form {
   homeMode: string;     // "" | "note" | "dashboard"
   homeNote: string;
   homeBanner: string;
+  // ── Templates ────────────────────────────────────────────────────────────
+  // Both empty by default. An empty folder field does NOT mean "no templates"
+  // — the server auto-detects an unambiguously named folder — so the row
+  // prints what was detected rather than sitting blank beside a working
+  // feature (the `inherited` note under it).
+  templatesFolder: string;
+  defaultTemplate: string;
   // ── Backup & sync (gitSync) ──────────────────────────────────────────────
   // These prefill from `effective` rather than from the stored keys: sync has
   // no env counterpart, so "inherit" is meaningless here — every control shows
@@ -97,6 +110,51 @@ interface Form {
   /** Optical size match for the Arabic face, in percent; "" = the catalog's
    *  own measured value (or none, for an uploaded face). */
   fontSizeAdjust: string;
+  // ── Localization ─────────────────────────────────────────────────────────
+  // Like sync and typography, these prefill from `effective`: none of them has
+  // an env counterpart, so "inherit" would name a fallback that does not
+  // exist. Their defaults ARE the values that change nothing.
+  dateCalendar: string;  // "gregorian" | "hijri" | "both"
+  textDirection: string; // "auto" | "ltr" | "rtl"
+  textAlign: string;     // "start" | "left" | "right" | "center" | "justify"
+  tagsFolder: string;
+  /** The tag-label table, as ROWS rather than as the wire map — the editor is
+   *  a list the reader adds to and deletes from, and a map cannot hold a row
+   *  that is being typed (its key is still empty). Never touched by `field()`,
+   *  which is for string controls. */
+  tagLabels: TagLabelRow[];
+}
+
+/** One row of the tag-label editor. `tag` is the CANONICAL tag; the other two
+ *  are what the front end says instead, per language. */
+interface TagLabelRow {
+  tag: string;
+  en: string;
+  ar: string;
+}
+
+/** The stored map → editor rows, sorted so the table does not reshuffle
+ *  itself between saves. */
+function labelRows(map: Record<string, Record<string, string>> | undefined): TagLabelRow[] {
+  return Object.entries(map ?? {})
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([tag, labels]) => ({ tag, en: labels.en ?? "", ar: labels.ar ?? "" }));
+}
+
+/** Editor rows → the wire map. Blank rows and blank languages drop out: a row
+ *  whose labels are both empty is a row the reader emptied, which is how a
+ *  label is deleted without a second gesture. */
+function labelMap(rows: TagLabelRow[]): Record<string, Record<string, string>> {
+  const out: Record<string, Record<string, string>> = {};
+  for (const row of rows) {
+    const tag = row.tag.trim().replace(/^#/, "").toLowerCase();
+    if (tag === "") continue;
+    const entry: Record<string, string> = {};
+    if (row.en.trim() !== "") entry.en = row.en.trim();
+    if (row.ar.trim() !== "") entry.ar = row.ar.trim();
+    if (Object.keys(entry).length > 0) out[tag] = entry;
+  }
+  return out;
 }
 
 function formFrom(s: SettingsResponse): Form {
@@ -118,6 +176,8 @@ function formFrom(s: SettingsResponse): Form {
     homeMode: s.home?.mode ?? "",
     homeNote: s.home?.note ?? "",
     homeBanner: s.home?.banner ?? "",
+    templatesFolder: s.templatesFolder ?? "",
+    defaultTemplate: s.defaultTemplate ?? "",
     syncEnabled: s.effective.gitSync.enabled ? "on" : "off",
     syncRemote: s.effective.gitSync.remote ?? "",
     syncBranch: s.effective.gitSync.branch,
@@ -135,6 +195,16 @@ function formFrom(s: SettingsResponse): Form {
     fontArabic: s.effective.fonts?.arabic ?? SYSTEM_FONT,
     fontSizeAdjust:
       s.effective.fonts?.arabicSizeAdjust == null ? "" : String(s.effective.fonts.arabicSizeAdjust),
+    dateCalendar: s.effective.dateCalendar ?? "gregorian",
+    textDirection: s.effective.textDirection ?? "auto",
+    textAlign: s.effective.textAlign ?? "start",
+    tagsFolder: s.tagsFolder ?? "",
+    // The STORED map only. The tag pages' own labels are merged in by the
+    // server at read time and deliberately never prefill this editor: a
+    // prefill carrying a label the vault owns would copy it into settings.json
+    // the first time the panel was saved, and the page would stop being the
+    // source of truth for its own name.
+    tagLabels: labelRows(s.tagLabels),
   };
 }
 
@@ -280,6 +350,109 @@ function validate(f: Form): Partial<Record<keyof Form, string>> {
   return errors;
 }
 
+/** THE TAG-LABEL TABLE.
+ *
+ *  A compact key/value editor and nothing more: one row per tag, one column
+ *  per language, a remove button per row and one Add at the foot. It is a
+ *  TABLE rather than a textarea of `tag = label` lines because the values are
+ *  two scripts side by side — an Arabic label typed into a line-oriented
+ *  field reorders around its own separator, and the reader is then editing a
+ *  string they cannot read back.
+ *
+ *  Three deliberate details:
+ *   · the TAG field is `dir="ltr"` and the LABEL fields are `dir="auto"`. A
+ *     canonical tag is machine text (it is a URL segment, an EXCLUDE_TAGS
+ *     match, a search key) and must never be reordered by an RTL panel; a
+ *     label is prose in its own language and takes its own direction. Their
+ *     ALIGNMENT still follows the panel, per controls.css's rule.
+ *   · a row with an empty tag is kept while it is being typed and dropped on
+ *     save (`labelMap`), so the first keystroke into a new row does not make
+ *     the row vanish.
+ *   · emptying BOTH labels deletes the label on save. There is no second
+ *     gesture for "clear this" because there is nothing to confirm: the tag
+ *     itself is untouched, and what comes back is the tag's own name. */
+function TagLabelEditor({
+  rows,
+  onChange,
+}: {
+  rows: TagLabelRow[];
+  onChange: (rows: TagLabelRow[]) => void;
+}) {
+  const set = (i: number, patch: Partial<TagLabelRow>): void => {
+    onChange(rows.map((row, n) => (n === i ? { ...row, ...patch } : row)));
+  };
+  return (
+    <div className="s-taglabels">
+      {rows.length === 0 ? (
+        <p className="s-taglabels__empty">{t("tagLabelsEmpty")}</p>
+      ) : (
+        <>
+          <div className="s-taglabels__head" aria-hidden="true">
+            <span>{t("tagLabelsTag")}</span>
+            <span>{t("tagLabelsEnglish")}</span>
+            <span>{t("tagLabelsArabic")}</span>
+            <span />
+          </div>
+          {rows.map((row, i) => (
+            <div className="s-taglabels__row" key={`row-${i}`}>
+              <TextInput
+                value={row.tag}
+                onChange={(v) => set(i, { tag: v })}
+                placeholder={t("tagLabelsTagPlaceholder")}
+                label={t("tagLabelsTag")}
+                dir="ltr"
+                maxLength={60}
+              />
+              <TextInput
+                value={row.en}
+                onChange={(v) => set(i, { en: v })}
+                placeholder={t("tagLabelsLabelPlaceholder")}
+                label={t("tagLabelsEnglish")}
+                dir="auto"
+                maxLength={60}
+              />
+              <TextInput
+                value={row.ar}
+                onChange={(v) => set(i, { ar: v })}
+                placeholder={t("tagLabelsLabelPlaceholder")}
+                label={t("tagLabelsArabic")}
+                dir="auto"
+                maxLength={60}
+              />
+              <button
+                type="button"
+                className="s-taglabels__del"
+                title={t("tagLabelsRemove")}
+                aria-label={t("tagLabelsRemove")}
+                onClick={() => onChange(rows.filter((_, n) => n !== i))}
+              >
+                {/* Geometry, not a glyph: an SVG ✕ takes no bidi and needs no
+                    mirroring rule. */}
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+                  <path
+                    d="M4 4l8 8M12 4l-8 8"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </>
+      )}
+      <button
+        type="button"
+        className="s-taglabels__add"
+        onClick={() => onChange([...rows, { tag: "", en: "", ar: "" }])}
+      >
+        {t("tagLabelsAdd")}
+      </button>
+    </div>
+  );
+}
+
 /** Mirrors of the server's gitSync validators (server/gitSync.ts). */
 const UNSAFE_REMOTE = /[\s`$;&|<>(){}[\]'"\\^*?!#]/;
 const REMOTE_RE = /^(https:\/\/|ssh:\/\/)\S+$|^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^:]+$/;
@@ -288,7 +461,18 @@ const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 /** The PATCH: only keys whose form value differs from the loaded snapshot. */
 function buildPatch(initial: Form, f: Form): SettingsPatch {
   const patch: SettingsPatch = {};
-  const str = (key: "siteName" | "tagline" | "footer" | "defaultTheme" | "blogLocale" | "favicon" | "logo"): void => {
+  const str = (
+    key:
+      | "siteName"
+      | "tagline"
+      | "footer"
+      | "defaultTheme"
+      | "blogLocale"
+      | "favicon"
+      | "logo"
+      | "templatesFolder"
+      | "defaultTemplate",
+  ): void => {
     const value = f[key].trim();
     if (value !== initial[key].trim()) patch[key] = value === "" ? null : value;
   };
@@ -299,6 +483,8 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
   str("blogLocale");
   str("favicon");
   str("logo");
+  str("templatesFolder");
+  str("defaultTemplate");
   if (f.language !== initial.language) {
     patch.language = f.language === "en" || f.language === "ar" ? f.language : null;
   }
@@ -365,6 +551,28 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
       // uploaded face goes back to none. null is how the server spells that.
       arabicSizeAdjust: adjust === "" ? null : Number(adjust),
     };
+  }
+  // ── Localization ─────────────────────────────────────────────────────────
+  if (f.dateCalendar !== initial.dateCalendar) {
+    patch.dateCalendar = f.dateCalendar === "hijri" || f.dateCalendar === "both" ? f.dateCalendar : null;
+  }
+  if (f.textDirection !== initial.textDirection) {
+    patch.textDirection = f.textDirection === "ltr" || f.textDirection === "rtl" ? f.textDirection : null;
+  }
+  if (f.textAlign !== initial.textAlign) {
+    patch.textAlign =
+      f.textAlign === "left" || f.textAlign === "right" || f.textAlign === "center" || f.textAlign === "justify"
+        ? f.textAlign
+        : null;
+  }
+  if (f.tagsFolder.trim() !== initial.tagsFolder.trim()) {
+    patch.tagsFolder = f.tagsFolder.trim() === "" ? null : f.tagsFolder.trim();
+  }
+  // The map travels WHOLE, never merged — the editor holds all of it on
+  // screen, so a merging PATCH would make deleting a row impossible.
+  const nextLabels = labelMap(f.tagLabels);
+  if (JSON.stringify(nextLabels) !== JSON.stringify(labelMap(initial.tagLabels))) {
+    patch.tagLabels = Object.keys(nextLabels).length > 0 ? nextLabels : null;
   }
   return patch;
 }
@@ -662,19 +870,32 @@ function ImageField({
   const [broken, setBroken] = useState(false);
   useEffect(() => setBroken(false), [trimmed]);
   const isImage = trimmed !== "";
-  const showImg = isImage && !invalid && !broken;
+  // The field's thumbnail answers "did what I typed find a file?", so it has
+  // to resolve the value the way the SITE will: bare filenames included
+  // (client/banner.ts). It used to preview /api/file?path=<whatever was
+  // typed>, which showed the ⌀ for a value the public page would have
+  // rendered perfectly — and vice versa.
+  const { src, pending, missing } = useBannerSrc(trimmed);
+  const showImg = isImage && !invalid && !broken && src !== null;
   return (
     <div className="s-smodal__imgfield">
       {showImg && (
         <img
           className="s-smodal__imgthumb"
-          src={bannerSrc(trimmed)}
+          src={src ?? ""}
           alt=""
           onError={() => setBroken(true)}
         />
       )}
-      {isImage && !showImg && (
-        <span className="s-smodal__imgthumb s-smodal__imgthumb--missing" aria-hidden="true">
+      {isImage && !invalid && pending && (
+        <span className="s-smodal__imgthumb s-smodal__imgthumb--pending" aria-hidden="true" />
+      )}
+      {isImage && !showImg && !pending && (
+        <span
+          className="s-smodal__imgthumb s-smodal__imgthumb--missing"
+          title={missing || broken ? tf("bannerMissingTitle", { value: trimmed }) : undefined}
+          aria-hidden="true"
+        >
           ⌀
         </span>
       )}
@@ -1453,6 +1674,10 @@ export default function SettingsModal() {
         setLoaded(s);
         setInitial(f);
         setForm(f);
+        // The template commands cache the folder and the default template
+        // (they open on a keystroke and must not wait on a round trip); this
+        // save may have just moved either one.
+        refreshTemplateSettings();
         // Everything the shell renders from /api/me follows live: wordmark,
         // logo, layout, theme default, favicon link.
         await useStore.getState().loadMe();
@@ -1851,6 +2076,125 @@ export default function SettingsModal() {
                   {(form.languageToggle === "on" || (form.languageToggle === "" && eff.languageToggle)) && (
                     <p className="s-smodal__offnote">{t("visitorSwitchOn")}</p>
                   )}
+
+                  {/* ── Calendar ────────────────────────────────────────────
+                      Under Language because it is the same question one layer
+                      down: the language decides the WORDS a date is spelled
+                      in, this decides which date it is. Hijri is Umm al-Qura
+                      — see shared/dates.ts for why that one and not the other
+                      three Intl offers. */}
+                  <div className="s-smodal__sub">{t("groupCalendar")}</div>
+                  <Row label={t("rowDateCalendar")} hint={t("hintDateCalendar")}>
+                    <SegmentedControl
+                      label={t("rowDateCalendar")}
+                      segments={[
+                        { value: "gregorian", label: t("calGregorian") },
+                        { value: "hijri", label: t("calHijri") },
+                        { value: "both", label: t("calBoth") },
+                      ]}
+                      {...field("dateCalendar")}
+                    />
+                  </Row>
+                  {/* A SPECIMEN, not a promise. The three words above name
+                      three calendars; this line is the only thing that shows
+                      what one of them actually prints, in this instance's own
+                      locale and numerals, and it moves as the segments do —
+                      the same argument the type specimen makes one tab over. */}
+                  <p className="s-smodal__note">
+                    {t("calSpecimen")}
+                    {": "}
+                    <bdi className="s-smodal__specdate">
+                      {siteDateIn(
+                        new Date(),
+                        eff.blogLocale,
+                        form.dateCalendar === "hijri" || form.dateCalendar === "both"
+                          ? form.dateCalendar
+                          : "gregorian",
+                        { dateStyle: "long" },
+                      )}
+                    </bdi>
+                  </p>
+                  <p className="s-smodal__note">{t("calFeedNote")}</p>
+                  {/* SUGGEST, NEVER FORCE. An Arabic instance still starts on
+                      the Gregorian calendar — changing what an existing site
+                      prints because its language changed would be a settings
+                      panel making an editorial decision. So the panel says the
+                      sentence and leaves the click to the owner. */}
+                  {(form.language === "ar" || (form.language === "" && eff.language === "ar")) &&
+                    form.dateCalendar === "gregorian" && (
+                      <p className="s-smodal__offnote">{t("calArabicSuggest")}</p>
+                    )}
+
+                  {/* ── Note layout ─────────────────────────────────────────
+                      Direction and alignment for the PROSE, applied
+                      identically in the editor, the reading view and blog
+                      articles. A note overrides both from its own
+                      frontmatter, and says so where the reader can see it. */}
+                  <div className="s-smodal__sub">{t("groupNoteLayout")}</div>
+                  <Row label={t("rowTextDirection")} hint={t("hintTextDirection")}>
+                    <SegmentedControl
+                      label={t("rowTextDirection")}
+                      segments={[
+                        { value: "auto", label: t("layoutDirAuto") },
+                        { value: "ltr", label: t("layoutDirLtr") },
+                        { value: "rtl", label: t("layoutDirRtl") },
+                      ]}
+                      {...field("textDirection")}
+                    />
+                  </Row>
+                  {/* Five values, so a Select rather than a fifth segment: a
+                      segmented control this wide stops being scannable and
+                      starts wrapping, which is the trap the theme list was
+                      moved out of the palette to avoid. */}
+                  <Row label={t("rowTextAlign")} hint={t("hintTextAlign")}>
+                    <Select
+                      label={t("rowTextAlign")}
+                      options={[
+                        { value: "start", label: t("layoutAlignStart") },
+                        { value: "left", label: t("layoutAlignLeft") },
+                        { value: "right", label: t("layoutAlignRight") },
+                        { value: "center", label: t("layoutAlignCenter") },
+                        { value: "justify", label: t("layoutAlignJustify") },
+                      ]}
+                      {...field("textAlign")}
+                    />
+                  </Row>
+                  <p className="s-smodal__note">{t("noteLayoutOverride")}</p>
+
+                  {/* ── Tag labels ──────────────────────────────────────────
+                      DISPLAY ONLY, and the copy says so before the table does
+                      anything: the vault keeps its canonical tags, the URLs
+                      keep canonical slugs, and search answers to both. */}
+                  <div className="s-smodal__sub">{t("groupTagLabels")}</div>
+                  <p className="s-smodal__note">{t("tagLabelsNote")}</p>
+                  <Row
+                    label={t("rowTagsFolder")}
+                    hint={t("hintTagsFolder")}
+                    inherited={form.tagsFolder.trim() === ""}
+                  >
+                    <TextInput
+                      placeholder={eff.tagsFolder}
+                      dir="ltr"
+                      label={t("rowTagsFolder")}
+                      {...field("tagsFolder")}
+                    />
+                  </Row>
+                  {/* Same note the templates folder carries, from the same
+                      key: both fields auto-detect, so both have to SAY which
+                      folder they found — an empty field that silently means
+                      "2 - Tags" on this vault and "tags" on the next one is a
+                      field the reader cannot reason about. */}
+                  {form.tagsFolder.trim() === "" && eff.tagsFolderDetected && (
+                    <p className="s-smodal__note">
+                      {tf("templatesDetectedHint", { folder: eff.tagsFolder })}
+                    </p>
+                  )}
+                  <Row label={t("tagLabelsRowLabel")} hint={t("tagLabelsPageWins")} wide>
+                    <TagLabelEditor
+                      rows={form.tagLabels}
+                      onChange={(rows) => setForm((f) => (f ? { ...f, tagLabels: rows } : f))}
+                    />
+                  </Row>
                 </section>
                 )}
 
@@ -1951,6 +2295,44 @@ export default function SettingsModal() {
                       disabled={homeOff}
                       onChange={(v) => setForm((f) => (f ? { ...f, homeBanner: v } : f))}
                       onOpenPicker={() => setPicker("homeBanner")}
+                    />
+                  </Row>
+                  {/* TEMPLATES SIT UNDER PUBLISHING, and not as a filing
+                      accident: the templates folder is the one setting that
+                      REMOVES notes from the blog's post list. A stencil
+                      carrying `publish: true` — which is exactly what a
+                      publishing template carries, so the notes made from it
+                      inherit it — would otherwise appear on the site as an
+                      article of literal `{{date}}` placeholders. */}
+                  <div className="s-smodal__sub">{t("templatesSection")}</div>
+                  <p className="s-smodal__note">{t("templatePlaceholdersHint")}</p>
+                  <Row
+                    label={t("templatesFolderLabel")}
+                    hint={t("templatesFolderHint")}
+                    inherited={form.templatesFolder.trim() === "" && eff.templatesFolder !== null}
+                  >
+                    <TextInput
+                      // The placeholder is the DETECTED folder when there is
+                      // one: an empty field beside a working feature has to
+                      // say what is in force, or the reader clears a folder
+                      // they never set and cannot tell what changed.
+                      placeholder={eff.templatesFolder ?? "Templates"}
+                      dir="ltr"
+                      label={t("templatesFolderLabel")}
+                      {...field("templatesFolder")}
+                    />
+                  </Row>
+                  {form.templatesFolder.trim() === "" && eff.templatesFolderDetected && eff.templatesFolder && (
+                    <p className="s-smodal__note">
+                      {tf("templatesDetectedHint", { folder: eff.templatesFolder })}
+                    </p>
+                  )}
+                  <Row label={t("defaultTemplateLabel")} hint={t("defaultTemplateHint")}>
+                    <TextInput
+                      placeholder={eff.templatesFolder ? `${eff.templatesFolder}/Note.md` : "Templates/Note.md"}
+                      dir="ltr"
+                      label={t("defaultTemplateLabel")}
+                      {...field("defaultTemplate")}
                     />
                   </Row>
                 </section>

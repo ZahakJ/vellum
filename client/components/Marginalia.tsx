@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CommentData } from "../../shared/types.ts";
 import { withPreview } from "../api.ts";
+import { siteDate } from "../dates.ts";
 import { countPhrase, localeDigits, t } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
@@ -229,7 +230,22 @@ export default function Marginalia({ path }: { path: string }) {
             >
               <div className="s-comment__meta">
                 <span className="s-comment__author" dir="auto">{authorName(cm.author)}</span>
-                <span className="s-comment__time">{relativeTime(cm.createdMs, locale)}</span>
+                {/* "5 minutes ago" has no calendar to be in, so the ABSOLUTE
+                    date rides in the tooltip — and it is the one place a
+                    marginalia timestamp can answer the instance's calendar
+                    setting at all. `time` is the honest element for it: the
+                    machine-readable value stays the ISO instant whatever the
+                    site displays. */}
+                <time
+                  className="s-comment__time"
+                  dateTime={new Date(cm.createdMs).toISOString()}
+                  title={siteDate(cm.createdMs, locale, {
+                    dateStyle: "long",
+                    timeStyle: "short",
+                  })}
+                >
+                  {relativeTime(cm.createdMs, locale)}
+                </time>
                 {cm.hidden && <span className="s-comment__chip">{t("hiddenChip")}</span>}
                 {admin && cm.id > 0 && (
                   <span className="s-comment__tools">

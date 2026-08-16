@@ -2,24 +2,108 @@
 // shared by the live-preview plugin (editor chunk) and the reading-view
 // renderer (first-paint chunk). No CodeMirror imports here.
 
-import { bannerSrc } from "../banner.ts";
-import { localeNum, t } from "../i18n.ts";
+import { bannerSrc, resolveBanner } from "../banner.ts";
+import { localeNum, t, tf } from "../i18n.ts";
+import { layoutBadge, siteTextLayout } from "../textLayout.ts";
+import { parseNoteLayout, resolveNoteLayout } from "../../shared/textLayout.ts";
 
-/** Frontmatter `banner:` → hero image element (editor + reading view share
- *  the DOM shape; callers pass their prefix class). Unloadable images remove
- *  themselves — no broken-image furniture above a note. */
-export function buildBannerEl(value: string, className: string): HTMLElement {
+export interface BannerElOpts {
+  /** The note the value was written in — the third rung of the resolution
+   *  ladder ("cover.png beside the note"). Null for a value that belongs to
+   *  no note (a settings image). */
+  notePath?: string | null;
+  /** True for a session that may EDIT this note. It decides what a banner
+   *  that resolves to nothing looks like, and it is the whole rule below. */
+  admin?: boolean;
+}
+
+/** Frontmatter `banner:` → hero image element (editor + reading view share the
+ *  DOM shape; callers pass their prefix class).
+ *
+ *  A BANNER THAT CANNOT LOAD MUST NOT ERASE ITSELF. This function used to do
+ *  exactly that — `img.onerror → wrap.remove()` — which made a typo'd path and
+ *  no banner at all render identically: the author sets `banner: cover.png`,
+ *  sees nothing appear, and has no way to tell whether the feature is broken,
+ *  the file is missing, or the value never took. Silent failure on the one
+ *  surface whose whole job is to show you your own file.
+ *
+ *  So the rule is split by audience, the same way the broken-embed placeholder
+ *  is: an ADMIN gets the dashed "missing image" card naming the value that
+ *  failed, with "Set banner…" beside it — the fix is one click from the
+ *  symptom. A VISITOR gets nothing, because a stranger cannot act on it and a
+ *  dashed box on a published article is the author's mess on the reader's
+ *  page. */
+export function buildBannerEl(
+  value: string,
+  className: string,
+  opts: BannerElOpts = {},
+): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = className;
-  const img = document.createElement("img");
-  img.className = `${className}__img`;
-  img.alt = "";
-  img.loading = "lazy";
-  img.decoding = "async";
-  img.addEventListener("error", () => wrap.remove(), { once: true });
-  img.src = bannerSrc(value);
-  wrap.appendChild(img);
+  const admin = opts.admin === true;
+  const missing = (): void => {
+    if (!admin) {
+      wrap.remove();
+      return;
+    }
+    wrap.classList.add(`${className}--missing`);
+    wrap.replaceChildren(missingBannerCard(value, className));
+  };
+  const paint = (path: string | null): void => {
+    if (path === null) {
+      missing();
+      return;
+    }
+    const img = document.createElement("img");
+    img.className = `${className}__img`;
+    img.alt = "";
+    img.loading = "lazy";
+    img.decoding = "async";
+    // The resolution said the file EXISTS; a load failure here is a byte-level
+    // problem (a truncated upload, a 403) and gets the same honest card.
+    img.addEventListener("error", () => missing(), { once: true });
+    img.src = bannerSrc(path);
+    wrap.replaceChildren(img);
+  };
+  const hit = resolveBanner(value, opts.notePath ?? null);
+  if (typeof hit === "string" || hit === null) paint(hit);
+  else void hit.then(paint); // in flight: the hero appears when it lands
   return wrap;
+}
+
+/** The admin-only "this banner names nothing" card: the same dashed language
+ *  as the broken-embed placeholder, the failing value spelled out (it is the
+ *  one fact the author needs — usually a typo they can see the moment it is on
+ *  screen), and the button that fixes it. */
+function missingBannerCard(value: string, className: string): HTMLElement {
+  const box = document.createElement("div");
+  box.className = `${className}__missing`;
+  const icon = document.createElement("span");
+  icon.className = `${className}__missingicon`;
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML =
+    '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>';
+  const label = document.createElement("span");
+  label.className = `${className}__missinglabel`;
+  label.textContent = t("bannerMissing");
+  const which = document.createElement("span");
+  which.className = `${className}__missingname`;
+  // Note-derived text inside chrome takes its OWN direction.
+  which.dir = "auto";
+  which.textContent = value;
+  which.title = tf("bannerMissingTitle", { value });
+  const action = document.createElement("button");
+  action.type = "button";
+  action.className = `${className}__missingaction`;
+  action.dataset.action = "set-banner";
+  action.textContent = t("setBannerAction");
+  action.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    window.dispatchEvent(new CustomEvent("vellum:set-banner"));
+  });
+  box.append(icon, label, which, action);
+  return box;
 }
 
 /** Inline #tag matcher (unicode letters, digits, _, /, -). */
@@ -136,6 +220,27 @@ export function buildPropsCard(yaml: string, opts: PropsCardOpts): HTMLElement |
   label.className = `${p}__label`;
   label.textContent = `${t("properties")} · ${localeNum(rows.length)}`;
   head.append(chevron, label);
+
+  // A NOTE THAT LAYS ITSELF OUT DIFFERENTLY SAYS SO, HERE FIRST.
+  // `dir:` and `align:` are frontmatter keys, so the properties card is where
+  // a reader looks for them — and the expanded card already lists them as raw
+  // rows. What the raw rows cannot say is that the value is IN FORCE and that
+  // it disagrees with the site: the chip is that sentence, it survives the
+  // collapsed state (which is the default), and its tooltip names the source
+  // of both halves. The status bar prints the same words from the same
+  // module. Nothing is drawn when the note agrees with the site default —
+  // a badge that is always lit is a badge nobody reads.
+  const badge = layoutBadge(resolveNoteLayout(siteTextLayout(), parseNoteLayout(yaml)));
+  if (badge) {
+    const chip = document.createElement("span");
+    chip.className = `${p}__layout`;
+    chip.textContent = badge.text;
+    chip.title = badge.title;
+    // Outside the isolate rule's remit: these are localized chrome WORDS, not
+    // note-derived text, so they take the chrome's direction like every other
+    // label in the card's header.
+    head.appendChild(chip);
+  }
 
   if (tags.length > 0) {
     const inline = document.createElement("span");

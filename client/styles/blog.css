@@ -58,13 +58,21 @@
 
 /* ── Nav ───────────────────────────────────────────────────────────────── */
 
+/* STICKY AND OPAQUE. This was `--bg` at 86% over a 12px backdrop blur, and a
+   blurred-but-legible sentence is still a sentence: at 390 — where the column
+   is narrow, the bar is 52px and there is always prose under it — "something
+   the author put there." read clean through the word TOPICS. Blur softens
+   contrast; it does not stop a reader parsing letterforms, and the one thing a
+   masthead may never do is compete with the article it sits over. The two
+   hairlines are what separate it from the page, as they always were; the
+   ground behind them is now the page's own, at full strength, in all fifteen
+   themes and with no dependency on whether the device composites a backdrop
+   filter at all. */
 .s-blog-nav {
   position: sticky;
   top: 0;
   z-index: 30;
-  background: color-mix(in srgb, var(--bg) 86%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--bg);
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }

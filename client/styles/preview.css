@@ -560,6 +560,128 @@
   color: var(--accent);
 }
 
+/* ── The section affordance (⋯), beside the fold chevron ───────────────────
+   The chevron pulls itself into the prose gutter with a negative margin,
+   which is a trick only ONE element on a line can play: a second one shifts
+   the first, and the heading's own text goes with it. So this button is
+   absolutely positioned out of a zero-width host and costs the line nothing.
+   It sits further out than the chevron (-48px against -26px), in the gutter
+   the editor already reserves, so the pair reads as one cluster of controls
+   for the heading rather than as two unrelated glyphs.
+
+   IT IS A HOVER AFFORDANCE, AND THAT IS NOT A CONTRADICTION OF THE CHEVRON'S
+   RULE. The chevron is visible at rest because folding had NO other door —
+   the owner could not find it, and the fix for an invisible control is not a
+   help-sheet row. This menu has four: a right-click on any heading line, the
+   same right-click on any outline row, Shift+F10 / the Menu key, and the
+   keystrokes for the commands it holds. A ⋯ printed at full strength on every
+   heading of a forty-heading note is noise in the one column the product
+   exists to keep quiet. On a COARSE pointer there is no hover to reveal it,
+   so there it is always on — the same exception the touch shell makes
+   everywhere else. */
+
+.s-editor .cm-s-secthost {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 0;
+  vertical-align: baseline;
+}
+
+.s-editor .cm-s-sectbtn {
+  position: absolute;
+  inset-inline-start: -48px;
+  /* THE PAIR IS ONE CLUSTER, SO IT LINES UP. At `-0.28em` the ⋯ centre sat a
+     measured 2px under the fold chevron's at every heading level — two glyphs
+     in the same gutter, both `--text-faint`, neither on the other's line. The
+     2px is a constant (the widget host does not inherit the heading's size),
+     so the correction is one. */
+  bottom: calc(-0.28em + 2px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms ease, color 150ms ease, background 150ms ease;
+}
+
+.s-editor .cm-line:hover .cm-s-sectbtn,
+.s-editor .cm-s-sectbtn:focus-visible {
+  opacity: 1;
+}
+
+.s-editor .cm-s-sectbtn:hover {
+  opacity: 1;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ── The ⋯ on a coarse pointer: it leaves the gutter ───────────────────────
+   THE GUTTER CANNOT HOLD IT, AT ANY WIDTH. `--prose-gutter` is
+   `min(56px, 7.37%)`, so a phone reserves 28.7px at 390 and 26.5px at 360 —
+   and this button used to hang at `inset-inline-start: -52px` off a
+   zero-width host with nothing clamping it, which put a 30px button at
+   left=-17.3 / right=12.7 on a 390px screen: 58% of the only door this menu
+   has on a device with no hover, no right-click, no Shift+F10 and no keymap,
+   bled off the leading edge of the viewport. DESIGN.md: "Never let any
+   panel's content overflow the viewport horizontally."
+
+   Widening it in place is not available either. The fold chevron already owns
+   the gutter (-26px, 18px wide), and the touch shell's own rule is a 44px
+   target: 44 + 18 is 62px of controls for 56px of gutter even on a tablet,
+   which is why the 30px compromise shipped under a comment claiming 44. The
+   two controls do not fit side by side, so the ⋯ moves INSIDE the column, to
+   the heading's inline end, and the gutter is left to the chevron alone.
+
+   The heading line becomes the containing block (it is the only element that
+   knows where the heading's own line box ends) and reserves the room, so the
+   button never lands on the title's letters. Everything is logical, so an
+   Arabic note puts it on the left. */
+@media (pointer: coarse) {
+  .s-editor .cm-line:has(.cm-s-sectbtn) {
+    position: relative;
+    padding-inline-end: 44px;
+  }
+
+  .s-editor .cm-s-secthost {
+    position: static; /* the LINE positions the button, not the zero-width host */
+  }
+
+  .s-editor .cm-s-sectbtn {
+    opacity: 1;
+    width: 44px;
+    height: 44px;
+    inset-inline-start: auto;
+    inset-inline-end: 0;
+    /* Centred on the heading's own line box. */
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+  }
+}
+
+/* Focus mode: everything but one section is folded away. The mode is
+   announced in a toast (a mode the reader cannot see is the bug this product
+   keeps writing down), and the column carries a quiet accent edge for as long
+   as it lasts — enough to answer "why is the rest of my note gone", not
+   enough to compete with the section it exists to isolate. */
+.s-editor .cm-s-focussection .cm-content {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* box-shadow has no logical inset — paint the edge on the LEADING side in
+   both directions, the rule the active outline row already follows. */
+[dir="rtl"] .s-editor .cm-s-focussection .cm-content {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
 .s-editor .cm-s-foldmore {
   display: inline-block;
   margin-inline-start: 0.5em;
@@ -613,13 +735,14 @@
 
 .s-editor .cm-s-hr-rule {
   position: relative;
-  height: 1px;
+  height: 2px;
+  border-radius: 2px;
   margin: 1.4em 0;
   background: linear-gradient(
     to right,
     transparent,
-    color-mix(in srgb, var(--accent) 65%, transparent) 22%,
-    color-mix(in srgb, var(--accent) 65%, transparent) 78%,
+    color-mix(in srgb, var(--accent) 88%, transparent) 15%,
+    color-mix(in srgb, var(--accent) 88%, transparent) 85%,
     transparent
   );
 }

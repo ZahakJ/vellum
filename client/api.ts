@@ -17,6 +17,7 @@ import type {
   SettingsPatch,
   SettingsResponse,
   TagCount,
+  TagLabelsResponse,
   TreeNode,
   UploadResult,
   VaultEvent,
@@ -221,6 +222,13 @@ export function getBacklinks(path: string): Promise<Backlink[]> {
 
 export function getTags(): Promise<TagCount[]> {
   return request<TagCount[]>("/api/tags");
+}
+
+/** The DISPLAY names of the vault's tags (canonical tag → language → label).
+ *  Scoped by the session exactly as /api/tags is; the canonical tag stays the
+ *  key everywhere, so this changes what a chip SAYS and nothing else. */
+export function getTagLabels(): Promise<TagLabelsResponse> {
+  return request<TagLabelsResponse>("/api/tag-labels");
 }
 
 export function getMe(): Promise<MeData> {

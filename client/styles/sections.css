@@ -1,0 +1,55 @@
+/* The heading menu's own chrome.
+ *
+ * It reuses `.s-menu` from app.css verbatim — two context menus that look
+ * different in one app is a bug, not a feature, and the tree's menu is the one
+ * every reader has already met. What is here is only what a HEADING menu needs
+ * and a tree row's does not: a title that names the section being acted on
+ * (three of these rows say "section" without naming one, and the reader may
+ * have right-clicked a row inside a forty-entry outline), and a hairline ahead
+ * of the one row that writes a new file.
+ *
+ * Its own stylesheet rather than a block in app.css because the menu is its
+ * own component (client/sectionMenu.ts), opened from three trees that share no
+ * ancestor; imported from there, so the rules arrive exactly when the menu can.
+ */
+
+.s-menu--section {
+  min-width: 216px;
+  max-width: 320px;
+}
+
+.s-menu__title {
+  padding: 5px 12px 7px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-serif);
+  font-size: 0.857rem;
+  font-weight: 700;
+  color: var(--accent);
+  /* One line: the menu is not the place to read a long heading, and a title
+     that wraps to four lines moves every row under it away from the pointer. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* EXTRACTION IS THE ONE ROW THAT CREATES A FILE and takes content out of the
+ * note. It is not destructive — the section is moved, not erased, and the
+ * toast carries an Undo — so it is not `--danger`; but it does not belong
+ * flush against "copy", which changes nothing at all. The hairline is the same
+ * one app.css draws ahead of the tree menu's destructive tail, for the same
+ * reason: a flat list of six rows says all six weigh the same.
+ */
+.s-menu__item--extract {
+  position: relative;
+  margin-top: 7px;
+}
+
+.s-menu__item--extract::before {
+  content: "";
+  position: absolute;
+  inset-inline: -5px;
+  top: -4px;
+  height: 1px;
+  background: var(--border);
+}

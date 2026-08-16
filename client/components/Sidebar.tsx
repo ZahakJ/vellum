@@ -6,9 +6,12 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
 import type { AttachmentKind, SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
 import { getGraph, getTags, search } from "../api.ts";
-import { bannerSrc } from "../banner.ts";
+import { useBannerSrc } from "./BannerImg.tsx";
 import { collectNotes, resolveLink, type NoteRef } from "../editor/links.ts";
 import { countPhrase, localeNum, t, tf, type Lang } from "../i18n.ts";
+// Tag chips print the vault's own display label when one exists (a tag page's
+// `labels:` map, or settings.tagLabels); `data`/keys/searches stay canonical.
+import { label as tagLabel, useTagLabels } from "../tagLabels.ts";
 import {
   autoScroll,
   beginDrag,
@@ -17,6 +20,7 @@ import {
   draggedItem,
   droppedImages,
   endDrag,
+  itemLabel,
   itemOf,
   makeDragGhost,
   moveTo,
@@ -24,6 +28,7 @@ import {
   uploadInto,
 } from "../move.ts";
 import { promptNewFolder, promptNewNote } from "../prompts.ts";
+import { newNoteFromTemplateCommand } from "../templateActions.ts";
 import { useStore } from "../state.ts";
 import AttachmentViewer, { fileUrl, isViewable } from "./AttachmentViewer.tsx";
 import { confirmModal, confirmModalEx } from "./Confirm.tsx";
@@ -187,7 +192,9 @@ function buildTopics(
   }
   const sections: TopicSectionData[] = [...byTag.entries()]
     .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
-    .map(([tag, list]) => ({ key: `#${tag}`, label: tag, notes: list }));
+    // The KEY stays canonical (it is a localStorage persistence key and must
+    // survive a label being renamed); only the LABEL is localised.
+    .map(([tag, list]) => ({ key: `#${tag}`, label: tagLabel(tag), notes: list }));
   if (untagged.length > 0) {
     sections.push({ key: "untagged", label: t("notes"), notes: untagged });
   }
@@ -320,6 +327,11 @@ export default function Sidebar() {
   // into the memoized rows below so their tooltips follow.
   const lang = useStore((s) => s.language);
   const logo = useStore((s) => s.logo);
+  // The logo is an admin-typed image reference, so it climbs the same
+  // resolution ladder a note's `banner:` does (client/banner.ts): a bare
+  // "mark.svg" finds brand/mark.svg. Unresolvable falls back to the wordmark
+  // — the identity the sidebar has always had — never to a broken <img>.
+  const logoSrc = useBannerSrc(logo).src;
   const publishedFilter = useStore((s) => s.publishedFilter);
   const publishedPaths = useStore((s) => s.publishedPaths);
 
@@ -503,9 +515,16 @@ export default function Sidebar() {
   // about an `fs.rm` while the folder beside it in the same menu promised
   // .trash. Default: move; the erase is the quiet third route, and it asks a
   // second time wearing red.
+  //
+  // NAMED THE WAY THE ROW NAMES IT. One label rule for every gesture that
+  // starts on a tree row (move.ts `itemLabel`): the row reads "Welcome", so the
+  // dialog asks about "Welcome" — the `.md` lives on in the BODY, which prints
+  // the path, because that is where the reader is being shown what is at risk
+  // on disk.
   const confirmDelete = (node: TreeNode) => {
+    const shown = itemLabel(itemOf(node));
     void confirmModalEx({
-      title: tf("deleteNoteTitle", { name: node.name }),
+      title: tf("deleteNoteTitle", { name: shown }),
       body: tf("deleteNoteBody", { path: node.path }),
       confirmLabel: t("moveToTrash"),
       extraLabel: t("deletePermanently"),
@@ -516,7 +535,7 @@ export default function Sidebar() {
       }
       if (result !== "extra") return;
       void confirmModal({
-        title: tf("deleteNotePermTitle", { name: node.name }),
+        title: tf("deleteNotePermTitle", { name: shown }),
         body: tf("deleteNotePermBody", { path: node.path }),
         confirmLabel: t("deletePermanently"),
         grave: true,
@@ -669,10 +688,16 @@ export default function Sidebar() {
   // Visitor sidebar: blog-style topic sections derived from published notes'
   // tags. Falls back to the flat list until the tag map has loaded. The admin
   // sidebar (tree + "published only" filter) is untouched.
+  // "The labels moved" — a settings save, a tag page edited, a session change.
+  // A version number rather than the map: see client/tagLabels.ts.
+  const tagLabelsVersion = useTagLabels();
   const topics = useMemo(() => {
     if (admin || !flatNotes || noteTags === null) return null;
     return buildTopics(flatNotes.notes, flatNotes.home, noteTags);
-  }, [admin, flatNotes, noteTags]);
+    // `lang` and the label version are dependencies because buildTopics bakes
+    // the DISPLAY label into each section — a topic renamed in Settings must
+    // repaint without a reload.
+  }, [admin, flatNotes, noteTags, lang, tagLabelsVersion]);
 
   return (
     // Named by what it holds ("Notes sidebar"), never by the edge it is on:
@@ -709,8 +734,8 @@ export default function Sidebar() {
             title={t("viewPublicSite")}
             onClick={() => void useStore.getState().setPreviewVisitor(true)}
           >
-            {logo ? (
-              <img className="s-title__logo" src={bannerSrc(logo)} alt={siteName} />
+            {logoSrc ? (
+              <img className="s-title__logo" src={logoSrc} alt={siteName} />
             ) : (
               <>
                 <span className="s-title__star" aria-hidden="true">✦</span>
@@ -720,8 +745,8 @@ export default function Sidebar() {
           </button>
         ) : (
           <h1 className="s-title">
-            {logo ? (
-              <img className="s-title__logo" src={bannerSrc(logo)} alt={siteName} />
+            {logoSrc ? (
+              <img className="s-title__logo" src={logoSrc} alt={siteName} />
             ) : (
               <>
                 <span className="s-title__star" aria-hidden="true">✦</span>
@@ -953,7 +978,7 @@ export default function Sidebar() {
                     blog's .s-blog-chip. */}
                 <bdi className="s-tag__name">
                   <span className="s-tag__hash" aria-hidden="true">#</span>
-                  {tag}
+                  {tagLabel(tag)}
                 </bdi>
                 <span className="s-tag__count">{localeNum(count)}</span>
               </button>
@@ -1011,6 +1036,22 @@ export default function Sidebar() {
                 }}
               >
                 {t("newNoteHere")}
+              </button>
+              {/* The third door into templates, and the one that carries a
+                  DESTINATION: the palette and the keystroke create wherever
+                  the reader last was, while this one creates in the folder
+                  under the pointer — which is the whole reason someone
+                  right-clicked a folder. */}
+              <button
+                type="button"
+                className="s-menu__item"
+                onClick={() => {
+                  const dir = menu.node.path;
+                  setMenu(null);
+                  void newNoteFromTemplateCommand(dir);
+                }}
+              >
+                {t("cmdNewFromTemplate")}
               </button>
               <button
                 type="button"

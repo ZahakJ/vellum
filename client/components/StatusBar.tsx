@@ -14,12 +14,15 @@
 import { Fragment, useEffect, useState } from "react";
 import { getNote } from "../api.ts";
 import { countPhrase, t, tf } from "../i18n.ts";
+import { MetaSep } from "../metaSep.tsx";
 import { isPublishedContent } from "../publish.ts";
 import { DRAWER_QUERY, useStore } from "../state.ts";
 import { themeGroup } from "../themes.ts";
 import SyncBadge from "./SyncBadge.tsx";
 import { openThemePicker } from "./ThemePicker.tsx";
 import { noteLabelOf, stripNoteExt } from "../../shared/noteFormat.ts";
+import { dailyNoteLabel } from "../daily.ts";
+import { isHardWrapped, layoutBadge, noteLayout, type NoteLayout } from "../textLayout.ts";
 
 /** True while the shell shows the sidebar as an overlay drawer (app.css's
  *  `@media (max-width: 999px)`). The switch below has to know: at those widths
@@ -172,10 +175,21 @@ export default function StatusBar() {
   const vimSub = vimMode ? vimSubCopy(vimSubMode) : null;
 
   const [counts, setCounts] = useState<{ words: number; chars: number } | null>(null);
+  // The open note's direction/alignment, resolved against the site default.
+  // It rides the SAME fetch the word count already makes — a second request
+  // per note open to read two frontmatter keys would be a request nobody
+  // asked for. Re-resolved whenever the site default moves, too.
+  const [layout, setLayout] = useState<NoteLayout | null>(null);
+  const [hardWrapped, setHardWrapped] = useState(false);
+  const siteDir = useStore((s) => s.textDirection);
+  const siteAlign = useStore((s) => s.textAlign);
+  const layoutChip = layout ? layoutBadge(layout, hardWrapped) : null;
 
   useEffect(() => {
     if (!openPath) {
       setCounts(null);
+      setLayout(null);
+      setHardWrapped(false);
       return;
     }
     if (isDirty) return; // wait for the autosave to land, then recount
@@ -184,6 +198,8 @@ export default function StatusBar() {
       .then((note) => {
         if (!cancelled) {
           setCounts({ words: countWords(note.content), chars: note.content.length });
+          setLayout(noteLayout(note.content));
+          setHardWrapped(isHardWrapped(note.content));
           // Single source for the open note's publish state: its frontmatter.
           const s = useStore.getState();
           if (s.openPath === openPath) s.setOpenPublished(isPublishedContent(note.content));
@@ -195,13 +211,22 @@ export default function StatusBar() {
     return () => {
       cancelled = true;
     };
-  }, [openPath, isDirty, reloadTick]);
+    // siteDir/siteAlign are dependencies because the RESOLUTION depends on
+    // them: a note carrying `align: center` stops disagreeing the moment the
+    // site itself is set to centre, and the segment has to go away with it.
+  }, [openPath, isDirty, reloadTick, siteDir, siteAlign]);
 
   // Visitors browse a flat curated collection — never leak folder structure.
+  // A DAILY NOTE KEEPS ITS ISO FILENAME AND SHOWS THE INSTANCE'S CALENDAR.
+  // `daily/2026-08-16.md` is still `daily/2026-08-16.md` on disk, in every
+  // wikilink and in every sort — but on a Hijri instance the bar names it
+  // «٢ صفر ١٤٤٨ هـ», which is the date its writer was actually living in.
+  // Null in gregorian mode, where the filename already IS that date.
+  const leaf = openPath ? (dailyNoteLabel(openPath) ?? noteLabelOf(openPath)) : "";
   const crumbs = openPath
     ? admin
-      ? [...stripNoteExt(openPath).split("/").slice(0, -1), noteLabelOf(openPath)]
-      : [noteLabelOf(openPath)]
+      ? [...stripNoteExt(openPath).split("/").slice(0, -1), leaf]
+      : [leaf]
     : [];
 
   return (
@@ -261,7 +286,9 @@ export default function StatusBar() {
         <span className="s-statusbar__group s-statusbar__ambient">
           {counts && (
             <span className="s-statusbar__counts">
-              {countPhrase(counts.words, "words")} · {countPhrase(counts.chars, "chars")}
+              {countPhrase(counts.words, "words")}
+              <MetaSep />
+              {countPhrase(counts.chars, "chars")}
             </span>
           )}
           {admin && publishedCounts && (
@@ -303,6 +330,23 @@ export default function StatusBar() {
           alone knows whether it draws anything, and an empty wrapper here
           would leave a rule with nothing behind it. */}
       <SyncBadge />
+      {/* ── The open note's own text layout ───────────────────────────────
+          Shown ONLY when the note disagrees with the site default — a segment
+          that is always lit says nothing, and the site's own setting is
+          already named in Settings → Language. The words and the tooltip come
+          from client/textLayout.ts, the same source the properties card
+          prints, so the two surfaces cannot drift. Quiet by construction: it
+          is a label, not a switch (the value lives in the note's frontmatter,
+          which is where it is changed), so it takes no ModePill treatment. */}
+      {layoutChip && (
+        <span
+          className="s-statusbar__group s-statusbar__layout"
+          title={layoutChip.title}
+          aria-label={`${t("layoutSegmentLabel")}: ${layoutChip.title}`}
+        >
+          {layoutChip.text}
+        </span>
+      )}
       {/* ── Mode cluster ──────────────────────────────────────────────────
           Lit = this mode is ON right now. Every pill leaves its own mode. */}
       {(admin || previewVisitor) && (

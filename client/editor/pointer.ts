@@ -34,6 +34,28 @@
 // which is exactly what "click the rendered math to edit its source" means.
 // `posAtCoords` survives only as the last resort, for points the DOM refuses
 // to answer for (outside the content, past the end of the document).
+//
+// ONE CORRECTION ON TOP OF IT, AND IT IS A BIDI CORRECTION.
+// `caretPositionFromPoint` does not answer "which glyph is here"; it answers
+// "which INSERTION POINT is nearest", and at a bidi seam those two questions
+// have different answers that can be a hundred characters apart. A line whose
+// base direction is LTR and whose body is one long Arabic run ends with a
+// neutral — a full stop — and the bidi algorithm gives that neutral the
+// PARAGRAPH's direction, so it is painted at the visual RIGHT edge of the last
+// row: past the Arabic, on top of the leading edge of the row's FIRST logical
+// Arabic glyph. Two document positions, 73 characters apart, sharing one x.
+// Chromium hands back the later one, so clicking the first glyph of the row
+// put the caret at the end of the note's sentence. Measured on the caret
+// gate's own Arabic line (`==نص مظلَّل==` … `على الأقل.`): every click in the
+// 946–955px band landed on the period.
+//
+// The fix keeps the file's thesis and sharpens it: the ELEMENT under the
+// pointer is the thing that cannot be wrong. `elementFromPoint` names the span
+// the reader is looking at; if the insertion point Chromium chose lies outside
+// that span's own document range, it belongs to some other run and the nearest
+// boundary INSIDE the span is taken instead. On every ordinary click the
+// chosen position is already inside the element it was read from, so this
+// costs one comparison and changes nothing.
 
 import { EditorSelection, type Extension, type SelectionRange } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -41,6 +63,97 @@ import { EditorView } from "@codemirror/view";
 /** Document position under a mouse event, or null when nothing answers. */
 export function posFromEvent(event: MouseEvent, view: EditorView): number | null {
   return posFromPoint(event.clientX, event.clientY, view, event.target);
+}
+
+// ── The bidi correction ─────────────────────────────────────────────────────
+
+/** How many positions a re-scan will measure before giving up and keeping the
+ *  browser's answer. The element under a pointer is a span of a few glyphs;
+ *  the cap only exists so a pathological one — a whole line carrying no inner
+ *  markup — cannot turn one click into a thousand layout reads. */
+const RESCAN_LIMIT = 400;
+
+/** The element the pointer is really over, inside the content. `contentDOM`
+ *  itself is not an answer: a click in its padding is over no glyph at all. */
+function hitElement(
+  view: EditorView,
+  x: number,
+  y: number,
+  target?: EventTarget | null,
+): Element | null {
+  const node =
+    target instanceof Element ? target : view.contentDOM.ownerDocument.elementFromPoint(x, y);
+  if (!(node instanceof Element)) return null;
+  if (node === view.contentDOM || !view.contentDOM.contains(node)) return null;
+  return node;
+}
+
+/** The document range an element covers, or null when it does not describe
+ *  one. A REPLACING widget's own DOM collapses to a point here (from === to),
+ *  which is the signal to leave the browser's answer alone: "click the
+ *  rendered math to edit its source" is a widget-start answer by design. */
+function rangeOfElement(view: EditorView, el: Element): { from: number; to: number } | null {
+  try {
+    const a = view.posAtDOM(el, 0);
+    const b = view.posAtDOM(el, el.childNodes.length);
+    return a <= b ? { from: a, to: b } : { from: b, to: a };
+  } catch {
+    return null;
+  }
+}
+
+/** The insertion point in `[from, to]` closest to the click.
+ *
+ *  A boundary on ANOTHER visual row loses to any boundary on this one whatever
+ *  the horizontal distance — rows are ~30px apart and the click's own y has
+ *  already said which one it meant — so the vertical miss is weighted far
+ *  above the horizontal one rather than added to it. */
+function nearestBoundary(
+  view: EditorView,
+  x: number,
+  y: number,
+  from: number,
+  to: number,
+): number | null {
+  let best: number | null = null;
+  let bestKey = Infinity;
+  for (let pos = from; pos <= to; pos++) {
+    for (const side of [1, -1] as const) {
+      let c: { left: number; top: number; bottom: number } | null = null;
+      try {
+        c = view.coordsAtPos(pos, side);
+      } catch {
+        continue;
+      }
+      if (!c) continue;
+      const dy = y < c.top ? c.top - y : y > c.bottom ? y - c.bottom : 0;
+      const key = dy * 10000 + Math.abs(c.left - x);
+      if (key < bestKey) {
+        bestKey = key;
+        best = pos;
+      }
+    }
+  }
+  return best;
+}
+
+/** Keep `pos` when it lies inside the element the pointer is over; otherwise
+ *  take the nearest boundary that does. See the bidi note at the top of the
+ *  file — this is the whole of that correction. */
+function inHitElement(
+  view: EditorView,
+  x: number,
+  y: number,
+  target: EventTarget | null | undefined,
+  pos: number,
+): number {
+  const el = hitElement(view, x, y, target);
+  if (!el) return pos;
+  const span = rangeOfElement(view, el);
+  if (!span || span.to <= span.from) return pos;
+  if (pos >= span.from && pos <= span.to) return pos;
+  if (span.to - span.from > RESCAN_LIMIT) return pos;
+  return nearestBoundary(view, x, y, span.from, span.to) ?? pos;
 }
 
 /** `posFromEvent` for a bare viewport point. The hover previews ask this of a
@@ -60,7 +173,7 @@ export function posFromPoint(
     const caret = doc.caretPositionFromPoint(x, y);
     if (caret && within(caret.offsetNode)) {
       try {
-        return view.posAtDOM(caret.offsetNode, caret.offset);
+        return inHitElement(view, x, y, target, view.posAtDOM(caret.offsetNode, caret.offset));
       } catch {
         /* fall through */
       }
@@ -71,7 +184,13 @@ export function posFromPoint(
     const range = doc.caretRangeFromPoint(x, y);
     if (range && within(range.startContainer)) {
       try {
-        return view.posAtDOM(range.startContainer, range.startOffset);
+        return inHitElement(
+          view,
+          x,
+          y,
+          target,
+          view.posAtDOM(range.startContainer, range.startOffset),
+        );
       } catch {
         /* fall through */
       }

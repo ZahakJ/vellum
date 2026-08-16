@@ -7,13 +7,19 @@
 // out of it for free: `![[Paper#eq:fourier]]` is "resolve the note, then
 // resolve the anchor inside it", exactly as `![[Notes#Derivation]]` is.
 
+// THE ANCHOR TABLE AND THE OUTLINE MUST AGREE ABOUT WHERE THE CODE IS. Both
+// read `shared/fences.ts`; this file used to carry its own copy of the same
+// marker-blind toggle, which meant a `### ` inside a ```markdown block that
+// shows a `~~~` block became an addressable anchor the reading view never
+// assigns an id to — a `[[Note#…]]` that silently misses, and a transclusion
+// that pulls the wrong span.
+import { closesFence, fenceOpener, sourceLines, type Fence } from "./fences.ts";
 import { isTexPath } from "./noteFormat.ts";
 import { findAnchor, parseTex, slugAnchor, type NoteAnchor } from "./tex.ts";
 
 export type { NoteAnchor } from "./tex.ts";
 export { findAnchor, slugAnchor } from "./tex.ts";
 
-const FENCE_RE = /^\s*(```|~~~)/;
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 
 /** Inline markdown removed from a heading, for display and for slugging. Kept
@@ -38,7 +44,7 @@ function stripInline(text: string): string {
 export function markdownAnchors(md: string): NoteAnchor[] {
   const out: NoteAnchor[] = [];
   const seen = new Map<string, number>();
-  const lines = md.replace(/\r\n/g, "\n").split("\n");
+  const lines = sourceLines(md);
   let start = 0;
   if (lines[0]?.trim() === "---") {
     for (let j = 1; j < lines.length; j++) {
@@ -49,14 +55,18 @@ export function markdownAnchors(md: string): NoteAnchor[] {
       }
     }
   }
-  let inFence = false;
+  let fence: Fence | null = null;
   for (let i = start; i < lines.length; i++) {
     const line = lines[i];
-    if (FENCE_RE.test(line)) {
-      inFence = !inFence;
+    if (fence) {
+      if (closesFence(line, fence)) fence = null;
       continue;
     }
-    if (inFence) continue;
+    const opened = fenceOpener(line);
+    if (opened) {
+      fence = opened;
+      continue;
+    }
     const m = HEADING_RE.exec(line);
     if (!m) continue;
     const text = stripInline(m[2]);
