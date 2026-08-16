@@ -1,0 +1,311 @@
+/* Accessibility layer — loaded last so it can correct the sheets above it.
+   Everything here is either a utility the components need (skip link, the
+   screen-reader-only class), a focus affordance that was missing, or the
+   global honouring of prefers-reduced-motion. No colors that are not tokens. */
+
+/* ---------------------------------------------------------- sr-only -- */
+
+/* Text that exists only for assistive tech. Clipped in place rather than
+   parked off-screen: an off-screen offset is scrollable overflow in an RTL
+   document (see the honeypot note in comments.css) and it stretched the page
+   ten thousand pixels wide once already. */
+.s-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* -------------------------------------------------------- skip link -- */
+
+/* The first tab stop of every page: a way past the sidebar/nav for anyone
+   driving with a keyboard. Invisible until focused, then a real gold chip in
+   the leading corner — logical inset so it lands correctly in Arabic. */
+.s-skip {
+  position: fixed;
+  z-index: 1000;
+  inset-block-start: 8px;
+  inset-inline-start: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.929rem;
+  text-decoration: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transform: translateY(-200%);
+  transition: transform 150ms ease;
+}
+
+.s-skip:focus-visible,
+.s-skip:focus {
+  transform: translateY(0);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------- missing focus rings -- */
+
+/* The tree holds focus on its container and names the current row with
+   aria-activedescendant, so the "focus ring" has to be painted on the row the
+   container points at — the browser cannot do it for us. It shows only while
+   the container itself has keyboard focus, so a mouse user never sees it. */
+.s-tree__root {
+  outline: none; /* a11y-ok: the ring is painted on .s-tree__item--cursor below */
+}
+
+.s-tree__root:focus-visible .s-tree__item--cursor,
+.s-tree__root:focus .s-tree__item--cursor {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.s-tree__item:focus-visible,
+.s-tab:focus-visible,
+.s-menu__item:focus-visible,
+.s-toc__item:focus-visible,
+.s-backlink:focus-visible,
+.s-search-hit:focus-visible,
+.s-publist__item:focus-visible,
+.s-topic__head:focus-visible,
+.s-tags__toggle:focus-visible,
+.s-tag:focus-visible,
+.s-palette-item:focus-visible,
+.s-localgraph__toggle:focus-visible,
+.s-localgraph__canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+/* The tab's label is now a real <button role="tab"> inside the row chrome
+   (see Tabs.tsx). It inherits everything so the bar looks identical — it just
+   has semantics and a tab stop it did not have before. */
+.s-tab__main {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.s-tab__main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+  border-radius: 4px;
+}
+
+/* The tab bar's × is opacity:0 until hover — which made it invisible under a
+   keyboard focus ring, and `display:none` on a dirty tab made it unreachable
+   altogether. Focus counts as intent exactly the way hover does. */
+.s-tab:focus-within .s-tab-close,
+.s-tab-close:focus-visible {
+  opacity: 1;
+}
+
+.s-tab--dirty:focus-within .s-tab-close,
+.s-tab--dirty .s-tab-close:focus-visible {
+  display: inline-flex;
+  opacity: 1;
+}
+
+.s-tab--dirty:focus-within .s-tab-dirty {
+  display: none;
+}
+
+/* The banner/settings drop zone became a real <button> (it opens a file
+   picker; a div could not). Buttons bring their own font and width, so put
+   the dashed panel's back. */
+.s-bmodal__drop {
+  width: 100%;
+  font: inherit;
+  font-size: 0.929rem;
+  background: transparent;
+}
+
+.s-bmodal__drop:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Fields whose ring is a box-shadow (see app.css `outline: none` + a
+   `0 0 0 3px var(--accent-soft)` replacement) vanish entirely in Windows
+   High Contrast, which drops shadows. Give those a real outline there. */
+@media (forced-colors: active) {
+  input:focus,
+  textarea:focus,
+  select:focus,
+  .s-input:focus,
+  .s-bmodal__input:focus,
+  .s-blog-search__input:focus,
+  .s-marginalia__name:focus-visible,
+  .s-marginalia__text:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+
+  /* Selected rows in the palette / tree are painted with a tinted background,
+     which forced-colors overrides away. Mark them structurally too. */
+  .s-palette-item--active,
+  .s-tree__item--active,
+  .s-toc__item--active {
+    outline: 1px solid Highlight;
+  }
+}
+
+/* ----------------------------------------------------- reduced motion -- */
+
+/* One global honouring of the preference, so a new component cannot forget.
+   Motion is removed; the states it was animating between are all still
+   reachable, and anything that must keep running (the graph physics, the
+   back-to-top trail, hover cards) opts itself out in its own module. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Panes collapse and zen enters instantly rather than sliding — the layout
+     still ends up in the same place, it just gets there without a 180ms
+     width animation across the whole viewport. */
+  .s-sidebar,
+  .s-panel,
+  .s-tabs,
+  .s-statusbar,
+  .s-app,
+  .s-main {
+    transition: none !important;
+  }
+
+  /* The upload spinner is the one indefinite animation in the app: it means
+     "still working", so it keeps turning — slowly, and without the strobe. */
+  .cm-s-upload-spin,
+  [class*="upload"] [class*="spin"] {
+    animation-duration: 1.6s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+/* ------------------------------------------- local graph text alternative -- */
+
+/* Clipped until something inside it takes focus, then a real list of the
+   linked notes unfolds beneath the canvas. Keyboard readers get the
+   neighbourhood; everybody else keeps the picture. */
+.s-localgraph__alt {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.s-localgraph__alt:focus-within {
+  position: static;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px 8px;
+}
+
+.s-localgraph__altitem {
+  text-align: start;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 0.786rem;
+  color: var(--text-muted);
+  background: transparent;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-localgraph__altitem:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.s-localgraph__altitem:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  color: var(--text);
+}
+
+/* --------------------------------------------------- state, not colour -- */
+
+/* Publish state, validation errors and the dirty-tab dot all carried their
+   meaning in colour alone. Each now has a shape or a glyph as well; these
+   rules are the shape half. */
+
+/* The properties card's expand control (see noteMeta.ts): the chevron and the
+   "PROPERTIES · n" label, lifted out of the header row so the row can keep
+   carrying tag pills and the banner button without swallowing them. It sits
+   exactly where the two of them already sat. */
+.s-editor .cm-s-props__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 4px;
+}
+
+.s-editor .cm-s-props__trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Status-bar toggles said "on" in gold and nothing else — the one difference
+   between "vim" and "vim, active" was a hue. A hairline gold underline is the
+   same quiet, and it is a shape. */
+.s-statusbar__btn--on,
+.s-statusbar__pub--on {
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+
+/* Invalid settings rows get a leading marker on the message, not just red
+   text — "!" reads at any colour perception. */
+.s-smodal__error::before {
+  content: "\26A0\FE0E";
+  margin-inline-end: 5px;
+  font-size: 0.9em;
+}
+
+/* The unsaved dot is a filled gold circle; give it a ring so it also differs
+   in FORM from the × it replaces, and so it survives forced-colors. */
+.s-tab-dirty {
+  box-shadow: 0 0 0 1px var(--bg-raised);
+}
+
+@media (forced-colors: active) {
+  .s-tab-dirty {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+}

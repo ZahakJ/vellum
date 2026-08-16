@@ -12,10 +12,31 @@
 // so the wordmark, layout, theme default, fonts and favicon apply live — no
 // reload.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 // Aliased: the panel also installs a window keydown listener, and React's
 // KeyboardEvent would shadow the DOM one that listener is typed with.
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  ReactElement,
+  ReactNode,
+} from "react";
+import { useDialog } from "../a11y.ts";
+import {
+  folderError,
+  isAttachmentMode,
+  modeUsesFolder,
+  type FolderProblem,
+} from "../../shared/attachments.ts";
 import type { AboutInfo, CustomFontInfo, FontCatalogEntry, VisibilityImpact } from "../../shared/types.ts";
 import type { SettingsPatch, SettingsResponse } from "../../shared/types.ts";
 import {
@@ -59,7 +80,7 @@ import {
   syncWhen,
 } from "../sync.ts";
 import { isThemePickerOpen, openThemePicker } from "./ThemePicker.tsx";
-import { openDesigner } from "./design/DesignerPanel.tsx";
+import { openDesigner } from "./design/openDesigner.ts";
 import { toast } from "../toast.ts";
 import { isNotePath } from "../../shared/noteFormat.ts";
 
@@ -89,6 +110,14 @@ interface Form {
   homeMode: string;     // "" | "note" | "dashboard"
   homeNote: string;
   homeBanner: string;
+  // ── Attachments ──────────────────────────────────────────────────────────
+  // Where an upload lands. Empty mode = inherit the pre-setting behaviour (one
+  // fixed folder, ATTACHMENTS_DIR), so an upgrade changes nothing until the
+  // admin says otherwise. `attachFolder` means different things per mode — a
+  // vault-relative path under "specified", a bare folder NAME under
+  // "subfolder" — and is ignored entirely by the other two.
+  attachMode: string;   // "" | vault-root | same-folder | subfolder | specified
+  attachFolder: string; // vault-relative folder (specified) / name (subfolder)
   // ── Templates ────────────────────────────────────────────────────────────
   // Both empty by default. An empty folder field does NOT mean "no templates"
   // — the server auto-detects an unambiguously named folder — so the row
@@ -184,6 +213,8 @@ function formFrom(s: SettingsResponse): Form {
     homeMode: s.home?.mode ?? "",
     homeNote: s.home?.note ?? "",
     homeBanner: s.home?.banner ?? "",
+    attachMode: s.attachments?.mode ?? "",
+    attachFolder: s.attachments?.folder ?? "",
     templatesFolder: s.templatesFolder ?? "",
     defaultTemplate: s.defaultTemplate ?? "",
     syncEnabled: s.effective.gitSync.enabled ? "on" : "off",
@@ -278,7 +309,24 @@ const ENUM_LABELS: Partial<Record<string, I18nKey>> = {
   app: "layoutApp",
   blog: "layoutBlog",
   designed: "layoutDesigned",
+  "vault-root": "locVaultRoot",
+  "same-folder": "locSameFolder",
+  subfolder: "locSubfolder",
+  specified: "locSpecified",
 };
+
+/** The server's folder rules, spoken in the reader's language. The same
+ *  refusals the 400 would carry — said inline instead, before the save.
+ *  "tooLong" is not here: it is a budget, so it uses the shared maxChars copy
+ *  every other length-capped field uses. */
+const FOLDER_ERRORS: Partial<Record<FolderProblem, I18nKey>> = {
+  traversal: "errFolderTraversal",
+  absolute: "errFolderAbsolute",
+  dotfolder: "errFolderDotfolder",
+  control: "errFolderControl",
+};
+
+const FOLDER_MAX = 180; // mirrors server settings.ts
 
 function enumLabel(value: string): string {
   const key = ENUM_LABELS[value];
@@ -355,6 +403,16 @@ function validate(f: Form): Partial<Record<keyof Form, string>> {
         max: localeNum(SIZE_ADJUST_MAX),
       });
     }
+  }
+  // The attachment folder, judged by the SAME function the server judges it
+  // with (shared/attachments.ts) so the inline error and the 400 can never
+  // disagree about what a legal folder is.
+  const folder = f.attachFolder.trim();
+  if (folder.length > FOLDER_MAX) errors.attachFolder = maxChars(FOLDER_MAX);
+  else {
+    const problem = folderError(folder);
+    const key = problem && FOLDER_ERRORS[problem];
+    if (key) errors.attachFolder = t(key);
   }
   return errors;
 }
@@ -521,6 +579,17 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
   if (f.comments !== initial.comments) {
     patch.commentsEnabled = f.comments === "" ? null : f.comments === "on";
     patch.shareButtons = f.share === "" ? null : f.share === "on";
+  }
+  if (
+    f.attachMode !== initial.attachMode ||
+    f.attachFolder.trim() !== initial.attachFolder.trim()
+  ) {
+    patch.attachments = {
+      // "specified" is the default, so choosing it clears the key rather than
+      // pinning the same behaviour absence already gives.
+      mode: isAttachmentMode(f.attachMode) && f.attachMode !== "specified" ? f.attachMode : null,
+      folder: f.attachFolder.trim() === "" ? null : f.attachFolder.trim(),
+    };
   }
   if (
     f.homeMode !== initial.homeMode ||
@@ -808,6 +877,14 @@ function ImagePicker({
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
+  // The picker is a dialog stacked on the settings dialog: it takes the trap
+  // while it is up and gives focus back to the "Pick" button that opened it.
+  // (Escape is owned by SettingsModal's own capture-phase handler, which
+  // closes the picker first — so no onEscape here.)
+  useDialog(panelRef);
 
   useEffect(() => {
     let disposed = false;
@@ -848,20 +925,26 @@ function ImagePicker({
   return (
     <div className="s-palette-overlay s-smodal-picker" onMouseDown={onClose}>
       <div
+        ref={panelRef}
         className="s-bmodal"
         role="dialog"
-        aria-label={title}
+        aria-modal="true"
+        aria-labelledby={titleId}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="s-bmodal__head">
-          <span className="s-bmodal__title">{title}</span>
+          <span className="s-bmodal__title" id={titleId}>{title}</span>
           <button type="button" className="s-bmodal__close" onClick={onClose} aria-label={t("close")}>
             ×
           </button>
         </div>
 
-        <div
+        {/* Real button: a div that opens a file picker is unreachable by
+            keyboard (see BannerModal). Drag handlers ride along on it. */}
+        <button
+          type="button"
           className={`s-bmodal__drop${dragOver ? " s-bmodal__drop--over" : ""}`}
+          aria-label={t("chooseImageFile")}
           onClick={() => fileInputRef.current?.click()}
           onDragOver={(e) => {
             e.preventDefault();
@@ -888,13 +971,14 @@ function ImagePicker({
               e.target.value = "";
             }}
           />
-        </div>
+        </button>
 
         <div className="s-bmodal__pick">
           <input
             className="s-bmodal__input"
             type="text"
             placeholder={t("searchAttachments")}
+            aria-label={t("searchAttachments")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             spellCheck={false}
@@ -931,6 +1015,13 @@ function ImagePicker({
 // Row scaffolding
 // ---------------------------------------------------------------------------
 
+/** A settings row: label on the left, one control on the right.
+ *
+ *  The label used to be a <div>, which meant twenty inputs and selects in this
+ *  panel had NO accessible name at all — a screen reader read "edit text,
+ *  blank" twenty times down the page. It is a real <label> now, and the row
+ *  wires the id/`aria-describedby`/`aria-invalid` onto its single control
+ *  child so no call site has to remember to. */
 function Row({
   label,
   hint,
@@ -970,19 +1061,47 @@ function Row({
   ]
     .filter(Boolean)
     .join(" ");
+  const id = useId();
+  const hintId = `${id}-hint`;
+  const errorId = `${id}-err`;
+  const described = [hint ? hintId : null, error ? errorId : null]
+    .filter(Boolean)
+    .join(" ");
+  // The row owns ONE control, so it can wire the name and the descriptions on
+  // without every call site remembering to. A row whose child is not a single
+  // element (the wide type specimen) passes through untouched — there is
+  // nothing there for a label to point at.
+  const only = Children.only(children);
+  const control = isValidElement(only)
+    ? cloneElement(only as ReactElement<Record<string, unknown>>, {
+        id,
+        "aria-describedby": described || undefined,
+        "aria-invalid": error ? true : undefined,
+      })
+    : only;
   return (
     <div className={cls}>
-      <div className="s-smodal__label">
+      <label className="s-smodal__label" htmlFor={id}>
         <span className="s-smodal__labeltext">
           {label}
           {inherited && <span className="s-smodal__badge">{t("inheritedBadge")}</span>}
         </span>
-        {hint && <span className="s-smodal__hint">{hint}</span>}
-      </div>
+        {hint && (
+          <span className="s-smodal__hint" id={hintId}>
+            {hint}
+          </span>
+        )}
+      </label>
       <div className="s-smodal__control">
-        {children}
+        {control}
         {inherited && env && <EnvSource env={env} />}
-        {error && <span className="s-smodal__error">{error}</span>}
+        {/* role="alert" so a validation failure is spoken when it appears,
+            not only when the reader happens to tab back onto the field. */}
+        {error && (
+          <span className="s-smodal__error" id={errorId} role="alert">
+            {error}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -1086,6 +1205,10 @@ function ImageField({
   disabled,
   onChange,
   onOpenPicker,
+  // Forwarded by Row: the row's <label> points at `id`, so the text field —
+  // not the wrapper div — has to be the thing carrying it.
+  id,
+  "aria-describedby": describedBy,
 }: {
   value: string;
   placeholder: string;
@@ -1096,6 +1219,8 @@ function ImageField({
   disabled?: boolean;
   onChange: (v: string) => void;
   onOpenPicker: () => void;
+  id?: string;
+  "aria-describedby"?: string;
 }) {
   const trimmed = value.trim();
   const [broken, setBroken] = useState(false);
@@ -1707,6 +1832,13 @@ export default function SettingsModal() {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [picker, setPicker] = useState<"favicon" | "logo" | "homeBanner" | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
+  // Trap + restore. Escape stays with the capture-phase handler below, which
+  // has to close the PICKER first when one is stacked on top.
+  useDialog(panelRef);
+
   /** The operator's uploaded faces. Its own request rather than a field on
    *  the settings payload: it changes on upload and delete, several times per
    *  visit to the Typography tab, while the settings payload does not. */
@@ -1997,9 +2129,11 @@ export default function SettingsModal() {
     // 400px-tall list and wrong for a panel that wants the whole height.
     <div className="s-palette-overlay s-smodal-overlay" onMouseDown={close}>
       <div
+        ref={panelRef}
         className="s-bmodal s-smodal"
         role="dialog"
-        aria-label={t("siteSettings")}
+        aria-modal="true"
+        aria-labelledby={titleId}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="s-bmodal__head">
@@ -2009,8 +2143,13 @@ export default function SettingsModal() {
               what the product writes rather than what the panel does, and it
               named a path without saying where that path is. Where the file
               lives is a FACT about the instance, so it moved to About, beside
-              the vault and data directories. */}
-          <span className="s-bmodal__title">{t("siteSettings")}</span>
+              the vault and data directories.
+              The id is what the dialog's aria-labelledby points at, so the
+              panel's accessible name is this same line and not a second copy
+              of it that could drift. */}
+          <span className="s-bmodal__title" id={titleId}>
+            {t("siteSettings")}
+          </span>
           <button type="button" className="s-bmodal__close" onClick={close} aria-label={t("close")}>
             ×
           </button>
@@ -2696,6 +2835,72 @@ export default function SettingsModal() {
                       {...field("defaultTemplate")}
                     />
                   </Row>
+
+                  {/* Obsidian's "Default location for new attachments", named
+                      the same way so a migrating vault owner finds what they
+                      expect. Every upload path obeys it — editor paste and
+                      drop, the tree's file drop, the banner picker — and
+                      nothing already on disk moves when it changes.
+
+                      Beside Templates for the same reason Templates is here:
+                      both answer "where does this instance PUT things in the
+                      vault", and both are folders the operator will look for
+                      in one place. */}
+                  <div className="s-smodal__sub">{t("groupAttachments")}</div>
+                  <Row
+                    label={t("rowAttachmentLocation")}
+                    hint={t("hintAttachmentLocation")}
+                    inherited={form.attachMode === ""}
+                  >
+                    <Select
+                      label={t("rowAttachmentLocation")}
+                      value={form.attachMode}
+                      onChange={(v) => setForm((f) => (f ? { ...f, attachMode: v } : f))}
+                      options={[
+                        {
+                          value: "",
+                          label: tf("inheritOption", { value: enumLabel(eff.attachments.mode) }),
+                        },
+                        { value: "vault-root", label: t("locVaultRoot") },
+                        { value: "same-folder", label: t("locSameFolder") },
+                        { value: "subfolder", label: t("locSubfolder") },
+                        { value: "specified", label: t("locSpecified") },
+                      ]}
+                    />
+                  </Row>
+                  {/* The folder field belongs to two of the four modes; under
+                      the other two it would be a control that quietly does
+                      nothing, so it is disabled rather than left to mislead. */}
+                  <Row
+                    label={t("rowAttachmentFolder")}
+                    hint={t(
+                      (form.attachMode || eff.attachments.mode) === "subfolder"
+                        ? "hintAttachmentSubfolder"
+                        : "hintAttachmentFolder",
+                    )}
+                    error={errors.attachFolder}
+                    off={
+                      !modeUsesFolder(
+                        isAttachmentMode(form.attachMode) ? form.attachMode : eff.attachments.mode,
+                      )
+                    }
+                  >
+                    <TextInput
+                      placeholder={eff.attachments.folder}
+                      maxLength={FOLDER_MAX + 1}
+                      dir="ltr"
+                      label={t("rowAttachmentFolder")}
+                      invalid={errors.attachFolder !== undefined}
+                      disabled={
+                        !modeUsesFolder(
+                          isAttachmentMode(form.attachMode)
+                            ? form.attachMode
+                            : eff.attachments.mode,
+                        )
+                      }
+                      {...field("attachFolder")}
+                    />
+                  </Row>
                 </section>
                 )}
 
@@ -2995,7 +3200,9 @@ export default function SettingsModal() {
         )}
 
         <div className="s-smodal__foot">
-          <span className="s-smodal__dirty">
+          {/* "Unsaved changes" / "Fix the marked fields" / "Saving…" is the
+              panel's only status text — it has to be spoken, not just shown. */}
+          <span className="s-smodal__dirty" role="status">
             {saving
               ? t(patch.fonts ? "fontFetching" : "saving")
               : dirty

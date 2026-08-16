@@ -96,7 +96,11 @@ async function twoSpeeds(opts: {
   permBody: string;
   warn?: string;
   run(permanent: boolean): void;
-}): Promise<void> {
+  /** True when a delete was actually run. A caller holding its own copy of a
+   *  list (the banner picker's grid of attachments) needs to know whether to
+   *  drop a row; every other caller ignores it and lets the vault event
+   *  refresh the tree. */
+}): Promise<boolean> {
   const result = await confirmModalEx({
     title: tf("moveToTrashTitle", { name: opts.name }),
     body: opts.body,
@@ -106,9 +110,9 @@ async function twoSpeeds(opts: {
   });
   if (result === "confirm") {
     opts.run(false);
-    return;
+    return true;
   }
-  if (result !== "extra") return;
+  if (result !== "extra") return false;
   const ok = await confirmModal({
     title: tf("permDeleteTitle", { name: opts.name }),
     body: opts.permBody,
@@ -119,6 +123,7 @@ async function twoSpeeds(opts: {
     grave: true,
   });
   if (ok) opts.run(true);
+  return ok;
 }
 
 /** Delete ONE note, from any surface. */
@@ -140,10 +145,10 @@ export async function confirmDeleteNote(path: string): Promise<void> {
 /** Delete ONE attachment. The dialog looks like the note's and says a
  *  different thing, which is the entire point: this is the file a published
  *  note embeds, and its warning names the notes that will break. */
-export async function confirmDeleteAttachment(path: string): Promise<void> {
+export async function confirmDeleteAttachment(path: string): Promise<boolean> {
   const name = path.split("/").pop() ?? path;
   const info = await preview(path);
-  await twoSpeeds({
+  return twoSpeeds({
     name,
     body: tf("deleteFileTrashBody", { path }),
     permBody: tf("deleteFilePermBody", { path }),

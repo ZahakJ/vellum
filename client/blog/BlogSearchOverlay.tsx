@@ -6,8 +6,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { SearchHit } from "../../shared/types.ts";
+import { useDialog } from "../a11y.ts";
 import { search } from "../api.ts";
-import { t } from "../i18n.ts";
+import { localeNum, t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { renderSnippet, snippetIsEmpty } from "../components/snippet.tsx";
 import { notePathToUrl } from "../router.ts";
@@ -32,6 +33,14 @@ export default function BlogSearchOverlay() {
   // (coordinates that actually changed), disarmed by every keystroke.
   const armedRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Tab stays in the overlay. Restoration is `close()`'s, not the hook's:
+  // this surface can close by NAVIGATING to a result, and `returnRef` is
+  // cleared on that path precisely so the reader is not thrown back to a
+  // search field on the page they just left. The input focuses itself below,
+  // and the overlay's own onKeyDown owns Escape.
+  useDialog(panelRef, { active: open, manualFocus: true, restoreFocus: false });
 
   useEffect(() => {
     const onQuick = () => {
@@ -125,15 +134,25 @@ export default function BlogSearchOverlay() {
   return (
     <div className="s-palette-overlay" onMouseDown={close}>
       <div
+        ref={panelRef}
         className="s-palette"
         role="dialog"
+        aria-modal="true"
         aria-label={t("blogSearchOpen")}
         onMouseDown={(e) => e.stopPropagation()}
       >
+        {/* Same shape as the app palette: a combobox whose options live in a
+            sibling listbox, named by aria-activedescendant as the arrows move. */}
         <input
           ref={inputRef}
           className="s-palette-input"
           type="text"
+          role="combobox"
+          aria-expanded={hits.length > 0}
+          aria-controls="s-blogsearch-list"
+          aria-autocomplete="list"
+          aria-activedescendant={hits[active] ? `s-blogsearch-opt-${active}` : undefined}
+          aria-label={t("blogSearchOpen")}
           value={q}
           dir="auto"
           placeholder={t("blogSearchPlaceholder")}
@@ -143,40 +162,65 @@ export default function BlogSearchOverlay() {
           autoComplete="off"
         />
         {q.trim() !== "" && (
-          <div
-            className="s-palette-list"
-            ref={listRef}
-            onMouseMove={(e) => {
-              const last = lastPointRef.current;
-              if (last && (last.x !== e.clientX || last.y !== e.clientY)) {
-                armedRef.current = true;
-              }
-              lastPointRef.current = { x: e.clientX, y: e.clientY };
-            }}
-          >
-            {hits.length > 0 && <div className="s-palette-section">{t("blogWritings")}</div>}
-            {hits.map((hit, i) => (
-              <div
-                key={hit.path}
-                className={`s-palette-item${i === active ? " s-palette-item--active" : ""}`}
-                data-preview-path={hit.path}
-                onMouseMove={() => {
-                  if (armedRef.current) setActive(i);
-                }}
-                onClick={() => pick(hit)}
-              >
-                <span className="s-palette-item-title" dir="auto">
-                  {hit.title}
-                </span>
-                {!snippetIsEmpty(hit.snippet) && (
-                  <span className="s-palette-item-snippet" dir="auto">
-                    {renderSnippet(hit.snippet)}
+          <>
+            {/* The count, spoken. A listbox that silently repopulates under a
+                typing reader tells a screen reader nothing at all. */}
+            <p className="s-sr-only" role="status">
+              {hits.length === 0
+                ? t("noResultsAria")
+                : tf("resultCount", { count: localeNum(hits.length) })}
+            </p>
+            <div
+              className="s-palette-list"
+              id="s-blogsearch-list"
+              role="listbox"
+              aria-label={t("blogWritings")}
+              ref={listRef}
+              onMouseMove={(e) => {
+                const last = lastPointRef.current;
+                if (last && (last.x !== e.clientX || last.y !== e.clientY)) {
+                  armedRef.current = true;
+                }
+                lastPointRef.current = { x: e.clientX, y: e.clientY };
+              }}
+            >
+              {/* presentation: a heading inside a listbox is not an option,
+                  and announcing it as one makes the count wrong. */}
+              {hits.length > 0 && (
+                <div className="s-palette-section" role="presentation">
+                  {t("blogWritings")}
+                </div>
+              )}
+              {hits.map((hit, i) => (
+                <div
+                  key={hit.path}
+                  id={`s-blogsearch-opt-${i}`}
+                  role="option"
+                  aria-selected={i === active}
+                  className={`s-palette-item${i === active ? " s-palette-item--active" : ""}`}
+                  data-preview-path={hit.path}
+                  onMouseMove={() => {
+                    if (armedRef.current) setActive(i);
+                  }}
+                  onClick={() => pick(hit)}
+                >
+                  <span className="s-palette-item-title" dir="auto">
+                    {hit.title}
                   </span>
-                )}
-              </div>
-            ))}
-            {hits.length === 0 && <div className="s-palette-empty">{t("paletteNoMatches")}</div>}
-          </div>
+                  {!snippetIsEmpty(hit.snippet) && (
+                    <span className="s-palette-item-snippet" dir="auto">
+                      {renderSnippet(hit.snippet)}
+                    </span>
+                  )}
+                </div>
+              ))}
+              {hits.length === 0 && (
+                <div className="s-palette-empty" role="presentation">
+                  {t("paletteNoMatches")}
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>

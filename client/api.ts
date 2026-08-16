@@ -295,6 +295,14 @@ export function getGraph(): Promise<GraphData> {
   return request<GraphData>("/api/graph");
 }
 
+/** One note's neighborhood: the note, its direct wikilink neighbors (both
+ *  directions) and the edges among them. Same shape as `getGraph`, a fraction
+ *  of the bytes — the backlinks panel's local graph needs a dozen nodes, not
+ *  the whole vault. */
+export function getLocalGraph(path: string): Promise<GraphData> {
+  return request<GraphData>(`/api/graph?around=${encodeURIComponent(path)}`);
+}
+
 export function getBacklinks(path: string): Promise<Backlink[]> {
   return request<Backlink[]>(`/api/backlinks?path=${encodeURIComponent(path)}`);
 }
@@ -369,19 +377,41 @@ export function setFrontmatter(
   return request<FrontmatterResult>("/api/frontmatter", json("POST", { path, key, value }));
 }
 
-/** Upload an image into the vault (admin only). `asAdmin` bypasses the
- *  visitor-preview header (see request). `dir` names a destination FOLDER —
- *  the sidebar's drop-a-desktop-file-on-a-folder-row route; omitted, it is the
- *  instance's configured attachments dir, which is what every other caller
- *  wants. The server picks the first free filename either way, so an upload
- *  never overwrites and the answer carries the name it actually landed under. */
-export function uploadAttachment(file: File, asAdmin = false, dir?: string): Promise<UploadResult> {
+/** Upload one attachment (admin only). `asAdmin` bypasses the visitor-preview
+ *  header (see request).
+ *
+ *  `dir` is CONTEXT, not a destination: the vault folder the upload happened
+ *  IN — the open note's folder, the tree row it was dropped on. What the
+ *  server does with it is the attachment-LOCATION setting's business: "same
+ *  folder" and "subfolder" are relative to it, "vault root" and "specified"
+ *  ignore it entirely. It read as a destination while the tree drop was the
+ *  only caller that passed one, and that reading has to go: a drop that
+ *  overrode the setting made two of the four modes silently inapplicable to
+ *  the one gesture most likely to use them. The toast names where the files
+ *  actually landed, which is the part a reader needs either way.
+ *
+ *  The server picks the first free filename, so an upload never overwrites and
+ *  the answer carries the name it actually landed under. */
+export function uploadAttachment(
+  file: File,
+  asAdmin = false,
+  dir?: string,
+): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file, file.name);
-  if (dir !== undefined) form.append("dir", dir);
+  // Empty context and absent context mean the same thing (the vault root), so
+  // the falsy test is right here in a way it would not be for a destination.
+  if (dir) form.append("dir", dir);
   // No Content-Type header: the browser sets the multipart boundary itself.
   return request<UploadResult>("/api/upload", { method: "POST", body: form }, asAdmin);
 }
+
+// `getDeleteImpact` / `GET /api/impact` stood here and is gone: it asked "what
+// would deleting this folder really take", which is exactly the question
+// `getDeletePreview` / `GET /api/delete-preview` answers — for notes, folders
+// AND attachments, with the referencing-note titles the dialogs print. Two
+// routes answering one question is how two dialogs come to disagree about the
+// same delete.
 
 /** Every image attachment in the vault (admin only) — the banner picker.
  *  `asAdmin` bypasses the visitor-preview header (see request). */

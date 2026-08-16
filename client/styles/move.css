@@ -114,6 +114,14 @@
   color: var(--bg);
 }
 
+/* The undo toast is often the ONLY way back from a destructive move, and it
+   expires. A keyboard reader who cannot see where focus is cannot take it in
+   time, so the ring is not optional here. */
+.s-toast__action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ------------------------------------------------------- the "Move to…" -- */
 
 /* Shaped like the command palette on purpose (CONTRACTS, "Command palette"):

@@ -39,6 +39,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { t } from "../../i18n.ts";
 import { attachScrollFade } from "../../scrollFade.ts";
+import type { ControlIdentity } from "./Fields.tsx";
 
 export interface SelectOption {
   value: string;
@@ -63,7 +64,7 @@ export interface SelectGroup {
   options: SelectOption[];
 }
 
-interface SelectProps {
+interface SelectProps extends ControlIdentity {
   value: string;
   onChange: (value: string) => void;
   options?: SelectOption[];
@@ -147,6 +148,8 @@ export function Select({
   valueFace,
   triggerClass,
   grid,
+  id,
+  "aria-describedby": describedBy,
 }: SelectProps) {
   const baseId = useId();
   const listId = `${baseId}-list`;
@@ -601,7 +604,9 @@ export function Select({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
-        aria-label={label}
+        id={id}
+        aria-label={id ? undefined : label}
+        aria-describedby={describedBy}
         disabled={disabled}
         className={`s-ctl s-ctl-select${open ? " s-ctl-select--open" : ""}${triggerClass ? ` ${triggerClass}` : ""}`}
         onClick={() => (open ? close(true) : openList())}

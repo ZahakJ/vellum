@@ -204,11 +204,14 @@ export function buildPropsCard(yaml: string, opts: PropsCardOpts): HTMLElement |
   const collapsed = !propsExpanded();
   box.className = collapsed ? `${p} ${p}--collapsed` : p;
 
+  // The header ROW is the click target, but it is not the control: it also
+  // carries tag pills and the "Set banner…" button, and a role="button" with
+  // focusable things inside it is a widget a screen reader cannot describe
+  // (and a keyboard cannot get past). So the row stays a plain container and
+  // the chevron+label — the part that actually means "expand" — is the
+  // control. Clicking anywhere on the row still toggles, as before.
   const head = document.createElement("div");
   head.className = `${p}__head`;
-  head.setAttribute("role", "button");
-  head.tabIndex = 0;
-  head.setAttribute("aria-expanded", String(!collapsed));
   head.title = t("toggleProperties");
 
   const chevron = document.createElement("span");
@@ -219,7 +222,13 @@ export function buildPropsCard(yaml: string, opts: PropsCardOpts): HTMLElement |
   const label = document.createElement("span");
   label.className = `${p}__label`;
   label.textContent = `${t("properties")} · ${localeNum(rows.length)}`;
-  head.append(chevron, label);
+  const trigger = document.createElement("span");
+  trigger.className = `${p}__trigger`;
+  trigger.setAttribute("role", "button");
+  trigger.tabIndex = 0;
+  trigger.setAttribute("aria-expanded", String(!collapsed));
+  trigger.append(chevron, label);
+  head.append(trigger);
 
   // A NOTE THAT LAYS ITSELF OUT DIFFERENTLY SAYS SO, HERE FIRST.
   // `dir:` and `align:` are frontmatter keys, so the properties card is where
@@ -252,7 +261,7 @@ export function buildPropsCard(yaml: string, opts: PropsCardOpts): HTMLElement |
 
   const toggle = (): void => {
     const nowCollapsed = box.classList.toggle(`${p}--collapsed`);
-    head.setAttribute("aria-expanded", String(!nowCollapsed));
+    trigger.setAttribute("aria-expanded", String(!nowCollapsed));
     setPropsExpanded(!nowCollapsed);
   };
   head.addEventListener("click", (ev) => {

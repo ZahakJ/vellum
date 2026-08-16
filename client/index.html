@@ -23,6 +23,11 @@
          so it must be able to adjust them and never the other way round. -->
     <link rel="stylesheet" href="/styles/controls.css" />
     <link rel="stylesheet" href="/styles/settings.css" />
+    <!-- Last, and deliberately: the a11y sheet's focus-visible rings, skip link
+         and forced-colors fallbacks have to win over both app.css's base chrome
+         and the theme library's retuned focus tokens. It adds no colour of its
+         own — it reads --accent/--focus like everything else. -->
+    <link rel="stylesheet" href="/styles/a11y.css" />
   </head>
   <body>
     <div id="root"></div>

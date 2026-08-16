@@ -64,10 +64,19 @@ that is the pre-existing pattern, and the door is now open.
 - `POST /api/folder` body `{ path }` → `{ ok: true }`
 - `POST /api/folder/move` body `{ path, toPath }` → `{ ok: true, notes, rewritten }` (moves the whole subtree and repairs the links it would have broken; see "Moving notes and folders")
 - `GET  /api/search?q=` → `SearchHit[]` (max 50, minisearch, prefix+fuzzy)
-- `GET  /api/graph` → `GraphData` (nodes = all md files, edges = resolved wikilinks)
+- `GET  /api/graph` → `GraphData` (nodes = all md files, edges = resolved wikilinks).
+  `?around=<path>` narrows it to that note, its direct wikilink neighbors in either
+  direction, and the edges among that set — same shape, a fraction of the bytes, and the
+  same visitor filtering (a slice of the already-filtered graph, never of the raw index).
+  An unknown or filtered-away centre answers `{nodes:[],edges:[]}`, so "no neighborhood"
+  and "not yours to see" are indistinguishable. Both forms are memoized per audience
+  (`server/graphCache.ts`); `/api/tree` is memoized the same way (`server/treeCache.ts`).
 - `GET  /api/backlinks?path=` → `Backlink[]`
 - `GET  /api/tags` → `TagCount[]` (from `#tag` inline + frontmatter `tags:`)
 - `GET  /api/events` → SSE stream of `VaultEvent` (chokidar watcher; debounced 100ms; events named `message`, JSON data)
+- `POST /api/upload` (admin) multipart `file` + optional `dir` → `UploadResult` — see "Attachments"
+- `GET  /api/impact?path=&kind=` (admin) → `DeleteImpact` — what a delete would really take
+- `DELETE /api/attachment?path=&permanent=` (admin) → `{ trashPath? }`
 
 Path safety: every path param normalized, must resolve inside vault, must not contain `..`; only
 `.md` files served/written by note endpoints (400 otherwise).
@@ -862,6 +871,35 @@ visitors, which is what lets it name absolute paths.
   index when those answer is a note the reader sees a second time in their own search results.
 - Vault API: `deleteNote(rel, opts?: { permanent?: boolean }): Promise<{ trashPath? }>`.
 
+## Accessibility (client — normative, gated by `npm run check-a11y`)
+
+`client/a11y.ts` holds the three shared primitives. Use them; do not re-implement them.
+
+- **Dialogs.** Every modal surface calls `useDialog(panelRef, …)`: it traps Tab inside the panel
+  and — the half that keeps getting dropped — returns focus to the control that opened it. Panels
+  carry `role="dialog" aria-modal="true"` and `aria-labelledby` pointing at their own title node.
+  `Confirm.tsx` keeps its own bespoke trap (it has a three-button ring and Enter semantics).
+- **Motion.** `prefersReducedMotion()` / `scrollBehavior()` are the only way to ask. CSS gets the
+  blanket rule in `styles/a11y.css`; anything animated in JS (the two graphs, smooth scrolls) opts
+  out itself. Canvas simulations settle without painting the drift rather than freezing mid-layout.
+- **Keyboard.** No control is pointer-only. Imperative DOM that is "a link" without an `href`
+  (`.s-rv-wikilink`, `[data-fn]`) carries `role="link" tabindex="0"` and is activated through
+  `activateOnKey`. The sidebar tree is ONE tab stop: `role="tree"` on `.s-tree__root`, rows are
+  `role="treeitem"` with `aria-level/posinset/setsize`, and the current row is named by
+  `aria-activedescendant` + a `.s-tree__item--cursor` class (arrows/Home/End/Enter/F2/Delete/
+  Shift+F10; Left and Right are LOGICAL, so they swap in RTL). The tab bar is a roving-tabindex
+  `role="tablist"`; the palette and the blog search are `combobox` + `listbox`/`option`.
+- **Names.** Every icon-only control has an `aria-label`. A placeholder is never a label. Settings
+  rows render a real `<label for>` and wire `aria-describedby` / `aria-invalid` onto their one
+  control child (`Row` does this — call sites pass a single element).
+- **Landmarks.** Both shells open with an `.s-skip` link to `#s-main` / `#s-blog-main`. Every
+  repeated landmark (`aside`, `nav`, the status bar `footer`) is named. Page outlines start at `h1`.
+- **State is never colour alone.** Toggles carry `aria-pressed` and a shape (the status bar's gold
+  underline); the dirty tab dot has `.s-sr-only` text beside it; validation errors are `role="alert"`
+  text with a `⚠` marker.
+- `.s-sr-only` is the screen-reader-only utility. Waive a checker rule with a trailing
+  `// a11y-ok: <reason>` on the offending line, never by loosening the rule.
+
 ## Folder deletion (server, shipped)
 
 `DELETE /api/folder?path=<rel>&permanent=<bool>` → `{ notes: number, trashPath?: string }`
@@ -1416,6 +1454,58 @@ rather than `mouseenter`. Clicking always activates regardless.
 and to a plain blur when the reading view has nothing focusable), because a search box on the far
 side of the screen that only closes leaves the next keystroke nowhere. The blog overlay does the
 same with its own ref.
+
+## Attachments (location setting, any-file upload, delete impact)
+
+`shared/attachments.ts` is the single policy both halves import: the four location modes, the
+folder validator, and the accepted-type table. Neither side may keep its own copy.
+
+**Where an upload lands is a setting, and it is Obsidian's setting.** `settings.attachments =
+{ mode, folder }` mirrors "Default location for new attachments": `vault-root`, `same-folder`
+(beside the note being edited), `subfolder` (a named subfolder OF the note's folder), and
+`specified` (one fixed vault-relative folder). **`specified` + `ATTACHMENTS_DIR` is the default**,
+so an upgrade changes nothing until an admin says otherwise — which is why `PATCH` *deletes*
+`attachments.mode` when it is set to `"specified"` rather than storing it.
+
+- `site.ts::attachmentLocation()` merges the stored value over the env default; `uploadDirFor(dir)`
+  resolves it against the folder the upload happened in. `POST /api/upload` takes that folder as
+  the optional multipart field **`dir`** — the editor sends the open note's folder, the tree drop
+  sends the row it was dropped on, the pickers send the open note's folder. `dir` is untrusted:
+  it is normalized, and `safeAbs` on the joined result is what actually refuses traversal and
+  ignored trees (verified: `dir=../../etc` → 400, `dir=.obsidian` → 404).
+- The folder value is refused for the same reasons a vault path always is (traversal, absolute,
+  control characters) **plus dot-folders** — a dot-folder is invisible to the tree, the indexer
+  and the watcher, so an attachment written into one would never resolve again. `folderError()`
+  returns a REASON KEY, not a sentence: the server renders it into a 400, the settings panel
+  into localized inline copy, and the two can never drift apart.
+- **Existing attachments are never moved.** The setting decides where the NEXT upload goes;
+  embeds resolve by basename, so nothing breaks either way. Fonts (`VELLUM_DATA/fonts`) and
+  `custom.css` keep their dedicated locations.
+
+**Every type the vault can hold, sniffed by bytes.** `sniffAttachmentType(buf, hint)` in
+`server/api.ts` decides the stored extension from magic numbers — images, PDF, audio, video —
+and the `hint` (the uploader's own extension) only ever picks between aliases the bytes cannot
+distinguish (`jpg`/`jpeg`, `ogg`/`oga`/`opus`, `mp4`/`m4v`). The raw-MPEG-frame test for a
+tagless mp3 is `0xFF 0xEx`, two weak bytes, so it is checked LAST, after every format with a
+real magic number. SVG still has no magic bytes and is still scrubbed at write time.
+`isAcceptedAttachment()` is the client's mirror, and it exists so a file the server would
+reject is **refused before it is uploaded**, naming both what was turned away and what is
+welcome; a mixed batch asks (a half-finished drop nobody agreed to is its own surprise), an
+all-refused batch just says so.
+
+**Deleting is NOT specified here.** This section was written with a `GET /api/impact` route and
+an `impactSentence()` beside it, for the same reason the section above exists: a folder holding
+four images and no notes truthfully answered "0 notes" and took four figures out of a published
+essay. That question now has one answer — `GET /api/delete-preview` and
+`client/components/deleteFlow.ts`, documented under "Delete previews" above — which covers notes,
+folders AND single attachments and feeds every dialog in the product. The impact route, its
+`DeleteImpact` wire type and `attachmentReferrers()` in the indexer are gone with it. Two routes
+answering one question is how two dialogs come to describe one delete differently.
+
+`DELETE /api/attachment?path=&permanent=` (admin only, documented under "Attachment deletion")
+is what backs the drop's **Undo** — which trashes rather than erases, since an undo that erased
+would be worse than the drop it undoes — and the × on the banner picker's rows, which routes
+through `confirmDeleteAttachment()` and therefore carries the same "still embedded by…" warning.
 
 ## Localization & RTL (client)
 
@@ -4676,3 +4766,96 @@ turns into a `×`, and the preview settles on the trailing edge of a burst of ed
 Every one of those is 150–200ms of MEANING and none of them is the only carrier of that meaning, so
 `prefers-reduced-motion: reduce` drops the animation and keeps the fact. Verified with the panel
 under `reducedMotion: "reduce"`, in RTL, at 1280×800, and on light and dark themes.
+
+## Lazy surfaces: ONE BOUNDARY EACH (`client/App.tsx`)
+
+Every `React.lazy()` surface in the shell gets its **own** `<Suspense>`. This is a correctness
+rule, not a taste one, and it is written down because the tidy-looking alternative is wrong in a
+way nothing on screen explains.
+
+A Suspense boundary is not a loading indicator. When anything under it suspends, React unmounts
+**the whole subtree** and renders the fallback in its place. One boundary wrapped around the app
+shell therefore meant that opening Settings — a modal — tore down the sidebar, the tabs, the
+editor and the status bar along with it. With the chunk throttled the open note went to zero
+characters while the reader watched, and CodeMirror was rebuilt from scratch when the chunk
+landed. The fallback was `null`, so what the reader saw was the application vanishing.
+
+It broke focus too, and this is the second bug rather than a symptom of a different one: the
+dialogs capture `document.activeElement` on mount as the opener to restore on Escape
+(`useDialog` in `client/a11y.ts`), and the element they were opened FROM had just been unmounted
+by the very boundary that was loading them. So the first Escape of every session put focus on
+`<body>`, and a keyboard reader was returned to the top of the document. **Fixing the boundaries
+fixes the focus** — nothing that is already on screen is inside the boundary that suspends, so
+the opener is still there to go back to.
+
+The rules that follow from it:
+
+- One `<Suspense>` per lazily-mounted surface. `Surface` in `App.tsx` is that boundary.
+- Panes pass a REAL fallback shaped like the pane (`.s-sidebar`, `.s-tabs`, `.s-statusbar`,
+  `.s-editor`, `.s-reading`, `.s-graph`) so the grid keeps its shape while the chunk lands.
+  Modals pass none: a dialog arriving a frame late is invisible, a skeleton flashing where a
+  dialog is about to be is not.
+- Boundaries go INSIDE a ternary that chooses between two surfaces, never around it — a boundary
+  around the editor/reading choice makes switching between them suspend the arm already mounted.
+- A surface that is **always mounted** (`ConfirmHost`, `LoginModal`, `PreviewBanner`,
+  `TemplatePicker`, `DesignStatus`) stays STATIC. `lazy()` defers nothing when the component
+  mounts unconditionally — the import fires immediately — while costing a boundary and a round
+  trip. Only a CONDITIONALLY mounted surface is worth splitting, which is why `ShortcutsHelp` is
+  lazy AND gated on `shortcutsOpen`: gating is what makes its laziness real.
+- A named import out of a lazy module is a STATIC import of that module, and silently undoes the
+  split. `vimSubCopy` lives in `client/vimCopy.ts` and `openDesigner` in
+  `client/components/design/openDesigner.ts` for exactly this reason — one reached into
+  `StatusBar`, the other into `DesignerPanel`, and each dragged its whole surface back into the
+  first paint. `npm run check-bundle` is what catches the next one.
+
+## Tests (`npm test`) — the release gate
+
+`node --test` over `tests/*.test.ts`. No new dependencies, no test framework, no fixtures on disk
+beyond the temp vaults the tests build themselves. The whole suite runs in well under a second, so
+there is no reason to skip it.
+
+**Nothing ships until all of these are green:**
+
+```
+npm run typecheck
+npm run check-i18n
+npm test
+node scripts/check-contrast.mjs
+npm run check-bundle
+```
+
+(plus whatever visual gates the repo carries at the time — `check-caret`, `check-sections`,
+`check-excerpt`, `shoot-hover` — which cover what a screenshot has to prove and the tests cannot.)
+
+What the suite covers, and why each file exists:
+
+- `tests/frontmatter.test.ts` — the byte-level contract of `setFrontmatterLine()`. Mostly a
+  property test: for generated notes (CRLF/LF, quoted values, malformed YAML, bodies containing
+  their own `---` rules and `publish:` lines) the edit changes ONE line and every other byte
+  survives, the edit is idempotent, and removing the key restores the rest. Also pins server/client
+  agreement on what "published" means.
+- `tests/links.test.ts` — wikilink parsing plus resolution on BOTH sides (`server/indexer.ts` and
+  `client/editor/links.ts`), including duplicate basenames, folder-named files, path-form targets,
+  Arabic and punctuated titles, and visitor scoping. The parity block is the point: the editor and
+  the graph must land on the same note.
+- `tests/anchors.test.ts` — `[[Note#Anchor]]` against both anchor resolvers (editor by heading
+  TEXT, reading view by SLUG), plus `Slugger` collisions and unicode.
+- `tests/sections.test.ts` — the partition invariant: cutting a note at its heading line numbers
+  and concatenating the pieces returns the original bytes. Property-tested. Fences full of `###`,
+  frontmatter, nesting and CRLF included. Any section extract/move/fold feature must keep this.
+- `tests/excerpt.test.ts` — excerpts and search snippets through `posts()`/`search()`: no raw
+  markdown, no de-hashed tag words in the prose, no template furniture as an opening paragraph,
+  word-boundary truncation, HTML escaped before `<mark>`.
+- `tests/paths.test.ts` — traversal, dotfiles/`.trash`/`.obsidian`, encoded separators, NUL bytes,
+  unicode normalisation and symlinks.
+- `tests/settings.test.ts` — the PATCH allowlist as a security boundary: unknown keys, prototype
+  keys, per-key validators, the enum keys, and "a patch that fails anywhere lands nothing". It also
+  cross-checks that `server/settings.ts` THEMES still equals `client/state.ts` THEMES — the drift
+  that makes the admin panel offer a theme the API answers 400 for.
+- `tests/numerals.test.ts` — one numeral system per instance, checked on a DATE and a COUNT
+  together (the `٩ يناير ٢٠٢٦ · 3 دقائق قراءة` regression), the separator/digit confusion rule, the
+  calendar tripwire, and tag-label encoding/isolation/direction.
+
+**Tests named `KNOWN BUG:` assert current, wrong-ish behavior on purpose** — they are the written
+record of a defect nobody has decided to fix yet, and they keep the suite honest instead of green
+by omission. Fixing the bug means rewriting that test, which is the intended workflow.
