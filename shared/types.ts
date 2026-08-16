@@ -69,6 +69,14 @@ export interface MeData {
   defaultTheme?: string; // theme applied when the visitor has no stored choice (DEFAULT_THEME)
   language?: "en" | "ar"; // site chrome language (settings.language / SITE_LANG; default "en"); "ar" flips the whole chrome RTL. Sent to every session.
   languageToggle?: boolean; // settings.languageToggle — the public shell offers visitors an EN/ع chrome switch (default off; absent = off)
+  /** Marginalia are live on this instance (COMMENTS=on, or
+   *  settings.commentsEnabled). Absent = off, and the client then never asks
+   *  /api/comments at all: without this the reading view fired one request per
+   *  note open on an instance with the feature off and painted a red 404 in
+   *  the console every time — a client asking a question the server has
+   *  already answered instance-wide. Visitor-safe: it describes the public
+   *  shell, exactly like languageToggle. */
+  comments?: boolean;
   customCss?: boolean; // VELLUM_DATA/custom.css exists → client links /api/custom.css
   // Blog mode (PUBLIC_LAYOUT=blog): visitors get a classic blog shell instead
   // of the app chrome; admin sessions keep the full app. Fields below are

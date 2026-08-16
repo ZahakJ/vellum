@@ -85,7 +85,7 @@ const openPicker = async () => {
   await page.waitForTimeout(700);
   await page.locator(".s-smodal__railbtn").nth(1).click();
   await page.waitForTimeout(300);
-  await page.getByRole("button", { name: /Browse themes|تصفح السمات/ }).click();
+  await page.getByRole("button", { name: /Themes|السمات/ }).click();
   await page.waitForTimeout(400);
   return "settings";
 };

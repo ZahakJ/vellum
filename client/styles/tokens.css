@@ -152,7 +152,25 @@
   --font-mono: var(--font-mono-system);
 
   --radius: 6px;
-  --sidebar-w: 292px;
+  /* THE SIDEBAR TAKES THE SURPLUS, NOT THE MEASURE. 292px flat made 1024 the
+     worst reading width in the product: a 293px sidebar plus a 301px outline
+     pane left the prose a 319px ribbon — less measure than 900, less than 640,
+     less than a 390px phone. The pane now spends only what is left after the
+     column has its full 760px box (760 + the collapsed outline pane's 14px
+     door + both panes' 1px separators = 776), so between 1000 and 1068 the
+     sidebar breathes from 224px to its full width while the prose sits at
+     exactly its 760px cap — measured, not assumed.
+     Below 1000 the sidebar is an overlay drawer and takes nothing at all. */
+  --sidebar-w: clamp(224px, calc(100vw - 776px), 292px);
+
+  /* Prose gutter, as one number the editor, the reading view and zen all read.
+     56px was held from 1440 all the way down to 768, where it was 24% of the
+     pane. It is a percentage of the column's own room until that room reaches
+     the 760px cap — 7.368% × 760 = 56 — so the gutter is exactly the shipped
+     56px at every width where the measure is full, and shrinks WITH the column
+     below it. Being continuous is the point: a stepped gutter re-introduces
+     the non-monotonicity at its own breakpoints. */
+  --prose-gutter: min(56px, 7.37%);
 
   /* Type scale. --font-base drives 1rem for the whole UI (chrome, sidebar,
      tabs, palette, blog — everything sized in rem scales off it);

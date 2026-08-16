@@ -91,7 +91,22 @@ export function generatedBannerCss(title: string, variant: "hero" | "thumb" = "h
   const baseLayer = thumb
     ? `linear-gradient(${angle}deg, ${c(h1, 9)}, ${c(h3, 7)})`
     : `linear-gradient(${angle}deg, var(--bg-raised), var(--bg-hover))`;
+  // RULED VELLUM, over the mesh. Three soft radial blobs and nothing else read
+  // as an image that failed to load — a 783×166 field with no edge anywhere in
+  // it. One deterministic hairline rule pattern (the note's own hash picks its
+  // angle and spacing) gives the field a grain, so it reads as a made thing at
+  // hero size and as texture rather than mush at 130px. Painted from --text, so
+  // it is the theme's own ink at 7–9% and cannot fight any of the fifteen
+  // grounds; the accent stays where the accent belongs.
+  const ruleAngle = 20 + ((h >>> 19) % 50); // 20–69deg — never level, never steep
+  const gap = thumb ? 7 : 11;
+  const ink = thumb ? 9 : 7;
+  const grain =
+    `repeating-linear-gradient(${ruleAngle}deg, ` +
+    `color-mix(in oklab, var(--text) ${ink}%, transparent) 0 1px, ` +
+    `transparent 1px ${gap}px)`;
   return [
+    grain,
     `radial-gradient(115% 160% at ${x1}% ${y1}%, ${c(h1, 34)} 0%, transparent 58%)`,
     `radial-gradient(105% 150% at ${x2}% ${y2}%, ${c(h2, 26)} 0%, transparent 62%)`,
     `radial-gradient(130% 170% at ${x3}% 105%, ${c(h3, 18)} 0%, transparent 66%)`,

@@ -34,14 +34,15 @@ export function PostMetaLine({ post, locale }: { post: PostMeta; locale: string 
         ·
       </span>
       <span>{countPhrase(post.readingMinutes, "readMinutes")}</span>
-      {post.tags.length > 0 && (
-        <>
-          <span className="s-blog-meta__dot" aria-hidden="true">
-            ·
-          </span>
-          <TagChips tags={post.tags} />
-        </>
-      )}
+      {/* No `·` before the chips, and the reason is a phone: the meta line
+          WRAPS, and at 390 the chips went to their own line while the
+          separator stayed behind — every tagged card ending its meta line
+          with a bare tick, the "separator with nothing on its far side"
+          DESIGN.md forbids, on the public marketing surface. A pill is
+          already its own boundary; the dashboard card (BlogDashboard.tsx)
+          made the same call and puts its chips on a row of their own with no
+          tick at all. */}
+      {post.tags.length > 0 && <TagChips tags={post.tags} />}
     </div>
   );
 }

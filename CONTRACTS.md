@@ -152,6 +152,14 @@ matches file basename (no `.md`, case-insensitive); shortest-path winner on dupl
   (`GLOBAL_MAX_ATTEMPTS`) behind the per-IP one and a semaphore of `VERIFY_MAX_CONCURRENT` = 2
   verifies with a bounded queue (a full queue is a `429`, never a park). `POST /api/comments` always
   had this shape; the login route now matches it.
+- **`/api/me` carries `comments: true` when marginalia are live** (`COMMENTS=on` or
+  `settings.commentsEnabled`), alongside `languageToggle` and for the same reason: it describes
+  the public shell, so every session gets it. The client gates `Marginalia` on it and only then
+  asks `GET /api/comments?path=…`. Before, the reading view learned the answer by ASKING per note
+  and reading the 404 — one bad response, and one red console line, on every note open of every
+  instance with the feature off (`404 …/api/comments?path=Zombies%2FCache%20Locality.md`), which
+  was the only non-2xx in an otherwise clean network sweep. One instance-wide fact belongs with
+  the instance-wide facts.
 - **`/api/me` never names the home note to a caller who could not read it.** `homeNoteVisible()`
   gated on publication and the languageFilter but not on `publicReads`, so `me.homeNote` (and
   `home.note`) travelled to anonymous callers on a `PUBLIC=false` vault whose entire premise is that
@@ -251,7 +259,17 @@ stays on `.s-panel--collapsed`, as it always did.
   build is a bare `"left"`/`"right"` — it was an explicit act then and it stays an explicit pin
   now, which is the whole migration: nothing is rewritten.
   The store action is `setSidebarSidePref(pref)` — one action for the palette's three commands
-  and for a Settings → Appearance segmented control. The grid areas (`"sidebar main panel"`)
+  and for a Settings → Appearance segmented control. **The three commands were audited against
+  the theme family and KEPT.** The fifteen `Theme: <id>` rows went because a theme is a ROOM —
+  it has to be looked at, the picker previews it live against the real app, and one row per
+  value was 37% of the command list. These three are the complete enumeration of a THREE-STATE
+  preference: each row is a finished end state that runs in one keystroke, and the hint marks
+  the one in force, which is the same shape as publish/unpublish (two rows for two genuine
+  states). Collapsing them would trade three direct actions for a modal, a tab and a scroll, the
+  opposite of what the theme change bought — and it would put "follow the language" back out of
+  reach, which is the bug the third row exists to fix. The palette carries no per-language
+  commands to audit: language is a Settings row plus the blog's optional visitor switch, and it
+  never had any. The grid areas (`"sidebar main panel"`)
   already follow the inline direction, so the stylesheet only needs the *disagreement*:
   `flipped = (lang === "ar") === (side === "left")` — an XOR — swaps the two grid areas and hands
   each pane the other's separator.
@@ -293,14 +311,68 @@ stays on `.s-panel--collapsed`, as it always did.
   moves as one movement and it lands centred rather than landing shoved.
   `.s-app--nopanel` exists for this and only this: the panel's collapse lives on
   `.s-panel--collapsed`, and a sibling's class is not something CSS can ask about. `.s-app--zen`
-  and the ≤700px drawer breakpoint zero `--fold-gutter` (no panes in the grid, no handles), and
+  and the ≤700px phone breakpoint zero `--fold-gutter` (no panes in the grid, no handles), and
   `.s-main:has(.s-graph)` drops the padding outright — the graph is a canvas that wants every
   pixel, not a column. Measured at 1440, all 16 combinations of side × sidebar × panel × dir:
   the two gaps agree to **1px** (that 1px being the collapsed pane's own border), against a worst
   skew of **287px** before.
 - **A collapsed pane leaves a door.** `.s-reopen--sidebar` / `.s-reopen--panel` are 14px
   full-height strips on the respective edges — always visible while collapsed (not hover-
-  revealed), hidden on phones, hidden in zen.
+  revealed), hidden in zen, and hidden wherever that pane is not a grid pane at all: the sidebar
+  door goes at ≤999 (the drawer's ☰ button is the door there — two ways back into one pane, one
+  of them 14px wide, is one too many), the outline door at ≤700 with the pane itself.
+- **THE READING COLUMN IS MONOTONE IN VIEWPORT WIDTH, AND THE CHROME IS WHAT PAYS FOR IT.**
+  Measured before this rule, `.cm-line` with a note open: 1440=648, **1024=319**, 900=480,
+  768=348, 640=604, 480=444, 390=354 — the prose was a 45-character ribbon at iPad-landscape
+  width, and the reader got MORE measure at 900, at 640 and even on a 390px phone than at 1024.
+  That is the same non-monotonicity the status-bar ladder above spends four paragraphs
+  eliminating, left in place for the thing the product is actually for. Two thresholds caused
+  it, and both had been placed where the chrome wanted them rather than where the column could
+  afford them: the sidebar held 292px down to 700, and the outline pane held 300px down to 1000.
+  The rule is now arithmetic. **A pane may occupy the grid only at widths where the prose has
+  already reached its 760px cap**, so the pane's arrival costs the reader nothing and there is no
+  step to be on the wrong side of:
+    - outline pane: 292 + 1 + 301 + 760 = 1354, so `BacklinksPanel`'s `NARROW_QUERY` is
+      `(max-width: 1360px)` — it auto-collapses to its 14px door below that (as a viewport fact,
+      never a stored preference; a deliberate open still wins and still persists);
+    - sidebar: `--sidebar-w: clamp(224px, calc(100vw - 776px), 292px)` — 776 = the 760px box +
+      that door + both panes' 1px separators — so between 1000 and 1068 the pane takes exactly
+      the surplus and the column sits at its cap; and at ≤999 the sidebar leaves the grid
+      entirely and becomes the overlay drawer the phone already used, so opening it costs the
+      column nothing at all;
+    - gutters: `--prose-gutter: min(56px, 7.37%)` (7.368% × 760 = 56) on the editor, the reading
+      view and the visitor column, `min(64px, 8%)` on zen's 800px box. Exactly the shipped 56px
+      wherever the measure is full, proportional below it, and CONTINUOUS — a stepped gutter
+      re-introduces the non-monotonicity at its own breakpoints, which is what the old flat 56px
+      (unchanged from 1440 all the way down to 768, where it was 24% of the pane) did.
+  Measured after, `.cm-line` at 1600/1440/1366/1360/1359/1280/1200/1100/1024/1000/999/900/820/768/700/699/640/480/390,
+  en and ar, defaults only: 648 at every width from 768 up, then 597/546/409/333 — **monotone
+  non-decreasing in both languages**, document horizontal overflow 0 at every one.
+- **One gesture per pane, whichever shell is on screen.** `toggleSidebar()` (state.ts) routes to
+  `setSidebarOpen` below `DRAWER_QUERY` (`max-width: 999px`, the single copy of that number in
+  the client) and to `setSidebarCollapsed` above it; `Ctrl/Cmd+B`, the palette row and the
+  status-bar switch all go through it, and the switch reports `sidebarOpen` in drawer mode
+  (tracked with a live `matchMedia` listener, because a resize crosses the breakpoint without
+  touching the store). Without this the sidebar switch was a control that did nothing at 900px.
+  Same reason `.s-statusbar__pane-outline` is hidden at ≤700: the pane it toggles is
+  `display: none` there, while the pane cluster itself only leaves at 640.
+- **A CLOSED DRAWER IS OUT OF THE TAB ORDER, NOT MERELY OFF-SCREEN.** The drawer rule carries
+  `visibility: hidden` with `transition: … visibility 0s linear 0.2s` (visible, undelayed, while
+  open) — the same delayed-visibility pattern the desktop collapse and the outline pane already
+  use. Measured before: at 390 the closed drawer was `matrix(1,0,0,1,-329.6,0)` with
+  `visibility: visible`, no `inert`, no `aria-hidden`; the FIRST Tab landed on the wordmark at
+  x=-314 and 119 of 137 focusables sat outside the viewport, so a screen-reader user swiped all
+  1,388 tree rows and 113 tag pills before reaching the page. After: `visibility: hidden`, and
+  the first Tab lands on the ☰ button (x=4 in English, x=342 in Arabic).
+- **THE TOUCH SHELL IS 44px EVERYWHERE, NOT ONLY IN THE EMPTY STATE.** `@media (max-width: 700px),
+  (pointer: coarse)` — the same trigger as the empty state's keymap swap, because a tablet is
+  1024px wide and still has no mouse — gives `.s-tree__item`, `.s-tag`, `.s-iconbtn`, the
+  status-bar buttons and the mode pills a 44px minimum, and the bar itself `min-height: 44px`;
+  the phone/touch drawer button and the tab bar it sits in are 44px too. Measured at 390 and at
+  1024 with a coarse pointer, en and ar: tree rows 44, tag pills 44, sidebar icon buttons 44,
+  status-bar buttons 44 (bar 45), document overflow 0. Before: 28 / 26 / 24 / 17–24 — the round
+  that gave the empty state its tap targets had fixed the pane it named and not the surface that
+  pane points at.
 - **Zen hides chrome; it does not disable behavior.** Editor shortcuts, `Ctrl/Cmd S`, publish
   and the palette all keep working. `Esc` leaves — unless something else owns Esc (a modal, the
   palette, a text field, or vim inside the editor), which is the same precedence Ctrl+D
@@ -409,8 +481,15 @@ and the graph vignette, the `--sw-*` swatch machinery, the picker panel) and `st
   `--sw-bg/--sw-text/--sw-accent` on `[data-theme-swatch]` (picker) and `[data-theme-dot]`
   (palette), so both surfaces are generic — a sixteenth theme needs one rule, not two.
 - **`client/components/ThemePicker.tsx` owns browsing, and all three doors are wired.** The
-  status-bar ☾/☀ button, the palette's *Browse themes…* command and Settings → Appearance's
-  *Browse themes…* button all call `openThemePicker()`. The status-bar button is the one that
+  status-bar ☾/☀ button, the palette's *Themes* command and Settings → Appearance's
+  *Themes* button all call `openThemePicker()`. **There is exactly ONE theme row in the
+  palette.** It used to carry sixteen: that row plus a `Theme: <id>` command per theme, 15 of
+  the table's 41 entries spent on one preference and every one of them a blind jump into a room
+  the reader had not seen — the same objection that took `nextTheme()` off the status-bar
+  button, printed fifteen times. The row keeps the swatch (`.s-palette-dot`, `themeDot` is a
+  THUNK so it previews the theme in force rather than a value frozen at import), and the picker
+  behind it is the surface that shows the values. A parameter with N values belongs behind the
+  surface that shows the values; `THEMES` is no longer imported by the palette at all. The status-bar button is the one that
   mattered: it used to call `nextTheme()`, stepping blindly through fifteen looks with no way to
   see what was available or to get back — the same invisible state as a silent reading mode, and
   it contradicted this file, the picker's own header comment and the README, all three of which
@@ -422,14 +501,25 @@ and the graph vignette, the `--sw-*` swatch machinery, the picker panel) and `st
   `client/themes.ts`). Fifteen rooms identified by fifteen obscure Latin pigment nouns was not a
   naming scheme in English and was untranslated in Arabic; the raw id is still the value
   `DEFAULT_THEME`, `settings.defaultTheme` and the palette take, and it lives in the row's
-  `title`. `nextTheme()` survives in `state.ts` as a keyboard-only
-  "next look" helper; no chrome calls it. The glyph reads `themeGroup(theme)`, not
+  `title`. `nextTheme()` is GONE from `state.ts`: it was blessed here as a keyboard-only
+  "next look" helper, but no keybinding called it either — `grep -rn nextTheme client/` found the
+  definition and nothing else, so it was unreachable code wearing an affordance's name. Cycling
+  fifteen rooms blind is the gesture this section removed; there is no version of it to keep
+  warm. The glyph reads `themeGroup(theme)`, not
   `theme === "parchment"` — there are four light themes and the moon was drawn on three of them.
   The overlay carries **no scrim and no blur** (`styles/themes.css`): every other overlay dims the
   app because the app is not what the reader is looking at, and this one exists so they can look
   at it — stacked under the settings panel's own `.s-palette-overlay` the two washes made the live
   preview a guess, so the settings overlay also steps back to 10% opacity while the picker is up
   (`body:has(.s-tpick-host)`), without unmounting: Esc must return to the panel as it was.
+  **The arrow keys walk the GEOMETRY, not the flat list.** `rowStep()` (ThemePicker.tsx) resolves
+  an index to (group, row, column) and moves a visual row at a time, entering the next group's
+  first row in the same column and clamping to what that row actually holds; ←/→ still step by
+  one across the whole list. Stepping ↑/↓ by ±COLS was wrong the moment a group held an ODD
+  number of themes: with eleven dark rooms the column parity flips at the boundary, so ArrowDown
+  from Tallow (dark, LEFT column) landed on Sandstone (light, RIGHT column) and **Parchment, the
+  flagship light theme, was unreachable by ArrowDown at all**. Enter-keeps and Esc-restores are
+  unchanged.
   `openThemePicker()` mounts it on `<body>` (like `toast.ts`) so the status bar, the settings
   panel and the palette can all open the same panel from two component trees; `isThemePickerOpen()` exists because a capture-phase
   Esc listener registered EARLIER (the settings panel's) would otherwise close the panel
@@ -627,12 +717,21 @@ FORM, like `syncOff` does, so flipping Public layout to blog lights the rows up 
 breath, before the save. The Home NOTE row between them stays live on purpose — the app shell
 opens it at boot.
 
-**The panel is called "Site settings", full stop.** It used to read "Site settings —
+**The panel is called "Settings", full stop.** It used to read "Site settings —
 settings.json": an implementation file in the title bar of a settings screen, naming a path
 without saying where that path is. Where the file lives is a FACT about the instance, so About
 prints `settingsPath` and `customFontsPath` (both on `AboutInfo`) beside the vault and data
 directories, with one sentence saying that deleting the file returns the instance to its env
-defaults.
+defaults. And then "Site" went too: the panel also holds this BROWSER's own theme, the editor's
+behavior and the backup credentials, the product has exactly one settings screen, and a
+qualifier that distinguishes nothing is a longer word for the same thing. One key, `siteSettings`
+(the id is kept so nothing has to be renamed twice), reaches the modal heading, the palette
+command, the gear's `aria-label`, the `Ctrl/Cmd+/` row and the README section — rename the VALUE
+and every surface follows. `siteSettingsTitle` is the gear's tooltip and carries the same word.
+The Arabic is the dictionary's own noun (`settingsSaved`, `settingsSections`), not a new
+coinage; likewise `browseThemes`, which is now *Themes* / «السمات» — `docTheming`'s word — on the
+palette row, the `Ctrl/Cmd+/` row and the Settings → Appearance trigger. The README heading
+moved with them, so `DOC_LINKS`' anchor is `#settings`.
 
 `settings.defaultTheme` is parsed leniently like `settings.language`: trimmed **and lowercased**.
 `DEFAULT_THEME` is lowercased by `readEnvTheme()` before validation, so trimming without
@@ -738,7 +837,13 @@ and the palette's *Delete note* — run the identical pair, because a command mu
 harsher one merely because it was reached from the palette. Until this landed, one dialog said
 "This cannot be undone" over an `fs.rm` while the folder one line above it in the same context
 menu promised `.trash` — the same gesture, two different guarantees, and the harsher one applied
-to the object an owner deletes most often. The store action closes the tab, reloads the tree,
+to the object an owner deletes most often. **The palette ROW says the same thing the dialog
+says.** Its hint is `cmdTrashHint` — *moves to .trash* / «ينقلها إلى ‎.trash‎» — because it used
+to read `cmdIrreversibleHint` (*irreversible* / «لا رجعة فيه»), left over from the `fs.rm` era:
+the reader was told the gesture could not be undone one keystroke before a dialog promised
+`.trash`, which is the two-guarantees-for-one-gesture defect this section exists to remove,
+wearing a smaller hat. `cmdIrreversibleHint` is gone from the dictionary — no command is
+unconditionally irreversible any more, and check-i18n fails a dead key. The store action closes the tab, reloads the tree,
 refreshes backlinks, refreshes publish state (a published note leaving the vault changes the
 public site) and toasts `noteTrashedToast` / `noteDeletedToast`.
 
@@ -937,8 +1042,9 @@ carry that, and none of them may be quiet:
   taken in the blog shell; everything else returns before it acts.
 - **The bar's order of sacrifice is written down, it is MONOTONIC, and it ends in a scroll.**
   `.s-statusbar` is `overflow: hidden`, so anything past its width vanishes with no scrollbar and
-  no hint. At ≤1280px the two counts go; at ≤640px the pane cluster, the crumb trail and the
-  separator dots go **and the bar becomes `overflow-x: auto`** (scrollbar hidden), because a phone can always be
+  no hint. At ≤1280px the two counts go (as ONE group — `.s-statusbar__ambient`); at ≤640px the
+  pane cluster and the crumb trail go, every group's hairline drops
+  **and the bar becomes `overflow-x: auto`** (scrollbar hidden), because a phone can always be
   narrower than the controls that must stay — sign-out was falling off that hidden overflow, and
   there is no other way out of a session on a phone. The MODE PILLS never go. Each of those rules
   is scoped `.s-statusbar .s-…`: the base `.s-statusbar .s-statusbar__panes` is (0,2,0), so a bare
@@ -993,10 +1099,78 @@ carry that, and none of them may be quiet:
   hairline is the same separator the sync lines already use, and it drops on phones where the
   groups are neighbours anyway.
 
+  **And that was only four of them, so the bar shipped BOTH separator systems at once.** The
+  counts, the publish toggle, the published-note count and the mode pills were still separated
+  by `·` — `.s-statusbar__dot` rendered three times in `StatusBar` and a fourth inside
+  `SyncBadge`, which printed its own trailing dot — so a 1440px admin bar drew three middots and
+  four hairlines, which is exactly what DESIGN.md forbids. **Every right-cluster segment is a
+  group now**: `.s-statusbar__panes`, `.s-statusbar__group`, `.s-modes` and `.s-syncwrap` share
+  one rule, `.s-statusbar__dot` is gone from the codebase, and the mark belongs to the BAR's
+  grammar rather than to whatever a segment happens to contain (which is why `.s-modes` and the
+  sync badge are marked from `app.css` and not from their own components — and why it is
+  `.s-syncwrap`, the root `SyncBadge` returns `null` instead of, rather than `.s-sync` inside
+  it: a hairline in front of a badge that drew nothing is a rule separating nothing).
+  Two gaps survive the shared rule on purpose (`.s-modes` 5px, `.s-statusbar__ambient` 10px):
+  pills are not icon buttons and two runs of text at 2px are one run of text.
+
+  **THE TWO COUNTS ARE ONE GROUP, and that is what makes the ladder safe.** `words · chars` and
+  `N published notes` sit in `.s-statusbar__ambient` (the publish TOGGLE, which is an act rather
+  than trivia, moved out from between them into its own group and survives to the phone). They
+  are one unit of sacrifice as well as one group: the ≤1280 rule drops the GROUP, because
+  hiding two members of a group individually leaves the group's own hairline and padding behind
+  with nothing inside them.
+
+  **The segment that OPENS the cluster carries no rule.** A hairline is a separator; on the
+  leading edge of the first segment it has nothing on its far side but the flexible gap, and it
+  reads as a stray tick floating mid-bar. Which segment is first depends on the session (a
+  visitor has no publish, no modes and no admin tools; no note open means no counts), so it is
+  matched positionally — `.s-statusbar .s-statusbar__spacer + *` — and never named. The `+`
+  combinator still matches a `display: none` sibling, so the ≤1280 block repeats the
+  suppression as `.s-statusbar__ambient + *`: without it a stray tick appears at 1280 exactly
+  where one disappeared. Both selectors are (0,2,0) and sit after the group rule, which is what
+  makes them win — the same specificity trap as everything else scoped to this bar.
+  Measured 1440→390 in both languages with publish, the published filter, both mode pills and
+  the sync badge up: `.s-statusbar__dot` count 0 at every width, exactly one segment at 0px
+  border and the rest at 1px above 640, all segments at 0px below it, and nothing on the hidden
+  overflow.
+
 **`Ctrl/Cmd+/` opens `ShortcutsHelp` (`shortcutsOpen` in the store).** Searchable, grouped
 Navigation / Editing / Modes / Publishing / Panels, `Esc` closes, also reachable from the palette
 and the status-bar `?`. Rows with no keystroke still appear, naming the surface that carries them
 ("Command palette", "Status bar", "Click") — the reader is asking "how do I do X".
+
+**A KEYMAP IS NOT AN ANSWER ON A DEVICE WITH NO KEYBOARD.** `.s-empty` (App.tsx, no note open)
+showed one thing: a grid of `Ctrl`-combination chips. At 390×844 that was the first screen after
+signing in — seven hints for controls the device does not have, the grid exactly as wide as the
+viewport so the first chip sat flush at x=0 with no gutter, and one label wrapping inside its
+cell, which makes that grid ROW taller than its neighbours and throws the legend out of true.
+The empty-state rules carried no media query and no pointer query at all.
+- **Both halves ship in the DOM and CSS picks**, at `@media (max-width: 700px), (pointer: coarse)`
+  — the pointer half matters on its own, because a tablet in landscape is 1024px wide and still
+  has no `Ctrl` key. No resize listener, no first-paint flash, nothing for JS to get wrong.
+- `.s-empty__touch` offers what the legend was only NAMING: the recent notes, then New note
+  (admin), Search notes and Graph view. Every target is ≥44px tall. *Search notes* goes through
+  `openQuickSearch()`, which opens the mobile DRAWER before dispatching `vellum:quicksearch` —
+  `Sidebar.revealSidebar()` un-collapses and un-zens, but the phone's pane is a fixed drawer
+  governed by `sidebarOpen`, so a bare dispatch focuses a field parked off the screen edge and
+  eats every keystroke after it. The dispatch waits one frame for the class to commit.
+- **Recent notes live in App, not in the store** — `localStorage["vellum.recent"]`, ≤12 paths,
+  written by a `useStore.subscribe` on real `openPath` changes (not by a render value, which
+  would reorder the list on any unrelated re-render), five shown. Nothing else remembers this:
+  the store persists open TABS, and by definition there are none when this pane is on screen.
+  Paths are re-checked against the LIVE tree (`collectNotes`) before anything is drawn, so a
+  deleted note, a sign-out and an admin previewing as a visitor each narrow the list by
+  themselves rather than leaking a title to somebody who may not see it.
+- The desktop legend keeps DESIGN.md's two-column grid but on `repeat(2, max-content)` with
+  `white-space: nowrap` chips, dropping to one column at ≤1100px. Measured, not guessed: the
+  centre column is the window minus a 280px sidebar, a 300px panel and this pane's own 24px
+  gutters, which is 396px at 1024 against a legend measuring 400 in English and 423 in Arabic —
+  the Arabic one sets the threshold. `.s-empty` takes `padding-inline: 24px`, because a centred
+  child wider than its box overflows at BOTH ends silently, and a gutter is what turns "it does
+  not fit" into something visible. `.s-empty__key` is `--text-muted`: these are labels naming a
+  thing, and DESIGN.md holds those to 4.5:1. `.s-empty__glyph` lost its `opacity: 0.7` for the
+  reason DESIGN.md gives — a fade over a token already at its floor fails the floor without
+  failing the gate (0.7 of parchment's faint is 1.75:1).
 
 **Pointer hover must never decide what `Enter` runs.** The palette (and the blog search overlay)
 open under wherever the cursor is resting, and `mouseenter` on the row that materializes there used
@@ -1132,6 +1306,18 @@ drifted position lands on a line with no link and the card silently never opens;
 with frontmatter, against 7 of 7 now. Guard: `scripts/shoot-hover.mjs`, which hovers EVERY visible
 link in several notes WITH frontmatter — a bare note, and a single link, are exactly the cases that
 kept passing while the feature was dead.
+
+**That gate now says which session it is measuring.** It never logged in, so against an instance
+started WITH `ADMIN_PASSWORD_HASH` it browsed as a visitor, no CodeMirror mounted, the
+`.cm-scroller` evaluate timed out, and the run reported `SKIP … browser died (TimeoutError…)`,
+`the browser crashed (memory?)` and `FAIL enough links … 0 hovered` — a gate blaming the machine
+for a session it had chosen itself, and a cycle spent learning the feature was fine. It now reads
+`/api/me` first: with `VELLUM_PASSWORD` set it signs in through `POST /api/login` and continues;
+without it, it prints *"this session is NOT an admin — no editor mounts, so there is nothing to
+hover"*, the instance's `protected`/`public` flags and both fixes, and **exits 1**. The whole run
+also shares ONE browser context (`browser.newPage()` makes a fresh one per call, which would have
+dropped the session cookie on the first subject). Verified both ways against a
+password-protected instance: refusal exit 1, `VELLUM_PASSWORD=… ` exit 0 with 10/10 links.
 
 Server side: `siteLanguage()` in `server/site.ts` merges `settings.language` over `SITE_LANG`
 (default `en`); `/api/me` sends `language` to **every** session (visitors included), and
@@ -1283,6 +1469,39 @@ faces appended.** Font fallback is per character, and Segoe UI (Windows) and Ari
 carry full Arabic coverage — at the end of the stack the named naskh faces were dead entries on
 both platforms. Same key as the Arabic type-metric compensation at the bottom of `tokens.css`:
 this is a language decision, not a direction one.
+
+## Blog surface (the public shell's own furniture)
+
+- **One column per page.** `.s-blog-page` sets the measure (720px, 24px gutters; 18px on a
+  phone) and everything inside it lives in that column. `.s-blog-article .s-marginalia`
+  therefore clears comments.css's own `max-width: 760px` + 56px gutters, which in the app are
+  the whole column and here were a SECOND column inside the first: measured at 1440 the
+  marginalia block sat 435–994 against an article at 379–1050, so the MARGINALIA rule and
+  heading were inset ~57px per side from the SHARE and RELATED headings directly above them,
+  and at 390 the comment form threw away 28% of its width. Measured after: marginalia
+  379–1051 and 18–372, identical to `.s-reading__content`, en and ar.
+- **No separator before the tag chips** in `PostMetaLine`. The meta line wraps, and at 390 the
+  chips went to their own line while the `·` stayed behind — every tagged card on the phone
+  ending its meta line with a bare tick, the "separator with nothing on its far side" DESIGN.md
+  forbids, reproduced on the marketing surface. A pill is its own boundary; `BlogDashboard`'s
+  card had already made the same call. Verified at 1440/1024/768/640/480/390 × en/ar: every
+  remaining `·` has something on its far side on the same line.
+- **The byline follows the TITLE's script, not the chrome's.** The `h1` aligns itself with
+  `dir="auto"`, so on an Arabic instance an English-titled post left the title hard left and its
+  own date/word-count hard right — one heading split across 670px of empty ground. Four rules
+  (chrome dir × title script) put the meta under the end of the title it belongs to;
+  `flex-start` is the CONTAINER's start, which is why the RTL chrome needs the opposite keyword
+  to reach the same physical edge.
+- **No keyboard legend on a touch device**, in the footer as well as in the app's empty state:
+  `.s-blog-footer__hint` (the `Ctrl K` chip) is `display: none` under `(max-width: 700px),
+  (pointer: coarse)`. Nothing is lost — the nav's search field is on screen at every width, and
+  it is what the chip pointed at.
+- **`bannerFallback: "generated"` produces a made thing, not a blur.** `generatedBannerCss()`
+  now lays a deterministic hairline rule pattern (angle and spacing from the title hash, painted
+  from `--text` at 7–9%, so it is the theme's own ink on any of the fifteen grounds) over the
+  three hash-hued radial blobs. Three soft blobs alone read as an image that failed to load: a
+  783×166 field with no edge anywhere in it, and index thumbnails that looked broken rather than
+  abstract. The hues, the tint clamp (`--banner-tint`) and the thumb/hero strengths are unchanged.
 
 ## Typography (self-hosted webfont catalog)
 
@@ -1518,6 +1737,20 @@ as a visitor is refused too; the POSTs are mutations the auth guard already 401s
   git already tracks. The eviction stages a deletion, so the next commit removes the trash from the
   tracked tree; anything an older build already PUSHED stays in the remote's history until the
   operator rewrites it, which is theirs to do and not something a backup tool may do for them.
+- **…and the guarantee does not rest on an ignore rule, because an ignore rule is the vault's
+  opinion.** The rule-level fix above is still wrong for one class of vault, and it was measured
+  wrong: `hasRule()` reads a `.gitignore` that already carries a `.trash/` line as "already
+  covered" and appends nothing, so a file reading `.trash/` then `!.trash/` un-ignores the trash —
+  git's LAST matching rule wins — and `git add -A` committed `.trash/guides/…` again. The same
+  hole exists for every other way an ignore decision can be overridden (`.git/info/exclude`, the
+  operator's global `core.excludesFile`, a negation in a nested `.gitignore`). So staging is now
+  a single function, `stageAll()` in `server/gitSync.ts`, and **nothing else in the module may run
+  `git add`**: it runs `git add -A` and then `git rm -r --cached --ignore-unmatch -- .trash
+  [<VELLUM_DATA rel>]`, evicting both paths from the INDEX. That command consults no ignore file
+  at all, so no rule anywhere can put either path into the tree that gets committed, and the same
+  call is what un-tracks a trash an older build already committed. `seedGitignore()` still appends
+  `.trash/` to the vault's own file so a terminal `git status` is quiet — a courtesy, not the
+  mechanism.
 - **VELLUM_DATA never reaches the repo, and that is enforced against git's answer.** The token
   file lives in the instance data directory, which is outside the vault by default — but when it
   is INSIDE one, `seedGitignore()` runs unconditionally in `initRepo()` (not only when the vault

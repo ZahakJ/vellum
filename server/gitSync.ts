@@ -715,6 +715,36 @@ function seedGitignore(): void {
   writeFileSync(file, `${body}${sep}${parts.join("\n")}\n`, "utf8");
 }
 
+/** The ONE call that stages the work tree. Nothing else in this module may run
+ *  `git add`.
+ *
+ *  `.trash/` and — when it sits inside the vault — VELLUM_DATA are evicted
+ *  from the INDEX after the add, not merely ignored before it, and that
+ *  distinction is the whole fix. An ignore rule is the vault's opinion; this
+ *  has to be a guarantee. seedGitignore() below still appends `.trash/` to the
+ *  vault's own .gitignore — worth doing so a terminal `git status` is quiet
+ *  too — but it cannot be the mechanism, because any rule-level check reads a
+ *  vault whose .gitignore already carries a `.trash/` line as "already
+ *  covered", and a later `!.trash/` in that same file then wins: git's LAST
+ *  matching rule decides. Measured on exactly that file (`.trash/` then
+ *  `!.trash/`), the rule-based build committed `.trash/guides/…` and would
+ *  have pushed it. `git rm --cached` asks nothing of any ignore file, so no
+ *  line in a .gitignore, in .git/info/exclude, or in the operator's global
+ *  core.excludesFile can leave either path in the tree that gets committed.
+ *
+ *  It is also the same command that un-tracks what an OLDER build already
+ *  committed, so the first sync after this change stages the removal — the
+ *  trash stops being in the tip even on a repo that has been pushing it.
+ *  `--ignore-unmatch` keeps it silent in the normal case, where neither path
+ *  was ever in the index. */
+async function stageAll(): Promise<void> {
+  await git(["add", "-A"]);
+  const paths = [TRASH_DIR];
+  const rel = dataDirInsideVault();
+  if (rel !== null) paths.push(rel);
+  await gitTry(["rm", "-r", "--cached", "--ignore-unmatch", "-q", "--", ...paths]);
+}
+
 /** Refuse to stage anything while VELLUM_DATA is inside the vault and not
  *  ignored — and un-track it if a previous run already committed it.
  *
@@ -790,7 +820,7 @@ export async function initRepo(): Promise<GitSyncStatus> {
     const head = await gitTry(["rev-parse", "--verify", "--quiet", "HEAD"]);
     if (head === null) {
       await protectDataDir(); // same gate as syncNow(): nothing is staged unguarded
-      await git(["add", "-A"]);
+      await stageAll();
       // `diff --cached --quiet` exits non-zero (→ null here) when something IS
       // staged; a clean index exits 0 and there is nothing to commit.
       if ((await gitTry(["diff", "--cached", "--quiet"])) === null) await commit();
@@ -885,10 +915,13 @@ export async function syncNow(trigger: SyncTrigger = "manual"): Promise<GitSyncS
 
     // Before ANYTHING is staged: the instance data directory must be ignored
     // (and un-tracked if an older build already committed it), or this pass
-    // refuses outright. `git add -A` is one line below.
+    // refuses outright. stageAll() is one line below, and it excludes both
+    // `.trash/` and VELLUM_DATA by pathspec regardless of what this vault's
+    // own .gitignore says — the refusal here is the second lock, not the only
+    // one.
     await protectDataDir();
 
-    await git(["add", "-A"]);
+    await stageAll();
     // Non-zero exit (→ null) means the index holds changes; a clean index
     // means this pass commits nothing, exactly as specified.
     if ((await gitTry(["diff", "--cached", "--quiet"])) === null) {

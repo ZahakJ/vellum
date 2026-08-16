@@ -1,6 +1,8 @@
 // Marginalia: reader comments under the reading view of published notes.
-// Renders nothing until GET /api/comments answers — a 404 (COMMENTS=off, or
-// the note isn't commentable) keeps the whole section dark. Bodies are plain
+// Renders nothing unless the instance has comments on (me.comments, held in
+// the store) AND this note is commentable; only then does it ask GET
+// /api/comments, and a 404 from that (the note isn't commentable after all)
+// still keeps the whole section dark. Bodies are plain
 // text: React escapes them on render, CSS preserves the line breaks.
 
 import { useEffect, useRef, useState } from "react";
@@ -115,6 +117,7 @@ function readStoredAuthor(): string {
 
 export default function Marginalia({ path }: { path: string }) {
   const admin = useStore((s) => s.admin);
+  const commentsOn = useStore((s) => s.commentsEnabled);
   const openPublished = useStore((s) => s.openPublished);
   const inPublishedSet = useStore((s) => s.publishedPaths?.has(path) ?? false);
   const locale = useStore((s) => s.blogLocale);
@@ -129,7 +132,10 @@ export default function Marginalia({ path }: { path: string }) {
 
   // Visitors only ever see published notes; admins get marginalia only where
   // the note is actually published (comments are the public site's furniture).
-  const commentable = !admin || openPublished === true || inPublishedSet;
+  // Two gates, and the instance-wide one comes first: with comments off there
+  // is nothing to ask about, and asking anyway put a red 404 in the console on
+  // every note open. /api/me already carries the answer for the session.
+  const commentable = commentsOn && (!admin || openPublished === true || inPublishedSet);
 
   useEffect(() => {
     if (!commentable) return;

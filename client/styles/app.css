@@ -920,7 +920,7 @@ select:focus,
 .s-editor .cm-content {
   max-width: 760px;
   margin: 0 auto;
-  padding: 48px 56px 120px;
+  padding: 48px var(--prose-gutter) 120px;
   caret-color: var(--accent);
 }
 
@@ -1113,24 +1113,35 @@ select:focus,
   border: 1px solid var(--border);
 }
 
-/* Empty state shown when no note is open. */
+/* Empty state shown when no note is open.
+   The inline padding is load-bearing, not decoration: this pane centres its
+   children, and a centred child WIDER than its box overflows equally at both
+   ends — so the keymap grid, which wanted exactly 390px on a 390px screen,
+   put its first chip at x=0 with no gutter at all and hung the same amount
+   off the trailing edge. A gutter here is what makes "it does not fit" show
+   up as a wrap instead of as a silent clip. */
 .s-empty {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  padding-inline: 24px;
   padding-bottom: 6vh;
   color: var(--text-faint);
   user-select: none;
 }
 
+/* No opacity over --text-faint. The token already sits at its 3:1 floor, and
+   DESIGN.md is explicit that a fade over a token at its floor is a way of
+   failing the floor without failing the gate (0.7 of parchment's faint is
+   1.75:1). It is a UI glyph, so the token is the whole budget. */
 .s-empty__glyph {
   font-size: 3.143rem;
   line-height: 1;
   color: var(--text-faint);
-  opacity: 0.7;
   margin-bottom: 10px;
 }
 
@@ -1141,23 +1152,157 @@ select:focus,
   color: var(--text-muted);
 }
 
+/* Two columns of kbd chips, and neither column may wrap. `auto auto` let a
+   long label ("keyboard shortcuts", «اختصارات لوحة المفاتيح») break inside its
+   own cell, which makes that grid ROW taller than its neighbours and throws
+   the whole legend out of alignment — the chips stop reading as a table. The
+   tracks are max-content and the labels are nowrap, so the grid is either
+   right or visibly too wide; the rule below is what stops it ever being too
+   wide. --text-muted, not --text-faint: these are labels naming a thing, and
+   DESIGN.md holds those to 4.5:1. */
 .s-empty__keys {
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: repeat(2, max-content);
+  justify-content: center;
   gap: 10px 28px;
+  max-width: 100%;
   font-size: 0.893rem;
-  color: var(--text-faint);
+  color: var(--text-muted);
+}
+
+/* The centre column is the window minus a 280px sidebar and a 300px panel and
+   this pane's own 24px gutters, so at 1024px it offers 396px to a legend that
+   measures 400 in English and 423 in Arabic — measured, not guessed, and the
+   Arabic one is what sets the threshold. One column below 1100: taller, but
+   never overhanging its gutter and never crooked. */
+@media (max-width: 1100px) {
+  .s-empty__keys {
+    grid-template-columns: max-content;
+  }
 }
 
 .s-empty__key {
   display: flex;
   align-items: center;
   gap: 10px;
+  white-space: nowrap;
 }
 
 .s-empty__key kbd {
   min-width: 52px;
   text-align: center;
+}
+
+/* ── The same pane, for a finger ──────────────────────────────────────────
+   Hidden by default and swapped in below the keymap's breakpoint (and on any
+   coarse pointer, at any width — a tablet is 1024px wide and has no Ctrl
+   key). Both halves ship in the DOM; CSS decides, so there is no resize
+   listener, no first-paint flash and nothing for JS to get wrong. */
+.s-empty__touch {
+  display: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
+  width: min(100%, 340px);
+}
+
+.s-empty__recents {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.s-empty__recentshead {
+  margin: 0 0 6px;
+  font-family: var(--font-ui);
+  font-size: 0.786rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* 44px of height, because that is the target a thumb actually hits. Serif
+   like every other note title in the product, and the row is full-width so
+   the whole line is the button rather than the text inside it. */
+.s-empty__recent {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 0.929rem;
+  text-align: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.s-empty__recent:hover,
+.s-empty__recent:active {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.s-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.s-empty__action {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.857rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.s-empty__action:hover,
+.s-empty__action:active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* The one thing this reader is most likely to want on a fresh phone session. */
+.s-empty__action--go {
+  flex-basis: 100%;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+@media (max-width: 700px), (pointer: coarse) {
+  .s-empty__keys {
+    display: none;
+  }
+
+  .s-empty__touch {
+    display: flex;
+  }
+
+  /* The glyph and the sentence are the same size on a 390px screen as on a
+     1440px one, and they were eating the space the controls need. */
+  .s-empty__glyph {
+    font-size: 2.286rem;
+    margin-bottom: 4px;
+  }
+
+  .s-empty__title {
+    margin-bottom: 16px;
+  }
 }
 
 /* ---------------------------------------------------------------- graph -- */
@@ -1518,7 +1663,10 @@ select:focus,
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-inline: 4px;
+  /* Only the trailing side: the leading margin comes from the group rule
+     below, which the pill cluster now shares with every other right-cluster
+     segment. */
+  margin-inline-end: 4px;
 }
 
 .s-statusbar .s-mode {
@@ -1624,15 +1772,52 @@ select:focus,
    SOME neighbours and not others made eleven controls read as one strip; a
    rule per group says where each one starts, and matches the "hairline, never
    a ·" separator the sync lines already use. Scoped to the bar for the usual
-   specificity reason. */
+   specificity reason.
+
+   EVERY right-cluster segment is in this list now. Four of them were groups
+   and the rest were still separated by `·` — the counts from the publish
+   toggle, the publish toggle from the published-note count, that count from
+   the mode pills — so the bar shipped both separator systems at once, which
+   is exactly what DESIGN.md forbids. The mode cluster and the sync badge are
+   marked here rather than in their own components' rules because the mark
+   belongs to the BAR's grammar, not to what a segment happens to contain. */
 .s-statusbar .s-statusbar__panes,
-.s-statusbar .s-statusbar__group {
+.s-statusbar .s-statusbar__group,
+.s-statusbar .s-modes,
+.s-statusbar .s-syncwrap {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   margin-inline-start: 6px;
   padding-inline-start: 7px;
   border-inline-start: 1px solid var(--border);
+}
+
+/* Two gaps this rule must not flatten: the mode pills are 5px apart (they are
+   pills, not icon buttons) and the two counts are text that would run
+   together at 2px. `.s-syncwrap` is the badge's own root — the component
+   returns null when sync is off, so marking THAT is what keeps an inactive
+   instance from carrying a hairline in front of nothing. */
+.s-statusbar .s-modes {
+  gap: 5px;
+}
+
+.s-statusbar .s-statusbar__ambient {
+  gap: 10px;
+}
+
+/* THE FIRST SEGMENT OF THE CLUSTER CARRIES NO RULE. A hairline is a
+   SEPARATOR: on the leading edge of whatever opens the right cluster it has
+   nothing on its far side but the flexible gap, and it reads as a stray
+   tick floating mid-bar. Which segment opens the cluster depends on the
+   session (visitor: no publish, no modes, no admin tools; no note open: no
+   counts), so it is matched positionally — the sibling immediately after the
+   spacer — rather than named. Same specificity as the rule above (0,2,0) and
+   later in the file, which is what makes it win. */
+.s-statusbar .s-statusbar__spacer + * {
+  margin-inline-start: 0;
+  padding-inline-start: 0;
+  border-inline-start: none;
 }
 
 .s-statusbar .s-statusbar__icon {
@@ -1831,11 +2016,6 @@ select:focus,
   color: var(--text-muted);
 }
 
-.s-statusbar__dot {
-  color: var(--text-faint);
-  padding: 0 4px;
-}
-
 .s-statusbar__btn,
 .s-statusbar button {
   font-size: 0.857rem;
@@ -1982,9 +2162,13 @@ select:focus,
   color: var(--accent);
 }
 
-/* Theme commands carry a tiny swatch: the theme's ground with a gold rim.
-   Colors come from the constant --swatch-* identity tokens, not the live
-   theme, so every dot previews its own theme. */
+/* The Themes row carries a tiny swatch: the ground of the theme in force,
+   with its own accent as the rim. Colors come from the constant --swatch-*
+   identity tokens (themes.css maps every theme in one generic rule), never
+   from the live cascade — the four per-theme rules that used to sit here
+   named iron-gall, void, lapis and parchment one at a time and were already
+   dead: themes.css's `[data-theme-dot]` matches the same shape, covers all
+   fifteen and wins on order. */
 .s-palette-dot {
   display: inline-block;
   width: 12px;
@@ -1992,26 +2176,6 @@ select:focus,
   border-radius: 50%;
   border: 2px solid transparent;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
-}
-
-.s-palette-dot[data-theme-dot="iron-gall"] {
-  background: var(--swatch-iron-gall-bg);
-  border-color: var(--swatch-iron-gall-accent);
-}
-
-.s-palette-dot[data-theme-dot="void"] {
-  background: var(--swatch-void-bg);
-  border-color: var(--swatch-void-accent);
-}
-
-.s-palette-dot[data-theme-dot="lapis"] {
-  background: var(--swatch-lapis-bg);
-  border-color: var(--swatch-lapis-accent);
-}
-
-.s-palette-dot[data-theme-dot="parchment"] {
-  background: var(--swatch-parchment-bg);
-  border-color: var(--swatch-parchment-accent);
 }
 
 .s-palette-item-title {
@@ -3179,7 +3343,9 @@ button.s-title:hover {
 .s-app--zen .s-view .s-editor .cm-content,
 .s-app--zen .s-view .s-reading__content {
   max-width: 800px;
-  padding: 96px 64px 180px;
+  /* 8% × 800 = 64: the shipped gutter wherever the 800px box fits, and a
+     proportional one on a phone, by the same rule as --prose-gutter. */
+  padding: 96px min(64px, 8%) 180px;
 }
 
 /* Zen's one control: a ✕ with the keystroke spelled out beside it. Both fade
@@ -3271,29 +3437,77 @@ button.s-title:hover {
   display: none;
 }
 
-/* ------------------------------------------------------ mobile (≤700px) -- */
-/* The app shell collapses to one column: the sidebar becomes an overlay
-   drawer behind a floating ☰ toggle (App renders both; they are inert and
-   hidden on wide viewports), the backlinks panel steps aside, and the
-   desktop 56px prose gutters relax so a 390px phone gets a real measure. */
+/* -------------------------------------------- narrow shell (≤999px) -- */
+/* THE COLUMN IS THE PRODUCT; THE PANES SPEND WHAT IS LEFT.
+   Measured before this rule: `.cm-line` was 648px at 1440, 319px at 1024,
+   480px at 900, 348px at 768, 604px at 640 and 354px at 390 — the reading
+   column was WORSE at an iPad in landscape than on a phone, and worse at a
+   small laptop than at either. Two thresholds did that, and both were placed
+   where the chrome wanted them rather than where the column could afford
+   them: the sidebar held 292px down to 700px, and the outline pane held
+   300px down to 1000px.
+
+   The rule now is arithmetic rather than taste. A pane may occupy the grid
+   only at widths where the prose has ALREADY reached its 760px cap, so the
+   pane's arrival costs the reader nothing and there is no step to be on the
+   wrong side of:
+     • outline pane needs 292 + 1 + 301 + 760 = 1354 → it auto-collapses to
+       its 14px door below 1360 (BacklinksPanel's own media query),
+     • sidebar needs 760 + 14 (that door) + 1 = 775 of headroom → it takes
+       `100vw - 775px` (tokens.css) and, below 1000px, stops taking grid space
+       at all and becomes the overlay drawer the phone already used.
+   The drawer is what makes the bottom of the ladder monotone too: an overlay
+   pane cannot shrink the column, so opening the tree at 900px costs nothing,
+   where the 292px pane used to cost 40% of the measure.
+
+   The ≤700 block below is what is genuinely PHONE-specific: no outline pane
+   and no door for it, and one grid column. App renders the drawer chrome at
+   every width; it is display:none above this breakpoint. */
 
 .s-drawer-btn,
 .s-drawer-backdrop {
   display: none;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 999px) {
+  /* No sidebar column in the grid — the drawer floats over the content. The
+     outline pane keeps its column (and, below 1360, its 14px door) until the
+     phone breakpoint takes it. Last word by source order, which is how it
+     beats .s-app--nosidebar at equal specificity. */
   .s-app {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
-      "main"
-      "status";
-    /* No panes in the grid at all here — the sidebar is a fixed overlay
-       drawer and the outline panel is hidden — so there is no reopen handle
-       to clear and the centre column takes the whole width. Last word on this
-       by source order, which is how it beats .s-app--nosidebar and
-       .s-app--nopanel at equal specificity. */
-    --fold-gutter: 0px;
+      "main   panel"
+      "status status";
+    --fold-sidebar: 0px;
+  }
+
+  .s-app--flip {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "panel  main"
+      "status status";
+  }
+
+  .s-app--preview {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "notice notice"
+      "main   panel"
+      "status status";
+  }
+
+  .s-app--preview.s-app--flip {
+    grid-template-areas:
+      "notice notice"
+      "panel  main"
+      "status status";
+  }
+
+  /* An overlay drawer has a ☰ button, not an edge door: two ways back into
+     the same pane, one of them 14px wide, is one too many. */
+  .s-reopen--sidebar {
+    display: none;
   }
 
   /* Sidebar → overlay drawer (slides in from the left). The desktop collapse
@@ -3309,10 +3523,18 @@ button.s-title:hover {
     z-index: 400;
     width: min(84vw, 320px);
     border-color: var(--border);
-    visibility: visible;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
     transform: translateX(-103%);
-    transition: transform 0.2s ease;
+    /* A CLOSED drawer is off-screen, not merely out of sight: `visibility:
+       hidden` is what takes its ~130 focusables (the whole tree, every tag
+       pill, the search field) out of the tab order and out of the
+       accessibility tree. Without it the first Tab on a phone lands on a
+       wordmark at x=-314 and a screen-reader user swipes the entire vault
+       before reaching the page. This is the same rule the desktop-collapsed
+       sidebar and the backlinks pane already use; the delay keeps the panel
+       paintable for the length of its own slide-out. */
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
   }
 
   .s-sidebar > *:not(.s-menu) {
@@ -3321,6 +3543,8 @@ button.s-title:hover {
 
   .s-app--drawer .s-sidebar {
     transform: none;
+    visibility: visible;
+    transition: transform 0.2s ease, visibility 0s;
   }
 
   .s-app--drawer .s-drawer-backdrop {
@@ -3358,6 +3582,26 @@ button.s-title:hover {
   .s-tabs {
     padding-inline-start: 44px;
   }
+}
+
+@media (max-width: 700px) {
+  /* …and with no outline pane there is no outline switch. The pane cluster
+     itself only leaves at 640, so between 641 and 700 this button was a
+     control that did nothing — the same defect the sidebar switch had at 900
+     until it learned about the drawer. */
+  .s-statusbar .s-statusbar__pane-outline {
+    display: none;
+  }
+
+  /* Phone: one column, no outline pane at all. */
+  .s-app,
+  .s-app--flip {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "main"
+      "status";
+    --fold-gutter: 0px;
+  }
 
   /* Backlinks/outline panel would eat the whole viewport on a phone — and a
      13px edge handle is not a phone affordance either. */
@@ -3366,10 +3610,95 @@ button.s-title:hover {
     display: none;
   }
 
-  /* Prose gutters: 56px each side crushes a 390px column. */
+  /* Vertical air only. The side gutters are --prose-gutter at every width now
+     (tokens.css): a fixed 18px here made the phone's measure LARGER than the
+     tablet's, which is the same non-monotonicity read from the other end. */
   .s-editor .cm-content,
   .s-reading__content {
-    padding: 44px 18px 110px;
+    padding-block: 44px 110px;
+  }
+}
+
+/* ── The whole shell, for a finger ───────────────────────────────────────────
+   The empty state got 44px targets and the rest of the shell did not, so the
+   pane a reader sees when nothing is open was thumb-sized while the pane they
+   use to open something was not: measured at 390 with a coarse pointer the
+   tree rows were 28px, the tag pills 26px, the sidebar's own icon buttons
+   24px and the status-bar buttons 17–24px. Navigating 1,388 notes on a phone
+   is a TREE-ROW operation, and signing out is a status-bar one. Same trigger
+   as the empty state's keymap swap — `max-width: 700px` OR any coarse
+   pointer, because a tablet is 1024px wide and still has no mouse — so the
+   two halves of the mobile story can never disagree about what counts as a
+   phone. Nothing here changes a colour, a font or a border: only the box a
+   finger has to land in. */
+@media (max-width: 700px), (pointer: coarse) {
+  /* Rows keep their 13px type and their density comes from the label, not
+     from the box: the height goes to 44 and the text sits centred in it. */
+  .s-tree__item {
+    height: auto;
+    min-height: 44px;
+  }
+
+  .s-tag {
+    min-height: 44px;
+    padding-block: 0;
+    padding-inline: 12px;
+  }
+
+  .s-tags__list {
+    gap: 6px;
+  }
+
+  /* New note / new folder in the sidebar header, the graph's zoom controls,
+     every pane chevron: one rule, because they are one component. */
+  .s-iconbtn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .s-sidebar-header {
+    height: 3.5rem;
+    padding-inline: 16px 6px;
+  }
+
+  /* The bar stops being 28px tall on a phone. Its buttons are the session
+     control and the view controls; a 17px sign-out at the far end of a
+     horizontal scroll was the least reachable control in the product. */
+  .s-statusbar {
+    height: auto;
+    min-height: 44px;
+  }
+
+  .s-statusbar__btn,
+  .s-statusbar button {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding-block: 0;
+    padding-inline: 9px;
+  }
+
+  .s-statusbar .s-mode {
+    min-height: 44px;
+  }
+}
+
+/* The drawer toggle is the touch shell's main navigation control — wherever
+   the drawer exists (≤999) and the pointer is a finger, plus every phone
+   width regardless of pointer. */
+@media (max-width: 700px), ((max-width: 999px) and (pointer: coarse)) {
+  /* It was 30px. The tab bar grows to match so the button sits inside it
+     rather than hanging over the first tab. */
+  .s-drawer-btn {
+    top: 0;
+    inset-inline-start: 4px;
+    width: 44px;
+    height: 44px;
+  }
+
+  .s-tabs {
+    height: 44px;
+    padding-inline-start: 52px;
   }
 }
 
@@ -4153,8 +4482,9 @@ button.s-title:hover {
   transform: none;
 }
 
-/* Mobile drawer slides in from the right in RTL (the sidebar lives there). */
-@media (max-width: 700px) {
+/* The drawer slides in from the right in RTL (the sidebar lives there).
+   Same breakpoint as the drawer itself — 999, not 700. */
+@media (max-width: 999px) {
   [dir="rtl"] .s-sidebar,
   [dir="rtl"] .s-app--nosidebar .s-sidebar,
   [dir="rtl"] .s-app--zen .s-sidebar {
@@ -4196,12 +4526,23 @@ button.s-title:hover {
    ladder exists to prevent. Trading a character count at 1280 for a hundred
    more pixels of the note's own name at every width is the trade this bar is
    supposed to make. */
+/* One group, one decision. Both counts leave together now that they sit in
+   `.s-statusbar__ambient` — hiding them individually would have left the
+   group's own hairline and padding behind with nothing inside it. And with
+   the group gone, whatever follows it becomes the segment that OPENS the
+   right cluster, so it must drop its rule the way the spacer's neighbour
+   does: the `+` combinator still matches a `display: none` sibling, so this
+   second selector is what keeps a stray tick from appearing at 1280 exactly
+   where one disappeared. */
 @media (max-width: 1280px) {
-  .s-statusbar__counts,
-  .s-statusbar__counts + .s-statusbar__dot,
-  .s-statusbar__pubcount,
-  .s-statusbar__pubcount + .s-statusbar__dot {
+  .s-statusbar .s-statusbar__ambient {
     display: none;
+  }
+
+  .s-statusbar .s-statusbar__ambient + * {
+    margin-inline-start: 0;
+    padding-inline-start: 0;
+    border-inline-start: none;
   }
 }
 
@@ -4235,16 +4576,18 @@ button.s-title:hover {
     display: none;
   }
 
-  /* The crumb trail has already shrunk to an ellipsis by here, and the dots
-     are separators between things that are now obvious neighbours. */
-  .s-statusbar .s-statusbar__crumbs,
-  .s-statusbar .s-statusbar__dot {
+  /* The crumb trail has already shrunk to an ellipsis by here. */
+  .s-statusbar .s-statusbar__crumbs {
     display: none;
   }
 
   /* With the pane cluster gone the remaining groups are neighbours anyway,
-     and a phone bar has no room to spend on rules. */
-  .s-statusbar .s-statusbar__group {
+     and a phone bar has no room to spend on rules. Every segment the group
+     rule marks has to be listed, or the mode pills and the sync badge keep
+     a hairline the rest of the bar has dropped. */
+  .s-statusbar .s-statusbar__group,
+  .s-statusbar .s-modes,
+  .s-statusbar .s-syncwrap {
     margin-inline-start: 2px;
     padding-inline-start: 0;
     border-inline-start: none;
