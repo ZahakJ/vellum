@@ -4,7 +4,8 @@
 // only from inside visitor preview, so every call here rides asAdmin (the
 // preview header would make the server treat the admin as a stranger).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useDialog } from "../a11y.ts";
 import { listAttachments, patchSettings, uploadAttachment } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
 import { localeNum, t, tf } from "../i18n.ts";
@@ -22,18 +23,13 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
-  // Esc closes (capture phase — nothing below may swallow it first).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+  // Esc closes (capture phase — nothing below may swallow it first), Tab is
+  // trapped, and closing returns focus to the hero's "Change banner…" button.
+  // The URL field focuses itself in the load effect below.
+  useDialog(panelRef, { manualFocus: true, onEscape: onClose });
 
   useEffect(() => {
     let disposed = false;
@@ -94,13 +90,15 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="s-palette-overlay" onMouseDown={onClose}>
       <div
+        ref={panelRef}
         className="s-bmodal"
         role="dialog"
-        aria-label={t("homeBannerAria")}
+        aria-modal="true"
+        aria-labelledby={titleId}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="s-bmodal__head">
-          <span className="s-bmodal__title">
+          <span className="s-bmodal__title" id={titleId}>
             {t("homeBannerTitle")} — <em>{t("homeBannerSubtitle")}</em>
           </span>
           <button type="button" className="s-bmodal__close" onClick={onClose} aria-label={t("close")}>
@@ -123,6 +121,7 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
             className="s-bmodal__input"
             type="text"
             placeholder={t("bannerUrlPlaceholder")}
+            aria-label={t("bannerUrlPlaceholder")}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
@@ -140,8 +139,12 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <div
+        {/* Real button: a div that opens a file picker is unreachable by
+            keyboard (see BannerModal). Drag handlers ride along on it. */}
+        <button
+          type="button"
           className={`s-bmodal__drop${dragOver ? " s-bmodal__drop--over" : ""}`}
+          aria-label={t("chooseImageFile")}
           onClick={() => fileInputRef.current?.click()}
           onDragOver={(e) => {
             e.preventDefault();
@@ -168,13 +171,14 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
               e.target.value = "";
             }}
           />
-        </div>
+        </button>
 
         <div className="s-bmodal__pick">
           <input
             className="s-bmodal__input"
             type="text"
             placeholder={t("searchAttachments")}
+            aria-label={t("searchAttachments")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             spellCheck={false}

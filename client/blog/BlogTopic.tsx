@@ -23,7 +23,8 @@ export default function BlogTopic({
   );
   return (
     <div className="s-blog-page">
-      <h2 className="s-blog-heading">
+      {/* h1 — the topic page's own title (see BlogHome). */}
+      <h1 className="s-blog-heading">
         <span>
           {t("blogWritings")}
           <span className="s-blog-heading__topic" dir="auto">
@@ -31,7 +32,7 @@ export default function BlogTopic({
             {tag}
           </span>
         </span>
-      </h2>
+      </h1>
       {posts === null ? (
         <p className="s-blog-empty">…</p>
       ) : filtered.length === 0 ? (

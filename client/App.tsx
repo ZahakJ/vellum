@@ -376,6 +376,11 @@ export default function App() {
 
   return (
     <div className={shellClass}>
+      {/* First tab stop in the document: past the sidebar tree (which can be
+          a thousand rows) and straight into the note. Hidden until focused. */}
+      <a className="s-skip" href="#s-main">
+        {t("skipToContent")}
+      </a>
       {/* One boundary for the whole app shell. Every component inside it
           resolves from the SAME chunk (build/chunks.ts groups them), so this
           is a single request, and one fallback avoids the panes popping in
@@ -405,7 +410,10 @@ export default function App() {
           </svg>
         </button>
       )}
-      <main className="s-main">
+      {/* tabIndex -1 so the skip link can actually land focus here: an <a
+          href="#…"> moves the caret to the target only if the target is
+          focusable, otherwise the next Tab starts from the top again. */}
+      <main className="s-main" id="s-main" tabIndex={-1} aria-label={t("mainContent")}>
         <button
           type="button"
           className="s-drawer-btn"

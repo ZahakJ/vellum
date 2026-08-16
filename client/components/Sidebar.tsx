@@ -3,7 +3,7 @@
 // double-click; context menu for new note / new folder / rename / delete.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import type { SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
 import { createFolder, getTags, search } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
@@ -49,6 +49,43 @@ interface MenuState {
   x: number;
   y: number;
   node: TreeNode; // the root node (path "") stands in for "vault root"
+  /** Opened from the keyboard (Shift+F10 / the menu key), so focus has to go
+   *  INTO the menu and come back to the row when it closes. A pointer-opened
+   *  menu leaves focus where the reader put it. */
+  fromKeyboard?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Tree keyboard model.
+//
+// The tree is one tab stop, not 1,388 of them: the container holds the focus
+// and `aria-activedescendant` names the row the reader is on. That is the
+// ARIA tree pattern, and here it is also the only shape that survives the
+// perf contract — a roving tabindex would have to re-render rows to move,
+// and these rows are memoized precisely so a keystroke doesn't touch all of
+// them. Everything below therefore reads the CURRENT tree out of the DOM:
+// only expanded folders render children, so "the rows in the container" and
+// "the rows the reader can see" are the same list by construction.
+// ---------------------------------------------------------------------------
+
+/** aria-activedescendant needs an id, and vault paths contain spaces and
+ *  slashes — so the path is encoded, never interpolated raw. */
+function rowId(path: string): string {
+  return `s-tree-row-${encodeURIComponent(path)}`;
+}
+
+function findNode(root: TreeNode | null, path: string): TreeNode | null {
+  if (!root) return null;
+  if (root.path === path) return root;
+  for (const child of root.children ?? []) {
+    const hit = findNode(child, path);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function visibleRows(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>(".s-tree__item")];
 }
 
 // ---------------------------------------------------------------------------
@@ -290,18 +327,26 @@ export default function Sidebar() {
     [visitorGraph],
   );
 
-  // Dismiss the context menu on any outside click or Escape.
+  // Dismiss the context menu on any outside click or Escape. A menu opened
+  // from the keyboard hands focus back to the tree when it goes — otherwise
+  // Escape drops the reader on <body> and they have to Tab in from the top.
   useEffect(() => {
     if (!menu) return;
-    const close = () => setMenu(null);
+    const close = () => {
+      if (menu.fromKeyboard) treeRef.current?.focus();
+      setMenu(null);
+    };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+      }
     };
     window.addEventListener("mousedown", close);
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
     };
   }, [menu]);
 
@@ -399,6 +444,9 @@ export default function Sidebar() {
     top = Math.max(MENU_EDGE, Math.min(top, vh - height - MENU_EDGE));
     el.style.left = `${Math.round(left)}px`;
     el.style.top = `${Math.round(top)}px`;
+    // Opened from the keyboard: focus goes into the menu, or it is a menu
+    // that only a mouse can reach.
+    if (menu.fromKeyboard) el.querySelector<HTMLButtonElement>(".s-menu__item")?.focus();
   }, [menu]);
 
   const openMenu = useCallback((e: ReactMouseEvent, node: TreeNode) => {
@@ -412,6 +460,162 @@ export default function Sidebar() {
     if (!useStore.getState().admin) return;
     setRenaming(path);
   }, []);
+
+  // ── Tree cursor (aria-activedescendant) ────────────────────────────────
+  const treeRef = useRef<HTMLDivElement | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  /** The cursor as a DOM class + activedescendant, applied imperatively so
+   *  moving it costs one attribute write instead of a re-render of the tree. */
+  const paintCursor = useCallback((path: string | null, scroll = true) => {
+    const container = treeRef.current;
+    if (!container) return;
+    for (const el of container.querySelectorAll(".s-tree__item--cursor")) {
+      el.classList.remove("s-tree__item--cursor");
+    }
+    if (path === null) {
+      container.removeAttribute("aria-activedescendant");
+      return;
+    }
+    const row = container.querySelector<HTMLElement>(
+      `[data-tree-path="${CSS.escape(path)}"]`,
+    );
+    if (!row) {
+      container.removeAttribute("aria-activedescendant");
+      return;
+    }
+    row.classList.add("s-tree__item--cursor");
+    container.setAttribute("aria-activedescendant", row.id);
+    if (scroll) row.scrollIntoView({ block: "nearest" });
+  }, []);
+
+  const moveCursor = useCallback(
+    (path: string | null) => {
+      setCursor(path);
+      paintCursor(path);
+    },
+    [paintCursor],
+  );
+
+  // The tree re-renders under the cursor constantly (SSE, folder toggles,
+  // publish marks). Repaint after every commit so the highlight and the
+  // activedescendant keep pointing at a row that still exists.
+  useLayoutEffect(() => {
+    paintCursor(cursor, false);
+  });
+
+  /** Where the cursor should start: the open note if it is on screen, else
+   *  the first row. Never nothing — a tree you can focus but not steer is a
+   *  dead end. (openPath is read off the store rather than subscribed to:
+   *  Sidebar re-rendering on every note switch would cost more than this
+   *  one lookup on focus.) */
+  const initialCursor = useCallback((): string | null => {
+    const container = treeRef.current;
+    if (!container) return null;
+    const rows = visibleRows(container);
+    if (rows.length === 0) return null;
+    const open = useStore.getState().openPath;
+    const found = open ? rows.find((r) => r.dataset.treePath === open) : undefined;
+    return (found ?? rows[0]).dataset.treePath ?? null;
+  }, []);
+
+  const onTreeKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLDivElement>) => {
+      const container = treeRef.current;
+      if (!container) return;
+      // A rename input inside a row owns its own keys (it stops propagation),
+      // so anything arriving here is the tree's.
+      const rows = visibleRows(container);
+      if (rows.length === 0) return;
+      const at = Math.max(
+        0,
+        rows.findIndex((r) => r.dataset.treePath === cursor),
+      );
+      const row = rows[at];
+      const path = row?.dataset.treePath ?? null;
+      const isFolder = row?.getAttribute("aria-expanded") !== null;
+      const isOpen = row?.getAttribute("aria-expanded") === "true";
+      const step = (to: number): void => {
+        e.preventDefault();
+        moveCursor(rows[Math.max(0, Math.min(rows.length - 1, to))]?.dataset.treePath ?? null);
+      };
+
+      switch (e.key) {
+        case "ArrowDown":
+          step(at + 1);
+          return;
+        case "ArrowUp":
+          step(at - 1);
+          return;
+        case "Home":
+          step(0);
+          return;
+        case "End":
+          step(rows.length - 1);
+          return;
+        case "ArrowRight":
+        case "ArrowLeft": {
+          // Logical, not physical: in an RTL sidebar the key that opens a
+          // folder is the one pointing INTO the indent, which is Left.
+          const rtl = getComputedStyle(container).direction === "rtl";
+          const forward = rtl ? e.key === "ArrowLeft" : e.key === "ArrowRight";
+          e.preventDefault();
+          if (forward) {
+            if (isFolder && !isOpen) row.click(); // expand
+            else if (isFolder && isOpen) step(at + 1); // …then walk in
+            return;
+          }
+          if (isFolder && isOpen) {
+            row.click(); // collapse
+            return;
+          }
+          // Otherwise climb to the parent row: the nearest row above whose
+          // indent is shallower than this one's.
+          if (!path) return;
+          const parent = parentOf(path);
+          const parentRow = rows.find((r) => r.dataset.treePath === parent);
+          if (parentRow) moveCursor(parent);
+          return;
+        }
+        case "Enter":
+        case " ":
+          if (!row) return;
+          e.preventDefault();
+          row.click();
+          return;
+        case "F2":
+          if (path && useStore.getState().admin) {
+            e.preventDefault();
+            startRename(path);
+          }
+          return;
+        case "Delete": {
+          if (!path || !useStore.getState().admin) return;
+          const node = findNode(tree, path);
+          if (!node) return;
+          e.preventDefault();
+          if (node.type === "folder") confirmDeleteFolder(node);
+          else confirmDelete(node);
+          return;
+        }
+        case "ContextMenu":
+          break;
+        case "F10":
+          if (!e.shiftKey) return;
+          break;
+        default:
+          return;
+      }
+      // Shift+F10 / the context-menu key: the keyboard's right-click. It
+      // opens at the row, not at the last place the mouse happened to be.
+      if (!path || !useStore.getState().admin) return;
+      const node = findNode(tree, path);
+      if (!node) return;
+      e.preventDefault();
+      const box = row.getBoundingClientRect();
+      setMenu({ x: Math.round(box.left + 12), y: Math.round(box.bottom), node, fromKeyboard: true });
+    },
+    [cursor, moveCursor, startRename, tree],
+  );
 
   const noteCount = useMemo(() => countNotes(tree), [tree]);
 
@@ -439,7 +643,9 @@ export default function Sidebar() {
   }, [admin, flatNotes, noteTags]);
 
   return (
-    <aside className="s-sidebar">
+    // Two <aside>s in this shell (this and the backlinks panel) become two
+    // "complementary" landmarks with identical names — which is to say, none.
+    <aside className="s-sidebar" aria-label={t("sidebarAria")}>
       <header className="s-sidebar-header">
         {admin ? (
           // The wordmark doubles as the preview toggle: one click shows the
@@ -500,6 +706,9 @@ export default function Sidebar() {
           className="s-search__input"
           type="search"
           placeholder={t("searchPlaceholder")}
+          // A placeholder is not a label: it disappears the moment the reader
+          // types, and several screen readers never announce it at all.
+          aria-label={t("searchTitle")}
           title={t("searchTitle")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -529,7 +738,12 @@ export default function Sidebar() {
       )}
 
       {hits !== null ? (
-        <div className="s-search__results">
+        // A results list that swaps in silently is a list a screen-reader user
+        // never learns about — the count is announced politely as it lands.
+        <div className="s-search__results" role="region" aria-label={t("searchResultsAria")}>
+          <p className="s-sr-only" role="status">
+            {hits.length === 0 ? t("noResultsAria") : tf("resultCount", { count: localeNum(hits.length) })}
+          </p>
           {hits.length === 0 && <p className="s-search__none">{t("noMatchesDot")}</p>}
           {hits.map((hit) => (
             <button
@@ -544,7 +758,7 @@ export default function Sidebar() {
               <span className="s-search-hit__title">
                 <bdi>{hit.title}</bdi>
                 {admin && publishedPaths?.has(hit.path) && (
-                  <span className="s-pubstar" title={t("published")} aria-label={t("published")}>
+                  <span className="s-pubstar" role="img" title={t("published")} aria-label={t("published")}>
                     ✦
                   </span>
                 )}
@@ -607,24 +821,51 @@ export default function Sidebar() {
       ) : (
         <nav
           className="s-tree"
+          aria-label={t("vaultTree")}
           onContextMenu={(e) => {
             if (tree && e.target === e.currentTarget) openMenu(e, tree);
           }}
         >
-          {tree?.children?.map((child) => (
-            <TreeRow
-              key={child.path}
-              node={child}
-              depth={0}
-              renaming={renaming}
-              lang={lang}
-              onOpen={openNote}
-              onStartRename={startRename}
-              onCommitRename={commitRename}
-              onCancelRename={cancelRename}
-              onMenu={openMenu}
-            />
-          ))}
+          {/* One tab stop for the whole vault. `aria-activedescendant` names
+              the row the reader is on (see the tree keyboard model above);
+              the roles make it a tree to a screen reader instead of a pile
+              of unlabelled divs, which is what it was. */}
+          <div
+            ref={treeRef}
+            className="s-tree__root"
+            role="tree"
+            aria-label={t("vaultTree")}
+            tabIndex={0}
+            onKeyDown={onTreeKeyDown}
+            onFocus={(e) => {
+              if (e.target !== e.currentTarget) return;
+              if (cursor === null) moveCursor(initialCursor());
+            }}
+            onMouseDown={(e) => {
+              // Clicking a row moves the cursor there, so the arrows continue
+              // from where the reader last pointed rather than from wherever
+              // the keyboard left off.
+              const row = (e.target as HTMLElement).closest<HTMLElement>(".s-tree__item");
+              if (row?.dataset.treePath !== undefined) setCursor(row.dataset.treePath);
+            }}
+          >
+            {tree?.children?.map((child, i) => (
+              <TreeRow
+                key={child.path}
+                node={child}
+                depth={0}
+                index={i}
+                setSize={tree.children?.length ?? 1}
+                renaming={renaming}
+                lang={lang}
+                onOpen={openNote}
+                onStartRename={startRename}
+                onCommitRename={commitRename}
+                onCancelRename={cancelRename}
+                onMenu={openMenu}
+              />
+            ))}
+          </div>
         </nav>
       )}
 
@@ -691,14 +932,34 @@ export default function Sidebar() {
         <div
           ref={menuRef}
           className="s-menu"
+          role="menu"
+          aria-label={t("rowActions")}
           style={{ left: menu.x, top: menu.y }}
           onMouseDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            // Arrows walk the items, Tab leaves (a menu is not a tab ring),
+            // Escape is handled by the global listener above.
+            if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Tab") return;
+            const items = [
+              ...e.currentTarget.querySelectorAll<HTMLButtonElement>(".s-menu__item"),
+            ];
+            if (e.key === "Tab") {
+              treeRef.current?.focus();
+              setMenu(null);
+              return;
+            }
+            e.preventDefault();
+            const at = items.indexOf(document.activeElement as HTMLButtonElement);
+            const step = e.key === "ArrowDown" ? 1 : -1;
+            items[(Math.max(0, at) + step + items.length) % items.length]?.focus();
+          }}
         >
           {(menu.node.type === "folder" || menu.node.path === "") && (
             <>
               <button
                 type="button"
                 className="s-menu__item"
+                role="menuitem"
                 onClick={() => {
                   setMenu(null);
                   promptNewNote(menu.node.path);
@@ -709,6 +970,7 @@ export default function Sidebar() {
               <button
                 type="button"
                 className="s-menu__item"
+                role="menuitem"
                 onClick={() => {
                   setMenu(null);
                   promptNewFolder(menu.node.path);
@@ -725,6 +987,7 @@ export default function Sidebar() {
             <button
               type="button"
               className="s-menu__item"
+                role="menuitem"
               onClick={() => {
                 setMenu(null);
                 setRenaming(menu.node.path);
@@ -737,6 +1000,7 @@ export default function Sidebar() {
             <button
               type="button"
               className="s-menu__item s-menu__item--danger"
+                role="menuitem"
               onClick={() => {
                 setMenu(null);
                 confirmDelete(menu.node);
@@ -751,6 +1015,7 @@ export default function Sidebar() {
             <button
               type="button"
               className="s-menu__item s-menu__item--danger"
+                role="menuitem"
               onClick={() => {
                 setMenu(null);
                 confirmDeleteFolder(menu.node);
@@ -857,6 +1122,10 @@ const TopicSection = memo(function TopicSection({
 interface TreeRowProps {
   node: TreeNode;
   depth: number;
+  /** 0-based position among its siblings, and how many siblings there are —
+   *  the flat tree model states both on every row (aria-posinset/setsize). */
+  index: number;
+  setSize: number;
   renaming: string | null;
   /** Active chrome language. Not read directly — it is a prop purely so a
    *  live language change busts memo() on every row and re-renders the
@@ -900,8 +1169,10 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
     .join(" ");
 
   return (
-    <div className="s-tree__node">
+    <div className="s-tree__node" role="none">
       <div
+        id={rowId(node.path)}
+        data-tree-path={node.path}
         className={classes}
         style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
         onClick={() => (isFolder ? toggle() : props.onOpen(node.path))}
@@ -911,10 +1182,23 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
         }}
         onContextMenu={(e) => props.onMenu(e, node)}
         role="treeitem"
+        // The FLAT tree model (ARIA APG's second shape): every row states its
+        // own level and position instead of relying on nested role="group"
+        // containers. The nesting here cannot express ownership anyway — the
+        // children div is a SIBLING of the row that opens it, because the row
+        // is a fixed-height flex line and the subtree is not inside it — and
+        // aria-owns is the weaker-supported of the two escapes.
+        aria-level={depth + 1}
+        aria-posinset={props.index + 1}
+        aria-setsize={props.setSize}
+        aria-selected={isActive}
         aria-expanded={isFolder ? isOpen : undefined}
       >
         {isFolder && (
-          <span className={`s-tree__chevron${isOpen ? " s-tree__chevron--open" : ""}`}>
+          <span
+            className={`s-tree__chevron${isOpen ? " s-tree__chevron--open" : ""}`}
+            aria-hidden="true"
+          >
             ›
           </span>
         )}
@@ -927,8 +1211,10 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
         ) : (
           <span className="s-tree__label" dir="auto">
             {label}
+            {/* A bare aria-label on a <span> is not reliably exposed — the
+                star needs a role before it counts as a labelled thing. */}
             {isPublished && (
-              <span className="s-pubstar" title={t("published")} aria-label={t("published")}>
+              <span className="s-pubstar" role="img" title={t("published")} aria-label={t("published")}>
                 ✦
               </span>
             )}
@@ -936,9 +1222,16 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
         )}
       </div>
       {isFolder && isOpen && (
-        <div className="s-tree__children" role="group">
-          {node.children?.map((child) => (
-            <TreeRow key={child.path} {...props} node={child} depth={depth + 1} />
+        <div className="s-tree__children" role="none">
+          {node.children?.map((child, i) => (
+            <TreeRow
+              key={child.path}
+              {...props}
+              node={child}
+              depth={depth + 1}
+              index={i}
+              setSize={node.children?.length ?? 1}
+            />
           ))}
         </div>
       )}
