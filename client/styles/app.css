@@ -945,8 +945,11 @@ select:focus,
   min-height: 0;
 }
 
+/* A text editor's focus indicator is its caret, not a box drawn around the
+   whole prose column — CodeMirror keeps the caret and the selection, which is
+   what "focused" means here. */
 .s-editor .cm-editor.cm-focused {
-  outline: none;
+  outline: none; /* a11y-ok: the caret is the indicator */
 }
 
 /* Manuscript prose: serif body text, generous measure. */

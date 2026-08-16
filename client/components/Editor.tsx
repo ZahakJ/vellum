@@ -5,8 +5,10 @@
 
 import { useEffect, useRef } from "react";
 import { EditorView } from "@codemirror/view";
+import { focusIsClaimed } from "../a11y.ts";
 import { getNote, isNotPublishedError, putNote } from "../api.ts";
 import { t, tf } from "../i18n.ts";
+import { Lru } from "../lru.ts";
 import { markSelfWrite, useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { buildEditorState, setVim } from "../editor/setup.ts";
@@ -34,8 +36,10 @@ function afterFrontmatter(path: string, content: string): number {
   return m ? m[0].length : 0;
 }
 
-/** Scroll positions survive switching tabs; module-level so remounts keep them. */
-const scrollPositions = new Map<string, number>();
+/** Scroll positions survive switching tabs; module-level so remounts keep them.
+ *  Bounded (client/lru.ts): unbounded, its ceiling is "every note edited this
+ *  session", i.e. the vault. */
+const scrollPositions = new Lru<number>({ max: 256 });
 
 function markDirty(path: string, dirty: boolean): void {
   useStore.setState((state) =>
@@ -135,7 +139,7 @@ export default function Editor({ path }: { path: string }) {
                 yMargin: 24,
               }),
             });
-            view.focus();
+            if (!focusIsClaimed()) view.focus();
             return;
           }
         }
@@ -149,7 +153,10 @@ export default function Editor({ path }: { path: string }) {
             },
           });
         }
-        view.focus();
+        // Opening a note normally means "I want to write in it", so the caret
+        // comes here — unless a chrome widget is mid-keystroke and said the
+        // focus is its (the tab bar arrowing between notes; see a11y.ts).
+        if (!focusIsClaimed()) view.focus();
       })
       .catch((err) => {
         // See ReadingView: a 404 inside visitor preview means "not

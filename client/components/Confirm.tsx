@@ -343,6 +343,10 @@ export default function ConfirmHost() {
   }
 
   const { opts } = current;
+  // The body line ("N notes will be erased from disk") is the whole reason
+  // this dialog exists — it must be part of what gets read on open, not
+  // something the reader has to go hunting for after the title.
+  const bodyId = "s-confirm-body";
 
   return (
     <div className="s-confirm-overlay" onMouseDown={() => settle("cancel")}>
@@ -351,13 +355,20 @@ export default function ConfirmHost() {
         role="alertdialog"
         aria-modal="true"
         aria-label={opts.title}
+        aria-describedby={opts.body ? bodyId : undefined}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <h2 className="s-confirm__title">{opts.title}</h2>
         {/* dir="auto" for the same reason the prompt's body carries it: these
             sentences are built around vault paths and note names, whose
-            direction is the note's, not the interface's. */}
-        {opts.body && <p className="s-confirm__body" dir="auto">{opts.body}</p>}
+            direction is the note's, not the interface's. The id is what
+            aria-describedby on the dialog points at, so it has to ride on the
+            body paragraph that actually renders. */}
+        {opts.body && (
+          <p className="s-confirm__body" id={bodyId} dir="auto">
+            {opts.body}
+          </p>
+        )}
         {opts.warn && (
           <p className="s-confirm__warn" dir="auto" role="note">
             {opts.warn}

@@ -10,6 +10,7 @@
 
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { resolveAttachmentDir, type AttachmentLocation } from "../shared/attachments.ts";
 import type { LanguageFilterMode } from "../shared/types.ts";
 import { numeralSystem, toNumerals } from "../shared/numerals.ts";
 import { isTheme, THEMES as THEME_IDS } from "../shared/themes.ts";
@@ -273,9 +274,29 @@ export function customCssPath(): string | null {
   return existsSync(p) ? p : null;
 }
 
-/** Vault-relative directory POST /api/upload writes into (ATTACHMENTS_DIR). */
+/** Vault-relative directory POST /api/upload writes into when no attachment
+ *  LOCATION setting overrides it (ATTACHMENTS_DIR; default "attachments"). */
 export function attachmentsDir(): string {
   return config.attachmentsDir;
+}
+
+/** Where new attachments go: settings.attachments merged over the env
+ *  default. Absent settings mean the behaviour every instance had before the
+ *  setting existed — one fixed folder, ATTACHMENTS_DIR — so an upgrade
+ *  changes nothing until the admin says otherwise. */
+export function attachmentLocation(): AttachmentLocation {
+  const stored = getSettings().attachments;
+  return {
+    mode: stored?.mode ?? "specified",
+    folder: stored?.folder ?? config.attachmentsDir,
+  };
+}
+
+/** The vault-relative directory an upload lands in, given the folder it
+ *  happened in (the open note's folder, or the tree folder it was dropped
+ *  on). The caller's context is advisory: `safeAbs` still judges the result. */
+export function uploadDirFor(contextDir: string): string {
+  return resolveAttachmentDir(attachmentLocation(), contextDir);
 }
 
 /** Absolute path of the instance data directory (VELLUM_DATA, default ./data). */

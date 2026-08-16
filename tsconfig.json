@@ -12,5 +12,12 @@
     "verbatimModuleSyntax": true,
     "types": ["node"]
   },
-  "include": ["server", "client", "shared", "scripts/hash-password.ts"]
+  "include": [
+    "server",
+    "client",
+    "shared",
+    "build",
+    "tests",
+    "scripts/hash-password.ts"
+  ]
 }

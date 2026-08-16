@@ -8,12 +8,15 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { api, contentTypeFor } from "./api.ts";
-import { ConfigError, canRead, initAuth } from "./auth.ts";
+import { staticAssets } from "./assets.ts";
+import { ConfigError, canRead, initAuth, isPublishLimited } from "./auth.ts";
 import { injectHead, renderFeed, requestOrigin } from "./blog.ts";
+import { compressDynamic } from "./compress.ts";
 import { startGitSyncTimer } from "./gitSync.ts";
 import { languageScope } from "./language.ts";
+import { injectPreloads, preloadTags } from "./preload.ts";
 import { faviconPath, migrateSettings } from "./settings.ts";
-import { initSite } from "./site.ts";
+import { initSite, publicLayout } from "./site.ts";
 import { initComments } from "./comments.ts";
 import { initIndexer } from "./indexer.ts";
 import { initVault, isIgnoredSegment, resolveVaultRoot, startWatcher, statAttachment } from "./vault.ts";
@@ -133,6 +136,12 @@ app.use("*", async (c, next) => {
   if (!headers.has("Vary")) headers.set("Vary", "Cookie, X-Vellum-Preview, X-Vellum-Lang");
 });
 
+// Dynamic responses (the JSON API, the feed) get compressed per request; the
+// built client is handled separately, with a cache (server/assets.ts). The SSE
+// stream is excluded by content type — see server/compress.ts. Below the
+// header middleware above, which only ever sets headers on the way out and so
+// composes with an encoded body either way.
+app.use("*", compressDynamic());
 app.route("/api", api);
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 
@@ -199,11 +208,22 @@ if (existsSync(distDir)) {
   const serveShell = (c: Context) => {
     const html = readFileSync(path.join(distDir, "index.html"), "utf8");
     const pathname = canRead(c) ? c.req.path : "/";
-    return c.html(injectHead(html, requestOrigin(c), pathname));
+    // Which shell this request will mount is knowable HERE — the layout is
+    // configuration and the session is a cookie already being read — so the
+    // browser can fetch that shell's chunk in parallel with the entry instead
+    // of discovering it a round trip later. Mirrors App.tsx's `blogVisitor`.
+    const shell = publicLayout() === "blog" && isPublishLimited(c) ? "blog" : "app";
+    return c.html(
+      injectPreloads(injectHead(html, requestOrigin(c), pathname), preloadTags(distDir, shell)),
+    );
   };
   // "/" and "/index.html" would otherwise be served raw by serveStatic.
   app.get("/", serveShell);
   app.get("/index.html", serveShell);
+  // Built assets first: compressed, ETagged, and cached in memory. Falls
+  // through to serveStatic for anything it does not recognise as a file, and
+  // to the SPA shell for client-side routes.
+  app.use("*", staticAssets(distDir));
   app.use("*", serveStatic({ root: path.relative(process.cwd(), distDir) || "." }));
   app.get("*", serveShell);
 }

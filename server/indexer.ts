@@ -1488,6 +1488,20 @@ export function registerAttachment(relPath: string): void {
   addAttachment(relPath);
 }
 
+// `attachmentsUnder`, `notesUnder`, `attachmentReferrers` and
+// `attachmentUsage` stood between here and the title helper below. They served
+// `GET /api/impact`, which asked what a delete would really take — and that
+// question is now `deletePreview()`'s, which walks the same files
+// `deleteFolder()` will actually move (`listVaultFiles`) and reads references
+// through `notesReferencing()`. Keeping a second, differently-derived answer
+// beside it is how two dialogs come to describe one delete differently.
+
+/** A note's display title (sanitized, as every other surface shows it), or
+ *  its basename when the note is not indexed. */
+export function noteTitle(relPath: string): string {
+  return notes.get(relPath)?.title ?? path.posix.basename(relPath, ".md");
+}
+
 // --------------------------------------------------------------------- posts
 
 const EXCERPT_MAX = 220;

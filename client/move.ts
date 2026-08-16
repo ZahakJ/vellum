@@ -312,63 +312,15 @@ async function run(item: MoveItem, toPath: string, undoTo: string | null): Promi
 }
 
 // ------------------------------------------------- files from the desktop
-
-/** The images in an OS drag. Same filter the editor's paste/drop uses: the
- *  server sniffs magic bytes and refuses anything else, so screening here is
- *  what turns "a red toast per PDF" into "nothing happened, and the folder
- *  never lit up". */
-export function droppedImages(data: DataTransfer | null): File[] {
-  if (!data) return [];
-  return Array.from(data.files).filter((f) => f.type.startsWith("image/"));
-}
-
-/** True when an OS drag is carrying files at all — readable during `dragover`,
- *  where the file LIST is not (the browser withholds it until the drop). */
-export function dragHasFiles(data: DataTransfer | null): boolean {
-  return data !== null && Array.from(data.types).includes("Files");
-}
-
-/** Upload files dropped from the desktop into `dir`.
- *
- *  Conflicts are handled the way an upload must handle them and a move must
- *  not: the server takes the first FREE filename (`shot.png`, `shot-2.png`, …)
- *  rather than asking, because there is nothing to decide — nothing is at risk
- *  of being overwritten and the reader has not named anything yet. The toast
- *  names what actually landed, so a counter is visible rather than silent.
- *
- *  There is deliberately no undo here, unlike a move: an upload only ADDS a
- *  file, and taking it back would need a delete route for attachments that the
- *  API does not have. The destructive gesture is the one that carries undo. */
-export async function uploadInto(files: File[], dir: string): Promise<void> {
-  const store = useStore.getState();
-  if (!store.admin || files.length === 0) return;
-  const landed: string[] = [];
-  for (const file of files) {
-    try {
-      const result = await api.uploadAttachment(file, false, dir);
-      landed.push(result.path.slice(result.path.lastIndexOf("/") + 1));
-    } catch (err) {
-      console.error(`vellum: uploading ${file.name} into ${dir} failed`, err);
-      const code = err instanceof ApiError ? err.code : undefined;
-      toast(
-        code === "upload_not_image"
-          ? tf("uploadNotImage", { name: file.name })
-          : tf("uploadIntoFailed", { name: file.name }),
-        "error",
-      );
-    }
-  }
-  if (landed.length === 0) return;
-  await store.loadTree();
-  toast(
-    landed.length === 1
-      ? tf("uploadedOneToast", { name: landed[0], folder: folderLabel(dir) })
-      : tf("uploadedManyToast", {
-          count: countPhrase(landed.length, "files"),
-          folder: folderLabel(dir),
-        }),
-  );
-}
+//
+// The desktop-drop path used to live here: `droppedImages`, `dragHasFiles` and
+// `uploadInto`, which took the `image/*` files out of an OS drag and posted
+// them one at a time. It moved WHOLE to `client/attachments.ts`, which answers
+// the same three questions for every kind the vault accepts — audio, video,
+// PDF — screens them against the size cap before the wire rather than after,
+// explains a refusal instead of dropping it silently, and carries an undo.
+// This module kept the half that is actually about MOVING: what a tree drag is
+// carrying, whether it may land, and how to put it back.
 
 /** The conflict dialog's naming rule, shown live under the field. */
 function checkName(item: MoveItem, dir: string, raw: string): PromptCheck {

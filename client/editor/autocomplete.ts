@@ -12,6 +12,7 @@ import {
 import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { getNote } from "../api.ts";
+import { Lru } from "../lru.ts";
 import { useStore } from "../state.ts";
 import { collectNotes, resolveLink } from "./links.ts";
 import { noteAnchors } from "../../shared/anchors.ts";
@@ -41,16 +42,18 @@ function applyInner(
 }
 
 // Tiny read-through cache so heading completion doesn't refetch the target
-// note on every keystroke.
-const noteCache = new Map<string, { content: string; at: number }>();
-const NOTE_CACHE_MS = 5000;
+// note on every keystroke. Bounded (client/lru.ts) as well as expiring: the
+// 5-second window makes the text fresh, it never made the Map small, and this
+// one is keyed by whatever the author types inside `[[…#`, so its ceiling was
+// the vault.
+const noteCache = new Lru<string>({ max: 16, ttlMs: 5000 });
 
 async function noteContent(path: string): Promise<string | null> {
   const cached = noteCache.get(path);
-  if (cached && Date.now() - cached.at < NOTE_CACHE_MS) return cached.content;
+  if (cached !== undefined) return cached;
   try {
     const note = await getNote(path);
-    noteCache.set(path, { content: note.content, at: Date.now() });
+    noteCache.set(path, note.content);
     return note.content;
   } catch {
     return null;
