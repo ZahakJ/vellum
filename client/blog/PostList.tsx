@@ -115,7 +115,7 @@ export default function PostList({
     return (
       <div className="s-blog-empty">
         <p>{t("blogNothingPublished")}</p>
-        {useStore.getState().languageFilter && (
+        {useStore.getState().languageFilter !== "off" && (
           <p className="s-blog-empty__why">{t("blogFilteredByLanguage")}</p>
         )}
       </div>

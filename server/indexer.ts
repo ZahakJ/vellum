@@ -14,7 +14,7 @@ import { pageFlag } from "./pages.ts";
 import { publishFlag, readFrontmatter } from "./publish.ts";
 import { readNoteFrontmatter } from "./noteFrontmatter.ts";
 import { readTexNote } from "./texNote.ts";
-import { excludedTags, languageFilterEnabled, siteLanguage } from "./site.ts";
+import { excludedTags } from "./site.ts";
 // Cyclic with this module (settings.ts → site.ts → here) and inert: every
 // call below happens at request time, never while either module is loading.
 import { templatesFolder } from "./settings.ts";
@@ -108,6 +108,21 @@ const byCitekey = new Map<string, Set<string>>(); // lowercased citekey  -> path
 // /api/file will serve to non-admin visitors.
 const publishedSet = new Set<string>();
 let allowedAttachmentsCache: Set<string> | null = null; // null = recompute
+
+// The same walk one step wider: attachment path -> every note that embeds or
+// links it, published or not. `allowedAttachments()` answers "may a VISITOR
+// fetch this byte"; this answers "would deleting this file break something a
+// reader can see", which is the question a delete dialog has to ask and never
+// did. Same lifecycle, same invalidation — see invalidateRefCaches().
+let attachmentRefsCache: Map<string, Set<string>> | null = null;
+
+/** Both derived link caches go stale together: every mutation that changes a
+ *  note's links, a note's existence or an attachment's existence changes both
+ *  answers, and resolution itself shifts as files come and go. */
+function invalidateRefCaches(): void {
+  allowedAttachmentsCache = null;
+  attachmentRefsCache = null;
+}
 
 // Attachments (non-md files): known paths + lowercased basename (with
 // extension) -> paths, so ![[image.png]] embeds resolve like wikilinks.
@@ -218,29 +233,112 @@ function detectArabic(body: string): boolean | null {
   return arabic / letters >= 0.4;
 }
 
-/** True when the languageFilter hides this record from PUBLIC blog surfaces:
- *  filter on + language "ar" hides non-Arabic notes; filter on + "en" hides
- *  Arabic-majority ones. Curation, not access control — direct URL access to
+/** THE filter language for one request, or null for "nothing is filtered".
+ *
+ *  It is a PARAMETER, not a global read, and that is the whole shape of this
+ *  round: the mode can now be "follow", where the answer depends on the
+ *  language the READER is reading in — so a function that consulted a global
+ *  would hand every reader the same site-wide answer and make the EN/ع switch
+ *  a lie. `server/language.ts` resolves the mode + reader into this value once
+ *  per request; everything below simply obeys it. `null` is passed by every
+ *  ADMIN surface, unconditionally: admin surfaces are never filtered. */
+export type FilterLang = "ar" | "en" | null;
+
+/** True when the language filter hides this record from PUBLIC blog surfaces:
+ *  `lang === "ar"` hides non-Arabic notes, `"en"` hides Arabic-majority ones,
+ *  `null` hides nothing. Curation, not access control — direct URL access to
  *  any published note stays allowed (/api/note is never filtered), only the
  *  discovery surfaces (posts, topics, graph, search, backlinks, RSS) skip
  *  filtered notes, and they must never leak their existence. */
-function languageHidden(record: NoteRecord): boolean {
-  if (!languageFilterEnabled()) return false;
+function languageHidden(record: NoteRecord, lang: FilterLang): boolean {
+  if (lang === null) return false;
   // A note with no prose letters (arabic === null) belongs to no language:
   // hiding it from one site and showing it on the other would be a coin toss.
   // It stays visible in both.
   if (record.arabic === null) return false;
-  return siteLanguage() === "ar" ? !record.arabic : record.arabic;
+  return lang === "ar" ? !record.arabic : record.arabic;
 }
 
-/** Published AND not curated away by the languageFilter — the visibility rule
+/** Published AND not curated away by the language filter — the visibility rule
  *  every visitor DISCOVERY surface applies, including the push channel: an SSE
  *  stream that announced a filtered-out note would leak its existence, path
  *  and edit timing to exactly the visitors the filter hides it from. (Direct
- *  access stays allowed: /api/note deliberately checks publication only.) */
-export function isNoteVisibleToVisitor(relPath: string): boolean {
+ *  access stays allowed: /api/note deliberately checks publication only.)
+ *
+ *  `lang` is REQUIRED on purpose — it has no default. A default would be a
+ *  filter language chosen by whichever module forgot to pass one, and the
+ *  failure mode of getting it wrong is a visitor seeing a note the site meant
+ *  to withhold, or a reader's own language quietly ignored. Every call site is
+ *  made to say which scope it is asking about. */
+export function isNoteVisibleToVisitor(relPath: string, lang: FilterLang): boolean {
   const record = notes.get(relPath);
-  return publishedSet.has(relPath) && record !== undefined && !languageHidden(record);
+  return publishedSet.has(relPath) && record !== undefined && !languageHidden(record, lang);
+}
+
+/** The published set split by the script its PROSE is written in — the numbers
+ *  the settings row prints BEFORE a filter is saved ("2 of your 20 published
+ *  notes qualify"), and the same numbers the empty-set fallback and the admin's
+ *  ongoing indicator are computed from. Cheap: `arabic` is cached per record at
+ *  index time, so this is one pass over the published set. */
+export interface PublishedCensus {
+  /** Prose is predominantly Arabic script. */
+  arabic: number;
+  /** Prose is predominantly something else. */
+  latin: number;
+  /** No prose letters at all — an image-only or numeric note belongs to no
+   *  language and is shown under every mode rather than guessed at. */
+  neutral: number;
+}
+
+export function publishedCensus(): PublishedCensus {
+  let arabic = 0;
+  let latin = 0;
+  let neutral = 0;
+  for (const notePath of publishedSet) {
+    const record = notes.get(notePath);
+    if (!record) continue;
+    if (record.arabic === null) neutral++;
+    else if (record.arabic) arabic++;
+    else latin++;
+  }
+  return { arabic, latin, neutral };
+}
+
+/** How many of a census's notes survive `lang` — what a visitor reading in
+ *  that language would find. Pure, and separate from `publishedCensus()`
+ *  because the callers that matter (the per-request scope resolver, the
+ *  settings preview) need BOTH the split and this count, and walking the
+ *  published set twice for one answer is a pass nobody asked for. */
+export function visibleUnder(census: PublishedCensus, lang: FilterLang): number {
+  const { arabic, latin, neutral } = census;
+  if (lang === null) return arabic + latin + neutral;
+  return (lang === "ar" ? arabic : latin) + neutral;
+}
+
+
+/** Topics a visitor would see under `lang`, and which of `hidden` (the
+ *  EXCLUDE_TAGS set, real or hypothetical) actually removes a topic that would
+ *  otherwise be on the page. An excluded tag that matches nothing is worth
+ *  knowing about too — it is a rule the operator believes is working. */
+export function publishedTopics(
+  lang: FilterLang,
+  hidden: Set<string>,
+): { visible: number; total: number; suppressed: string[] } {
+  const all = new Set<string>();
+  const cut = new Set<string>();
+  for (const notePath of publishedSet) {
+    const record = notes.get(notePath);
+    if (!record || languageHidden(record, lang)) continue;
+    for (const tag of record.tags) {
+      all.add(tag);
+      if (hidden.has(tag.toLowerCase())) cut.add(tag);
+    }
+  }
+  return {
+    visible: all.size - cut.size,
+    total: all.size,
+    suppressed: [...cut].sort((a, b) => a.localeCompare(b)),
+  };
 }
 
 // ------------------------------------------------------------------ building
@@ -391,7 +489,7 @@ export async function indexFile(relPath: string): Promise<void> {
   byPathLower.set(relPath.toLowerCase(), relPath);
   addKeys(record);
   if (record.published) publishedSet.add(relPath);
-  allowedAttachmentsCache = null;
+  invalidateRefCaches();
   // Tags are indexed too so "#tag" (and frontmatter-only tags) are findable.
   mini.add({
     path: relPath,
@@ -540,7 +638,7 @@ export function notesAffectedByFolderMove(relFolder: string): string[] {
     }
     for (const link of record.links) {
       if (!link.target.includes("/") && !link.target.includes("\\")) continue; // basename form survives
-      const hit = resolveLink(link.target);
+      const hit = resolveLink(link.target, false, null);
       if (hit !== null && hit.startsWith(prefix)) {
         out.add(record.path);
         break;
@@ -548,6 +646,24 @@ export function notesAffectedByFolderMove(relFolder: string): string[] {
     }
   }
   return [...out].sort();
+}
+
+/** Index a whole subtree that just APPEARED — a folder restored out of
+ *  `.trash/`. The watcher will notice it too, but only after its debounce,
+ *  and the restore route answers immediately: without this the tree refetch
+ *  that follows a restore showed the folder while search, the graph and the
+ *  publish count still thought it was gone. Symmetric with `removeFolder()`,
+ *  which is what the delete side does. */
+export async function indexUnder(relFolder: string): Promise<void> {
+  const { notes: noteFiles, attachments } = await listVaultFiles(relFolder);
+  for (const file of attachments) addAttachment(file);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < noteFiles.length) await indexFile(noteFiles[next++]);
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(BOOT_CONCURRENCY, noteFiles.length) }, worker),
+  );
 }
 
 /** The first `bytes` of a file as UTF-8, without reading the rest of it. */
@@ -615,7 +731,7 @@ async function indexOversized(relPath: string, abs: string, stat: { size: number
   byPathLower.set(relPath.toLowerCase(), relPath);
   addKeys(record);
   if (record.published) publishedSet.add(relPath);
-  allowedAttachmentsCache = null;
+  invalidateRefCaches();
   // Say it out loud, once per file: a silently unsearchable note is exactly
   // the kind of state this product must never keep to itself.
   oversized.add(relPath);
@@ -638,7 +754,7 @@ function removeFile(relPath: string): void {
   removeName(noteTitleOf(relPath), relPath);
   if (byPathLower.get(relPath.toLowerCase()) === relPath) byPathLower.delete(relPath.toLowerCase());
   publishedSet.delete(relPath);
-  allowedAttachmentsCache = null;
+  invalidateRefCaches();
   if (mini.has(relPath)) mini.discard(relPath);
 }
 
@@ -655,7 +771,7 @@ function removeFolder(relFolder: string): void {
 function addAttachment(relPath: string): void {
   if (attachmentPaths.has(relPath)) return;
   attachmentPaths.add(relPath);
-  allowedAttachmentsCache = null;
+  invalidateRefCaches();
   const key = path.posix.basename(relPath).toLowerCase();
   let set = attachmentsByName.get(key);
   if (!set) attachmentsByName.set(key, (set = new Set()));
@@ -665,7 +781,7 @@ function addAttachment(relPath: string): void {
 
 function removeAttachment(relPath: string): void {
   if (!attachmentPaths.delete(relPath)) return;
-  allowedAttachmentsCache = null;
+  invalidateRefCaches();
   const key = path.posix.basename(relPath).toLowerCase();
   const set = attachmentsByName.get(key);
   if (attachmentsByPathLower.get(relPath.toLowerCase()) === relPath) {
@@ -848,7 +964,11 @@ function filterCandidates(
  *  than the by-design /api/note allowance, which requires the exact path the
  *  caller is trying to learn. Direct access by full path stays allowed — this
  *  changes discovery, not reads. */
-export function resolveLink(name: string, publishedOnly = false): string | null {
+export function resolveLink(
+  name: string,
+  publishedOnly: boolean,
+  lang: FilterLang,
+): string | null {
   // The extension comes off whatever it is: `[[Paper.tex]]` and `[[Paper]]`
   // name the same note, exactly as `[[Note.md]]` and `[[Note]]` always did.
   const key = stripNoteExt(name.split(/[#|]/)[0].trim().toLowerCase());
@@ -864,11 +984,11 @@ export function resolveLink(name: string, publishedOnly = false): string | null 
     if (pathHit) break;
   }
   pathHit ??= byPathLower.get(asPath);
-  if (pathHit && (!publishedOnly || isNoteVisibleToVisitor(pathHit))) return pathHit;
+  if (pathHit && (!publishedOnly || isNoteVisibleToVisitor(pathHit, lang))) return pathHit;
   let candidates = byName.get(key);
   if (!candidates || candidates.size === 0) return null;
   if (publishedOnly) {
-    const kept = filterCandidates(candidates, isNoteVisibleToVisitor);
+    const kept = filterCandidates(candidates, (p) => isNoteVisibleToVisitor(p, lang));
     if (!kept) return null;
     candidates = kept;
   }
@@ -881,8 +1001,8 @@ export function resolveLink(name: string, publishedOnly = false): string | null 
  *  languageFilter) + allowlisted attachments. Attachments are deliberately NOT
  *  language-filtered: an attachment belongs to no language, and a hidden
  *  note's images must keep loading on its own still-working permalink. */
-export function resolveEmbed(name: string, publishedOnly = false): string | null {
-  const asNote = resolveLink(name, publishedOnly);
+export function resolveEmbed(name: string, publishedOnly: boolean, lang: FilterLang): string | null {
+  const asNote = resolveLink(name, publishedOnly, lang);
   if (asNote) return asNote;
   const key = name.split(/[#|]/)[0].trim().toLowerCase();
   if (!key) return null;
@@ -915,9 +1035,10 @@ export function noteAnchors(relPath: string): NoteAnchor[] {
 function resolveXref(
   xref: NoteRecord["xrefs"][number],
   publishedOnly: boolean,
+  lang: FilterLang,
 ): string | null {
-  if (xref.kind === "cite") return resolveCitekey(xref.key, publishedOnly);
-  return resolveLabel(xref.key, publishedOnly)?.path ?? null;
+  if (xref.kind === "cite") return resolveCitekey(xref.key, publishedOnly, lang);
+  return resolveLabel(xref.key, publishedOnly, lang)?.path ?? null;
 }
 
 /** The note a `\label{…}` lives in, for a `\ref` that found no local match.
@@ -932,14 +1053,15 @@ function resolveXref(
  *  defines `sec:acquisition`. */
 export function resolveLabel(
   label: string,
-  publishedOnly = false,
+  publishedOnly: boolean,
+  lang: FilterLang,
 ): { path: string; anchor: NoteAnchor } | null {
   const key = label.trim().toLowerCase();
   if (!key) return null;
   let candidates = byLabel.get(key);
   if (!candidates || candidates.size === 0) return null;
   if (publishedOnly) {
-    const kept = filterCandidates(candidates, isNoteVisibleToVisitor);
+    const kept = filterCandidates(candidates, (p) => isNoteVisibleToVisitor(p, lang));
     if (!kept) return null;
     candidates = kept;
   }
@@ -952,13 +1074,13 @@ export function resolveLabel(
  *  frontmatter `citekey: knuth1997`. Null leaves the `\cite` alone as an
  *  ordinary bibliography reference, which is the honest default: most keys in
  *  a real paper name a book, not a note. */
-export function resolveCitekey(key: string, publishedOnly = false): string | null {
+export function resolveCitekey(key: string, publishedOnly: boolean, lang: FilterLang): string | null {
   const want = key.trim().toLowerCase();
   if (!want) return null;
   let candidates = byCitekey.get(want);
   if (!candidates || candidates.size === 0) return null;
   if (publishedOnly) {
-    const kept = filterCandidates(candidates, isNoteVisibleToVisitor);
+    const kept = filterCandidates(candidates, (p) => isNoteVisibleToVisitor(p, lang));
     if (!kept) return null;
     candidates = kept;
   }
@@ -1008,7 +1130,7 @@ export function resolveImageRef(value: string, fromDir?: string): string | null 
     }
   }
   // 3. basename, through the resolver embeds use
-  const byName = resolveEmbed(path.posix.basename(rel));
+  const byName = resolveEmbed(path.posix.basename(rel), false, null);
   return byName !== null && attachmentPaths.has(byName) ? byName : null;
 }
 
@@ -1196,7 +1318,7 @@ function allowedAttachments(): Set<string> {
       const record = notes.get(notePath);
       if (!record) continue;
       for (const link of record.links) {
-        const resolved = resolveEmbed(link.target);
+        const resolved = resolveEmbed(link.target, false, null);
         if (resolved && attachmentPaths.has(resolved)) allowed.add(resolved);
       }
       // The other half of the embed syntax. `![alt](Media/x.png)` never went
@@ -1213,7 +1335,7 @@ function allowedAttachments(): Set<string> {
           allowed.add(asset);
           continue;
         }
-        const byName = resolveEmbed(path.posix.basename(asset));
+        const byName = resolveEmbed(path.posix.basename(asset), false, null);
         if (byName && attachmentPaths.has(byName)) allowed.add(byName);
       }
       // A published note's banner attachment is visitor-visible too.
@@ -1223,6 +1345,82 @@ function allowedAttachments(): Set<string> {
     allowedAttachmentsCache = allowed;
   }
   return allowedAttachmentsCache;
+}
+
+/** Every attachment ONE note points at, by any of the three routes the
+ *  renderer honours. Factored out because two callers need exactly this walk
+ *  and they must not drift: `allowedAttachments()` (may a visitor fetch it)
+ *  and `attachmentRefs()` (would deleting it break a note). A file the publish
+ *  allowlist serves but the delete dialog cannot see is the whole bug. */
+function collectAttachmentTargets(record: NoteRecord, add: (att: string) => void): void {
+  for (const link of record.links) {
+    const resolved = resolveEmbed(link.target, false, null);
+    if (resolved && attachmentPaths.has(resolved)) add(resolved);
+  }
+  // The other half of the embed syntax. `![alt](Media/x.png)` never went
+  // through wikilinkRegex(), so `record.links` cannot see it — and the
+  // renderer turns it straight into /api/file?path=Media/x.png. Both
+  // OBSIDIAN-COMPAT.md and the README promise the form works on the
+  // published site; it failed CLOSED (admin saw the image, visitor saw a
+  // placeholder, nothing said why), which is a silent public-site
+  // breakage of exactly the invisible-state kind. Path first, then the
+  // basename fallback resolveEmbed() gives wikilinks, so a note that
+  // moved folders keeps rendering.
+  for (const asset of record.assets) {
+    if (attachmentPaths.has(asset)) {
+      add(asset);
+      continue;
+    }
+    const byName = resolveEmbed(path.posix.basename(asset), false, null);
+    if (byName && attachmentPaths.has(byName)) add(byName);
+  }
+  // A note's banner attachment counts too: it is visitor-visible when the note
+  // is published, and deleting it blanks the post's header either way.
+  const banner = resolveBanner(record);
+  if (banner && attachmentPaths.has(banner)) add(banner);
+}
+
+/** attachment path -> the notes that embed or link it. Built lazily over
+ *  EVERY note (not just the published ones): the question it answers is
+ *  "what breaks if this file goes", and an unpublished note breaking is still
+ *  the owner's note breaking. */
+function attachmentRefs(): Map<string, Set<string>> {
+  if (attachmentRefsCache === null) {
+    const map = new Map<string, Set<string>>();
+    for (const record of notes.values()) {
+      collectAttachmentTargets(record, (att) => {
+        let set = map.get(att);
+        if (!set) map.set(att, (set = new Set()));
+        set.add(record.path);
+      });
+    }
+    attachmentRefsCache = map;
+  }
+  return attachmentRefsCache;
+}
+
+/** The notes that embed or link `attachmentRel`, sorted. Empty for a path no
+ *  note points at — and for a note path, which is what `backlinks()` is for.
+ *
+ *  This is the number every delete dialog in the product was missing. A
+ *  folder holding four images and no markdown said "0 notes" and moved on;
+ *  the essay one folder over went to the public site with four broken
+ *  embeds, and nothing anywhere said a word. */
+export function notesReferencing(attachmentRel: string): string[] {
+  const set = attachmentRefs().get(attachmentRel);
+  return set ? [...set].sort() : [];
+}
+
+/** The notes that `[[wikilink]]` a NOTE, sorted — the same question one
+ *  object over, so a note delete can name what it is about to orphan.
+ *  Cheaper than `backlinks()`: no context line is read. */
+export function notesLinkingTo(noteRel: string): string[] {
+  const out: string[] = [];
+  for (const record of notes.values()) {
+    if (record.path === noteRel) continue;
+    if (record.links.some((link) => resolveLink(link.target, false, null) === noteRel)) out.push(record.path);
+  }
+  return out.sort();
 }
 
 export function isNotePublished(relPath: string): boolean {
@@ -1237,11 +1435,11 @@ export function isAllowedAttachment(relPath: string): boolean {
 /** The visitor sidebar's flat note list. This is a discovery surface like any
  *  other, so the languageFilter applies: leaving it unfiltered would list the
  *  titles and paths of notes every other public surface is hiding. */
-export function publishedNotes(): { path: string; title: string }[] {
+export function publishedNotes(lang: FilterLang): { path: string; title: string }[] {
   const out: { path: string; title: string }[] = [];
   for (const notePath of publishedSet) {
     const record = notes.get(notePath);
-    if (record && !languageHidden(record)) out.push({ path: record.path, title: record.title });
+    if (record && !languageHidden(record, lang)) out.push({ path: record.path, title: record.title });
   }
   return out;
 }
@@ -1252,11 +1450,11 @@ export function publishedNotes(): { path: string; title: string }[] {
  *  chained reindex tears the records down. Hidden and unpublished notes are
  *  never named, so fanning a folder delete out through this leaks nothing the
  *  visitor could not already enumerate from /api/tree. */
-export function visibleNotesUnder(relFolder: string): string[] {
+export function visibleNotesUnder(relFolder: string, lang: FilterLang): string[] {
   const prefix = `${relFolder}/`;
   const out: string[] = [];
   for (const notePath of publishedSet) {
-    if (notePath.startsWith(prefix) && isNoteVisibleToVisitor(notePath)) out.push(notePath);
+    if (notePath.startsWith(prefix) && isNoteVisibleToVisitor(notePath, lang)) out.push(notePath);
   }
   return out.sort();
 }
@@ -1408,12 +1606,12 @@ function postMeta(record: NoteRecord): PostMeta {
  *  EXCLUDE_TAGS filtered). Per-note fields are cached on the index record and
  *  refresh incrementally as notes reindex. `visitor` additionally applies the
  *  languageFilter (public lists only — admin surfaces are never filtered). */
-export function posts(visitor = false, excludePages = false): PostMeta[] {
+export function posts(visitor: boolean, lang: FilterLang, excludePages = false): PostMeta[] {
   const out: { dateMs: number; meta: PostMeta }[] = [];
   for (const notePath of publishedSet) {
     const record = notes.get(notePath);
     if (!record) continue;
-    if (visitor && languageHidden(record)) continue;
+    if (visitor && languageHidden(record, lang)) continue;
     // A template is not a post — in EITHER list. The admin's post list is the
     // one that answers "what is on my blog", so a stencil sitting in it is the
     // same lie there as on the public page.
@@ -1434,12 +1632,12 @@ export function posts(visitor = false, excludePages = false): PostMeta[] {
  *  the list the navigation builder offers and the designed shell routes.
  *  `visitor` applies the languageFilter, exactly as posts() does, so a page
  *  the filter curates away is never named to an anonymous caller. */
-export function pages(visitor = false): PageMeta[] {
+export function pages(visitor: boolean, lang: FilterLang): PageMeta[] {
   const out: PageMeta[] = [];
   for (const notePath of publishedSet) {
     const record = notes.get(notePath);
     if (!record || !record.page) continue;
-    if (visitor && languageHidden(record)) continue;
+    if (visitor && languageHidden(record, lang)) continue;
     out.push({ path: record.path, title: record.title });
   }
   return out.sort((a, b) => a.title.localeCompare(b.title) || a.path.localeCompare(b.path));
@@ -1451,7 +1649,7 @@ export function isStaticPage(relPath: string): boolean {
   return notes.get(relPath)?.page === true;
 }
 
-export function search(query: string, publishedOnly = false): SearchHit[] {
+export function search(query: string, publishedOnly: boolean, lang: FilterLang): SearchHit[] {
   const q = query.trim();
   if (!q) return [];
   const qLower = q.toLowerCase();
@@ -1472,7 +1670,7 @@ export function search(query: string, publishedOnly = false): SearchHit[] {
   const visitorHidden = (p: string): boolean => {
     if (!publishedSet.has(p)) return true;
     const record = notes.get(p);
-    return record !== undefined && languageHidden(record);
+    return record !== undefined && languageHidden(record, lang);
   };
   let results = mini.search(q);
   if (publishedOnly) results = results.filter((r) => !visitorHidden(String(r.id)));
@@ -1511,13 +1709,13 @@ export function search(query: string, publishedOnly = false): SearchHit[] {
   return hits;
 }
 
-export function graph(publishedOnly = false): GraphData {
+export function graph(publishedOnly: boolean, lang: FilterLang): GraphData {
   const edgeKeys = new Set<string>();
   const edges: GraphEdge[] = [];
   const degree = new Map<string, number>();
   // Visitor graphs honor the languageFilter on both endpoints — a filtered
   // note must appear neither as a node nor via an edge.
-  const hidden = (record: NoteRecord): boolean => publishedOnly && languageHidden(record);
+  const hidden = (record: NoteRecord): boolean => publishedOnly && languageHidden(record, lang);
   for (const record of notes.values()) {
     if (publishedOnly && !record.published) continue;
     if (hidden(record)) continue;
@@ -1532,12 +1730,12 @@ export function graph(publishedOnly = false): GraphData {
       degree.set(record.path, (degree.get(record.path) ?? 0) + 1);
       degree.set(target, (degree.get(target) ?? 0) + 1);
     };
-    for (const link of record.links) connect(resolveLink(link.target, publishedOnly));
+    for (const link of record.links) connect(resolveLink(link.target, publishedOnly, lang));
     // …and LaTeX's own vocabulary. THIS is what makes an existing project,
     // dropped into a vault unmodified, light up the graph: a `\cite` whose key
     // some note carries and a `\ref` whose label some note defines are edges,
     // and nothing in either document had to be rewritten to say so.
-    for (const xref of record.xrefs) connect(resolveXref(xref, publishedOnly));
+    for (const xref of record.xrefs) connect(resolveXref(xref, publishedOnly, lang));
   }
   const nodes = [...notes.values()]
     .filter((record) => (!publishedOnly || record.published) && !hidden(record))
@@ -1552,21 +1750,21 @@ export function graph(publishedOnly = false): GraphData {
   return { nodes, edges };
 }
 
-export function backlinks(targetPath: string, publishedOnly = false): Backlink[] {
+export function backlinks(targetPath: string, publishedOnly: boolean, lang: FilterLang): Backlink[] {
   const hits: Backlink[] = [];
   // The TARGET has to pass the visitor filter too, not just the sources: a
   // language-hidden note that answered with backlinks confirmed to an
   // anonymous caller that it exists and is published. (resolveLink() now
   // refuses to resolve to it as well, so this is belt and braces — but it is
   // the check the reader of this function expects to find.)
-  if (publishedOnly && !isNoteVisibleToVisitor(targetPath)) return hits;
+  if (publishedOnly && !isNoteVisibleToVisitor(targetPath, lang)) return hits;
   const seen = new Set<string>();
   for (const record of notes.values()) {
     if (record.path === targetPath) continue;
-    if (publishedOnly && (!record.published || languageHidden(record))) continue;
+    if (publishedOnly && (!record.published || languageHidden(record, lang))) continue;
     let bodyLines: string[] | null = null; // split lazily, once per record
     for (const link of record.links) {
-      if (resolveLink(link.target, publishedOnly) !== targetPath) continue;
+      if (resolveLink(link.target, publishedOnly, lang) !== targetPath) continue;
       const key = `${record.path}\0${link.line}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -1616,7 +1814,7 @@ export function backlinks(targetPath: string, publishedOnly = false): Backlink[]
     // panel is where a note learns who leans on it, and a paper that cites this
     // note by its citekey leans on it exactly as a `[[wikilink]]` does.
     for (const xref of record.xrefs) {
-      if (resolveXref(xref, publishedOnly) !== targetPath) continue;
+      if (resolveXref(xref, publishedOnly, lang) !== targetPath) continue;
       const key = `${record.path}\0${xref.line}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -1626,7 +1824,7 @@ export function backlinks(targetPath: string, publishedOnly = false): Backlink[]
   return hits.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export function tags(publishedOnly = false): TagCount[] {
+export function tags(publishedOnly: boolean, lang: FilterLang): TagCount[] {
   const counts = new Map<string, number>();
   const hidden = publishedOnly ? excludedTags() : null;
   for (const record of notes.values()) {
@@ -1634,7 +1832,7 @@ export function tags(publishedOnly = false): TagCount[] {
     // A topic carried ONLY by language-filtered notes must not appear at all:
     // a visible pill with a count is exactly the existence leak the filter
     // has to avoid, and its topic page would come back empty anyway.
-    if (publishedOnly && languageHidden(record)) continue;
+    if (publishedOnly && languageHidden(record, lang)) continue;
     for (const tag of record.tags) {
       if (hidden?.has(tag.toLowerCase())) continue; // EXCLUDE_TAGS: visitor pills
       counts.set(tag, (counts.get(tag) ?? 0) + 1);

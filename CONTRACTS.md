@@ -56,6 +56,11 @@ that is the pre-existing pattern, and the door is now open.
 - `POST /api/note` body `{ path: string }` → `NoteData` (create empty; 409 if exists)
 - `POST /api/rename` body `{ path, toPath }` → `{ ok: true }` (also rewrites `[[wikilinks]]` in other notes that pointed at the old name)
 - `DELETE /api/note?path=&permanent=<bool>` → `{ ok: true, trashPath?: string }` (default MOVES to `.trash/`; see "Note deletion")
+- `DELETE /api/attachment?path=&permanent=<bool>` → `{ ok: true, trashPath?: string }` (non-`.md` only; same two speeds — see "Attachment deletion")
+- `GET  /api/delete-preview?path=` → `DeletePreview` (admin-only; what a delete would actually take — see "Delete previews")
+- `GET  /api/trash` → `TrashEntry[]` (admin-only; newest first)
+- `POST /api/trash/restore` body `{ name }` → `{ ok: true, path, renamed }`
+- `DELETE /api/trash?name=` → `{ ok: true }` (erase one entry for good)
 - `POST /api/folder` body `{ path }` → `{ ok: true }`
 - `POST /api/folder/move` body `{ path, toPath }` → `{ ok: true, notes, rewritten }` (moves the whole subtree and repairs the links it would have broken; see "Moving notes and folders")
 - `GET  /api/search?q=` → `SearchHit[]` (max 50, minisearch, prefix+fuzzy)
@@ -85,7 +90,7 @@ therefore never enters the publish allowlist. Consequence, by design: a symlink 
 vault is invisible to the whole app and cannot be read, written or deleted through any API — remove
 it with the filesystem. A symlink pointing back INSIDE the vault still resolves and still works.
 
-**Every response below `/api` is `Vary: Cookie, X-Vellum-Preview` and, unless the route said
+**Every response below `/api` is `Vary: Cookie, X-Vellum-Preview, X-Vellum-Lang` and, unless the route said
 otherwise, `Cache-Control: private, no-store`** (one middleware in `api.ts`, above the auth routes
 so `/api/me` is covered). Every one of these bodies differs by session cookie AND by the preview
 header, and none of them said so; the README recommends nginx in front, where a shared cache may
@@ -792,6 +797,39 @@ visitors, which is what lets it name absolute paths.
   disconnected glyph and diacritic fragments (conspicuous in Arabic, where the tashkeel ride high
   enough to be exactly what survives a 6px window). It is padding now.
 
+- **NOTHING INSIDE `.cm-content` MAY CARRY A VERTICAL MARGIN.** CodeMirror sizes every `.cm-line`
+  and every block widget by its BORDER box (`getBoundingClientRect`), which counts padding and
+  borders and does not count margins. A margin there is height the editor's height map denies
+  exists, and `posAtCoords` — which resolves the pointer for CodeMirror's own mouse selection —
+  then answers with a line that is not the one under the finger. This is the single cause behind
+  four separate reports in this editor: click position, dead hover previews, mod-click opening the
+  wrong note, and "double-clicking a paragraph selects the whole block". Measured: `margin: 0 0
+  20px` on `.cm-s-props` put every line below the frontmatter card 20px out of step and six of
+  nine double-clicks selected nothing at all. Put the air on a wrapper's PADDING (`.cm-s-fmblock`
+  wraps the properties card and the banner hero; `.cm-s-htmlblock` pads itself) or in a
+  TRANSPARENT BORDER with `background-clip: padding-box` when the element is painted and the air
+  must stay outside the paint (`.cm-s-callout--first/--last`, whose radii are grown by the border
+  width so the tint keeps its exact curve). Async height counts too: an embed or banner image that
+  arrives after the measure must `view.requestMeasure()`. Spacing must also not acquire behavior
+  on its way to becoming measurable — the 20px under the properties card belongs to no line, so
+  `handleMousedown` sends a click landing in it to the line below the card, as the margin did.
+- **SELECTION IS RESOLVED FROM THE DOM, AND A CLICK SEQUENCE HAS ONE ANCHOR.** `client/editor/selection.ts`
+  supplies `EditorView.mouseSelectionStyle`: the pointer maps through `posFromEvent`
+  (`caretPositionFromPoint` → `posAtDOM`), never the height map, and clicks 2 and 3 of a
+  double/triple-click REUSE the position click 1 resolved. The second is not a nicety: live
+  preview reflows between the clicks — the cursor's line reveals its markdown, and inside a fence
+  its ``` markers come back — so re-resolving the second mousedown against the moved document
+  selected a word two lines away. Double-click takes the rendered UNIT where there is one (a
+  wikilink, `#tag`, `$math$` or inline-code chip is one object on screen and one object to
+  select), identifier boundaries inside a fence, and otherwise a grapheme-cluster word, which is
+  what keeps Arabic harakat and Persian ZWNJ inside the word. Triple-click takes the paragraph,
+  drag extends by character, shift-click extends from the existing anchor. Navigating branches of
+  `handleMousedown` (wikilink, footnote, external link, `#tag` search) fire on the FIRST click of
+  a gesture only, so clicks 2 and 3 reach selection instead of searching twice or opening two
+  tabs; the INERT branches (properties header, banner hero) are ungated, because they must swallow
+  every click or the second one drops the cursor into raw YAML. `scripts/check-caret.mjs` gates
+  all of it, in both shells.
+
 ## Note deletion (server, shipped)
 
 `DELETE /api/note?path=<rel>&permanent=<bool>` → `{ ok: true, trashPath?: string }`
@@ -854,22 +892,26 @@ tab whose path starts with `<folder>/` **before** `loadTree()`, then toasts (`fo
 naming .trash recovery, or `folderDeletedToast`).
 
 The two speeds are two dialogs rather than the checkbox sketched here originally: the default
-confirm ("Move “name” to .trash?" / "N notes will move… recoverable from disk", danger button
-*Move to .trash*) carries a third, deliberately quiet route — `ConfirmOptions.extraLabel`, which
-resolves `confirmModalEx()` as `"extra"` — and that opens a SECOND confirm with the permanent
-copy. A checkbox would have let one click arm an irreversible erase of a whole subtree; a
-quiet-affordance-then-confirm makes the reader say "permanently" twice. The note count comes
-from the client's own tree (`countNotes`), which counts exactly what the server counts: **file
-nodes with no `attachment` marker**, under the same ignore rules. (It used to count every file
-node, which was the same thing until the tree started carrying attachments; a plain count would
-now promise to move "1,214 notes" when it meant 800 notes and 414 images.)
+confirm ("Move “name” to .trash?", danger button *Move to .trash*) carries a third, deliberately
+quiet route — `ConfirmOptions.extraLabel`, which resolves `confirmModalEx()` as `"extra"` — and
+that opens a SECOND confirm with the permanent copy. A checkbox would have let one click arm an
+irreversible erase of a whole subtree; a quiet-affordance-then-confirm makes the reader say
+"permanently" twice.
+
+**The counts come from `/api/delete-preview`, and there are two of them.** The body now reads
+"The folder and its contents — 0 notes and 4 files — move to the vault's .trash folder", because
+counting only markdown is what cost a published essay its images: see "Delete previews" below,
+which is the section that owns this number and the warning line under it. The client's own
+`countNotes` is no longer consulted here — it could only ever see the half of the folder the
+tree calls a note.
 
 **A single note deletes at the same two speeds, from both surfaces.** `DELETE /api/note` grew
 the folder route's `?permanent=` (same `1/true/yes/on` parsing, same `.trash/` destination),
 and the client side is the folder pattern verbatim: `api.deleteNote(path, permanent)` →
 `state.deleteNote(path, {permanent})`, driven by `confirmModalEx` with `extraLabel: Delete
 permanently` and a second, `grave` dialog behind it. Both entry points — the tree's context menu
-and the palette's *Delete note* — run the identical pair, because a command must not be the
+and the palette's *Delete note* — run the identical pair, and since "Delete previews" landed they
+run the identical FUNCTION (`deleteFlow.ts`), because a command must not be the
 harsher one merely because it was reached from the palette. Until this landed, one dialog said
 "This cannot be undone" over an `fs.rm` while the folder one line above it in the same context
 menu promised `.trash` — the same gesture, two different guarantees, and the harsher one applied
@@ -889,12 +931,165 @@ what carries the escalation, and it is safety, not styling: the danger button is
 and the button is **not pre-focused** — a `grave` dialog opens on Cancel and answers Enter only
 from the danger button itself. Saying "permanently" twice does nothing if both dialogs are
 pixel-identical gold-outlined buttons that Enter confirms; the one that erases 1,214 notes from
-disk must never be one stray keypress away. `Rename` is offered on FILE rows only — `/api/rename`
-is a note route and 400s on a folder — so the folder menu holds only actions that work.
+disk must never be one stray keypress away. `Rename` is offered on NOTE rows only — `/api/rename`
+is a note route and 400s on a folder or an attachment — so every menu holds only actions that
+work. The DELETE verb, by contrast, is now offered on all three kinds, each pointing at its own
+route: *Delete* on a note, *Delete file* on an attachment (see "Attachment deletion"), *Delete
+folder* on a folder, never on the root row.
 
 Server side, `deleteFolder` lstats before it counts: a symlinked folder is a link, `fs.rename` /
 `fs.rm` unlink it without touching the target, so it reports `notes: 0` rather than describing a
 tree outside the vault that the call will not touch.
+
+## Delete previews (server indexer + `/api/delete-preview` + client dialogs)
+
+**The dialog counted markdown and the folder held images.** The owner moved a note out of its
+folder, deleted the now note-less folder, read "0 notes" and shipped a published essay with four
+broken embeds — the folder still held the four images that note used, and the confirm had no way
+to know because it only ever counted `.md`. The indexer has always known which notes point at
+which attachment (it is the same walk that decides what `/api/file` will serve an anonymous
+visitor); nothing destructive was asking it.
+
+- **`GET /api/delete-preview?path=<rel>` → `DeletePreview`** (`shared/types.ts`):
+  `{ kind: "folder"|"note"|"attachment", notes, attachments, referenced, referrers[], referrerCount }`.
+  Admin-eyes-only — the referrer list names vault paths, exactly what `/attachments` and
+  `/published` withhold — so it takes their `404`-not-a-route gate, not a `403`.
+- **`referenced` counts what a SURVIVOR still points at.** Notes *inside* the target go with it,
+  so a link from one of them is not a link that will break: the folder branch subtracts its own
+  notes before counting. A folder whose images only its own notes use reports `0` and gets no
+  warning — a warning that is always on screen is furniture, and a reader stops reading furniture
+  long before the one time it is true.
+- **Counts come from the server's walk of the files the delete will actually move**
+  (`listVaultFiles(relFolder)`, same ignore rules as `deleteFolder`), never from the client's
+  tree. The client tree was the source of "0 notes".
+- **Indexer:** `notesReferencing(attachmentRel)` (attachment → the notes that embed or link it,
+  published or not) and `notesLinkingTo(noteRel)` (the `[[wikilink]]` half, one object over).
+  The reverse map is lazy and cached beside `allowedAttachments()`; **both caches are dropped by
+  the one `invalidateRefCaches()`**, because every mutation that changes either answer changes
+  both. The per-note walk itself is `collectAttachmentTargets()`, shared by the publish allowlist
+  and the reference map **so they cannot drift**: a file the allowlist serves but the delete
+  dialog cannot see is the whole bug, wearing a different hat.
+- **`ConfirmOptions.warn`** (Confirm.tsx) renders the collateral as its own danger-tinted line
+  under the body — a different KIND of sentence from `body` (which describes the action), and it
+  has to be able to look different from the calm line above it. The line's TEXT stays `--text`,
+  not `--danger`: a whole paragraph in the danger hue is a colour the reader stops seeing, and
+  several themes solve their danger against the ground for a button fill rather than for prose.
+- **The English warnings are passive** — "Embedded by {notes}", not "{notes} still embed this
+  file". `{notes}` is a count phrase as often as it is a name, so an active verb must agree with
+  a number the string cannot see; the first draft shipped "“The Moved Essay” still embed this
+  file" whenever exactly one note was named, which is a typo in the one sentence whose entire job
+  is to be believed. Arabic keeps its verb-first form, where a non-human plural takes the
+  feminine singular and both counts already agree.
+- Referring notes are **named when few** (≤ 3, and only when the sample is the whole set) via
+  `Intl.ListFormat` in the instance's language, each name separately bidi-isolated; past that
+  they are counted. The server samples five, so a count is always available.
+- **A preview failure is not fatal.** The dialog still opens, without the collateral line.
+  Refusing to let someone delete a file because a preview endpoint hiccuped is a worse product
+  than one that occasionally warns less.
+
+**One implementation of every delete dialog: `client/components/deleteFlow.ts`.** Three objects
+× two surfaces × two speeds is twelve dialogs, and when each surface built its own the guarantees
+drifted — the palette's *Delete note* said "irreversible" over the act the identical tree menu
+item promised was recoverable. `confirmDeleteNote` / `confirmDeleteAttachment` /
+`confirmDeleteFolder` are the only entry points, both surfaces call them, and `twoSpeeds()` is
+the single copy of the recoverable-then-`grave` shape. Titles are shared too
+(`moveToTrashTitle` / `permDeleteTitle`): six near-identical strings free to drift one edit at a
+time is how the stale hint happened. **The palette hint and the dialog say the same thing** —
+`cmdTrashHint` is *moves to .trash*, checked against these dialogs whenever either changes.
+
+**Store deletes toast a LOCALIZED failure.** `guarded(label, fn, failMessage?)` in `state.ts`
+takes an optional localized line; without it the toast falls back to `err.message`, which
+CONTRACTS says above is English log prose no UI may print — an Arabic operator whose delete
+failed read "Note not found: x.md" inside a fully Arabic panel. The three delete verbs pass
+`couldNotDeleteNote` / `couldNotDeleteFolder` / `couldNotDeleteFile`; the rest of the store still
+rides the old fallback, which is the pre-existing pattern.
+
+## Attachment deletion (server, shipped)
+
+`DELETE /api/attachment?path=<rel>&permanent=<bool>` → `{ ok: true, trashPath?: string }`
+
+- **The tree listed them and offered no verb on any of them.** A vault's images, PDFs and
+  recordings have been in the tree since attachments landed; the only way to remove one stale
+  upload was to delete the folder around it — which is precisely the gesture that took a
+  published essay's figures with it.
+- Same two speeds, same `.trash/` destination and same `1/true/yes/on` parsing as the note and
+  folder routes. Admin-only via the auth guard.
+- `400` on a `.md` path (`assertAttachment` — that is `/api/note`'s job) or an empty one; `404`
+  when it is not there or **is not a regular file**: `lstat` + `isFile()`, so a symlink is not an
+  attachment and the rename cannot move a link while the dialog described its target.
+- **Events:** one synthetic `{kind:"deleted", path}` emitted by `deleteAttachment`, with the
+  watcher's own unlink suppressed, and the route `await whenIndexed()`s — so the `/api/tree`
+  refetch straight after the 200 is already correct. `visitorEvents()` drops non-`.md` events, as
+  it always has.
+- Client: `state.deleteAttachment` reloads the tree, refreshes **publish state** (a published
+  note embedding the file now points at a 404 on the public site) and clears the broken-embed
+  cache, then toasts `fileTrashedToast` / `fileDeletedToast` — Arabic's own pair, because a ملف
+  is masculine where a ملاحظة is feminine and the note's line would print "نُقلت" over a file.
+
+## Trash browser (server `.trash/` API + TrashModal)
+
+**Every delete dialog promised a bin the product could not reach.** "Recoverable from disk" was
+true and useless: `.trash/` is a dot-dir that the tree, the indexer and the watcher are all built
+to ignore, so honouring the promise meant handing the owner a terminal. A safety net nobody can
+reach is a safety net in the sense that a locked fire exit is a fire exit.
+
+- **`GET /api/trash` → `TrashEntry[]`**, newest first:
+  `{ name, origin, kind, deletedMs, notes, attachments, bytes, originTaken }`. Admin-only via the
+  same `404`-not-a-route gate `/attachments` takes — the listing names deleted vault paths.
+  A missing `.trash` is an **empty bin, not an error**.
+- **`POST /api/trash/restore` `{ name }` → `{ ok, path, renamed }`**; **`DELETE /api/trash?name=`**.
+  Both ride the auth guard (401 for visitors and preview sessions).
+- **The entry NAME is an id, not a path.** `trashEntryAbs()` refuses separators, `..`, NULs, the
+  empty string and anything **dot-prefixed**, then re-checks containment against the resolved
+  string; the caller `lstat`s, so a symlink inside the trash is not an entry. A real vault entry
+  can never begin with a dot (`isIgnoredSegment` keeps those out of the vault), so the dot rule
+  costs nothing — and it is what stops the manifest itself being restorable or purgeable.
+  `safeAbs()` cannot be used here: it 404s everything under `.trash` by design, which is the rule
+  that makes the bin invisible everywhere else and must stay.
+- **Origins are recorded, so Restore is a restore.** `.trash/.vellum-trash.json`
+  (`{version, entries: {name: {origin, deletedMs, kind}}}`) is written by every trashing delete.
+  Writes are serialized on one chain — two deletes in the same tick would read the same file and
+  the second write would drop the first entry, losing the origin of the folder somebody is about
+  to need back. A failed manifest write **never fails the delete**: it degrades that entry to
+  "origin unknown" and is logged. A missing or corrupt manifest degrades the whole bin the same
+  way, which is exactly the pre-manifest behaviour.
+- **Restore lands at the origin, beside it, or at the vault root** — and says which. A taken
+  origin gets the trash's own counter (`Linker.md` → `Linker-2.md`), an unrecorded or now-invalid
+  origin falls back to the entry name at the root, and the answer's `renamed` flag drives
+  `restoredRenamedToast` instead of `restoredToast`. The browser prints the destination **before**
+  the click too (`trashFrom` / `trashOriginTaken` / `trashOriginUnknown`), because a "restored"
+  that quietly went somewhere else is the same species of lie as a delete that quietly took four
+  images with it.
+- **A restored folder is indexed before the response returns.** `indexUnder(rel)` (indexer) walks
+  the subtree — the mirror of `removeFolder()` — and the route emits `{kind:"created", dir:true}`.
+  `visitorEvents()` **fans that out into one `created` per visible note**, sampled AFTER
+  `whenIndexed()` (the mirror of the delete fan-out's sample-first discipline): without it a
+  visitor's sidebar was missing published notes the site was already serving.
+- **`.trash/` still never reaches the remote** — `gitSync`'s pathspec eviction covers the whole
+  directory, manifest included. Nothing in this section changes that guarantee.
+**Stacking: the confirm dialog is the top of the product, and it was not.** `.s-confirm-overlay`
+sat at `z-index: 130` while the mobile sidebar DRAWER sits at `400` and its backdrop at `390`.
+Below 1000px the sidebar is a fixed overlay and the delete dialogs are opened FROM it, from the
+tree's context menu — so on a phone "Move “Essay Assets” to .trash?" rendered *underneath* the
+drawer that launched it, with Cancel and the danger button both unreachable and a dimmed sliver
+showing past the drawer's edge. Every `promptModal` shares that host, so New note, New folder and
+Rename were in the same hole; the only escape was `Esc`, on a device with no `Esc` key. The
+overlay is now **500**, above everything, which is structural rather than cosmetic: every other
+layer can spawn a confirm, so anything that can paint over one is a dialog the reader cannot
+answer. **Anything new that covers the viewport goes below 500** — the trash browser takes `420`
+(above the drawer, below the confirm, so its purge dialog stacks on it).
+*Known and deliberately not fixed here:* the command palette (`200`) and the moderation feed
+(`110`) are still under the drawer, so with the drawer open on a phone they are covered the same
+way. That predates this section and belongs to whoever takes the drawer's layering as its own
+change; it is written down so it is not rediscovered as a surprise.
+
+- Client: `TrashModal.tsx` + `styles/trash.css`, opened by the palette's *Open trash*
+  (admin, not in preview) and cleared from the store on logout and on entering visitor preview.
+  Rows carry Restore and a `grave`-confirmed erase; the header carries "Empty trash" behind the
+  same `grave` dialog. In-flight names disable their own row's buttons, so a double click cannot
+  fire two restores of one entry and toast a failure about something that succeeded. The list is
+  **refetched from the server** after every mutation, never optimistically emptied: an entry that
+  failed to go stays visible instead of vanishing from a list that lied about it.
 
 ## Attachments in the tree (server tree + sidebar + viewer)
 
@@ -1360,8 +1555,70 @@ Server side: `siteLanguage()` in `server/site.ts` merges `settings.language` ove
 `blogLocale()` falls back to the site language when neither `settings.blogLocale` nor
 `BLOG_LOCALE` is set.
 
-**`languageFilter` covers every visitor discovery surface.** `server/indexer.ts` caches an
-`arabic` flag per note record and `languageHidden(record)` consults it *at query time*, so
+**`languageFilter` is a four-state enum, and the state is resolved PER REQUEST.**
+`shared/types.ts::LanguageFilterMode` is `"off" | "follow" | "ar" | "en"`. It replaced a boolean,
+and the replacement is not cosmetic: the boolean could only say "on", "on" silently meant "pin to
+`SITE_LANG`", and enabling it took a live site from twenty published posts to two with no warning
+before the save and no indicator after it.
+
+`server/language.ts` owns the resolution and is the only module that reads the mode: every
+visitor route calls `languageScope(c, isPublishLimited(c))` **once** at its top and passes
+`scope.lang` (`"ar" | "en" | null`) down. Nothing below the routes reads the mode globally,
+because a global read is exactly how a per-reader setting collapses back into a per-site one.
+`scope.lang` is `null` for every admin surface, unconditionally — *admin surfaces are never
+filtered* does not bend for a mode. Every indexer function that enumerates notes for a visitor
+takes it as a **required** parameter with no default: a default would be a filter language chosen
+by whichever module forgot to pass one, and getting it wrong means either a withheld note leaking
+or a reader's language ignored.
+
+**`"follow"` needs the reader's language, so the client declares it.** `X-Vellum-Lang: ar|en` on
+every API call (`client/api.ts::withPreview` sets it beside the preview header), and `?lang=` on
+the two surfaces that cannot send a header — `/api/events`, because EventSource has no header
+API, and `/feed.xml`, because a feed reader is not our client and `/feed.xml?lang=ar` is how the
+Arabic side of a bilingual site becomes its own subscribable URL. **Validated and gated exactly
+as `X-Vellum-Preview` is**: the value must be exactly `"ar"` or `"en"` (anything else is dropped,
+not coerced — a mistyped scope falls back to the site language rather than to a guess), the query
+form is honored only on those two paths, and the whole claim is honored **only while
+`settings.languageToggle` is on**. An instance that offers readers no language switch has no
+reader language to speak of, and letting a header say otherwise would be a second, undocumented
+way to re-scope the public site. `X-Vellum-Lang` is therefore a `Vary` dimension on every `/api`
+response, the SPA shell and the feed: under `"follow"` two readers of the same URL with the same
+(absent) cookie get different post lists, topics, search results and graphs, and a shared cache
+that did not know would hand one reader's collection to the other.
+
+**The SSE stream resolves its scope once, at subscribe time, and holds it.** The reader language
+arrived as `?lang=` and cannot change without a reconnect — so `client/App.tsx` lists `language`
+in the subscription effect's dependencies beside `admin`. Without that, a reader who flipped the
+EN/ع switch kept a stream describing the collection they had just left: announcing edits to notes
+their new language hides, and silent about the ones it reveals.
+
+**It will not serve an empty site.** Under every non-`"off"` mode, if the language in force
+qualifies **no** published note, the filter stands down for that request and the full collection
+is served with `MeData.languageFallback` set (a quiet line in the public shell, an XML comment in
+the feed, and the loud version for the admin). This applies to pinned modes too, not only
+`"follow"`: pinning to Arabic on a vault with no Arabic posts is a configuration mistake, and the
+humane response to a configuration mistake on a live site is to keep serving it while saying so
+to the one person who can fix it — not to blank it for everyone else.
+
+**Migration is to the pinned value, never to `"follow"`.** A stored boolean `true` becomes `"ar"`
+or `"en"` per the site language (`server/settings.ts::migrateSettings`, rewritten on disk at
+startup and also coerced on read so an un-migrated file still behaves), `false` becomes `"off"`.
+`"follow"` is the better setting for most bilingual sites and is deliberately **not** what an
+upgrade picks: upgrading must not change what a live site's visitors can see. The env form keeps
+the legacy spellings too — `LANGUAGE_FILTER=true` is held as a `"site"` sentinel resolved at read
+time (it never named a language; it meant "whatever the site's language is"), while a *stored*
+`true` is frozen, because otherwise an owner who later switched the chrome to English would find
+their Arabic posts swapped for their English ones by a setting they never touched.
+
+*One trap, recorded because it cost a boot:* the read-time coercion of a stored boolean runs
+**inside** `getSettings()`, and `siteLanguage()` calls `getSettings()`. Reaching for the
+convenient getter was infinite recursion — the server died with "Maximum call stack size
+exceeded" on exactly the pre-enum files the migration existed for. `settings.ts::rawSiteLanguage`
+does the same two-layer merge one level down, where no cycle is possible, and
+`site.ts::envSiteLanguage()` exists solely to be its env half.
+
+**Coverage is unchanged and total.** `server/indexer.ts` caches an
+`arabic` flag per note record and `languageHidden(record, lang)` consults it *at query time*, so
 flipping the setting takes effect without a reindex. Every function that enumerates notes for a
 visitor applies it: `posts()`, `search(publishedOnly)`, `graph(publishedOnly)` (both edge
 endpoints, not just nodes), `backlinks(publishedOnly)` (**the target as well as the sources** —
@@ -1377,8 +1634,10 @@ creation, edit or deletion would leak its existence, full vault path and edit ti
 which is precisely what the filter must not do. In that stream a note that becomes hidden reads
 as `deleted` and one that becomes visible as `created`, the same mapping publish/unpublish uses.
 **And `/api/me`'s home-note gate** (`homeNoteVisible()` in `server/auth.ts`): both halves ask
-`isNoteVisibleToVisitor`, the name-resolving one via `resolveLink(ref, true)` and the exact-path
-fallback directly. The fallback used to ask `isNotePublished` alone, so an Arabic instance whose
+`isNoteVisibleToVisitor`, the name-resolving one via `resolveLink(ref, true, lang)` and the
+exact-path fallback directly — both now at the *reader's* scope, because under `"follow"` an
+English home note is a real homepage for an English reader and a non-existent one for an Arabic
+reader, and `/api/me` has to answer each of them truthfully. The fallback used to ask `isNotePublished` alone, so an Arabic instance whose
 `HOME_NOTE`/`settings.home.note` named an English published note put that note's title and full
 vault path into the anonymous payload (`homeNote` **and** `home.note`) — the one name the tree,
 posts, search, RSS and the injected `<head>` were all hiding — and then rendered it as the public
@@ -1465,10 +1724,28 @@ exactly the two-numeral-systems-on-one-line bug that rule exists to prevent. Not
 untouched for the usual reason — it was never localized in the first place.
 
 `settings.language` is parsed leniently — `settings.ts` trims and lowercases before matching, so
-`"AR"` and `" ar "` are accepted and stored as `"ar"`. `languageFilter` is the opposite: strict
-`boolean | null`, no coercion. The asymmetry is deliberate (an enum has an obvious canonical
-form; a boolean typed as a string is a mistake worth rejecting) and is noted here so it does not
-read as an oversight.
+`"AR"` and `" ar "` are accepted and stored as `"ar"`. `languageFilter` now gets **the same**
+treatment, which is the reading the old note here already argued for ("an enum has an obvious
+canonical form"): trim, lowercase, then match the closed set, and anything outside it is a 400
+naming the four values. `null` still clears the key back to `LANGUAGE_FILTER` — and note that
+`null` and `"off"` are different statements, "take the env default" against "this site filters
+nothing", which is a distinction the boolean could not make.
+
+**`GET /api/visibility` (admin only) is the consequence engine.** `server/visibility.ts` answers,
+from this vault, what the visitor-facing settings cost in notes: `published`, `visible`,
+`hiddenByLanguage`, a `census` of the published set by script, `topics`, and the state of the
+blog front door. Every query param — `languageFilter`, `excludeTags`, `publicLayout`, `home`,
+`homeNote` — is a **hypothetical**; absent ones describe what is in force. That is what lets the
+settings panel print *"Pinned to Arabic: 3 of your 22 published notes qualify; 19 would be hidden
+from every visitor"* **before** the save, from the same code path that will serve the site
+afterwards (the empty-set stand-down included, so the preview cannot promise something the
+request path will not do). Admin-only for the reason `/api/published` is: the counts describe
+exactly what the public surfaces withhold. `/api/me` embeds the current answer as
+`visibility` for admin sessions, but **only while `isReducingReach()`** — an indicator that is
+always lit is furniture nobody reads, so it is reserved for notes actually going missing (reads
+closed, a filter standing down, any note hidden by language, a blog front door visitors cannot
+see) and deliberately excludes `EXCLUDE_TAGS`, whose consequence is printed under its own control
+and which would otherwise light the pill forever on any site that uses it.
 
 `scripts/check-i18n.mjs` is the guard for chrome copy — but note *which* half of it answers
 *which* question. Diffing dict-against-used (every `t()`/`tf()` key exists, every entry defines
@@ -1980,6 +2257,408 @@ opened from the picker's header ("New custom theme") and from a pencil on each c
   token group holding a failure. A rule the author cannot see is a rule they will break.
 - Export writes a `vellum.theme` JSON file; import reads one into the DRAFT (never straight into
   the store), so the author sees what arrived, live, before anything is saved.
+
+### Presets (`shared/presets.ts`, `shared/presetCatalog.ts`)
+
+**A preset is a design document that happens to live in the repo.** Not a template language,
+not a partial, not "starter options" the designer interprets — the same `sections`, the same
+`chrome`, the same `article`, the same validator. A preset that renders wrong is a design that
+renders wrong, debuggable with the tools that already exist, and a section kind added to
+`shared/design.ts` reaches every preset without a second vocabulary to teach it.
+
+**APPLYING A PRESET IS AN IMPORT, and there is no preset route.** `presetExport(preset, lang)`
+produces exactly the `vellum.design` envelope `POST /api/design/docs/import` already takes, so
+the whole apply flow is two lines in the panel:
+
+```ts
+const doc = await importDesignDoc(presetExport(preset, language));
+openDraft(doc);
+```
+
+Every property the word FORK is meant to buy falls out of a route that shipped before presets
+existed: a free id, fresh `createdMs`/`updatedMs`, strict validation, custom themes remapped
+under fresh slugs, and nothing the instance already has overwritten. **No new server code, no
+new endpoint, no server knowledge of presets at all** — that is the design, not an economy. Two
+consequences worth naming: a preset file and an exported design are THE SAME FILE (a `.json` a
+stranger wrote behaves identically to a shipped one, and a design an author built can be handed
+back as a preset), and **the forked document remembers nothing**. There is deliberately no
+`presetId` on `DesignDoc` and there must not be one: it is a `DOC_KEYS` change — a schema bump —
+bought for a breadcrumb nobody can act on, and the person who adds it is the person who will then
+write "reapply the preset", which is the live link the whole shape exists to refuse.
+
+**Three rules bind every shipped preset, and `assertCatalog()` enforces the ones it can at import
+time** (duplicate id, empty or un-Arabic copy, a section or nav item naming a note):
+
+1. **A PRESET IS PURE FORM.** Every text field it could set — section headings, the hero's own
+   heading and sub, a CTA's words, `footer.copyright`, nav labels, rich-text bodies — is LEFT
+   EMPTY, and the renderers already know what empty means (hero → the site name and tagline,
+   empty heading → no heading, empty copyright → the instance's own footer line, empty CTA label
+   → the localized "Read more"). It has to be this way: `Section.heading` is a plain string with
+   nowhere to put a second language, so a preset that typed "Latest writing" would ship an
+   English word into an Arabic instance and a stranger's voice into everybody's. The shape is
+   ours; every word on the page is the owner's. It is also why fifty-nine presets are cheap to write
+   and impossible to mistranslate.
+2. **A PRESET NAMES NOTHING IN THE VAULT.** No `note` section, no `note`/`page` nav item, no tag
+   filter, no image path — a shipped design cannot know what is in somebody else's vault, and a
+   preset that guessed would render as the owner's very first error card. It leans on the
+   fallbacks that already exist: `nav.fallback: "topics"` fills the menu from the busiest
+   published tags, and list/grid sections read every published post. A fresh install gets a
+   furnished site.
+3. **A PRESET NAMES A THEME** — one of the fifteen, because the layout was drawn against it. It
+   applies on FORK, and then only to readers with no stored preference, which is `DesignedSite`'s
+   existing rule.
+
+**Names and blurbs are DATA, not dictionary keys.** `{ en, ar }` pairs travel inside the preset.
+Fifty presets as dictionary rows would be a hundred entries `check-i18n` can only see as dead
+keys, and adding one preset would mean editing three files. The chrome AROUND the gallery — the
+eight family labels, the buttons, the empty state — goes through `t()` like everything else, from
+a LITERAL `Record<PresetFamily, I18nKey>` table for `TYPE_LABEL`'s reason.
+
+**The catalog is a dynamic `import()`** (`loadPresets()`), so fifty-nine layouts are a chunk the admin
+fetches when the designer opens rather than bytes on a visitor's first paint.
+
+**`presetCatalog.ts` is an ORDERING, not a list.** The designs live in one module per shelf —
+`presetsEditorial`, `presetsMinimal`, `presetsBrutalist`, `presetsJournal`, `presetsPortfolio`,
+`presetsDocs`, `presetsAcademic`, `presetsGarden`, `presetsLanding`, `presetsGallery`,
+`presetsLetter` — and the
+catalog spreads them in `PRESET_FAMILIES` order with the four originals leading their families.
+Two families are served by more than one module and both splits are editorial: `minimal` holds
+the narrow essay shelf (560–780px, quiet weights) and then the wide, heavy, uppercase half
+(1040–1400px) that reads as the same argument made the opposite way, and `reference` holds
+documentation, then research, then the digital garden. A module is five designs because five is
+what one person can hold in mind while checking that no two of them are the same design in
+different clothes — the review that actually keeps a catalog this size honest, and the reason
+the file boundary is a SHELF rather than an alphabet.
+
+`MAX_DESIGNS` still applies: applying a preset is creating a design, and the 24-design cap
+answers with the sentence it already has.
+
+### A POST SECTION HAS NO OFFSET, and that is a catalog rule (`check-presets.mjs`)
+
+`pick()` is `filtered.slice(0, limit)` — from the top of the same feed, every time. So any two post
+sections in one design OVERLAP, and the only question is whether the overlap reads as an archive or
+as a stutter. The rule: **at most two post sections, and the index at least twice the feature.**
+
+The threshold is `index ≥ 2 × feature` rather than a round number because that is the line a READER
+can see — the second section has to add at least as many posts as it repeats, or it is the same run
+again with a few rows on the end. Three post sections cannot satisfy it at all (the third always
+repeats one of the first two) and are refused outright.
+
+Measured against a real vault before the rule existed, and every one of these shipped:
+`commissions` printed nine projects and then an "archive" of ten — one new post; `herbarium`
+stacked two grids of nine and eight; `showreel` carried a lead frame, a strip AND an index, so the
+newest post appeared **three times on one page** (21 headings from 13 posts). A design whose front
+page prints the same essay three times is the first thing an author sees and the last thing they
+forgive, and no amount of reading the JSON catches it — only rendering it against posts does.
+
+### The catalog gate (`scripts/check-presets.mjs`, `npm run check-presets`)
+
+`assertCatalog(PRESETS)` runs at the bottom of `presetCatalog.ts`, which means it runs when the
+MODULE LOADS — and the module is a dynamic `import()` fetched the first time an admin opens the
+designer. A duplicate id or an un-Arabic blurb therefore failed no build; it threw inside the
+gallery's chunk, in front of the one person about to browse fifty-nine designs. A catalog is data
+in the repo: no author is present when it breaks and no user can report it usefully. It needs a
+gate that runs with the other gates, and this is it — no server, no browser, milliseconds.
+
+It checks three tiers, and the middle one is the reason it exists:
+
+1. **What `assertCatalog` already knows**, imported and never re-implemented — a second copy of a
+   rule is how a gate and its product come to disagree.
+2. **What only a gate can see.** Every family is served (above). Every typography number survives
+   `normalizeChrome()` — the normalizer SNAPS out-of-range values instead of throwing, so
+   `scale: 1.5` (the cap is 1.414) renders as a design nobody chose and nothing says a word. The
+   bar is HALF A STEP, not equality: rounding onto the slider's own grid is what an author means,
+   being overruled by the bounds is not. Every theme named is one of the fifteen; every width is
+   inside `MIN_WIDTH…MAX_WIDTH`; and **every preset survives `validateDesign()`**, which is the
+   apply flow exactly — a preset the import route would reject is a preset whose first click is an
+   error toast.
+3. **Rule 1, mechanically** — a preset is PURE FORM, so every copy field it could set is empty.
+   This is the rule most likely to be broken by somebody being helpful.
+
+The shape+width collisions it prints are a NOTE, never a failure: two designs may legitimately
+share a skeleton and differ in palette, columns and type (`casebook`/`lyceum` do), and that is a
+judgement for a person rather than a threshold.
+
+### Thumbnails: a CSS miniature in the grid, a real render on hover
+
+The choice was between three, and the two that lost are worth writing down.
+
+- **Shipped screenshots** are accurate and dead. Fifty PNGs at two densities is megabytes in a
+  public repo that must be REGENERATED whenever a token moves, and every one is painted in
+  whatever theme the machine that shot it was wearing — so a reader on `nocturne` browses fifty
+  pictures of `parchment`.
+- **Fifty live canvases** is several thousand nodes mounting while somebody scrolls.
+- **`DesignThumb`** (`client/components/design/DesignThumb.tsx`) draws the design as CSS: its
+  header layout, density and hairline, its column width as a percentage of the canvas, its actual
+  section list in its actual order, with the artwork coming from `generatedBannerCss()` — the
+  function the product already uses for a banner-less post, already deterministic per seed,
+  already painted out of the theme's own tokens. **Zero bytes in the repo, no fetch, ~40 nodes a
+  card, and it repaints on a theme switch because it never named a colour.** Every dimension is
+  in `cqw` against `container-type: inline-size`, so one coordinate system is correct at 160px and
+  at 400px with no media query and no JS measure.
+
+**And the hybrid is the point.** The card under the pointer — one at a time, after a 180 ms
+dwell — swaps its miniature for a real `<DesignCanvas>`: the actual header, the actual sections,
+the operator's own posts and banners, at 1120 px, scaled into the card. The expensive honest
+render is paid once, for the card somebody is looking at.
+
+**Why a wireframe is not a compromise at 200px.** A scaled screenshot of a real page at that size
+is a grey smear with an unreadable word on top: it LOOKS accurate and communicates nothing. The
+miniature answers the only question 200px can answer — what shape is this, how much air does it
+have — in the reader's own palette. The question it cannot answer is what the type feels like,
+which is exactly what the hover canvas is for.
+
+**The miniature is painted in the ACTIVE theme, always.** A preset's own theme appears as a
+labelled swatch on the card (`<span data-theme="…">` — `tokens.css` keys bare `[data-theme]`, so
+one element in the gallery legitimately wears somebody else's palette). Fifty cards each in their
+own palette is a colour riot that hides the one variable the grid is for, and the operator is
+choosing a SHAPE with the palette one click away in their own picker. The hover and detail
+CANVASES do honour the preset's theme, because at that size the palette IS the preset.
+
+### `DesignCanvas` — any design, any width (`client/design/DesignCanvas.tsx`)
+
+The component that closed the gap named in the design engine's own notes: the panel's LIVE
+PREVIEW drew the chrome around a typography SPECIMEN, so every control that shapes the composed
+page changed nothing on screen. The specimen is kept and is one click away — `route: "article"`
+— because an article page IS the specimen and is also a real page of the design.
+
+```ts
+<DesignCanvas
+  design={DesignDoc}          // the draft, a stored design, or presetDesignDoc(preset, lang)
+  content={PreviewContent}    // what the sections read instead of the live vault
+  width={1120}                // px to LAY OUT at, before scaling (CANVAS_WIDTH)
+  fit="scale" | "native"      // transform to the box, or let the box be the viewport
+  route="home" | "article"
+  clipHeight={860}            // px of laid-out height to keep, with a fade at the cut
+  ownTheme                    // paint the design's theme on the canvas box
+  live                        // it is in a REAL viewport (the preview frame):
+                              // hoverable, and sticky is honoured
+  label="…"                   // it is role="img"; everything inside is aria-hidden
+/>
+```
+
+Three properties, each load-bearing:
+
+1. **It is the real renderer.** `DesignHeader`, `RenderSection`, `DesignFooter`,
+   `typographyVars`, the `.s-dsn` scope, `--dsn-width`. Not one line of section markup is written
+   twice — a preview assembled from a simplified copy is a preview of the copy, and every
+   divergence is a bug the author finds after publishing.
+2. **It lays out at a width and scales the PIXELS.** `width: <width>px` then
+   `transform: scale(box / width)`, remeasured by `ResizeObserver`. A 200px card and a 900px pane
+   show the SAME page at two sizes — not two responsive breakpoints, which is what a narrow box
+   would show and would be a lie about what a reader sees. `fit: "native"` drops the transform and
+   lets the pane's own width be the viewport; that is the designer's pane, where an author is
+   reading their own type rather than judging a shape from across the room.
+3. **It is inert and it cannot take the panel down.** No nav handler (the site owns the address
+   bar; a preview inside the app must not), `pointer-events: none` inside, and every part wrapped
+   in the same `DesignBoundary` the live site uses — a broken preset renders a caption in the
+   card instead of unmounting the designer.
+
+Two details that were bugs before they were rules:
+
+- **The click swallow is SCOPED to the canvas.** A canvas is routinely mounted inside a button (a
+  gallery card is one), so an unscoped `closest("a,button")` finds the CARD, swallows its click,
+  and the preset can be hovered but never chosen. Only a link that is a DESCENDANT of the canvas
+  is swallowed.
+- **`.s-dsn` is the live site's SCROLLER** (`height: 100%; overflow-y: auto`). Inside a canvas it
+  is a block in somebody else's layout, and inheriting those two rules clipped every design to its
+  own header. `presets.css` overrides them under `.s-dsgv` only — the live shell keeps its
+  scroller.
+- **`sticky` is dropped inside a SCALED canvas.** `position: sticky` resolves against the nearest
+  scroll container, which inside a `transform: scale()` wrapper is the transformed element itself:
+  the header would pin where the reader is not looking. A preview that draws a header in the wrong
+  place to honour a switch is worse than one that draws it right. `live` is the one case where the
+  canvas has a scrollport of its own — the preview frame's document — and there the switch is
+  previewed rather than deferred.
+
+### Preview content — real posts first, generated artwork second
+
+`client/design/previewContent.tsx`. Two of the real section renderers reach OUTSIDE the design
+for their content: `note` fetches a note, and `postGrid` asks the store whether missing banners
+should be generated. A preview must answer for both without a second copy of either component,
+so the seam is **a React context, not a fork**: `usePreviewContent()` is `null` on the live site —
+which is every path those files had before — and a reviewer finds every place a preview differs
+from production by grepping for that one hook.
+
+```ts
+interface PreviewContent {
+  posts: PostMeta[];            // the owner's own, in their own order, padded to 8
+  pages: PageMeta[];
+  notes: Map<string, string>;   // note bodies supplied instead of fetched
+  noteMode: "fetch" | "sample"; // designer previews the real note; the gallery never fetches
+  forceGeneratedBanners: true;  // in every preview, see below
+  synthetic: boolean;           // any row was invented — the gallery says so, once, quietly
+}
+```
+
+Where the content comes from, and this is the half that makes a fresh install compelling:
+
+- **The owner's own posts first.** Real titles, real dates, real banners, real reading times, in
+  real order. A preset previewed against six of your own essays is a decision you can make; the
+  same preset against "Lorem ipsum" is a screenshot.
+- **Generated artwork wherever a banner is missing**, from `generatedBannerCss()` — deterministic
+  per title, painted out of the ACTIVE theme's tokens, repainting on a theme switch with nobody
+  re-rendering anything. `forceGeneratedBanners` is on in every preview even when the instance
+  turned generated banners OFF, because an author still has to see what a banner grid does before
+  they choose one, and a fresh install would otherwise judge every image-forward preset by a
+  column of empty rectangles.
+- **Sample rows only to make up the numbers**, to `PREVIEW_MIN_POSTS` (8) — enough for a
+  three-across grid with a river under it. Their copy is dictionary copy (`pv*`, en + ar like all
+  chrome) and their paths carry `SAMPLE_PREFIX` (`__vellum-sample__/`), a path no vault surfaces.
+  **The padding rule is "top up", never "replace"**: real posts keep their real order and their
+  real position and samples are APPENDED. A preview that put invented rows first would show an
+  author a front page whose lead story is a fiction, which is the one thing a design preview may
+  not do.
+
+### The live preview: a frame, a device and a clock
+
+`client/design/PreviewFrame.tsx` + `client/components/design/PreviewStage.tsx`. The designer's
+right-hand pane is not a canvas in a box — it is the composed site **in a nested document of its
+own**, at a width the author picks, settling on the trailing edge of their edits.
+
+**The pane is an `<iframe>`, and a div is a lie in three places.**
+
+1. **Media queries answer the WINDOW, never the box.** `design.css` carries
+   `@media (max-width: 700px)` — the rule that drops the designed grid to one column and lifts
+   every target to 44px. A 390px div inside a 1440px window matches none of it, so a "phone"
+   preview built from a narrow div is the DESKTOP design squeezed into a phone's width: the one
+   picture of a phone guaranteed to be wrong. Measured in the frame at 390: grid
+   `354px` (one column), topic chip 44px, document overflow 0.
+2. **The app's cascade reaches into the pane.** In one document the visitor surface and the admin
+   chrome share `:root`, the scrollbar rules and every selector anybody writes for the designer
+   later. The frame inherits the app's stylesheets DELIBERATELY, by cloning them, and inherits the
+   panel's accidents not at all.
+3. **`position: sticky` needs a scrollport.** A scaled canvas has none it can honour, which is why
+   `DesignCanvas` drops stickiness; a frame has one, so `live` canvases emit `s-dsn--sticky` /
+   `s-dsg-top--sticky` and the switch that turns it on finally has a preview.
+
+**`about:blank`, not `srcdoc` and not a route.** The shell's CSP is `frame-src 'none'` and stays
+that way. That directive is checked on frame NAVIGATIONS: `srcdoc` and any URL are refused, while
+a frame with no `src` is the initial `about:blank` — not a navigation, and it inherits the
+parent's origin (so the portal can reach in) and the parent's policy (so nothing inside is more
+privileged than the app). Verified in Chromium: the frame renders with the shipped header intact.
+**And no `<base>` element**: `about:blank` inherits its creator's base URL by spec — banners
+resolve to `/api/file?path=…` on the app's origin with no base present — while `base-uri 'none'`
+refuses the element and logs a violation on every open.
+
+**The stylesheets are CLONED from `document.head`**, `<link>` by href and `<style>` by text, under
+a `MutationObserver`. **The sync is a keyed DIFF, not a rebuild**, and that is not an
+optimisation: a cloned `<link>` applies asynchronously even from cache, so re-cloning the whole
+head hands the frame a moment with the old sheet removed and the new one unapplied — a flash of
+raw HTML in the middle of the panel, which is exactly what a screenshot caught the first time the
+head changed with the designer open. Nodes still present are left alone (never re-appended
+either — re-inserting a link re-runs its fetch); only arrivals are cloned and only departures
+removed. For the same reason **the page inside starts hidden** and is revealed when the first
+sheets answer, or after one second so a sheet that 404s never leaves an empty pane
+(`data-vellum-ready`, asserted by the gate — invisible is worse than unstyled).
+One place knows what CSS this build has and it is the head: cloning it brings
+`tokens.css`, the generated custom-theme sheet, an operator's `custom.css`, uploaded `@font-face`
+blocks and Vite's dev-injected styles, forever, with no manifest to keep in sync. `data-theme`,
+`data-custom-theme`, `dir` and `lang` are mirrored off `<html>` by a second observer, so a theme
+switch behind the panel repaints the preview (measured: `parchment` → body `rgb(242,235,218)`)
+and an Arabic instance previews an RTL site.
+
+**The scroller is put back where the live site keeps it.** `app.css` clips `html`/`body`/`#root`
+— the app grid owns all scrolling — and the visitor's designed page scrolls inside `.s-dsn`.
+Both sheets are cloned in, so a frame that let the DOCUMENT scroll would be a frame nothing can
+scroll. The reset restores `.s-dsn` as the scrollport under `.s-dsgv--live`, which makes the
+frame the visitor's arrangement exactly: same scroller, same sticky, same overscroll.
+
+**Nothing inside a preview acts, and the swallow lives in the FRAME.** React's synthetic events do
+not cross a document boundary — a portal's listeners are on the root container in the outer
+document, and an event inside the frame bubbles to `about:blank`'s window and stops — so
+`DesignCanvas`'s own `onClickCapture` is correct and inert in there. The frame's document carries
+capture-phase `click`, `auxclick`, `submit`, `dragstart` and Enter/Space handlers instead.
+Sequential focus never enters (`tabindex="-1"` on the frame, `aria-hidden` on the page inside):
+everything in there is a copy of a control the panel already offers.
+
+**Three device widths, and nothing between them** — `desktop` 1280, `tablet` 834, `phone` 390 (the
+width DESIGN.md measures the shell at). The frame LAYS OUT at that width and the stage scales the
+pixels into the pane, so the phone stays phone-shaped in a pane twice its width; the wrapper
+carries the scaled size so the centring, the scrollbars and the device shadow agree with what the
+eye sees. **Never scaled up** — a phone blown up to 700px would show an author type twice the size
+their reader gets. `Actual size` drops the scale to 1:1 and lets the stage scroll, because "what
+shape is this page" and "can I read this type" are two questions and a designer needs both.
+
+**The preview settles on a 120 ms trailing edge**, with one dot lit while it is behind. Under the
+~150 ms an eye reads as instant, over the 16 ms a drag would blow; identity-based, because every
+control writes a new document object. Measured: 24 slider keystrokes in 168 ms, 50 device switches
+with the same iframe element and the same in-frame node count (211 → 211) — the frame is built
+once and reconciled after that, which is also why the author's scroll position survives every
+edit. A route change is a NAVIGATION and resets it.
+
+**Gated by `scripts/check-preview.mjs`** (`npm run check-preview`, `PORT` + `VELLUM_PASSWORD`),
+which drives the real panel in a real browser and measures the frame from the inside: the frame
+exists at all under the shipped CSP, the sheets and the theme arrive, the phone gets the phone
+rules, the pictures resolve, a chip highlights under a pointer mapped through the scale, an edit
+lands, and fifty switches leave the same element with the same node count. It creates one design,
+uses it and deletes it, putting the previously active one back — on failure too.
+
+**A fresh install still gets a page worth looking at**: with zero published posts the pane draws
+six sample cards with generated artwork, the topics menu filled from the sample tags, and one
+quiet line saying some rows are samples (`presetSampleNote`). With real posts the pictures are the
+author's own — measured resolving to `/api/file?path=Media%2Fkyoto.jpg`.
+
+### The gallery contract (`client/components/design/PresetGallery.tsx`)
+
+```ts
+interface PresetGalleryProps {
+  presets: readonly Preset[];   // from loadPresets(); the host awaits, the gallery has no spinner
+  content: PreviewContent;
+  onApply: (preset: Preset) => Promise<void>;   // fork + open; see the two lines above
+  onBlank: () => Promise<void>;                 // createDesignDoc(name)
+  busy?: boolean;
+}
+```
+
+**The gallery owns filtering, hover and selection; it owns NO network and NO store writes.**
+`onApply` and `onBlank` are the only two ways out, deliberately: the panel already knows how to
+open a document, refresh its overview and toast a failure, and a gallery that learned any of it a
+second way is a gallery that drifts. It does not know what a design store's error sentences look
+like and must not learn.
+
+- **Filtering is one implementation** — `filterPresets`/`presetMatches`/`familyCounts` in
+  `shared/presets.ts`, so the count beside the search box and the grid under it cannot disagree.
+  Text is applied FIRST and the family chips count the text-filtered set, so a chip reading "0"
+  beside a grid full of matches is not a reachable state. Search matches id, family, tags and the
+  name and blurb **in both languages**, folded (diacritics, tatweel, alef and ta-marbuta) — an
+  Arabic instance still finds a preset by an English name it read about somewhere.
+- **Eight families**, closed, describing the JOB and never the decoration: `editorial`,
+  `minimal`, `journal`, `portfolio`, `reference`, `landing`, `gallery`, `letter`. **Every one of
+  them has a module**, and that is a rule rather than a description of where the writing stopped.
+  The chips are drawn from `PRESET_FAMILIES` unconditionally and count what is in the catalog, so a
+  family with nothing behind it renders as a chip that is `disabled` on every instance, in every
+  language, whatever anybody types in the search box — `landing` shipped exactly that, reading
+  "Landing 0" beside seven live shelves. A filter that can never be switched on is not a filter; it
+  is a promise of a shelf next to an empty one. The fix is a module, never a chip that learns to
+  hide, because the alternative is a closed vocabulary carrying a dead word. `check-presets.mjs`
+  is what keeps it true.
+- **Hover is a DWELL, not a hover.** Swapping on `mouseenter` turns a mouse crossing the grid into
+  a dozen React trees mounting; 180 ms means only a card somebody stopped on pays. Exactly one
+  card is ever live. Keyboard focus reaches it immediately — a focus ring is a deliberate stop
+  with nothing to debounce.
+- **Selecting opens a detail pane** above the grid: the real canvas at `clipHeight: 1400`, the
+  blurb, the family, the theme swatch and its name, "Use this design", and two sentences that have
+  to be said before somebody clicks — that a preset ships the shape and the words stay theirs, and
+  that applying makes an editable copy the preset can never reach again.
+- **"Start from blank" is the first tile**, always, dashed, and it is `createDesignDoc` — the
+  stock defaults and nothing else.
+- **THE GALLERY TAKES THE PREVIEW'S COLUMN** (`.s-dsgr__body--wide`, `tab === "presets"`). It is
+  the one tab that is already a preview, and the only exception to the three-column rule below.
+  Everywhere else the right-hand pane is the thing the author is looking at; on this tab it was
+  drawing the DRAFT — the one document somebody comparing fifty-nine alternatives is not thinking
+  about — or the words "no design yet" across 1.4fr, while the shelf it belongs to was folded into
+  a 380px form column at **two cards across**. The gallery already answers everything that pane
+  exists to answer, at three magnifications of its own: a miniature per card, a real
+  `DesignCanvas` under the pointer after the dwell, and a full one in the detail sheet. Two columns
+  here is not a smaller panel, it is the shelf at the size a shelf wants — measured five across at
+  1440 and four at 1320. **`.s-dsgr__preview` is UNMOUNTED, not hidden**: it owns an iframe, a
+  `MutationObserver` and a settle timer, and none of those should be running behind a surface that
+  is not showing them (measured: 0 frames in the document while the gallery is open).
+- **Browsing the whole catalog leaks nothing.** Measured over all 59 cards and 12 detail sheets:
+  exactly one live canvas at any moment, and the document node count is *unchanged* at the end
+  (3514 → 3514 → 3514). The dwell, the single-live-card rule and the unmounted stage are what buy
+  that, and a regression in any of them shows up here first.
 
 ## Backup & sync (server/gitSync.ts)
 
@@ -3641,6 +4320,21 @@ underneath it.
   count is what the control means; `--dsg-measure-px` caps every wrapper around it, because a
   `ch` resolves against each element's own font-size and the page column, the article header and
   the footer grid would otherwise each land on a different width.
+- **THE COMPOSED PAGE WEARS THE TYPOGRAPHY TOO.** The vars reached the article page, the reading
+  renderer and the header wordmark, and stopped at the four titles the HOME page is made of — a
+  hero, a section heading, a card title, a list row — which were `var(--font-serif)` at a fixed
+  rem. The consequence was not subtle: a design at weight 800 in uppercase sans and one at
+  weight 400 in serif drew the same front page, so nine controls and fifty-nine presets differed only
+  in palette and arrangement. All four now take `--dsg-head-font/-weight/-transform/-variant/
+  -tracking`, and their sizes come off the same modular scale as everything else (`--dsg-h1` for
+  a hero, `--dsg-h3` for a section heading and a list row, `--dsg-h4` for a card), so no legal
+  combination can invert the hierarchy. Excerpts and a hero's sub take `--dsg-body-font`. Every
+  var carries its old value as the fallback, so a page rendered without them is unchanged.
+- **A MASTHEAD SHARES THE PAGE'S COLUMN.** `stacked` and `stackedStart` headers are capped at
+  `--dsn-width` and centred: the header block has no ground of its own, so a full-viewport one
+  put the wordmark at the window edge while the sections sat in a 760px column. `inline` is
+  exempt on purpose — it is a bar, it has its own row cap, and it is the one layout allowed to
+  be wider than the writing.
 - **NAVIGATION IS HAND-BUILT, AND VISITOR-SCOPED SERVER-SIDE.** Items are `home` / `note` /
   `page` / `topic` / `url` / `group`, ≤ 20 top level, ≤ 12 per submenu, ONE level of nesting
   (a second level is a 400, not a silent flatten). `visitorNav()` drops every hidden item, every
@@ -3673,3 +4367,128 @@ underneath it.
   container, and a specimen body instead of a fetch. Its door is one palette row (the theme
   picker's precedent: what it opens is a browsing-and-building surface, so it is one row, not
   five), and it mounts a root on `<body>` like `openThemePicker()`.
+
+## The designer is a DESIGN TOOL, not a settings form
+
+The panel that composes a design (`client/components/design/`, `styles/designer.css` +
+`styles/composer.css`) is the surface this whole feature is judged on: a home page is an ORDER
+before it is anything else, and an order you cannot rearrange with your hand is a list of settings
+wearing a designer's name. What follows is normative for that panel.
+
+### The three columns, and the laptop that decides them
+
+`.s-dsgr__body` is `186px · minmax(380px, 1.05fr) · minmax(0, 1.4fr)` — rail, controls, preview —
+and the panel is `min(1520px, 100%)` by `min(940px, 100vh - 32px)`. The numbers are one argument:
+a form column that grows past ~460px is a form with nothing in the middle of it, so every pixel
+past that belongs to the preview, which is the thing the author is actually looking at.
+
+**1280×800 keeps all three columns.** It is the smallest screen this surface is designed for, and
+a designer that hides the design at the size most people own is a designer for demos. What gives
+first is the ROW, not the pane: below 1320 the section card wraps to two lines (what it is on top,
+what you can do to it underneath) so a section name is never two words wide. The preview is
+dropped only below 1040, where it would be a thumbnail of a thumbnail.
+
+**The one exception is the presets tab**, which is two columns at every width (`--wide`): the
+gallery IS a preview surface, so the pane beside it had nothing left to say and was spending the
+larger share of the panel saying it. See the gallery contract above — that is the only tab allowed
+to claim the third column, and it claims it by UNMOUNTING the stage rather than hiding it.
+
+### The rail is grouped and drawn
+
+Eight words in a column is a menu. The rail carries four named runs — *Your designs*, *The page*,
+*The look*, *Keeping* — and every row carries the SHAPE of what it opens (`PanelGlyphs.tsx`), so
+the column is scanned by picture and confirmed by word. The active row is `--accent-soft` with a
+2px `--accent` bar on its LEADING edge, which is the rule every active row in this product already
+follows; the bar is transparent at rest so nothing shifts when it lights. Each tab carries
+`data-tab`, which is how a gate reaches one. Labels WRAP rather than ellipsing — an ellipsis in a
+rail of eight rows eats the one word that distinguishes "Header & footer" from "Pages".
+
+### The board (`SectionList.tsx`)
+
+**THREE WAYS TO MOVE A ROW, and all three are first-class.** Drag it by the grip; press the ↑/↓
+buttons; or lift it with the KEYBOARD — Space on the grip, arrows to move, Space or Esc to set it
+down. The buttons are not a small-screen fallback (a control that exists only on one input device
+is a control half the readers do not have) and the keyboard lift is not a consolation prize: it
+moves the row the same way the drag does and says so through an `aria-live` region ("Hero is now 3
+of 7"). `Alt+↑/↓` still moves the focused row from the row itself.
+
+**POINTER EVENTS, NOT HTML5 DRAG.** `draggable` gives a browser-drawn ghost nobody can style, no
+touch support worth the name, and a `dragenter` stream that fires against the row under the GHOST
+rather than under the finger. One pointer path serves mouse, pen and touch, the grip is
+`touch-action: none`, and the "ghost" is the row itself, lifted.
+
+**A drag shows where it will land, and it takes both halves.** The rows the lifted card has passed
+slide out of its way (160ms) so there is a real slot, and a dashed accent SOCKET the size of the
+card is drawn in that slot — a caret alone lands under the card the reader is holding, and a gap
+alone says "somewhere around here". The list is NOT reordered until the reader lets go:
+rearranging under a pointer that has not committed is the board deciding for them. (The row that
+draws the socket is the one BELOW the slot, except at the end of the list and except when that row
+is the lifted one, whose pseudo-element travels with the pointer.) The scrolling column follows
+the pointer at its edges, or a twenty-section design can only be reordered one screen at a time.
+
+**Moving a row keeps focus on THAT row** — by button, by keyboard and after a drop. Reordering is
+a repeated gesture, and a list that drops focus after each press turns three presses into three
+hunts for the button. Reordering a keyed node blurs it, so the lift survives on a `refocus` guard
+rather than on `onBlur` alone.
+
+**A row shows what it IS**: its position, a wireframe glyph of its kind (`SectionGlyph.tsx`), its
+name, its hint, then the moves, the switch and the ✕. A locked row keeps its position controls and
+its switch and ✕ are ABSENT rather than disabled. One row's options are open at a time and they
+open IN PLACE, under the row, over 160ms of height and opacity.
+
+**Glyphs are `currentColor` and `aria-hidden`, always.** They inherit the row's own token
+(`--text-muted` at rest, `--accent` when hovered or open), so they are correct in all fifteen
+themes and on all three grounds without a rule of their own; their interior shading is opacity over
+a picture, never over `--text-faint`, which is at its floor already; and no shade of one carries a
+fact the words beside it do not.
+
+### Adding a section is a picker of pictures (`SectionPicker.tsx`)
+
+The eight kinds are eight SHAPES and their names are the least informative thing about them, so
+every option is illustrated with the same wireframe language the rows and the gallery miniatures
+use. The sheet opens IN FLOW under the button rather than as a popover — a popover inside a
+scrolling pane is a popover that pane will clip — focus lands on the first option, and Esc closes
+it and hands focus BACK to the button.
+
+**`isSectionPickerOpen()` is why Esc works at all.** The sheet and the panel both listen for Esc in
+the CAPTURE phase on `window`, capture order is registration order, and the panel is mounted first
+— so one Esc closed the whole designer out from under an open picker, measured. `stopPropagation`
+inside the sheet cannot fix that; it runs second. The OUTER surface asks whether an inner one owns
+the key, which is exactly the precedence `isSelectOpen()` already keeps for the Select popover.
+
+### Empty states invite
+
+An instance with no design opens on the Designs tab, so that IS the first screen: three section
+glyphs, "Nothing designed yet", the sentence that says posts fill a design in immediately, and the
+two doors (*Browse the presets*, *New design*). A design with no sections says "An empty page,
+waiting" and names what a page is made of. Neither reports the absence of a list, and the tab's own
+instruction line is withheld while there is nothing to instruct — "drag a row, or move it with the
+arrows" over a panel with no rows in it is directions to a thing that is not there.
+
+### The save bar is a STATE
+
+Nothing in the panel reaches the public site until Save, so the bar's whole job is to make "there
+are decisions in the air" impossible to miss: clean it is a hairline and a muted line; dirty it
+takes an accent rule along its top edge, a raised ground, a pulsing dot and a COUNT.
+
+`countChanges()` counts the way an AUTHOR counts, and that is the reason it is not a leaf-wise diff
+of two blobs: moving one section in a list of seven rewrites six array slots, and a bar reading "31
+changes" after one drag is worse than no number. So sections are compared BY ID (one change for an
+edited section, one for each added or removed), the ORDER counts once and only over the sections
+both documents share (an add already counted itself; a move made in the same sitting is a second
+decision and must show), and the rest of the document is compared leaf by leaf, where a leaf is one
+control. The count goes through `countPhrase(n, "changes")`, so Arabic gets its real plural forms
+like every other count in the product. A dirty draft with no countable change still says "Unsaved
+changes" — true, and there is no honest number to print.
+
+`Ctrl/Cmd+S` saves, and it is SWALLOWED either way: the browser's own Save dialog over a design
+panel is a jump-scare, not a feature.
+
+### Motion is 150–200ms and it is a preference
+
+Rows settle when they land (200ms), options and the picker arrive rather than appear (160–170ms),
+the controls column cross-fades when the rail moves (`key={tab}`, 160ms), the add button's `+`
+turns into a `×`, and the preview settles on the trailing edge of a burst of edits (`PreviewStage`).
+Every one of those is 150–200ms of MEANING and none of them is the only carrier of that meaning, so
+`prefers-reduced-motion: reduce` drops the animation and keeps the fact. Verified with the panel
+under `reducedMotion: "reduce"`, in RTL, at 1280×800, and on light and dark themes.

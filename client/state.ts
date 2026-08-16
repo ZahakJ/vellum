@@ -9,6 +9,7 @@ import type { Backlink, HomeSettings, PublishedCounts, TreeNode } from "../share
 import * as api from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import { collectNotes, resolveLink } from "./editor/links.ts";
+import type { LanguageFilterMode, VisibilityImpact } from "../shared/types.ts";
 import { setLang, setNumeralLocale, t, tf } from "./i18n.ts";
 // Localization the shell pushes into plain modules rather than into the store:
 // the calendar (client/dates.ts), the note-prose layout defaults
@@ -181,11 +182,21 @@ export interface State {
   /** settings.languageToggle — the instance offers visitors an EN/ع switch.
    *  Off (the default) means no public language chrome exists at all. */
   languageToggle: boolean;
-  /** settings.languageFilter / LANGUAGE_FILTER — the public lists carry only
-   *  notes in the site language's script. The blog's empty state is the one
-   *  surface that needs it: "nothing published here yet" is a true sentence
-   *  about a filtered list and a false one about the site. */
-  languageFilter: boolean;
+  /** settings.languageFilter — how the site curates by NOTE language.
+   *  "follow" is the one that changes the client's behaviour rather than just
+   *  its copy: under it, flipping the EN/ع switch changes which notes exist
+   *  for this reader, so the switch must refetch the vault instead of only
+   *  re-skinning the chrome. */
+  languageFilter: LanguageFilterMode;
+  /** The server served the FULL collection because the language in force
+   *  matched no published note (that language). The public shell prints a
+   *  quiet line saying so — the alternative was a site that looked empty. */
+  languageFallback: Lang | null;
+  /** ADMIN ONLY: what the visitor-facing settings are costing in reach right
+   *  now, or null when nothing material is being withheld. The status bar's
+   *  standing indicator reads this — the ongoing half of "never silently hide
+   *  a site". */
+  visibility: VisibilityImpact | null;
   /** COMMENTS=on / settings.commentsEnabled. Off means Marginalia never even
    *  asks /api/comments — the answer is instance-wide and already in /api/me,
    *  so asking per note only bought one console 404 per note open. */
@@ -197,6 +208,10 @@ export interface State {
   /** Admin moderation panel (palette: "Moderate comments"). */
   moderationOpen: boolean;
   setModerationOpen(b: boolean): void;
+  /** Admin trash browser (palette: "Open trash"). The bin every delete dialog
+   *  promises; nothing in the product could see it until this landed. */
+  trashOpen: boolean;
+  setTrashOpen(b: boolean): void;
   /** Admin previewing the public site: every API call carries the preview
    *  flag and the server answers along its real visitor code path, so what
    *  renders IS the visitor experience (blog shell / visitor app view). */
@@ -305,6 +320,13 @@ export interface State {
   /** Move a folder (and everything under it) to the vault's .trash — or erase
    *  it outright. Closes every open tab inside it, then refreshes the tree. */
   deleteFolder(path: string, opts?: { permanent?: boolean }): Promise<void>;
+  /** Delete ONE attachment (image, PDF, recording) at the same two speeds.
+   *  A published note may embed it, so the publish state is refreshed with
+   *  the tree — this is the one delete whose damage a stranger can see. */
+  deleteAttachment(path: string, opts?: { permanent?: boolean }): Promise<void>;
+  /** Restore an entry out of `.trash/`. Answers where it actually landed,
+   *  which is not always where it came from — the caller says so. */
+  restoreTrash(name: string): Promise<{ path: string; renamed: boolean }>;
 
   /** Editor reports unsaved-changes state here. */
   setDirty(path: string, dirty: boolean): void;
@@ -598,12 +620,25 @@ function waitForClean(path: string, timeoutMs: number): Promise<void> {
   });
 }
 
-async function guarded(label: string, fn: () => Promise<void>): Promise<void> {
+/** Run a store mutation, log any failure and tell the reader.
+ *
+ *  `failMessage` is a LOCALIZED line the caller supplies. Without it the toast
+ *  falls back to `err.message`, which is the server's English log prose
+ *  (CONTRACTS: "`error` is English prose written for a log and for curl. It is
+ *  NOT a string any UI may print") — so an Arabic operator whose delete failed
+ *  read "Note not found: x.md" inside a fully Arabic panel. The delete verbs
+ *  pass their own line; the rest of the store still rides the old fallback,
+ *  which is the pre-existing pattern and not this round's business. */
+async function guarded(
+  label: string,
+  fn: () => Promise<void>,
+  failMessage?: string,
+): Promise<void> {
   try {
     await fn();
   } catch (err) {
     console.error(`vellum: ${label} failed`, err);
-    toast(err instanceof Error ? err.message : `${label} failed`);
+    toast(failMessage ?? (err instanceof Error ? err.message : `${label} failed`));
   }
 }
 
@@ -674,11 +709,17 @@ export const useStore = create<State>()((set, get) => {
     siteName: "Vellum",
     language: "en",
     languageToggle: false,
-    languageFilter: false,
+    languageFilter: "off",
+    languageFallback: null,
+    visibility: null,
     commentsEnabled: false,
     setVisitorLang: (lang) => {
       if (!get().languageToggle || get().language === lang) return;
       writeVisitorLang(lang);
+      // Tell the API layer BEFORE anything refetches: every subsequent call
+      // (including the loadMe below) must declare the new language, or the
+      // server would scope the reply to the language they just left.
+      api.setReaderLang(lang);
       // Same order loadMe uses: dictionary + <html dir/lang> first, so the
       // components re-rendering off `language` already read the new strings.
       // The date locale is deliberately NOT touched — dates and numerals stay
@@ -688,9 +729,25 @@ export const useStore = create<State>()((set, get) => {
       // Same rule as loadMe: an "auto" side follows the direction LIVE, so a
       // visitor flipping the EN/ع switch moves the notes sidebar with it.
       set({ language: lang, sidebarSide: effectiveSide(get().sidebarSidePref, lang) });
+      // Under `languageFilter: "follow"` the switch is not cosmetic: the
+      // reader has just changed WHICH NOTES EXIST for them, so everything
+      // derived from the published collection has to be refetched. Without
+      // this the chrome flipped to Arabic and went on listing the English
+      // posts — the exact chrome/content disagreement the mode exists to end.
+      // /api/me comes first because it carries the fallback flag for the new
+      // language; the SSE stream is torn down and resubscribed by the same
+      // reloadTick the tree listens on.
+      if (get().languageFilter === "follow") {
+        void (async () => {
+          await get().loadMe();
+          await get().loadTree();
+          get().bumpReload();
+        })();
+      }
     },
     loginOpen: false,
     moderationOpen: false,
+    trashOpen: false,
     previewVisitor: false,
 
     publicLayout: "app",
@@ -747,6 +804,11 @@ export const useStore = create<State>()((set, get) => {
         // everyone, stored preference or not.
         const languageToggle = me.languageToggle === true;
         const language: Lang = (languageToggle ? readVisitorLang() : null) ?? siteLang;
+        // Declare it on every call from here on. Set even when the filter is
+        // off: the server ignores it then, and the alternative is a mode-
+        // dependent branch on the client that would be wrong for exactly one
+        // request each time the mode changed.
+        api.setReaderLang(language);
         const locale = me.blogLocale?.trim() || "en";
         // The calendar and the note-layout pair are pushed into their plain
         // modules BEFORE the store commit, exactly as applyLanguage pushes the
@@ -766,7 +828,9 @@ export const useStore = create<State>()((set, get) => {
         set({ sidebarSide: effectiveSide(get().sidebarSidePref, language) });
         set({
           languageToggle,
-          languageFilter: me.languageFilter === true,
+          languageFilter: me.languageFilter ?? "off",
+          languageFallback: me.languageFallback === "ar" || me.languageFallback === "en" ? me.languageFallback : null,
+          visibility: me.visibility ?? null,
           commentsEnabled: me.comments === true,
           admin: me.admin,
           publicReads: me.public,
@@ -855,7 +919,7 @@ export const useStore = create<State>()((set, get) => {
       guarded("signing out", async () => {
         await api.logout();
         await get().loadMe();
-        set({ publishedPaths: null, publishedFilter: false, openPublished: null, moderationOpen: false });
+        set({ publishedPaths: null, publishedFilter: false, openPublished: null, moderationOpen: false, trashOpen: false });
         const { admin, publicReads } = get();
         if (!admin && !publicReads) {
           // Vault is locked again for this session — drop everything readable.
@@ -881,6 +945,8 @@ export const useStore = create<State>()((set, get) => {
 
     setModerationOpen: (moderationOpen) => set({ moderationOpen }),
 
+    setTrashOpen: (trashOpen) => set({ trashOpen }),
+
     setPreviewVisitor: (on) =>
       guarded("toggling visitor preview", async () => {
         if (on === get().previewVisitor) return;
@@ -905,6 +971,9 @@ export const useStore = create<State>()((set, get) => {
             openPath: null,
             paletteOpen: false,
             moderationOpen: false,
+            // The trash browser is an admin surface over deleted vault paths;
+            // it must not survive into a visitor preview.
+            trashOpen: false,
           });
           // Tree BEFORE me: the shell swap (admin flips false on loadMe) must
           // find the visitor tree already in place, or the blog router would
@@ -1177,7 +1246,7 @@ export const useStore = create<State>()((set, get) => {
         // "N published" segment and the publish marks have to follow it.
         void get().loadPublished();
         toast(tf(permanent ? "noteDeletedToast" : "noteTrashedToast", { name }));
-      }),
+      }, t("couldNotDeleteNote")),
 
     deleteFolder: (path, opts) =>
       guarded(`deleting folder ${path}`, async () => {
@@ -1196,7 +1265,38 @@ export const useStore = create<State>()((set, get) => {
         void get().refreshBacklinks();
         void get().loadPublished();
         toast(tf(permanent ? "folderDeletedToast" : "folderTrashedToast", { name }));
-      }),
+      }, t("couldNotDeleteFolder")),
+
+    deleteAttachment: (path, opts) =>
+      guarded(`deleting ${path}`, async () => {
+        const permanent = opts?.permanent === true;
+        const name = path.split("/").pop() ?? path;
+        await api.deleteAttachment(path, permanent);
+        await get().loadTree();
+        // An attachment is not a note, so no tab and no backlinks — but a
+        // PUBLISHED note may embed it, and the file leaving the vault leaves
+        // that note's <img> pointing at a 404 on the public site. Refresh the
+        // publish surfaces for the same reason a note delete does.
+        void get().loadPublished();
+        // Embed widgets cache what resolved and what did not; a deleted file
+        // must not keep rendering from that cache.
+        clearBrokenEmbeds();
+        get().bumpReload();
+        toast(tf(permanent ? "fileDeletedToast" : "fileTrashedToast", { name }));
+      }, t("couldNotDeleteFile")),
+
+    restoreTrash: async (name) => {
+      const result = await api.restoreTrash(name);
+      // A restored folder brings notes, attachments and possibly publish marks
+      // back at once; the server has already reindexed, so one refetch is
+      // enough and it is already correct.
+      await get().loadTree();
+      void get().refreshBacklinks();
+      void get().loadPublished();
+      clearBrokenEmbeds();
+      get().bumpReload();
+      return { path: result.path, renamed: result.renamed };
+    },
 
     setDirty: (path, isDirty) =>
       set((s) =>

@@ -133,7 +133,7 @@ All `.env` keys (npm scripts load the file automatically via `node --env-file-if
 | `SITE_FOOTER` | Blog footer line; `{year}`/`{siteName}` substituted (default `© {year} {SITE_NAME}`) |
 | `BLOG_LOCALE` | BCP47 locale for post dates and the RSS channel language (default: follows `SITE_LANG`) |
 | `SITE_LANG` | Interface language: `en` (default) or `ar`. `ar` localizes every chrome string and mirrors the whole UI right-to-left (see [Arabic mode](#arabic-mode)) |
-| `LANGUAGE_FILTER` | `true` limits the public blog surfaces to notes written in `SITE_LANG`'s script (default off) |
+| `LANGUAGE_FILTER` | which published notes the public blog shows, by the language they are written in: `off` (default) · `follow` (each reader gets their own) · `ar` · `en` |
 | `SITE_URL` | Canonical origin for RSS/canonical links, e.g. `https://notes.example.com`; unset → derived from request headers |
 | `ATTACHMENTS_DIR` | Vault-relative directory the in-app image upload writes into (default `attachments`), created on demand |
 | `BANNER_FALLBACK` | Blog hero for posts without a `banner:` — `generated` (default; a deterministic abstract gradient from the note title) or `none` |
@@ -227,10 +227,12 @@ breadcrumbs): each picks its own direction, so a vault mixing `مكاتيب` and
 
 Switching the language from the settings panel applies **live** — no reload.
 
-Optionally, `LANGUAGE_FILTER=true` limits the public blog surfaces (post lists, topics, graph,
-search, prev/next, RSS, and the live event stream) to notes actually written in the site's
-language, detected from the script of the note's prose. Admin views are never filtered, and a
-direct link to a filtered-out note still opens it — see [Language filter](#language-filter).
+Optionally, `LANGUAGE_FILTER` limits the public blog surfaces (post lists, topics, graph,
+search, prev/next, RSS, and the live event stream) to notes actually written in one language,
+detected from the script of the note's prose. Set it to `follow` and the language is **the
+reader's own** — the EN/ع switch then moves the writing, not just the buttons. Admin views are
+never filtered, and a direct link to a filtered-out note still opens it — see
+[Language filter](#language-filter).
 
 ### Note banners
 
@@ -528,12 +530,37 @@ at once. Leave the switch off (the default) and the public site has no language 
 
 #### Language filter
 
-A bilingual vault often wants a monolingual public site. `LANGUAGE_FILTER=true` (**Settings
-→ Language filter**) narrows the public blog to notes actually written in the site language:
+A bilingual vault often wants a monolingual public site — or, better, a bilingual one that
+gives each reader their own language. **Settings → Language filter** (`LANGUAGE_FILTER`) has
+four settings:
 
-| | `SITE_LANG=ar` | `SITE_LANG=en` |
+| Value | Who decides | What the public site shows |
 | --- | --- | --- |
-| Shown | notes whose letters are ≥ 40% Arabic-script | notes that are majority non-Arabic |
+| `off` *(default)* | nobody | every published note |
+| `follow` | **the reader** | only notes in the language that reader is reading in |
+| `ar` | you | only notes whose letters are ≥ 40% Arabic-script |
+| `en` | you | only notes that are majority non-Arabic |
+
+**`follow` is the one that makes the visitor switch mean something.** With **Settings → Visitor
+switch** on, a reader who taps ع gets Arabic chrome *and* the Arabic writing; tapping EN brings
+back the English. Without it — chrome in one language, posts in the other — the switch was
+half a feature. A reader who never touches it gets the site language. (With the visitor switch
+*off*, `follow` has no reader to follow and behaves exactly like pinning to `SITE_LANG`; the
+settings panel says so in those words rather than letting the setting mean something other than
+its name.)
+
+**It tells you what it will cost, before you save it.** The row prints the consequence in real
+counts from your own vault — *"Pinned to Arabic: 3 of your 22 published notes qualify; 19 would
+be hidden from every visitor"* — warns harder when that is most of the site, and refuses to be
+quiet about it afterwards: while a filter is materially reducing what visitors see, the status
+bar carries a standing `3/22 public` beside the published count. The two numbers disagreeing is
+the state worth noticing, and before this round there was nowhere in the product that showed it.
+The same treatment covers every other setting that can shrink the public site — excluded tags,
+the blog front door, and `PUBLIC=false`.
+
+**It will not hand anyone an empty site.** If the language in force matches no published note at
+all, the filter stands down for that request: the reader gets the whole collection with one
+quiet line explaining why they are seeing both languages, and you get the loud version.
 
 Detection runs in the indexer, is cached per note, and refreshes incrementally as notes change —
 no configuration, no frontmatter to maintain. The filter applies to every public discovery
@@ -1003,7 +1030,7 @@ anything is committed, **whatever your vault's own `.gitignore` says about them*
 
 | Path | Why |
 | --- | --- |
-| `.trash/` | Deleting a note or a folder *moves* it here, and the whole promise of that is that it is a **local** bin — something you can dig through, restore from, or empty without consequence. Committing it makes every deletion permanent remote history, which is the opposite guarantee. |
+| `.trash/` | Deleting a note, an attachment or a folder *moves* it here, and the whole promise of that is that it is a **local** bin — something you dig through, restore from, or empty without consequence (the trash browser is the door: `Ctrl/Cmd P` → Open trash). Committing it makes every deletion permanent remote history, which is the opposite guarantee. The small `.vellum-trash.json` inside it — which records where each entry came from, so Restore is a restore — is local bookkeeping and is covered by the same rule. |
 | `VELLUM_DATA`, when it is inside the vault | It holds `settings.json`, the comments database and your git **access token**. |
 
 This is enforced with `git rm --cached` against the index, not with an ignore rule, and the
@@ -1139,6 +1166,18 @@ OWNER gets (the designed page, the failing section named, the revert control pre
 round-trips stock ⇄ designed and asserts the design comes back byte-identical. Everything it
 touched is restored on the way out, including on failure:
 `PORT=6801 VELLUM_PASSWORD=… npm run check-design`.
+`npm run check-caret` (`node scripts/check-caret.mjs <url>`) is the gate for where the pointer
+lands in the editor. It drives a real mouse over a fixture note it writes and deletes itself —
+single, double and triple click, drag, shift-click, select-all — and reads back what the reader
+would actually copy, `window.getSelection()`, in both the left-to-right and the Arabic
+right-to-left shell. It exists because that one question has broken four separate ways here
+(click position, hover previews, mod-click navigation, text selection) and the common cause is
+always a pixel the editor's height map cannot see: **nothing inside `.cm-content` may carry a
+vertical CSS margin.** CodeMirror measures every line and block widget by its border box, so
+padding and borders are counted and margins are not — put the air on a wrapper's padding, or in
+a transparent border with `background-clip: padding-box`, never in a margin. Same browser
+requirements as the shoot harnesses.
+
 `node scripts/check-contrast.mjs` is the accessibility gate for `client/styles/tokens.css`:
 every theme must keep body text ≥ 4.5:1, secondary text ≥ 3:1, and the accent ≥ 4.5:1 against
 the page — the accent pair is read as text twice over (wikilinks and tag pills in the prose, and
@@ -1171,6 +1210,7 @@ fixtures however the run ends. No browser needed.
 - **Live-preview editor** (CodeMirror 6) — markdown syntax hides itself except on the line you're editing; headings set in serif, clickable checkboxes, gold `[[wikilinks]]`, tag pills
 - **Wikilinks with autocomplete** — type `[[` and pick any note; `[[Name|alias]]` and `[[Name#heading]]` supported (type `#` inside the brackets to complete headings); heading links render as `Note › Heading` and jump straight to the heading; renames rewrite every link that pointed at the old name
 - **Click to follow, click to create** — plain click follows a rendered link; clicking an unresolved (dashed) link creates the note, Obsidian-style
+- **Selection that knows what it is looking at** — double-click takes the word under the pointer (by grapheme cluster, so Arabic harakat and Persian ZWNJ stay inside the word), or the whole rendered object when you double-click one: a wikilink, a `#tag`, an inline `$math$` span, a code chip; inside a fence it takes the identifier, `$jquery` and `snake_case_name` included. Triple-click takes the paragraph, drag extends by character, shift-click extends from where you were. Gated in both language shells by `npm run check-caret`
 - **Frontmatter properties card** — YAML frontmatter collapses to a neat key/value card with clickable tag pills while your cursor is outside it
 - **Templates, Obsidian-compatible** — `{{date}}`, `{{time}}`, `{{title}}`, `{{date:FORMAT}}` (plus `{{hdate}}` for the Hijri date); insert one at the cursor or start a new note from one, with a picker that previews the filled result. Frontmatter merges into the note's own block instead of stacking a second one, and an `id:` in the template is minted fresh rather than copied into every note — see [Templates](#templates)
 - **Paste or drop images** — an image on your clipboard (or dragged from a file manager) uploads into `ATTACHMENTS_DIR` and lands as `![[name.png]]` at the cursor, with an "Uploading…" placeholder holding the spot while it's in flight
@@ -1187,6 +1227,8 @@ fixtures however the run ends. No browser needed.
 - **Text formatting on the keys you already know** — `Ctrl/Cmd B` / `I` / `U`, plus strikethrough (`Ctrl/Cmd Shift X`) and highlight (`Ctrl/Cmd Shift H`) on Obsidian's own bindings. Every one toggles, works with no selection (markers inserted, caret between them), and applies per line across a multi-line selection
 - **Selection menu and floating toolbar** — right-click a selection (or `Shift F10`) for the whole vocabulary, grouped: text style, structure, insert, colour. It is keyboard-complete, never overflows the viewport, and mirrors in Arabic. A Notion-style strip with the six most-used actions floats over every selection unless you turn it off from the menu's last row (the palette turns it back on)
 - **Coloured text in two tiers** — the default writes `var(--vc-blue)`, a *meaning* that every one of the fifteen themes resolves to something clearing AA on its own ground, light or dark; a fixed-ink palette writes a literal hex when you mean *that* colour. Both render identically in the editor, the reading view and the blog, and the sanitizer admits `style` on a `<span>` for `color`/`background-color` only — no `url()`, no other properties
+- **Deletes that say what they are taking** — notes, attachments *and* folders all delete the same way: the default *moves* the thing to the vault's `.trash/`, and a quieter "Delete permanently" beside it erases instead, behind a second red-at-rest confirmation. Every dialog is built from what the indexer actually knows, so the folder one reads "0 notes and 4 files" rather than counting markdown and stopping — and when something that *survives* the delete still points inside it, the dialog says so and names it: "4 files in here — embedded by “The Moved Essay”. Those embeds break." (Deleting a note names the notes that link to it, the same way.) Attachments have their own "Delete file" on their tree row, which they never had: removing one stale image used to mean deleting the folder around it
+- **Trash browser** — `Ctrl/Cmd P` → **Open trash**: everything in `.trash/`, what is inside it, how big it is and when it went, with **Restore** and a permanent erase per row plus "Empty trash". Restore puts each entry back **where it came from** — Vellum records the origin at delete time — and tells you up front when that spot is taken (it lands beside it) or unknown (it lands at the vault root). Admin-only, and `.trash/` is still never committed to your git remote
 - **Vim mode**, autosave (600 ms debounce + `Ctrl/Cmd S`), and a keyboard-first surface
 
 ### Rendering

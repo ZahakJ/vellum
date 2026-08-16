@@ -33,6 +33,11 @@ import { useStore } from "../state.ts";
 import AttachmentViewer, { fileUrl, isViewable } from "./AttachmentViewer.tsx";
 import { confirmModal, confirmModalEx } from "./Confirm.tsx";
 import { moveViaPicker } from "./MovePicker.tsx";
+import {
+  confirmDeleteAttachment,
+  confirmDeleteFolder,
+  confirmDeleteNote,
+} from "./deleteFlow.ts";
 import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
 import "../styles/move.css";
 import { isNotePath, noteLabelOf } from "../../shared/noteFormat.ts";
@@ -318,8 +323,6 @@ export default function Sidebar() {
   const tree = useStore((s) => s.tree);
   const openNote = useStore((s) => s.openNote);
   const renameNote = useStore((s) => s.renameNote);
-  const deleteNote = useStore((s) => s.deleteNote);
-  const deleteFolder = useStore((s) => s.deleteFolder);
   const admin = useStore((s) => s.admin);
   const homeNote = useStore((s) => s.homeNote);
   const siteName = useStore((s) => s.siteName);
@@ -510,71 +513,14 @@ export default function Sidebar() {
 
   const cancelRename = useCallback(() => setRenaming(null), []);
 
-  // One note deletes at the same two speeds as a folder, and for the same
-  // reason — the dialog that says "cannot be undone" was telling the truth
-  // about an `fs.rm` while the folder beside it in the same menu promised
-  // .trash. Default: move; the erase is the quiet third route, and it asks a
-  // second time wearing red.
-  //
-  // NAMED THE WAY THE ROW NAMES IT. One label rule for every gesture that
-  // starts on a tree row (move.ts `itemLabel`): the row reads "Welcome", so the
-  // dialog asks about "Welcome" — the `.md` lives on in the BODY, which prints
-  // the path, because that is where the reader is being shown what is at risk
-  // on disk.
-  const confirmDelete = (node: TreeNode) => {
-    const shown = itemLabel(itemOf(node));
-    void confirmModalEx({
-      title: tf("deleteNoteTitle", { name: shown }),
-      body: tf("deleteNoteBody", { path: node.path }),
-      confirmLabel: t("moveToTrash"),
-      extraLabel: t("deletePermanently"),
-    }).then((result) => {
-      if (result === "confirm") {
-        void deleteNote(node.path);
-        return;
-      }
-      if (result !== "extra") return;
-      void confirmModal({
-        title: tf("deleteNotePermTitle", { name: shown }),
-        body: tf("deleteNotePermBody", { path: node.path }),
-        confirmLabel: t("deletePermanently"),
-        grave: true,
-      }).then((ok) => {
-        if (ok) void deleteNote(node.path, { permanent: true });
-      });
-    });
-  };
-
-  // Folders delete in two speeds. The default is Obsidian's: move the whole
-  // subtree to the vault's .trash/, which the copy promises and the toast
-  // repeats. Erasing it outright is the quiet third route in the dialog, and
-  // it asks a second time — by then the reader has read the word "permanently"
-  // twice and clicked it twice.
-  const confirmDeleteFolder = (node: TreeNode) => {
-    const count = countPhrase(countNotes(node), "notes");
-    void confirmModalEx({
-      title: tf("deleteFolderTitle", { name: node.name }),
-      body: tf("deleteFolderBody", { count }),
-      confirmLabel: t("moveToTrash"),
-      extraLabel: t("deletePermanently"),
-    }).then((result) => {
-      if (result === "confirm") {
-        void deleteFolder(node.path);
-        return;
-      }
-      if (result !== "extra") return;
-      void confirmModal({
-        title: tf("deleteFolderPermTitle", { name: node.name }),
-        body: tf("deleteFolderPermBody", { count }),
-        confirmLabel: t("deletePermanently"),
-        // Nothing here is recoverable, so nothing here looks like the dialog
-        // that was: red at rest, and Enter is not armed (Confirm.tsx).
-        grave: true,
-      }).then((ok) => {
-        if (ok) void deleteFolder(node.path, { permanent: true });
-      });
-    });
-  };
+  // Every delete dialog in the product now lives in ONE module
+  // (components/deleteFlow.ts) and every surface calls it. Two surfaces
+  // building the same dialog is how the palette ended up saying
+  // "irreversible" over an action this menu promised was recoverable — and
+  // how the folder dialog could count markdown while the folder held four
+  // images. The flow asks /api/delete-preview first: the counts and the
+  // "…still embedded by ‘essay’" line come from the server's own walk of the
+  // files the delete will actually move, not from this component's tree.
 
   // The context menu opens at the pointer, but the pointer can be anywhere —
   // and with the sidebar on the trailing edge (RTL by default, or a reader who
@@ -1106,10 +1052,29 @@ export default function Sidebar() {
               className="s-menu__item s-menu__item--danger"
               onClick={() => {
                 setMenu(null);
-                confirmDelete(menu.node);
+                void confirmDeleteNote(menu.node.path);
               }}
             >
               {t("delete")}
+            </button>
+          )}
+          {/* ATTACHMENTS only. The tree has listed a vault's images, PDFs and
+              recordings since attachments landed and offered no verb on a
+              single one of them — so the only way to remove a stale upload was
+              to delete the folder around it, which is exactly the gesture that
+              took a published essay's four images with it. Its own route
+              (DELETE /api/attachment), its own dialog, and a warning naming
+              the notes that embed it. */}
+          {menu.node.type === "file" && menu.node.attachment && (
+            <button
+              type="button"
+              className="s-menu__item s-menu__item--danger"
+              onClick={() => {
+                setMenu(null);
+                void confirmDeleteAttachment(menu.node.path);
+              }}
+            >
+              {t("deleteAttachment")}
             </button>
           )}
           {/* A view filter among the mutations, and deliberately so: the
@@ -1135,7 +1100,7 @@ export default function Sidebar() {
               className="s-menu__item s-menu__item--danger"
               onClick={() => {
                 setMenu(null);
-                confirmDeleteFolder(menu.node);
+                void confirmDeleteFolder(menu.node.path);
               }}
             >
               {t("deleteFolder")}

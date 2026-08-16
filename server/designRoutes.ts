@@ -34,7 +34,8 @@ import {
   resetDesign,
   setActiveDesign,
 } from "./designs.ts";
-import { isNoteVisibleToVisitor, pages, posts } from "./indexer.ts";
+import { isNoteVisibleToVisitor, pages, posts, type FilterLang } from "./indexer.ts";
+import { languageScope } from "./language.ts";
 import { DESIGN_SCHEMA, SECTION_KINDS, type DesignDoc } from "../shared/design.ts";
 import type { NavItem } from "../shared/designChrome.ts";
 import { THEME_TOKENS } from "../shared/customTheme.ts";
@@ -95,12 +96,12 @@ async function jsonBody(c: Context): Promise<unknown> {
  * This leaks nothing a visitor could read as an oracle: they have no admin
  * copy to compare a shorter menu against.
  */
-function navSafe(items: NavItem[]): NavItem[] {
+function navSafe(items: NavItem[], lang: FilterLang): NavItem[] {
   const keep = (item: NavItem): boolean => {
     if (item.kind !== "note" && item.kind !== "page") return true;
     if (!item.target) return false;
     try {
-      return isNoteVisibleToVisitor(normalizeRel(item.target));
+      return isNoteVisibleToVisitor(normalizeRel(item.target), lang);
     } catch {
       return false;
     }
@@ -118,12 +119,12 @@ function navSafe(items: NavItem[]): NavItem[] {
   return out;
 }
 
-function visitorSafe(design: DesignDoc): DesignDoc {
+function visitorSafe(design: DesignDoc, lang: FilterLang): DesignDoc {
   const sections = design.sections.map((section) => {
     if (section.kind !== "note" || section.note === "") return section;
     let visible = false;
     try {
-      visible = isNoteVisibleToVisitor(normalizeRel(section.note));
+      visible = isNoteVisibleToVisitor(normalizeRel(section.note), lang);
     } catch {
       visible = false;
     }
@@ -132,7 +133,10 @@ function visitorSafe(design: DesignDoc): DesignDoc {
   return {
     ...design,
     sections,
-    chrome: { ...design.chrome, nav: { ...design.chrome.nav, items: navSafe(design.chrome.nav.items) } },
+    chrome: {
+      ...design.chrome,
+      nav: { ...design.chrome.nav, items: navSafe(design.chrome.nav.items, lang) },
+    },
   };
 }
 
@@ -141,9 +145,10 @@ function visitorSafe(design: DesignDoc): DesignDoc {
 designRoutes.get("/public", (c) => {
   const limited = isPublishLimited(c);
   const { design, notice } = activeDesign();
+  const lang = languageScope(c, limited).lang;
   return c.json({
     schema: DESIGN_SCHEMA,
-    design: design ? (limited ? visitorSafe(design) : design) : null,
+    design: design ? (limited ? visitorSafe(design, lang) : design) : null,
     themes: customThemes(),
     // The notice names a design and quotes the store's own diagnosis; it is
     // admin copy and never travels to a visitor (or to an admin who asked to
@@ -151,7 +156,7 @@ designRoutes.get("/public", (c) => {
     notice: limited ? null : notice,
     // Which URLs this session may reach as PAGES rather than as articles.
     // Visitor-scoped by the same languageFilter as every other public list.
-    pages: pages(limited),
+    pages: pages(limited, lang),
   });
 });
 
@@ -185,8 +190,11 @@ designRoutes.get("/", (c) => {
     // and every path a VISITOR can actually reach — so an item pointing at an
     // unpublished note is flagged while the admin is still building it,
     // instead of silently vanishing from the public menu later.
-    pages: pages(false),
-    visible: [...posts(true).map((post) => post.path), ...pages(true).map((page) => page.path)],
+    pages: pages(false, null),
+    visible: [
+      ...posts(true, null).map((post) => post.path),
+      ...pages(true, null).map((page) => page.path),
+    ],
   });
 });
 

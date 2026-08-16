@@ -14,7 +14,7 @@ import {
   labelsOf,
   mergeTagLabels,
 } from "../shared/tagLabels.ts";
-import { tagPageLabels, tags } from "./indexer.ts";
+import { tagPageLabels, tags, type FilterLang } from "./indexer.ts";
 import { getSettings, tagsFolder } from "./settings.ts";
 
 export { tagsFolder };
@@ -32,11 +32,11 @@ export function tagLabelMap(): TagLabelMap {
  *  solely by language-filtered notes, which is exactly the existence those two
  *  rules exist to withhold. Admin sessions get the whole map, because admin
  *  surfaces are never filtered. */
-export function visibleTagLabels(publishedOnly: boolean): TagLabelMap {
+export function visibleTagLabels(publishedOnly: boolean, lang: FilterLang): TagLabelMap {
   const map = tagLabelMap();
   if (!publishedOnly) return map;
   const out: TagLabelMap = {};
-  for (const { tag } of tags(true)) {
+  for (const { tag } of tags(true, lang)) {
     const entry = map[tag.toLowerCase()];
     if (entry) out[tag.toLowerCase()] = entry;
   }

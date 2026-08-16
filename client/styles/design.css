@@ -203,24 +203,42 @@
 
 .s-dsn-hero__title {
   margin: 0;
-  font-family: var(--font-serif);
-  font-size: clamp(1.7rem, 4vw, 2.6rem);
-  line-height: 1.15;
+  font: var(--dsg-head-weight, 600) clamp(1.5rem, 4vw, var(--dsg-h1, 2.6rem)) / 1.15
+    var(--dsg-head-font, var(--font-serif));
+  text-transform: var(--dsg-head-transform, none);
+  font-variant-caps: var(--dsg-head-variant, normal);
+  letter-spacing: var(--dsg-head-tracking, 0);
   color: var(--text);
 }
 
 .s-dsn-hero__sub {
   margin: 10px 0 0;
+  font-family: var(--dsg-body-font, var(--font-ui));
   color: var(--text-muted);
   font-size: 0.95rem;
 }
 
 /* ── headings, blocks ──────────────────────────────────────────────────── */
 
+/* THE COMPOSED PAGE WEARS THE DESIGN'S TYPOGRAPHY, exactly as the article page
+   already did. These four titles — a hero, a section heading, a card, a list
+   row — were `var(--font-serif)` at a fixed rem, which meant the nine
+   typography controls reached the article page and the header and stopped at
+   the front door of the page they were composing: a design at weight 800 in
+   uppercase sans and one at weight 400 in serif drew the SAME home page, and
+   every preset was a palette swap of its neighbour. The sizes come off the
+   modular scale (h1 for a hero, h3 for a section heading and a list row, h4
+   for a card) so no combination of legal inputs can invert the hierarchy, and
+   every var carries the old value as its fallback — a page rendered without
+   the vars (which is nothing this ships, but is one hand-edit away) looks
+   exactly as it did. */
 .s-dsn-head {
   margin: 0 0 16px;
-  font-family: var(--font-serif);
-  font-size: 1.25rem;
+  font: var(--dsg-head-weight, 600) var(--dsg-h3, 1.25rem) / 1.3
+    var(--dsg-head-font, var(--font-serif));
+  text-transform: var(--dsg-head-transform, none);
+  font-variant-caps: var(--dsg-head-variant, normal);
+  letter-spacing: var(--dsg-head-tracking, 0);
   color: var(--text);
   text-align: start;
 }
@@ -320,15 +338,18 @@
 
 .s-dsn-card__title {
   display: block;
-  font-family: var(--font-serif);
-  font-size: 1.02rem;
+  font: var(--dsg-head-weight, 600) var(--dsg-h4, 1.02rem) / 1.3
+    var(--dsg-head-font, var(--font-serif));
+  text-transform: var(--dsg-head-transform, none);
+  font-variant-caps: var(--dsg-head-variant, normal);
+  letter-spacing: var(--dsg-head-tracking, 0);
   color: var(--text);
-  line-height: 1.3;
 }
 
 .s-dsn-card__excerpt {
   display: block;
   margin-top: 8px;
+  font-family: var(--dsg-body-font, var(--font-ui));
   color: var(--text-muted);
   font-size: 0.84rem;
   line-height: 1.5;
@@ -350,8 +371,11 @@
 }
 
 .s-dsn-list__title {
-  font-family: var(--font-serif);
-  font-size: 1.12rem;
+  font: var(--dsg-head-weight, 600) var(--dsg-h3, 1.12rem) / 1.25
+    var(--dsg-head-font, var(--font-serif));
+  text-transform: var(--dsg-head-transform, none);
+  font-variant-caps: var(--dsg-head-variant, normal);
+  letter-spacing: var(--dsg-head-tracking, 0);
   color: var(--text);
 }
 
@@ -361,6 +385,7 @@
 
 .s-dsn-list__excerpt {
   margin: 6px 0 0;
+  font-family: var(--dsg-body-font, var(--font-ui));
   color: var(--text-muted);
   font-size: 0.88rem;
   line-height: 1.6;
@@ -826,6 +851,20 @@
 
 .s-dsg-head--divider {
   border-block-end: 1px solid var(--border);
+}
+
+/* A MASTHEAD SHARES THE PAGE'S COLUMN. The header block has no background of
+   its own — it is type on the page ground — so a full-viewport one lands its
+   wordmark at the window edge while the sections under it sit in a 760px
+   column, and the two read as different pages. Centred layouts barely notice
+   (their text was centred anyway; a long tagline now wraps with the column);
+   `stackedStart` is the one this was visibly wrong for. `inline` is left
+   alone: it is a BAR, it has its own row cap, and it is the one layout that
+   is allowed to be wider than the writing. */
+.s-dsg-head--stacked,
+.s-dsg-head--stackedStart {
+  max-width: var(--dsn-width, 720px);
+  margin-inline: auto;
 }
 
 .s-dsg-head--stackedStart {

@@ -20,6 +20,7 @@ import type {
   EffectiveSettings,
   FontSlotsEffective,
   HomeSettings,
+  LanguageFilterMode,
   SettingsData,
   SettingsResponse,
 } from "../shared/types.ts";
@@ -70,7 +71,9 @@ import {
   defaultTheme,
   excludedTags,
   footerTemplate,
-  languageFilterEnabled,
+  LANGUAGE_FILTER_MODES,
+  envSiteLanguage,
+  languageFilterMode,
   publicLayout,
   siteLanguage,
   siteName,
@@ -224,6 +227,62 @@ function cleanTag(value: unknown): string {
   return tag;
 }
 
+/** A stored `languageFilter` in either shape, normalized — or null when the
+ *  key is absent or unusable.
+ *
+ *  The BOOLEAN branch is the upgrade path, and its choice is the whole reason
+ *  the enum has both "follow" and pinned values. `true` used to mean "hide
+ *  every note not written in the site language", which is precisely `"ar"` or
+ *  `"en"` — so that is what it becomes. It deliberately does NOT become
+ *  "follow", even though "follow" is the better setting for most sites:
+ *  upgrading a live site must never change what its visitors can see. The
+ *  owner opts into "follow" by clicking it, having read what it will do. */
+function languageFilterFrom(value: unknown, raw: Record<string, unknown>): LanguageFilterMode | null {
+  if (typeof value === "string") {
+    const clean = value.trim().toLowerCase();
+    return (LANGUAGE_FILTER_MODES as readonly string[]).includes(clean)
+      ? (clean as LanguageFilterMode)
+      : null;
+  }
+  if (typeof value === "boolean") return value ? rawSiteLanguage(raw) : "off";
+  return null;
+}
+
+/** The site language, resolved from the RAW file plus the env default —
+ *  deliberately not via siteLanguage().
+ *
+ *  This runs INSIDE getSettings(), and siteLanguage() calls getSettings(). The
+ *  first version reached for the convenient getter and the server died at boot
+ *  with "Maximum call stack size exceeded" the moment it met a real pre-enum
+ *  settings.json — a migration path that could only fail on the exact files it
+ *  existed for. It is the same two-layer merge siteLanguage() performs (stored
+ *  key over SITE_LANG), done one level down where no cycle is possible. */
+function rawSiteLanguage(raw: Record<string, unknown>): "en" | "ar" {
+  return raw.language === "ar" || raw.language === "en" ? raw.language : envSiteLanguage();
+}
+
+/** One-time on-disk migration of the pre-enum boolean, run at startup.
+ *
+ *  Read-time coercion alone would have left the boolean in the file forever,
+ *  and a stored `true` resolves through `siteLanguage()` — so an owner who
+ *  later switched the site's chrome to English would have found their Arabic
+ *  posts swapped for their English ones by a setting they had not touched.
+ *  Freezing it at the language it means TODAY is the only stable reading.
+ *  Idempotent, and silent unless it actually rewrote something. */
+export function migrateSettings(): void {
+  const raw = readRaw();
+  if (typeof raw.languageFilter !== "boolean") return;
+  const wasOn = raw.languageFilter;
+  const mode = wasOn ? rawSiteLanguage(raw) : "off";
+  console.log(
+    `  migrated settings.languageFilter: ${String(wasOn)} → "${mode}" ` +
+      (wasOn
+        ? "(the language it already meant — visitors see exactly what they saw)"
+        : "(it was off and stays off)"),
+  );
+  persist({ ...raw, languageFilter: mode });
+}
+
 /** The validated, client-facing view of the file (unknown keys dropped,
  *  malformed values dropped silently — reads never throw). */
 export function getSettings(): SettingsData {
@@ -258,7 +317,14 @@ export function getSettings(): SettingsData {
     out.excludeTags = tags;
   }
   if (raw.language === "en" || raw.language === "ar") out.language = raw.language;
-  if (typeof raw.languageFilter === "boolean") out.languageFilter = raw.languageFilter;
+  {
+    // Enum since 1.3, boolean before it. A stored boolean is COERCED on read
+    // as well as rewritten on disk at startup (migrateSettings), so a file
+    // this process has not migrated yet — one hand-edited, or restored from a
+    // backup while the server ran — still behaves, and behaves the same way.
+    const mode = languageFilterFrom(raw.languageFilter, raw);
+    if (mode !== null) out.languageFilter = mode;
+  }
   if (typeof raw.languageToggle === "boolean") out.languageToggle = raw.languageToggle;
   if (typeof raw.commentsEnabled === "boolean") out.commentsEnabled = raw.commentsEnabled;
   if (typeof raw.shareButtons === "boolean") out.shareButtons = raw.shareButtons;
@@ -347,7 +413,7 @@ export function effectiveSettings(): EffectiveSettings {
     publicLayout: publicLayout(),
     blogLocale: blogLocale(),
     language: siteLanguage(),
-    languageFilter: languageFilterEnabled(),
+    languageFilter: languageFilterMode(),
     // No env counterpart: a visitor-facing switch is a runtime editorial
     // choice, and its default (off) is the "nothing changes" one.
     languageToggle: s.languageToggle ?? false,
@@ -416,7 +482,7 @@ export function aboutInfo(): AboutInfo {
     notes: counts.total,
     published: counts.notes,
     attachments: listImageAttachments().length,
-    tags: tags().length,
+    tags: tags(false, null).length,
   };
 }
 
@@ -632,10 +698,24 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     }
     return clean;
   }),
+  // Strict enum, no coercion beyond trim+lowercase (which `language` and
+  // `publicLayout` already get, and which an enum has an obvious canonical
+  // form for). "off" is spelled out rather than expressed as null: null clears
+  // the key back to LANGUAGE_FILTER, which is a different thing from "this
+  // site filters nothing".
   languageFilter: (raw, value) => {
-    if (value === null) delete raw.languageFilter;
-    else if (typeof value === "boolean") raw.languageFilter = value;
-    else throw new VaultError(400, 'Settings key "languageFilter" must be a boolean or null');
+    if (value === null) {
+      delete raw.languageFilter;
+      return;
+    }
+    const clean = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (!(LANGUAGE_FILTER_MODES as readonly string[]).includes(clean)) {
+      throw new VaultError(
+        400,
+        `Settings key "languageFilter" must be one of: ${LANGUAGE_FILTER_MODES.join(", ")}, or null`,
+      );
+    }
+    raw.languageFilter = clean;
   },
   languageToggle: (raw, value) => {
     if (value === null) delete raw.languageToggle;

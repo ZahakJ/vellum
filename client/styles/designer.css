@@ -24,8 +24,13 @@
 .s-dsgr {
   display: flex;
   flex-direction: column;
-  width: min(1360px, 100%);
-  height: min(860px, 100vh - 40px);
+  /* Wider and taller than it was, and both numbers are about the preview: the
+     pane is the point of the panel, and at 1360×860 it was a column of
+     controls with a picture beside it. `100vh - 32px` keeps the whole panel on
+     a 1280×800 laptop — the smallest screen this surface is designed for —
+     with the preview and the controls both on screen at once. */
+  width: min(1520px, 100%);
+  height: min(940px, 100vh - 32px);
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -84,32 +89,83 @@
   font-size: 0.82rem;
 }
 
+/* THE THREE COLUMNS, and the ratio is an argument. The controls need a fixed
+   comfortable measure (a form column that grows past ~460px is a form with
+   nothing in the middle of it); everything left over is the preview's, because
+   the preview is what the author is actually looking at. */
 .s-dsgr__body {
   display: grid;
-  grid-template-columns: 172px minmax(0, 1fr) minmax(0, 1.15fr);
+  grid-template-columns: 186px minmax(380px, 1.05fr) minmax(0, 1.4fr);
   flex: 1;
   min-height: 0;
 }
+
+/* THE ONE TAB THAT IS ALREADY A PREVIEW takes the preview's column.
+   The gallery answers "what shape is this design" at three magnifications of
+   its own — a miniature per card, a live canvas under the pointer, a full one
+   in the detail sheet — so the pane beside it had nothing left to say and was
+   spending 1.4fr saying it, while fifty-nine designs queued two-across in a
+   380px form column. Two columns here is not a smaller panel; it is the shelf
+   at the size a shelf wants (five cards across at 1440, four at 1280).
+   `.s-dsgr__preview` is UNMOUNTED on this tab rather than hidden — it owns an
+   iframe, a MutationObserver and a settle timer — so this rule only has to
+   carry the track. */
+.s-dsgr__body--wide {
+  grid-template-columns: 186px minmax(0, 1fr);
+}
+
+/* ── The rail ──────────────────────────────────────────────────────────────
+   Eight words in a column is a menu. The rail is grouped into the author's own
+   three questions — which design, what is on the page, what does it look like
+   — and every row carries the SHAPE of what it opens, so the column is scanned
+   by picture and confirmed by word. */
 
 .s-dsgr__rail {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 12px 10px;
+  padding: 14px 10px;
   border-inline-end: 1px solid var(--border);
   overflow-y: auto;
+  background: var(--bg);
+}
+
+.s-dsgr__railgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.s-dsgr__railgroup + .s-dsgr__railgroup {
+  margin-block-start: 14px;
+}
+
+.s-dsgr__railhead {
+  padding: 0 12px 6px;
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .s-dsgr__tab {
-  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
   border: 0;
+  /* The active row is marked by a bar on its LEADING edge, like every other
+     active row in the product; the bar is transparent at rest so nothing
+     shifts when it lights. */
+  border-inline-start: 2px solid transparent;
   border-radius: var(--radius);
   background: none;
   color: var(--text-muted);
   font: inherit;
-  font-size: 0.88rem;
+  font-size: 0.87rem;
   text-align: start;
   cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
 }
 
 .s-dsgr__tab:hover {
@@ -118,14 +174,42 @@
 }
 
 .s-dsgr__tab--on {
+  border-inline-start-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent);
 }
 
+.s-dsgr__tabglyph {
+  flex: 0 0 auto;
+  color: currentColor;
+}
+
+/* The label WRAPS rather than ellipsing: "Header & footer" is two words and
+   an ellipsis in a rail of eight rows costs the reader the one word that
+   distinguishes it. */
+.s-dsgr__tablabel {
+  min-width: 0;
+  line-height: 1.25;
+}
+
+/* The controls column is REPLACED when the rail moves (`key={tab}`), so it
+   arrives rather than pops — 160ms, the same beat as everything else. */
 .s-dsgr__controls {
-  padding: 16px 18px 40px;
+  padding: 18px 20px 44px;
   overflow-y: auto;
   border-inline-end: 1px solid var(--border);
+  animation: s-dsgr-swap 160ms ease-out;
+}
+
+@keyframes s-dsgr-swap {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .s-dsgr__intro {
@@ -184,6 +268,10 @@
 }
 
 .s-dsgr__previewhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 8px 14px;
   border-block-end: 1px solid var(--border);
   color: var(--text-faint);
@@ -192,18 +280,199 @@
   text-transform: uppercase;
 }
 
-.s-dsgr-preview {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  background: var(--bg);
+/* The head's own switch is a CONTROL, not a label: it must not inherit the
+   strip's uppercase tracking, or "Front page" arrives as a caption. */
+.s-dsgr__previewhead .s-ctl-seg {
+  text-transform: none;
+  letter-spacing: normal;
 }
 
-/* The preview is the real site at a smaller size — never a mock. The scale
- * is a zoom, not a second set of numbers: what is being judged is the
- * PROPORTION between the controls' values, and every one of them is here. */
-.s-dsgr-preview__site {
-  min-height: 100%;
+/* ── The stage (`s-dsgs`) ──────────────────────────────────────────────────
+   THE PREVIEW IS THE COMPOSED PAGE, IN A DOCUMENT OF ITS OWN — the real
+   header, the real sections, the real footer, the operator's own posts and
+   their banners, drawn by `DesignCanvas` inside `PreviewFrame` from the same
+   renderers the live site uses. It used to be the chrome around a typography
+   specimen, which meant the six controls that shape the page changed nothing
+   on screen; the specimen is still one click away, on the Article page tab,
+   because an article page IS the specimen and is also a real page of the
+   design.
+
+   The stage's own job is the DEVICE: the frame is laid out at 1280 / 834 / 390
+   and the wrapper carries the scaled size, so the flex centring, the
+   scrollbars and the device shadow all agree with what the eye sees while the
+   frame keeps its true pixels — and every media query inside answers the
+   frame's width instead of the panel's. */
+.s-dsgs {
+  --dsgs-pad: 16px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.s-dsgs__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-block-end: 1px solid var(--border);
+}
+
+.s-dsgs__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-end: auto;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+/* The settle dot: lit while the page on screen is one edit behind the draft,
+   dark the instant it catches up. A preview that is silently behind is a
+   preview its author stops trusting — and 120ms of honesty costs one 6px
+   circle. */
+.s-dsgs__pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background 180ms ease;
+}
+
+.s-dsgs--pending .s-dsgs__pulse {
+  background: var(--accent);
+  animation: s-dsgs-settle 900ms ease-in-out infinite;
+}
+
+@keyframes s-dsgs-settle {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.s-dsgs__zoom {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background 150ms ease,
+    border-color 150ms ease;
+}
+
+.s-dsgs__zoom:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.s-dsgs__zoom--on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* The ground the device sits on. Raised, with a faint vignette, so a parchment
+   design and an iron-gall one both read as a screen on a table rather than as
+   a rectangle that ran out of page. */
+.s-dsgs__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: var(--dsgs-pad);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 80% at 50% 0%, var(--bg-hover), transparent 70%),
+    var(--bg-raised);
+}
+
+/* At 1:1 the page is wider than the pane by design — that is the point of the
+   size — so the stage is what scrolls. */
+.s-dsgs__stage--actual {
+  overflow: auto;
+}
+
+/* The device arrives once, on the pane's first paint — a 320ms rise, not a
+   flash of a screen appearing out of nothing. It never replays: the element is
+   the same one across every device switch and every edit, which is the same
+   fact that keeps the author's scroll position. */
+@keyframes s-dsgs-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.s-dsgs__device {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  animation: s-dsgs-arrive 320ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 18px 44px rgba(0, 0, 0, 0.34);
+  transition:
+    width 260ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    height 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* A phone looks like a phone and a tablet like a tablet: the corner radius is
+   the whole illusion, and it costs one rule each. */
+.s-dsgs__stage[data-device="tablet"] .s-dsgs__device {
+  border-radius: 14px;
+}
+
+.s-dsgs__stage[data-device="phone"] .s-dsgs__device {
+  border-radius: 22px;
+}
+
+/* PHYSICAL top/left, deliberately. The wrapper is the layout box and mirrors
+   with the panel; the frame inside it is a scaled pixel surface whose
+   `transform-origin` is physical, and anchoring it by a LOGICAL edge would put
+   the origin and the anchor on opposite sides under [dir="rtl"]. */
+.s-dsgs__frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  border: 0;
+  background: var(--bg);
+  transform-origin: top left;
+  transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.s-dsgs__note {
+  margin: 0;
+  padding: 8px 14px;
+  border-block-start: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-dsgs__device,
+  .s-dsgs__frame {
+    transition: none;
+  }
+
+  .s-dsgs__device,
+  .s-dsgs--pending .s-dsgs__pulse {
+    animation: none;
+  }
 }
 
 /* ── Rows, fields and small controls ───────────────────────────────────── */
@@ -486,7 +755,12 @@
   border-radius: 4px;
 }
 
-/* ── Footer of the panel ───────────────────────────────────────────────── */
+/* ── The save bar ──────────────────────────────────────────────────────────
+   NOTHING IN THIS PANEL REACHES THE PUBLIC SITE UNTIL THIS BAR IS PRESSED, so
+   the one job it has is to make "there are decisions in the air" impossible to
+   miss. Clean, it is furniture: a hairline and a muted line of text. Dirty, it
+   lights — an accent rule along its top edge, a raised ground, a pulsing dot
+   and a COUNT of what is waiting. */
 
 .s-dsgr__foot {
   display: flex;
@@ -494,21 +768,130 @@
   gap: 10px;
   padding: 12px 18px;
   border-block-start: 1px solid var(--border);
+  background: var(--bg);
+  transition: background 180ms ease, border-color 180ms ease;
+}
+
+.s-dsgr__foot--dirty {
+  border-block-start-color: var(--accent);
+  background: var(--bg-raised);
 }
 
 .s-dsgr__state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-inline-end: auto;
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
+}
+
+.s-dsgr__foot--dirty .s-dsgr__state {
+  color: var(--text);
+}
+
+/* The dot is a STATE, never the only carrier of one: the words beside it say
+   the same thing. */
+.s-dsgr__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 180ms ease;
+}
+
+.s-dsgr__foot--dirty .s-dsgr__dot {
+  background: var(--accent);
+  animation: s-dsgr-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes s-dsgr-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--accent-soft);
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--accent-soft);
+  }
+}
+
+/* ── Nothing designed yet ──────────────────────────────────────────────────
+   The first screen of a fresh instance. It is an INVITATION with the two ways
+   in on it — an empty state that only reports what is absent leaves the reader
+   to find the door. */
+
+.s-dsgr-invite {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-block-start: 18px;
+  padding: 40px 24px 34px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.s-dsgr-invite__art {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--text-muted);
+}
+
+.s-dsgr-invite__art .s-dsnc-glyph:nth-child(2) {
+  transform: scale(1.2);
+}
+
+.s-dsgr-invite__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.14rem;
+  font-weight: 600;
+}
+
+.s-dsgr-invite__body {
+  margin: 0;
+  max-width: 48ch;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.s-dsgr-invite__acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-block-start: 4px;
 }
 
 /* ── Narrow screens ────────────────────────────────────────────────────── */
 
-@media (max-width: 1100px) {
-  /* The preview is the first thing to go: at this width it is a thumbnail of
-   * a thumbnail, and the controls are what the operator came for. */
+/* A 1280×800 laptop keeps ALL THREE columns — it is the smallest screen this
+   panel is designed for, and a designer that hides the design at the size most
+   people own is a designer for demos. The rail loses its labels first (the
+   glyphs and the tooltips carry it), and only below 1040 does the preview go:
+   at that width it is a thumbnail of a thumbnail and the controls are what the
+   operator came for. */
+@media (max-width: 1320px) {
   .s-dsgr__body {
-    grid-template-columns: 150px minmax(0, 1fr);
+    grid-template-columns: 168px minmax(300px, 0.85fr) minmax(0, 1.4fr);
+  }
+
+  .s-dsgr__body--wide {
+    grid-template-columns: 168px minmax(0, 1fr);
+  }
+
+  .s-dsgr__controls {
+    padding: 16px 16px 40px;
+  }
+}
+
+@media (max-width: 1040px) {
+  .s-dsgr__body,
+  .s-dsgr__body--wide {
+    grid-template-columns: 156px minmax(0, 1fr);
   }
 
   .s-dsgr__preview {
@@ -521,6 +904,19 @@
   .s-dsgr-add__btn,
   .s-dsgr__tab {
     min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-dsgr__tab,
+  .s-dsgr__foot,
+  .s-dsgr__dot {
+    transition: none;
+  }
+
+  .s-dsgr__controls,
+  .s-dsgr__foot--dirty .s-dsgr__dot {
+    animation: none;
   }
 }
 

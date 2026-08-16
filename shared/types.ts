@@ -58,6 +58,91 @@ export interface VaultEvent {
 
 export interface ResolveResult { path: string | null } // GET /api/resolve?name= (null = known miss, 200 not 404 so expected misses stay quiet in devtools)
 
+// ── Language filter ─────────────────────────────────────────────────────────
+/** How the public site curates published notes by the language they are
+ *  WRITTEN IN. Four states, because the boolean it replaces could not say the
+ *  thing anyone actually wanted:
+ *
+ *  • `"off"`    — default. Every published note is public. Nothing is hidden.
+ *  • `"follow"` — the READER decides: whatever language they are reading the
+ *                 chrome in (their EN/ع choice when `languageToggle` is on,
+ *                 else the site language) is the language they get notes in.
+ *                 This is the only value that makes the visitor switch
+ *                 coherent — with anything else the chrome and the content
+ *                 disagree.
+ *  • `"ar"`/`"en"` — pinned, regardless of who is reading. For a site that
+ *                 genuinely is one language. This is what the old boolean
+ *                 `true` meant, and stored `true` migrates to exactly this.
+ *
+ *  Curation, never access control: a direct permalink to any published note
+ *  keeps working under every mode (`/api/note` is never filtered). What the
+ *  mode moves is DISCOVERY — lists, topics, search, graph, RSS, the SSE
+ *  stream, prev/next adjacency.
+ *
+ *  And under every non-`"off"` mode the server refuses to serve an EMPTY
+ *  public site: if the language in force qualifies no published note at all,
+ *  the filter stands down for that request and the full set is served with
+ *  `MeData.languageFallback` set, rather than answering a visitor with a site
+ *  that appears to have nothing in it. */
+export type LanguageFilterMode = "off" | "follow" | "ar" | "en";
+/** What a delete is ACTUALLY about to take — `GET /api/delete-preview?path=`.
+ *
+ *  A folder-delete dialog that counts only markdown lies by omission, and it
+ *  cost the owner a published essay: he moved a note out of its folder,
+ *  deleted the now note-less folder, read "0 notes" and lost the four images
+ *  the essay still embedded. The count of files is not the interesting number;
+ *  the number of them something SURVIVING still points at is. */
+export interface DeletePreview {
+  /** What the target is. Mirrors which dialog the client is about to open. */
+  kind: "folder" | "note" | "attachment";
+  /** `.md` files that go with it (1 for a note, 0 for an attachment). */
+  notes: number;
+  /** Non-markdown files that go with it (1 for an attachment). */
+  attachments: number;
+  /** How many of those attachments a note that SURVIVES the delete still
+   *  embeds or links. Notes inside the target are not survivors, so a folder
+   *  whose images only its own notes use reports 0 — nothing breaks. */
+  referenced: number;
+  /** The surviving notes doing the referencing (for a note target: the notes
+   *  that `[[wikilink]]` it). Vault-relative, sorted, capped at
+   *  `referrerCount` — see it for the true total. */
+  referrers: string[];
+  /** How many surviving notes reference the target in total; `referrers` is a
+   *  sample of at most `REFERRER_SAMPLE` of them. */
+  referrerCount: number;
+}
+
+/** One top-level entry of the vault's `.trash/` — `GET /api/trash`.
+ *
+ *  The trash is the safety promise every delete dialog makes ("recoverable
+ *  from disk"), and until this listing existed the product never showed it:
+ *  the only way to honour the promise was a terminal and a `mv`. */
+export interface TrashEntry {
+  /** The entry's own name INSIDE `.trash/`, which is its id for restore and
+   *  purge. Never a path: the trash is flat at its top level, and a name
+   *  carrying a separator is refused. */
+  name: string;
+  /** Where it came from — recorded at delete time, so restoring puts it back
+   *  rather than dumping it at the vault root. Null for an entry no manifest
+   *  covers (trashed by hand, or by a build older than the manifest), which
+   *  the UI says out loud before it restores to the root. */
+  origin: string | null;
+  /** A folder, a note or an attachment — the same three kinds the delete
+   *  dialogs distinguish. */
+  kind: "folder" | "note" | "attachment";
+  /** When it was trashed: the manifest's timestamp, else the entry's mtime. */
+  deletedMs: number;
+  /** `.md` files inside (1 for a note); folders count recursively. */
+  notes: number;
+  /** Non-markdown files inside (1 for an attachment). */
+  attachments: number;
+  /** Total bytes on disk. */
+  bytes: number;
+  /** True when `origin` still exists in the vault, so a restore would collide
+   *  and land beside it under a counter. The dialog says so first. */
+  originTaken: boolean;
+}
+
 export interface MeData {
   admin: boolean;      // this session may mutate the vault
   public: boolean;     // reads are open without a session (PUBLIC != false)
@@ -69,15 +154,22 @@ export interface MeData {
   defaultTheme?: string; // theme applied when the visitor has no stored choice (DEFAULT_THEME)
   language?: "en" | "ar"; // site chrome language (settings.language / SITE_LANG; default "en"); "ar" flips the whole chrome RTL. Sent to every session.
   languageToggle?: boolean; // settings.languageToggle — the public shell offers visitors an EN/ع chrome switch (default off; absent = off)
-  /** settings.languageFilter / LANGUAGE_FILTER is on: the public lists carry
-   *  only notes written in the site language's script. A BOOLEAN POLICY FLAG,
-   *  never a count — the filter's own contract is that a filtered-out note's
-   *  existence does not leak, so the empty state may say "this list is
-   *  language-scoped" and may not say how many notes that scoping hid. Without
-   *  it the blog's empty state read "Nothing published here yet." on an
-   *  instance with twenty-one published posts, which is a true sentence about
-   *  the list and a false one about the site. */
-  languageFilter?: boolean;
+  /** settings.languageFilter — how this site curates by note language.
+   *  Visitor-safe like `languageToggle` (it describes the public shell), and
+   *  the client NEEDS it: under "follow" a visitor flipping the EN/ع switch
+   *  changes which notes exist for them, so the shell must refetch instead of
+   *  merely re-skinning. Absent = "off". */
+  languageFilter?: LanguageFilterMode;
+  /** Set when the language filter STOOD DOWN for this request because the
+   *  language in force (this value) qualified no published note — the site is
+   *  showing everything rather than nothing. The public shell prints a quiet
+   *  line; the admin gets the loud version (see `visibility`). */
+  languageFallback?: "ar" | "en";
+  /** ADMIN SESSIONS ONLY: what the visitor-facing settings are currently
+   *  costing in reach. Present whenever something is materially reducing what
+   *  visitors see, so the chrome can carry an ongoing indicator instead of
+   *  letting a site quietly shrink to two posts unnoticed. */
+  visibility?: VisibilityImpact;
   /** Marginalia are live on this instance (COMMENTS=on, or
    *  settings.commentsEnabled). Absent = off, and the client then never asks
    *  /api/comments at all: without this the reading view fired one request per
@@ -138,6 +230,55 @@ export interface MeData {
    *  i.e. exactly the behaviour that shipped before this existed. */
   textDirection?: TextDirectionSetting;
   textAlign?: TextAlignSetting;
+}
+
+// ── Visibility impact (ADMIN ONLY) ──────────────────────────────────────────
+// GET /api/visibility → VisibilityImpact. Every query param is a HYPOTHETICAL
+// override (`languageFilter`, `excludeTags`, `home`, `homeNote`,
+// `publicLayout`); anything absent describes what is in force right now. It
+// exists because four different settings on this instance can shrink the
+// public site, and every one of them used to be a switch with no stated
+// consequence: the owner turned the language filter on and his site went from
+// 20 posts to 2, silently, with nothing anywhere saying so. A setting that can
+// hide a site must be able to say — in real numbers, from this vault, BEFORE
+// the save — exactly what it will hide.
+//
+// Admin-only for the same reason /api/published is: the counts describe
+// precisely what the public surfaces are withholding.
+export interface VisibilityImpact {
+  /** Notes the owner marked `publish: true` — the intent to be public. */
+  published: number;
+  /** Of those, how many a visitor would actually discover under this scope. */
+  visible: number;
+  /** Published notes the LANGUAGE filter alone removes. */
+  hiddenByLanguage: number;
+  /** The mode this answer describes (in force, or the one asked about). */
+  languageFilter: LanguageFilterMode;
+  /** The language the count was taken at, or null when nothing is filtered.
+   *  `"follow"` resolves to the SITE language here: the reader's own language
+   *  is per-visitor, so a single number cannot describe it — `census` is what
+   *  describes "follow", one row per reader population. */
+  filterLang: "ar" | "en" | null;
+  /** True when the filter stood down because `filterLang` qualified nothing
+   *  (see LanguageFilterMode) — `visible` is then the unfiltered count. */
+  fallback: boolean;
+  /** How the published set splits by the script its PROSE is written in.
+   *  `neutral` notes (no prose letters — image-only, numeric) belong to no
+   *  language and are shown under every mode. */
+  census: { arabic: number; latin: number; neutral: number };
+  /** Topic pills a visitor sees, against how many the visible set carries —
+   *  and which excluded tags actually bite (an EXCLUDE_TAGS entry matching
+   *  nothing is worth knowing too). */
+  topics: { visible: number; total: number; suppressed: string[] };
+  /** PUBLIC=false: nothing is readable without a session, whatever the rest
+   *  of this says. The single biggest reducer, and env-only. */
+  publicReads: boolean;
+  /** Which shell visitors land in — "app" ignores `home.mode` entirely.
+   *  "designed" is the design-engine shell (server/pages.ts). */
+  publicLayout: "app" | "blog" | "designed";
+  /** The blog front door: mode, the note it names, and whether that note is
+   *  itself visitor-visible (a home note the filter hides is a blank home). */
+  home: { mode: "note" | "dashboard"; note: string | null; noteVisible: boolean };
 }
 
 // GET /api/posts (visitor-safe): published notes as blog posts, newest first.
@@ -206,10 +347,16 @@ export interface SettingsData {
   /** Chrome language (overrides SITE_LANG): "ar" localizes all chrome
    *  strings to Arabic and mirrors the UI right-to-left. */
   language?: "en" | "ar";
-  /** When true AND the site language matches, public blog surfaces (lists,
-   *  topics, search, graph, RSS) show only notes written predominantly in
-   *  that language's script. Admin surfaces unaffected. Default false. */
-  languageFilter?: boolean;
+  /** How public blog surfaces (lists, topics, search, graph, RSS, SSE,
+   *  prev/next) curate by the language a note is WRITTEN IN. See
+   *  LanguageFilterMode. Admin surfaces unaffected. Default "off".
+   *
+   *  A stored boolean from before this was an enum is migrated on read AND
+   *  rewritten on disk at startup: `true` becomes the site language pinned
+   *  ("ar"/"en"), which is exactly what it used to mean, and `false` becomes
+   *  "off". It deliberately does NOT become "follow" — a live site must not
+   *  change behaviour because it was upgraded. */
+  languageFilter?: LanguageFilterMode;
   /** Offer visitors a small EN/ع switch in the public chrome. Their choice
    *  lives in their own localStorage and overrides the site language for
    *  chrome strings and direction only — never for note content, dates or
@@ -322,7 +469,7 @@ export interface EffectiveSettings {
   publicLayout: "app" | "blog" | "designed";
   blogLocale: string;
   language: "en" | "ar";
-  languageFilter: boolean;
+  languageFilter: LanguageFilterMode;
   languageToggle: boolean;
   excludeTags: string[];
   commentsEnabled: boolean;
@@ -365,7 +512,7 @@ export interface SettingsPatch {
   defaultTheme?: string | null;
   publicLayout?: "app" | "blog" | "designed" | null;
   language?: "en" | "ar" | null;
-  languageFilter?: boolean | null;
+  languageFilter?: LanguageFilterMode | null;
   languageToggle?: boolean | null;
   blogLocale?: string | null;
   excludeTags?: string[] | null;

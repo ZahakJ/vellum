@@ -548,6 +548,60 @@
   color: var(--text-muted);
 }
 
+
+/* ── Consequence lines ────────────────────────────────────────────────────── */
+
+/* What a setting will actually cost, in notes from this vault, printed under
+   the control that decides it. This exists because a boolean on this panel
+   took a real site from twenty published posts to two on a single click and
+   said nothing — before, during or after.
+
+   Deliberately NOT styled as an alert box in the ordinary case: most of the
+   time it is a plain statement of fact ("all 22 of your published notes are
+   discoverable"), and a fact that shouts is a fact people learn to skip. It
+   escalates only when the numbers do. */
+.s-smodal__conseq {
+  max-width: 62ch;
+  margin: 0;
+  font-size: 0.786rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+  /* A logical border, so the rule sits on the reading edge in both
+     directions — the same discipline every other inset note in the panel
+     follows. */
+  border-inline-start: 2px solid var(--border);
+  padding-inline-start: 10px;
+}
+
+.s-smodal__conseq + .s-smodal__conseq {
+  margin-top: 6px;
+}
+
+/* Most of the site would go dark. Amber: this is a choice a reasonable person
+   might still make on purpose (a genuinely one-language site), so it asks
+   rather than refuses. */
+.s-smodal__conseq--warn {
+  color: var(--text);
+  border-inline-start-color: var(--callout-warning);
+}
+
+/* NOTHING would qualify. The one state that is never what anyone meant. */
+.s-smodal__conseq--stop {
+  color: var(--text);
+  border-inline-start-color: var(--danger);
+}
+
+/* The tab-level standing summary. Sits above the first group heading with its
+   own air, because it describes the whole tab rather than any one row. */
+.s-smodal__reach {
+  margin-bottom: 18px;
+}
+
+.s-smodal__reach .s-smodal__sub {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
 /* ── Narrow ───────────────────────────────────────────────────────────────── */
 
 @media (max-width: 560px) {

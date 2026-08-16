@@ -15,17 +15,22 @@ import type {
   AnchorsResponse,
   BannerResolution,
   CommentData,
+  DeletePreview,
   FrontmatterResult,
+  LanguageFilterMode,
   NoteData,
   PublishedPaths,
   PublishResult,
   TagLabelsResponse,
+  TrashEntry,
   TreeNode,
   UploadResult,
   VaultEvent,
   XrefResponse,
 } from "../shared/types.ts";
 import { authGuard, authRoutes, clientIp, isProtected, isPublishLimited } from "./auth.ts";
+import { languageScope } from "./language.ts";
+import { visibilityFor, type VisibilityQuery } from "./visibility.ts";
 import {
   AUTHOR_MAX,
   BODY_MAX,
@@ -40,16 +45,20 @@ import {
   removeComment,
   setCommentHidden,
 } from "./comments.ts";
+import type { FilterLang } from "./indexer.ts";
 import {
   backlinks,
   graph,
   indexFile,
+  indexUnder,
   isAllowedAttachment,
   isNotePublished,
   isNoteVisibleToVisitor,
   listImageAttachments,
   noteAnchors,
   notesAffectedByFolderMove,
+  notesLinkingTo,
+  notesReferencing,
   posts,
   publishedNotes,
   publishedPaths,
@@ -101,22 +110,27 @@ import { fontSlots, patchSettings, settingsAssetPaths, settingsResponse } from "
 // Localised tag labels: display names for canonical tags, plus the query
 // rewrite that makes search answer to both spellings.
 import { expandTagQuery, visibleTagLabels } from "./tagLabels.ts";
-import { attachmentsDir, customCssPath, fontsDir } from "./site.ts";
+import { attachmentsDir, customCssPath, fontsDir, LANGUAGE_FILTER_MODES } from "./site.ts";
 import {
   VaultError,
   buildTree,
   createFolder,
   createNote,
+  deleteAttachment,
   deleteFolder,
   deleteNote,
   emitEvent,
   getVaultRoot,
   moveFolder,
+  listTrash,
+  listVaultFiles,
   noteExists,
   normalizeRel,
   onEvent,
+  purgeFromTrash,
   readNote,
   renameNote,
+  restoreFromTrash,
   safeAbs,
   statAttachment,
   suppressWatcherEcho,
@@ -182,7 +196,13 @@ api.use("*", async (c, next) => {
 // Cache-Control keeps it, and the content-addressed font routes (immutable,
 // deliberately shared, containing no session-varying byte) are skipped
 // entirely so a CDN can still hold them.
-const VARY_ON = "Cookie, X-Vellum-Preview";
+// X-Vellum-Lang joined the list the moment `languageFilter: "follow"` existed:
+// under that mode two readers of the SAME url, with the same (absent) cookie
+// and no preview header, get different post lists, different topics, different
+// search results and a different graph. A cache that did not know that would
+// serve an Arabic reader's collection to an English one — the same class of
+// bug the Cookie dimension was added to prevent, one axis over.
+const VARY_ON = "Cookie, X-Vellum-Preview, X-Vellum-Lang";
 
 api.use("*", async (c, next) => {
   await next();
@@ -428,8 +448,8 @@ function requiredString(body: Record<string, unknown>, key: string): string {
 
 // Visitors (hash configured, no admin session) see the vault as a flat curated
 // collection: only published notes, no folder structure, names are titles.
-function publishedTree(): TreeNode {
-  const children: TreeNode[] = publishedNotes()
+function publishedTree(lang: FilterLang): TreeNode {
+  const children: TreeNode[] = publishedNotes(lang)
     .map(({ path: notePath, title }) => ({ name: title, path: notePath, type: "file" as const }))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   return { name: path.basename(getVaultRoot()), path: "", type: "folder", children };
@@ -444,7 +464,8 @@ function publishedTree(): TreeNode {
 // is showing at the time. Attachment BYTES stay gated by /api/file's
 // allowlist check either way.
 api.get("/tree", async (c) => {
-  if (isPublishLimited(c)) return c.json(publishedTree());
+  const limited = isPublishLimited(c);
+  if (limited) return c.json(publishedTree(languageScope(c, limited).lang));
   return c.json(await buildTree());
 });
 
@@ -551,6 +572,164 @@ api.delete("/folder", async (c) => {
   return c.json(result);
 });
 
+// Delete ONE attachment, at the same two speeds as a note and a folder. The
+// tree has listed a vault's images, PDFs and recordings since attachments
+// landed, and offered no verb on a single one of them: the only way to remove
+// a stale upload was to delete the folder around it, which is precisely the
+// gesture that lost the owner a published essay's images. Admin-only via the
+// auth guard (DELETE). vault.deleteAttachment emits its own synthetic event,
+// so the index is settled before the answer.
+api.delete("/attachment", async (c) => {
+  const filePath = requiredQuery(c.req.query("path"), "path");
+  const permanent = TRUTHY_QUERY.has((c.req.query("permanent") ?? "").toLowerCase());
+  const result = await deleteAttachment(filePath, { permanent });
+  await whenIndexed();
+  return c.json({ ok: true, ...result });
+});
+
+// ------------------------------------------------------- delete preview
+//
+// What a delete is ACTUALLY about to take. The folder dialog used to count
+// markdown and nothing else, so a folder holding four images and no notes
+// said "0 notes will move" — and the essay one folder over, which still
+// embedded all four, went to the public site with four broken images and no
+// warning anywhere. The indexer has always known which notes point at which
+// attachment (it is the same walk that decides what /api/file will serve a
+// visitor); it just was not being asked before the destructive verb ran.
+//
+// The number that matters is not how many files go, it is how many of them
+// something that SURVIVES still points at — so notes inside the target are
+// not survivors, and a folder whose images only its own notes use reports 0.
+//
+// Admin-eyes-only: the referrer list names vault paths, which is exactly what
+// /attachments and /published withhold from a visitor, so it takes the same
+// 404-not-a-route gate rather than a 403.
+
+/** How many referring notes the answer NAMES. The dialog wants to say "…by
+ *  ‘essay.md’" when it can and "…by 12 notes" when it cannot; past a handful
+ *  the names stop being information and start being a wall. */
+const REFERRER_SAMPLE = 5;
+
+api.get("/delete-preview", async (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  const target = normalizeRel(requiredQuery(c.req.query("path"), "path"));
+  if (!target) throw new VaultError(400, 'Query parameter "path" is required');
+  const abs = safeAbs(target);
+  let stat;
+  try {
+    stat = await fsp.lstat(abs);
+  } catch {
+    throw new VaultError(404, `Not found: ${target}`);
+  }
+
+  let preview: DeletePreview;
+  if (stat.isDirectory() && !stat.isSymbolicLink()) {
+    const { notes: inside, attachments } = await listVaultFiles(target);
+    // Notes under the folder go WITH it, so a link from one of them is not a
+    // link that will break. deleteFolder() applies the same ignore rules to
+    // the same walk, so these are the same files it will move.
+    const doomed = new Set(inside);
+    const referrers = new Set<string>();
+    let referenced = 0;
+    for (const att of attachments) {
+      const refs = notesReferencing(att).filter((p) => !doomed.has(p));
+      if (refs.length === 0) continue;
+      referenced++;
+      for (const ref of refs) referrers.add(ref);
+    }
+    preview = {
+      kind: "folder",
+      notes: inside.length,
+      attachments: attachments.length,
+      referenced,
+      referrers: [...referrers].sort().slice(0, REFERRER_SAMPLE),
+      referrerCount: referrers.size,
+    };
+  } else if (stat.isSymbolicLink()) {
+    // A symlink is a link: the delete unlinks it without touching whatever it
+    // points at, and deleteFolder() already refuses to describe a tree it will
+    // not move. Report the one file the call will actually remove.
+    preview = { kind: "attachment", notes: 0, attachments: 1, referenced: 0, referrers: [], referrerCount: 0 };
+  } else if (target.toLowerCase().endsWith(".md")) {
+    // A note breaks things too — its incoming [[wikilinks]] go dangling — so
+    // the same question is asked one object over and answered in the same
+    // shape. `referenced` stays 0: it counts ATTACHMENTS, and a note is not one.
+    const refs = notesLinkingTo(target);
+    preview = {
+      kind: "note",
+      notes: 1,
+      attachments: 0,
+      referenced: 0,
+      referrers: refs.slice(0, REFERRER_SAMPLE),
+      referrerCount: refs.length,
+    };
+  } else {
+    const refs = notesReferencing(target);
+    preview = {
+      kind: "attachment",
+      notes: 0,
+      attachments: 1,
+      referenced: refs.length > 0 ? 1 : 0,
+      referrers: refs.slice(0, REFERRER_SAMPLE),
+      referrerCount: refs.length,
+    };
+  }
+  return c.json(preview);
+});
+
+// ------------------------------------------------------------------- trash
+//
+// The bin every delete dialog in this product promises ("recoverable from
+// disk") and that nothing in the product could reach. `.trash/` is a dot-dir,
+// deliberately invisible to the tree, the indexer and the watcher, so honouring
+// the promise meant handing the owner a terminal. These three routes close
+// that loop: list it, restore out of it, empty it. Admin-only — the listing
+// names deleted vault paths, so it takes the same 404-not-a-route gate
+// /attachments and /published take, and the two mutations ride the auth guard.
+
+api.get("/trash", async (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  const entries: TrashEntry[] = await listTrash();
+  return c.json(entries);
+});
+
+// Restore one entry to its recorded origin (or beside it under a counter, or
+// at the vault root when nothing recorded where it came from). The answer says
+// which of those happened; the client's toast repeats it, because a silent
+// "restored" that landed somewhere else is the same class of lie this whole
+// round is about.
+api.post("/trash/restore", async (c) => {
+  const body = await jsonBody(c);
+  const name = requiredString(body, "name");
+  const result = await restoreFromTrash(name);
+  if (result.dir) {
+    // A restored folder arrives whole; the watcher would find it eventually,
+    // but this route answers now and the client refetches immediately.
+    await indexUnder(result.path);
+    emitEvent({ kind: "created", path: result.path, dir: true });
+  } else if (isNotePath(result.path)) {
+    // isNotePath, not `.md`: a restored `.tex` note has to be INDEXED like the
+    // note it is, not registered as an attachment (which is what an
+    // extension-literal test did to it).
+    await indexFile(result.path);
+    emitEvent({ kind: "created", path: result.path });
+  } else {
+    registerAttachment(result.path);
+    emitEvent({ kind: "created", path: result.path });
+  }
+  await whenIndexed();
+  return c.json({ ok: true, path: result.path, renamed: result.renamed });
+});
+
+// The bin's own permanent delete — the one delete in the product with nothing
+// behind it, which is why the client puts it behind a `grave` dialog like
+// every other irreversible verb.
+api.delete("/trash", async (c) => {
+  const name = requiredQuery(c.req.query("name"), "name");
+  await purgeFromTrash(name);
+  return c.json({ ok: true });
+});
+
 // Toggle a note's publish flag with a surgical frontmatter line edit — every
 // other byte of the file is preserved. Admin-only via the auth guard (POST).
 api.post("/publish", async (c) => {
@@ -621,7 +800,8 @@ api.get("/resolve", (c) => {
   // A miss is an EXPECTED outcome (broken embeds are normal in a real vault):
   // answer 200 { path: null } instead of 404 so every visit to a note with
   // broken embeds doesn't spray red network errors across the console.
-  return c.json({ path: resolveEmbed(name, isPublishLimited(c)) });
+  const limited = isPublishLimited(c);
+  return c.json({ path: resolveEmbed(name, limited, languageScope(c, limited).lang) });
 });
 
 // A `banner:` value (or any settings image reference) → the file it names.
@@ -651,7 +831,9 @@ api.get("/banner", (c) => {
   const limited = isPublishLimited(c);
   // A visitor may not use a private note's folder as the search base, and may
   // not learn where anything they cannot fetch lives.
-  if (limited && notePath !== null && !isNoteVisibleToVisitor(notePath)) notePath = null;
+  if (limited && notePath !== null && !isNoteVisibleToVisitor(notePath, languageScope(c, limited).lang)) {
+    notePath = null;
+  }
   const hit = resolveBannerRef(
     value,
     notePath,
@@ -698,13 +880,13 @@ api.get("/xref", (c) => {
   }
   const result: XrefResponse = { path: null, anchor: null };
   if (label !== undefined && label !== "") {
-    const hit = resolveLabel(label, limited);
+    const hit = resolveLabel(label, limited, languageScope(c, limited).lang);
     if (hit) {
       result.path = hit.path;
       result.anchor = hit.anchor;
     }
   } else if (cite !== undefined && cite !== "") {
-    result.path = resolveCitekey(cite, limited);
+    result.path = resolveCitekey(cite, limited, languageScope(c, limited).lang);
   }
   return c.json(result);
 });
@@ -1106,21 +1288,44 @@ api.delete("/comments/:id", (c) => {
   return c.json({ ok: true });
 });
 
+// Every discovery surface below resolves ONE scope and hands `scope.lang` down
+// (server/language.ts). An admin session gets `null` — no filter, ever.
+//
 // SEARCH MATCHES BOTH SPELLINGS OF A TAG. `expandTagQuery` appends the
 // canonical tag whenever the query holds one of its localised labels, so an
 // Arabic reader typing «برمجيات» finds the notes tagged `#software` — without
 // the index ever learning about a display setting (see server/tagLabels.ts for
 // why the rewrite lives on the query and not in minisearch's `tags` field).
-api.get("/search", (c) => c.json(search(expandTagQuery(c.req.query("q") ?? ""), isPublishLimited(c))));
+api.get("/search", (c) => {
+  const limited = isPublishLimited(c);
+  return c.json(
+    search(expandTagQuery(c.req.query("q") ?? ""), limited, languageScope(c, limited).lang),
+  );
+});
 
-api.get("/graph", (c) => c.json(graph(isPublishLimited(c))));
+api.get("/search", (c) => {
+  const limited = isPublishLimited(c);
+  return c.json(search(c.req.query("q") ?? "", limited, languageScope(c, limited).lang));
+});
+
+api.get("/graph", (c) => {
+  const limited = isPublishLimited(c);
+  return c.json(graph(limited, languageScope(c, limited).lang));
+});
 
 api.get("/backlinks", (c) => {
   const notePath = requiredQuery(c.req.query("path"), "path");
-  return c.json(backlinks(normalizeRel(notePath), isPublishLimited(c)));
+  const limited = isPublishLimited(c);
+  return c.json(backlinks(normalizeRel(notePath), limited, languageScope(c, limited).lang));
 });
 
-api.get("/tags", (c) => c.json(tags(isPublishLimited(c))));
+// Topics. A tag carried only by notes the reader's language hides must not
+// appear as a pill: its page would come back empty, and the count on it is an
+// existence leak.
+api.get("/tags", (c) => {
+  const limited = isPublishLimited(c);
+  return c.json(tags(limited, languageScope(c, limited).lang));
+});
 
 // The DISPLAY names of those tags: canonical tag → language → label, merged
 // from the tag pages' own frontmatter and settings.tagLabels. Open to every
@@ -1129,7 +1334,10 @@ api.get("/tags", (c) => c.json(tags(isPublishLimited(c))));
 // EXCLUDE_TAGS or the language filter is hiding. The canonical tag stays the
 // key everywhere: this route changes what a reader SEES and nothing else.
 api.get("/tag-labels", (c) => {
-  const response: TagLabelsResponse = { labels: visibleTagLabels(isPublishLimited(c)) };
+  const limited = isPublishLimited(c);
+  const response: TagLabelsResponse = {
+    labels: visibleTagLabels(limited, languageScope(c, limited).lang),
+  };
   return c.json(response);
 });
 
@@ -1138,14 +1346,17 @@ api.get("/tag-labels", (c) => {
 // carries its comment count — the one per-session branch: visitors count
 // visible comments only, admin sessions include hidden ones.
 api.get("/posts", (c) => {
-  // Visitor sessions (and admin-as-visitor preview) get the languageFilter
-  // applied; admin lists are never filtered.
+  // Visitor sessions (and admin-as-visitor preview) get the language filter
+  // applied at the scope this request resolved to; admin lists are never
+  // filtered. The blog client derives prev/next adjacency from this list, so
+  // an Arabic reader's "next post" is the next post THEY can read.
   // Static pages leave the feed ONLY in designed mode (server/pages.ts): with
   // the stock blog on, staticPagesActive() is false and this is the call it
   // always was.
-  const list = posts(isPublishLimited(c), staticPagesActive());
+  const limited = isPublishLimited(c);
+  const list = posts(limited, languageScope(c, limited).lang, staticPagesActive());
   if (commentsEnabled()) {
-    const counts = commentCounts(!isPublishLimited(c));
+    const counts = commentCounts(!limited);
     for (const post of list) post.commentCount = counts.get(post.path) ?? 0;
   }
   return c.json(list);
@@ -1160,6 +1371,41 @@ api.get("/posts", (c) => {
 // scrubbed per session) and /api/design/themes.css (styling, like
 // custom.css). See server/designRoutes.ts.
 api.route("/design", designRoutes);
+// ---------------------------------------------------------------- visibility
+// "What will this setting cost me?", answered in notes, from this vault,
+// BEFORE the save. Admin-only (the counts describe exactly what the public
+// surfaces withhold), and every query param is a HYPOTHETICAL: absent ones
+// describe what is in force right now, so the settings panel can ask the same
+// route for "as it stands" and "as it would be" and print the difference.
+//
+// It exists because the owner enabled a boolean and his public site dropped
+// from 20 posts to 2 with no warning anywhere. A control that can hide a site
+// must state its consequence in real numbers, and only the server holds those
+// numbers.
+api.get("/visibility", (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  const query: VisibilityQuery = {};
+  const mode = c.req.query("languageFilter")?.trim().toLowerCase();
+  if (mode !== undefined && mode !== "") {
+    if (!(LANGUAGE_FILTER_MODES as readonly string[]).includes(mode)) {
+      throw new VaultError(400, `languageFilter must be one of: ${LANGUAGE_FILTER_MODES.join(", ")}`);
+    }
+    query.languageFilter = mode as LanguageFilterMode;
+  }
+  const tags = c.req.query("excludeTags");
+  if (tags !== undefined) {
+    query.excludeTags = tags.split(",").map((t) => t.trim()).filter(Boolean);
+  }
+  const layout = c.req.query("publicLayout")?.trim().toLowerCase();
+  if (layout === "app" || layout === "blog") query.publicLayout = layout;
+  const homeMode = c.req.query("home")?.trim().toLowerCase();
+  if (homeMode === "note" || homeMode === "dashboard") query.homeMode = homeMode;
+  const homeNote = c.req.query("homeNote");
+  // "" is meaningful here and distinct from absent: it asks "what if I cleared
+  // the home note", which is a real thing the panel's field can be in.
+  if (homeNote !== undefined) query.homeNote = homeNote.trim() === "" ? null : homeNote.trim();
+  return c.json(visibilityFor(query));
+});
 
 // ------------------------------------------------------------------ settings
 // Instance settings (VELLUM_DATA/settings.json): siteName / tagline / footer /
@@ -1395,7 +1641,7 @@ api.post("/sync/now", async (c) => {
  *  this the one surface that leaked what CONTRACTS says the filter must never
  *  leak — an anonymous stream received the full vault path of a hidden note
  *  the moment it was created, edited or deleted, unprompted. */
-async function visitorEvents(event: VaultEvent): Promise<VaultEvent[]> {
+async function visitorEvents(event: VaultEvent, lang: FilterLang): Promise<VaultEvent[]> {
   if (event.dir) {
     // Visitors have no folder structure, so the dir event itself is nothing
     // to them — but the notes a folder DELETE takes away are: with the event
@@ -1413,27 +1659,42 @@ async function visitorEvents(event: VaultEvent): Promise<VaultEvent[]> {
     // as a `deleted`, so the curated collection stays honest either way.
     if (event.kind === "renamed" && event.toPath) {
       const dirTo = event.toPath;
-      const before = visibleNotesUnder(event.path);
+      const before = visibleNotesUnder(event.path, lang);
       await whenIndexed();
       return before.map((notePath) => {
         const next = `${dirTo}${notePath.slice(event.path.length)}`;
-        return isNoteVisibleToVisitor(next)
+        return isNoteVisibleToVisitor(next, lang)
           ? { kind: "renamed", path: notePath, toPath: next }
           : { kind: "deleted", path: notePath };
       });
     }
+    //
+    // A folder RESTORED out of `.trash/` is the same fan-out run backwards,
+    // and it has to exist for the same reason: dropping the created event
+    // left a visitor's sidebar missing published notes that the site was
+    // already serving, until something else happened to make it reload. The
+    // sample is taken AFTER the index catches up here — the notes do not
+    // exist to the indexer before the restore, which is the mirror image of
+    // the delete's sample-first discipline.
+    if (event.kind === "created") {
+      await whenIndexed();
+      return visibleNotesUnder(event.path, lang).map((notePath) => ({
+        kind: "created" as const,
+        path: notePath,
+      }));
+    }
     if (event.kind !== "deleted") return [];
-    const gone = visibleNotesUnder(event.path);
+    const gone = visibleNotesUnder(event.path, lang);
     await whenIndexed();
     return gone.map((notePath) => ({ kind: "deleted", path: notePath }));
   }
   if (!isNotePath(event.path)) return []; // attachments: never
-  const wasVisible = isNoteVisibleToVisitor(event.path);
+  const wasVisible = isNoteVisibleToVisitor(event.path, lang);
   await whenIndexed();
   switch (event.kind) {
     case "created":
     case "changed": {
-      const nowVisible = isNoteVisibleToVisitor(event.path);
+      const nowVisible = isNoteVisibleToVisitor(event.path, lang);
       if (wasVisible && !nowVisible) return [{ kind: "deleted", path: event.path }];
       if (!wasVisible && nowVisible) return [{ kind: "created", path: event.path }];
       return nowVisible ? [{ kind: event.kind, path: event.path }] : [];
@@ -1441,7 +1702,7 @@ async function visitorEvents(event: VaultEvent): Promise<VaultEvent[]> {
     case "deleted":
       return wasVisible ? [{ kind: "deleted", path: event.path }] : [];
     case "renamed": {
-      const nowVisible = event.toPath ? isNoteVisibleToVisitor(event.toPath) : false;
+      const nowVisible = event.toPath ? isNoteVisibleToVisitor(event.toPath, lang) : false;
       if (wasVisible && nowVisible) return [event];
       if (wasVisible) return [{ kind: "deleted", path: event.path }];
       if (nowVisible && event.toPath) return [{ kind: "created", path: event.toPath }];
@@ -1452,12 +1713,20 @@ async function visitorEvents(event: VaultEvent): Promise<VaultEvent[]> {
 
 api.get("/events", (c) => {
   const limited = isPublishLimited(c);
+  // Resolved ONCE, at subscribe time, and held for the life of the stream:
+  // EventSource cannot set headers, so this connection's reader language came
+  // in as `?lang=` (the same carve-out `?preview=visitor` gets) and cannot
+  // change without a reconnect — which is exactly what the client does when a
+  // visitor flips the EN/ع switch. A stream that kept re-reading the mode
+  // would start announcing notes outside the collection this subscriber was
+  // given, which is the leak the filter exists to prevent.
+  const lang = languageScope(c, limited).lang;
   return streamSSE(c, async (stream) => {
     let live = true;
     const unsubscribe = onEvent((event) => {
       if (!live) return;
       const deliver = async (): Promise<void> => {
-        const visible = limited ? await visitorEvents(event) : [event];
+        const visible = limited ? await visitorEvents(event, lang) : [event];
         for (const out of visible) {
           if (!live) return;
           await stream.writeSSE({ event: "message", data: JSON.stringify(out) });
@@ -1516,7 +1785,7 @@ async function renameWithLinkRewrite(from: string, to: string): Promise<void> {
   // Capture linkers before the rename, while links still resolve to the old
   // path. Path-form links ([[Folder/Note]]) break on ANY move, so linkers are
   // captured even when the basename is unchanged.
-  const linkers = [...new Set(backlinks(fromPath).map((b) => b.path))];
+  const linkers = [...new Set(backlinks(fromPath, false, null).map((b) => b.path))];
 
   await renameNote(fromPath, toPath);
 

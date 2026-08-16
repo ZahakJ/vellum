@@ -65,6 +65,21 @@ import {
   validateCustomTheme,
   type CustomTheme,
 } from "../shared/customTheme.ts";
+// THE SECOND `DesignError`, imported UNDER ITS OWN NAME.
+//
+// There are two rejection classes in shared/, and they are not the same class:
+// `shared/design.ts` throws for the document tree (sections, site, article),
+// `shared/designChrome.ts` throws for the chrome (nav, typography, header,
+// footer) and carries a stable `code` alongside the path. `validateDesign()`
+// calls `validateChrome()`, so BOTH escape from a single write — and a `bad()`
+// that only knew the first turned every chrome rejection into a rethrow past
+// the 400 and out of the generic handler as a 500 with no message. One file
+// then rejected two different ways depending on which half was malformed,
+// which is the opposite of what CONTRACTS promises ("a hand-edited nav item
+// pointing at `javascript:` is refused here exactly as a malformed section
+// is"). Same import, same fix, for the quarantine reason a step below: a bad
+// nav item now lists as its own sentence instead of as "unreadable design (…)".
+import { DesignError as ChromeError } from "../shared/designChrome.ts";
 import { isTheme } from "../shared/themes.ts";
 import { dataDir } from "./site.ts";
 import { VaultError } from "./vault.ts";
@@ -366,10 +381,20 @@ function freeSlug(base: string, taken: Set<string>): string {
   throw new VaultError(400, "Could not find a free id — rename some designs first");
 }
 
+/** Every rejection a validator is ALLOWED to make, in one predicate. Both
+ *  `DesignError` classes are listed by name — see the import note; leaving the
+ *  chrome's out is how a named 400 became an anonymous 500. */
+function isRejection(err: unknown): err is Error {
+  return (
+    err instanceof DesignError ||
+    err instanceof ChromeError ||
+    err instanceof ThemeError ||
+    err instanceof QuarantineError
+  );
+}
+
 function bad(err: unknown): never {
-  if (err instanceof DesignError || err instanceof ThemeError || err instanceof QuarantineError) {
-    throw new VaultError(400, err.message);
-  }
+  if (isRejection(err)) throw new VaultError(400, err.message);
   throw err;
 }
 

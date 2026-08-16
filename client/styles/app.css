@@ -1035,8 +1035,18 @@ select:focus,
 /* Frontmatter rendered as a properties card when the cursor is elsewhere.
    Collapsed (the default) it is a slim single row — chevron, "Properties · N",
    tags inline; the header click expands it. Body clicks still enter the YAML. */
+/* The block widget's outer box. All of the frontmatter block's vertical air
+   lives here as padding, never as a margin on the card or the banner:
+   CodeMirror measures a block widget by its root's BORDER box, so margins are
+   height the editor cannot see, and every position below one resolves a line
+   too low — which is what broke double-click word selection (see
+   editor/livePreview.ts FrontmatterWidget.toDOM). */
+.s-editor .cm-s-fmblock {
+  padding-bottom: 20px;
+}
+
 .s-editor .cm-s-props {
-  margin: 0 0 20px;
+  margin: 0;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1158,8 +1168,12 @@ select:focus,
 }
 
 /* Note banner hero above the properties card (frontmatter `banner:`). */
+/* Padding, not margin — same height-map rule as .cm-s-fmblock above. The
+   banner wrapper carries no background of its own, so padding reads exactly
+   as the old margin did. */
 .s-editor .cm-s-banner {
-  margin: 2px 0 12px;
+  margin: 0;
+  padding: 2px 0 12px;
 }
 
 .s-editor .cm-s-banner__img {
@@ -3465,10 +3479,24 @@ select:focus,
 /* Styled stand-in for window.confirm on destructive actions (Confirm.tsx):
    raised panel, serif title, danger button gold-outline → red fill. */
 
+/* THE CONFIRM IS THE TOP OF THE STACK, and that is structural rather than
+   cosmetic: every other layer in the product can spawn one, so anything that
+   can paint over it is a dialog the reader cannot answer.
+
+   It sat at 130 — under the mobile sidebar DRAWER (400) and its backdrop
+   (390). Below 1000px the sidebar is a fixed overlay, and the delete dialogs
+   are opened FROM it, from the tree's context menu: on a phone, "Move
+   “Essay Assets” to .trash?" rendered underneath the drawer that launched it,
+   with Cancel and the danger button both unreachable and a dimmed sliver of
+   the panel showing past the drawer's edge. Every prompt shares the host, so
+   New note / New folder / Rename were in the same hole. The one escape was
+   Esc — on a device with no Esc key.
+
+   Anything new that paints over the whole viewport goes BELOW this number. */
 .s-confirm-overlay {
   position: fixed;
   inset: 0;
-  z-index: 130;
+  z-index: 500;
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -3503,6 +3531,32 @@ select:focus,
   line-height: 1.5;
   color: var(--text-muted);
   overflow-wrap: break-word;
+}
+
+/* The collateral line (Confirm.tsx `warn`): what ELSE this delete takes.
+   It is the sentence the folder dialog never said — "4 attachments in here
+   are embedded by “essay.md”" — so it must not read as more of the calm
+   paragraph above it. A danger-tinted left bar and a tinted ground make it a
+   separate object at a glance; the TEXT stays --text (4.5:1 in all fifteen)
+   rather than being painted --danger, because a whole paragraph in the danger
+   hue is a color the reader stops seeing, and several of the fifteen themes
+   solve their danger against the ground for a BUTTON fill, not for prose. */
+.s-confirm__warn {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  font-size: 0.857rem;
+  line-height: 1.45;
+  color: var(--text);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-inline-start: 2px solid var(--danger);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  overflow-wrap: break-word;
+}
+
+/* Mirrored corners when the panel itself is RTL — the bar swaps sides with
+   the logical border, and the rounding has to follow it. */
+[dir="rtl"] .s-confirm__warn {
+  border-radius: var(--radius) 0 0 var(--radius);
 }
 
 .s-confirm__actions {
@@ -4257,6 +4311,26 @@ button.s-title:hover {
 .s-smodal__hint {
   font-size: 0.75rem;
   color: var(--text-faint);
+}
+
+/* "12/22 public" — the standing answer to "how much of what I published can
+   anyone actually find". It lives beside the published count on purpose: the
+   two numbers DISAGREEING is the state this whole feature exists to make
+   visible, and side by side the disagreement reads itself. Ordinary weight
+   while the gap is small; amber once half the site is withheld, the filter has
+   stood down, or reads are closed entirely. */
+.s-statusbar__reach {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scoped to the bar for the reason the file already documents beside
+   `.s-statusbar__btn--on`: `.s-statusbar button` is (0,1,1) and outranks a
+   bare class, so the amber existed in the DOM and nowhere on screen — which
+   is precisely the invisible-state failure this whole round is about,
+   reproduced in my own indicator for it. */
+.s-statusbar .s-statusbar__reach--warn,
+.s-statusbar .s-statusbar__reach--warn:hover {
+  color: var(--callout-warning);
 }
 
 /* A sub-heading INSIDE a group: quieter than the gold group rule, louder than

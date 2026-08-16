@@ -116,7 +116,13 @@
   color: var(--text-muted);
 }
 
-/* ── Rows ──────────────────────────────────────────────────────────────── */
+/* ── The board ─────────────────────────────────────────────────────────────
+   One card per section, in the order the page renders them. Everything below
+   is about one question — "what will this page look like, and where does this
+   block sit in it" — so the card carries a PICTURE of its kind, its position,
+   and the three controls that answer it; and a drag draws where the card will
+   land rather than rearranging the list under a pointer that has not
+   committed. */
 
 .s-dsnc-list {
   margin: 0;
@@ -124,18 +130,24 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .s-dsnc-row {
+  position: relative;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: calc(var(--radius) + 2px);
   background: var(--bg-raised);
-  transition: border-color 150ms ease, opacity 150ms ease;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.s-dsnc-row:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 
 .s-dsnc-row--open {
-  border-color: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
 }
 
 /* A hidden section keeps its full contrast in the LIST — it is a row the
@@ -146,22 +158,151 @@
   border-inline-start: 3px solid var(--border);
 }
 
+.s-dsnc-row--off .s-dsnc-glyph,
+.s-dsnc-row--off .s-dsnc-row__n {
+  color: var(--text-faint);
+}
+
+/* THE LIFTED CARD. It follows the pointer (the transform is inline, from the
+   drag), so it must not also animate toward it — a transition here is a card
+   that lags a finger. The shadow and the accent rim are what say "in hand". */
 .s-dsnc-row--dragging {
-  opacity: 0.5;
+  z-index: 5;
+  border-color: var(--accent);
+  box-shadow: 0 16px 34px rgb(0 0 0 / 38%);
+  transition: none;
+  cursor: grabbing;
+}
+
+/* Lifted with the KEYBOARD: the same fact, and it has to be visible without a
+   pointer to point at it. */
+.s-dsnc-row--lifted {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* WHERE IT WILL LAND — a SLOT and a CARET, and it takes both. The rows the
+   lifted card has passed slide out of its way (160ms, the panel's own beat) so
+   there is a real space to drop into; the caret is drawn in that space, so the
+   answer is "between these two rows" rather than "somewhere around here". The
+   list itself is NOT reordered until the reader lets go: rearranging under a
+   pointer that has not committed is the board deciding for them. */
+.s-dsnc-list--dragging .s-dsnc-row {
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+/* THE SLOT ITSELF — a socket the size of the card in hand, dashed in the
+   accent, drawn in the space the rows opened. The lifted card floats over it
+   and rarely covers it exactly, which is the point: the socket's edges are
+   what say "this space, not the one above it". */
+.s-dsnc-row--dropbefore::before,
+.s-dsnc-row--dropafter::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  height: var(--dsnc-slot, 48px);
+  border: 1px dashed var(--accent);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+
+.s-dsnc-row--dropbefore::before {
+  top: calc(-8px - var(--dsnc-slot, 48px));
+}
+
+.s-dsnc-row--dropafter::after {
+  bottom: calc(-8px - var(--dsnc-slot, 48px));
+}
+
+/* A row that just landed SETTLES: 200ms, so the eye can follow a move it did
+   not make with its own hand (the ↑/↓ buttons and the keyboard lift both). */
+.s-dsnc-row--settled {
+  animation: s-dsnc-settle 200ms ease-out;
+}
+
+@keyframes s-dsnc-settle {
+  from {
+    transform: translateY(-4px);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+  }
+  to {
+    transform: none;
+    box-shadow: 0 0 0 0 transparent;
+  }
 }
 
 .s-dsnc-row__head {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 9px 10px;
 }
 
+/* The grip is a BUTTON (the keyboard's way in), so it is drawn like one: a
+   glyph at rest, a filled target under the pointer, and a focus ring that
+   says it can be pressed. `touch-action: none` is what lets a finger drag it
+   instead of scrolling the column. */
 .s-dsnc-grip {
   flex: 0 0 auto;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
   color: var(--text-faint);
   cursor: grab;
+  touch-action: none;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.s-dsnc-grip:hover {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.s-dsnc-grip[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.s-dsnc-row--dragging .s-dsnc-grip {
+  cursor: grabbing;
+  color: var(--accent);
+}
+
+/* Position and picture: what this block IS and where it sits, in the width of
+   two glyphs. The number is a fact a reader reads (`--text-muted`); the
+   drawing is a UI glyph and may sit at `--text-faint`'s weight through the
+   muted token it inherits. */
+.s-dsnc-row__mark {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.s-dsnc-row__n {
+  min-width: 1.2em;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-align: end;
+}
+
+.s-dsnc-glyph {
+  display: block;
+  color: var(--text-muted);
+  transition: color 150ms ease;
+}
+
+.s-dsnc-row:hover .s-dsnc-glyph,
+.s-dsnc-row--open .s-dsnc-glyph {
+  color: var(--accent);
 }
 
 .s-dsnc-row__name {
@@ -185,7 +326,13 @@
   color: var(--text);
 }
 
+/* Two lines, never three: the hint says what the kind is FOR, and a card in a
+   list of eight that grows a paragraph has stopped being a card. */
 .s-dsnc-row__desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   font-family: var(--font-ui);
   font-size: 0.786rem;
   line-height: 1.35;
@@ -199,9 +346,50 @@
   gap: 4px;
 }
 
+/* The two position buttons are one CONTROL with two halves, so they are drawn
+   as one: joined, quiet, and always there — never a hover-reveal, which is the
+   rule the fold chevron and the reopen handle already keep. */
+.s-dsnc-row__moves {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.s-dsnc-row__moves .s-dsnc-move {
+  border-radius: 0;
+}
+
 .s-dsnc-move:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+/* ── What the list says out loud ───────────────────────────────────────── */
+
+/* The drag's instructions: `aria-describedby` for every grip, and visible for
+   everybody else. A gesture nobody is told about is a gesture nobody uses. */
+.s-dsnc-draghelp {
+  margin: 10px 2px 0;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+/* The live region. It has to be in the accessibility tree and out of the
+   layout, so it is clipped rather than hidden — `display: none` is not
+   announced. */
+.s-dsnc-say {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .s-dsnc-locked {
@@ -211,12 +399,27 @@
   color: var(--text-muted);
 }
 
+/* The options open IN PLACE, under the row they belong to — and they ARRIVE:
+   160ms of height and opacity is the difference between a panel that answered
+   and a panel that flickered. */
 .s-dsnc-row__opts {
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 12px 12px 14px;
   border-top: 1px solid var(--border);
+  animation: s-dsnc-open 160ms ease-out;
+}
+
+@keyframes s-dsnc-open {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* ── Option rows ───────────────────────────────────────────────────────── */
@@ -267,39 +470,131 @@
   color: var(--text-muted);
 }
 
-/* ── Add a section ─────────────────────────────────────────────────────── */
+/* ── Add a section: a picker of pictures ──────────────────────────────────
+   The names are the least informative thing about the eight kinds — "Post
+   grid", "Post list" and "Topics" are three words for three SHAPES — so every
+   option is drawn in the same wireframe language the row glyphs and the
+   gallery miniatures use. The sheet opens IN FLOW rather than over the column:
+   a popover inside a scrolling pane is a popover that gets clipped by it. */
 
 .s-dsnc-addwrap {
-  margin-top: 12px;
+  position: relative;
+  margin-top: 14px;
 }
 
 .s-dsnc-addbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   width: 100%;
+  padding: 11px 12px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: calc(var(--radius) + 2px);
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.893rem;
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+
+.s-dsnc-addbtn:hover:not(:disabled),
+.s-dsnc-addbtn--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.s-dsnc-addbtn:disabled {
+  border-style: solid;
+  opacity: 0.55;
+  cursor: default;
+}
+
+.s-dsnc-addbtn__plus {
+  display: inline-flex;
+  transition: transform 160ms ease;
+}
+
+.s-dsnc-addbtn--on .s-dsnc-addbtn__plus {
+  transform: rotate(45deg);
 }
 
 .s-dsnc-add {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--bg-raised);
+  box-shadow: 0 10px 26px rgb(0 0 0 / 22%);
+  animation: s-dsnc-sheet 170ms ease-out;
+}
+
+@keyframes s-dsnc-sheet {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.s-dsnc-add__lead {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.786rem;
+}
+
+.s-dsnc-add__grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
 }
 
 .s-dsnc-addcard {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-raised);
+  background: var(--bg);
   text-align: start;
   cursor: pointer;
-  transition: border-color 150ms ease, background 150ms ease;
+  transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
 }
 
 .s-dsnc-addcard:hover {
   border-color: var(--accent);
   background: var(--bg-hover);
+  transform: translateY(-2px);
+}
+
+/* The illustration: the shape, on the ground the section would be painted on,
+   at the size where a shape is legible. */
+.s-dsnc-addcard__art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  border-radius: 5px;
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  transition: color 150ms ease;
+}
+
+.s-dsnc-addcard:hover .s-dsnc-addcard__art {
+  color: var(--accent);
+}
+
+.s-dsnc-addcard__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .s-dsnc-addcard__name {
@@ -314,6 +609,51 @@
   font-size: 0.75rem;
   line-height: 1.35;
   color: var(--text-muted);
+}
+
+/* ── An empty page ─────────────────────────────────────────────────────────
+   The first thing a new design shows. It is the moment before the first
+   decision, not a failure, so it shows what a section IS and hands over the
+   button — an empty state that apologises teaches the reader that they have
+   done something wrong. */
+
+.s-dsnc-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 30px 20px 26px;
+  border: 1px dashed var(--border);
+  border-radius: calc(var(--radius) + 4px);
+  text-align: center;
+}
+
+.s-dsnc-empty__art {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.s-dsnc-empty__art .s-dsnc-glyph:nth-child(2) {
+  transform: scale(1.18);
+}
+
+.s-dsnc-empty__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.07rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.s-dsnc-empty__body {
+  margin: 0;
+  max-width: 46ch;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  line-height: 1.55;
 }
 
 /* ── Side foot ─────────────────────────────────────────────────────────── */
@@ -433,8 +773,71 @@
     justify-content: space-between;
   }
 
-  .s-dsnc-add {
+  .s-dsnc-add__grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── A laptop ──────────────────────────────────────────────────────────────
+   At 1280 the controls column is ~400px and the row's three controls want
+   half of it, which leaves a section NAME two words wide. So the card becomes
+   two lines: what it is on top, what you can do to it underneath. Nothing is
+   hidden, nothing is revealed on hover, and the preview keeps its half of the
+   panel — which is the whole point of the width. */
+
+@media (max-width: 1320px) {
+  .s-dsnc-row__head {
+    flex-wrap: wrap;
+    row-gap: 2px;
+    padding: 8px 10px;
+  }
+
+  .s-dsnc-row__tools {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* ── A finger, or a small screen ───────────────────────────────────────── */
+
+@media (max-width: 700px), (pointer: coarse) {
+  .s-dsnc-grip,
+  .s-dsnc-move,
+  .s-dsnc-remove,
+  .s-dsnc-addbtn {
+    min-height: 44px;
+  }
+
+  .s-dsnc-grip {
+    width: 44px;
+  }
+}
+
+/* ── Motion is a preference ────────────────────────────────────────────────
+   Every transition and every keyframe above is 150–200ms of MEANING — where a
+   row landed, that a sheet opened, that a panel changed — and none of it is
+   the only carrier of that meaning. So a reader who asked for less motion
+   loses the animation and keeps the fact. */
+
+@media (prefers-reduced-motion: reduce) {
+  .s-dsnc-row,
+  .s-dsnc-grip,
+  .s-dsnc-glyph,
+  .s-dsnc-addbtn,
+  .s-dsnc-addbtn__plus,
+  .s-dsnc-addcard,
+  .s-dsnc-addcard__art {
+    transition: none;
+  }
+
+  .s-dsnc-row--settled,
+  .s-dsnc-row__opts,
+  .s-dsnc-add {
+    animation: none;
+  }
+
+  .s-dsnc-addcard:hover {
+    transform: none;
   }
 }
 

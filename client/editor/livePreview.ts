@@ -738,8 +738,22 @@ function handleMousedown(event: MouseEvent, view: EditorView): boolean {
 
   if (event.button !== 0) return false;
 
+  // ACTIONS FIRE ONCE PER GESTURE. `detail` counts the clicks of the sequence
+  // the pointer is in, and every branch guarded by `firstClick` NAVIGATES or
+  // SEARCHES: without the guard, double-clicking a #tag ran the search twice
+  // and double-clicking an external link opened two tabs, and neither second
+  // click could reach the selection layer that is supposed to hand the reader
+  // the tag or the link text. Clicks 2 and 3 fall through to selection.ts,
+  // which selects the whole rendered unit instead.
+  //
+  // The INERT branches (properties header, banner hero) are deliberately NOT
+  // guarded: they must swallow every click of the sequence, or the second one
+  // drops the cursor into raw YAML — the exact thing their branch exists to
+  // prevent. The task checkbox above is likewise per-click, like any checkbox.
+  const firstClick = event.detail <= 1;
+
   // #tag pills (inline or in the properties card) push a sidebar search.
-  const tagEl = target.closest(".cm-s-tag, .cm-s-props__tag");
+  const tagEl = firstClick ? target.closest(".cm-s-tag, .cm-s-props__tag") : null;
   if (tagEl?.textContent?.startsWith("#")) {
     event.preventDefault();
     window.dispatchEvent(
@@ -749,7 +763,9 @@ function handleMousedown(event: MouseEvent, view: EditorView): boolean {
   }
 
   // The "Set banner…" header action opens the banner modal (App listens).
-  if (target.closest(".cm-s-props__action")) {
+  // First click only; a second one still lands on the header branch below and
+  // is swallowed there, so the card never leaks a cursor into its YAML.
+  if (firstClick && target.closest(".cm-s-props__action")) {
     event.preventDefault();
     window.dispatchEvent(new CustomEvent("vellum:set-banner"));
     return true;
@@ -764,6 +780,28 @@ function handleMousedown(event: MouseEvent, view: EditorView): boolean {
     event.preventDefault();
     return true;
   }
+
+  // The frontmatter block's own spacer — the air between the card and the
+  // first line of prose. It used to be a margin, i.e. pixels belonging to no
+  // element, and a click there landed on the line below the card; it is
+  // padding on the widget root now, because a margin is height CodeMirror
+  // cannot measure (see .cm-s-fmblock in styles/app.css, and selection.ts).
+  // Made measurable, it also became a hit target, and a click in it resolved
+  // into the frontmatter range and swapped the card for raw YAML. Spacing
+  // must not acquire behavior on its way to being measurable: send the click
+  // where the gap always sent it, to the line under the card.
+  if (target.classList.contains("cm-s-fmblock")) {
+    event.preventDefault();
+    const fmEnd = frontmatterEnd(view.state.doc);
+    if (fmEnd > 0 && fmEnd < view.state.doc.length) {
+      view.dispatch({ selection: { anchor: fmEnd + 1 } });
+    }
+    return true;
+  }
+
+  // Wikilink / footnote / external-link navigation below: one jump per
+  // gesture, so the rest of a double- or triple-click belongs to selection.
+  if (!firstClick) return false;
 
   const pos = posFromEvent(event, view);
   if (pos == null) return false;
@@ -836,7 +874,7 @@ class FrontmatterWidget extends WidgetType {
   override eq(other: FrontmatterWidget): boolean {
     return other.yaml === this.yaml && other.lang === this.lang && other.notePath === this.notePath;
   }
-  toDOM(): HTMLElement {
+  toDOM(view: EditorView): HTMLElement {
     // Header action: opens the banner modal (handled in the shell via a
     // window event — the editor chunk stays UI-framework-free here).
     const action = document.createElement("button");
@@ -887,21 +925,47 @@ class FrontmatterWidget extends WidgetType {
     });
     // buildBlockDecorations only mounts the widget when parseProps found rows.
     if (!card) return document.createElement("div");
+    // ALWAYS wrapped, banner or not. CodeMirror sizes a block widget from its
+    // root's border box (getBoundingClientRect), which excludes margins — so a
+    // margin on the card itself is air the height map cannot see, and every
+    // position below it resolves one line too low (posAtCoords, and with it
+    // every mouse selection: click, double-click, triple-click, drag). The
+    // spacing lives on this wrapper as PADDING, which is inside the border box
+    // and therefore measured. See styles/app.css .cm-s-fmblock.
+    const wrap = document.createElement("div");
+    wrap.className = "cm-s-fmblock";
     // Banner hero above the card (subtle, rounded, capped height).
     const banner = bannerFromYaml(this.yaml);
     if (banner) {
-      const wrap = document.createElement("div");
-      wrap.className = "cm-s-fmblock";
       // The editor is an admin-only surface by construction (a read-only
       // session never mounts CodeMirror), so a banner that resolves to
       // nothing shows the card that says so.
-      wrap.appendChild(
-        buildBannerEl(banner, "cm-s-banner", { notePath: this.notePath, admin: true }),
-      );
-      wrap.appendChild(card);
-      return wrap;
+      const hero = buildBannerEl(banner, "cm-s-banner", {
+        notePath: this.notePath,
+        admin: true,
+      });
+      // THE HERO IS NOT ITS FINAL HEIGHT WHEN CODEMIRROR MEASURES IT. It
+      // grows by up to 240px when the bitmap lands, and it DELETES ITSELF
+      // (buildBannerEl's error handler) when the file is gone. Ask for a
+      // re-measure the moment the size settles — the same lie an unmeasurable
+      // CSS margin tells, from a different cause.
+      //
+      // MEASURED, NOT ASSUMED: on @codemirror/view 6.43 this call does not
+      // reach a BLOCK widget's height map entry. A banner note still reports
+      // `contentHeight` 456 against a real 829, and `posAtCoords` answers
+      // with the last line of the note for every point in it. Selection is
+      // unaffected — selection.ts resolves the pointer from the DOM and never
+      // asks the height map — but `coordsAtPos` consumers (scrollIntoView,
+      // tooltip placement) are still wrong on banner notes, and that is a
+      // live bug this round did not fix. The call stays because it is the
+      // right request to make and costs nothing when it lands.
+      const img = hero.querySelector("img");
+      img?.addEventListener("load", () => view.requestMeasure(), { once: true });
+      img?.addEventListener("error", () => view.requestMeasure(), { once: true });
+      wrap.appendChild(hero);
     }
-    return card;
+    wrap.appendChild(card);
+    return wrap;
   }
 }
 

@@ -1,0 +1,728 @@
+/* PRESETS — the canvas, the miniature and the gallery.
+   Three prefixes, one file, because they are one feature and they share a
+   vocabulary:
+     .s-dsgv  the CANVAS   — an arbitrary design, laid out wide and scaled down
+     .s-dsgt  the THUMB    — a design as a CSS miniature, ~200px
+     .s-dsgp  the GALLERY  — the browser around them
+
+   EVERY COLOUR HERE IS A TOKEN. Not one hex value: the miniature must repaint
+   when the operator switches theme, and a hard-coded grey is a fifty-card
+   gallery that is wrong in fourteen of the fifteen rooms. Logical properties
+   throughout (inline-start / inline-end, margin-inline), so the whole surface
+   mirrors under [dir="rtl"] without a second rule. */
+
+/* ── The canvas ──────────────────────────────────────────────────────────── */
+
+.s-dsgv {
+  position: relative;
+  overflow: hidden;
+  /* The scaled tree is `position: absolute`-free and taller than its box; the
+     box is what clips it. A caller that passed `clipHeight` also gets an
+     explicit height inline. */
+  background: var(--bg);
+  border-radius: 10px;
+  isolation: isolate;
+}
+
+.s-dsgv--native {
+  overflow: auto;
+}
+
+.s-dsgv__page {
+  /* Laid out at the canvas width, then transformed. `pointer-events: none` is
+     belt-and-braces beside the capture-phase swallow: a hover state inside a
+     picture of a page is a lie about a page nobody can click. */
+  pointer-events: none;
+  user-select: none;
+  transform-origin: top left;
+}
+
+/* THE ONE OVERRIDE, and it is the difference between a preview and a blank
+   card. `.s-dsn` is the live site's ROOT: `height: 100%; overflow-y: auto`,
+   because on the real page it IS the scroller. Inside a canvas it is a block
+   in somebody else's layout, and inheriting those two rules clipped every
+   design to its own header and scrolled the rest into a container nobody can
+   reach. The canvas is the only place that is true, so the override lives
+   here rather than in design.css — the live shell keeps its scroller. */
+.s-dsgv .s-dsgv__page.s-dsn {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+/* The cut, when a canvas is clipped: the page does not END there, and a hard
+   edge says it does. */
+.s-dsgv::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 42px;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
+  z-index: 1;
+}
+
+.s-dsgv--native::after {
+  content: none;
+}
+
+.s-dsgv__failed {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-raised);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+/* ── The miniature ───────────────────────────────────────────────────────── */
+
+.s-dsgt {
+  /* A CONTAINER, so every dimension below is in `cqw` — 1% of the card's own
+     width. One coordinate system, and the miniature is correct at 160px and at
+     400px without a media query or a JS measure. */
+  container-type: inline-size;
+  aspect-ratio: 4 / 3;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 8px;
+  --dsgt-gap: 2.4cqw;
+  --dsgt-pad: 5cqw;
+  --dsgt-ink: color-mix(in oklab, var(--text) 34%, transparent);
+  --dsgt-ink-strong: color-mix(in oklab, var(--text) 68%, transparent);
+  --dsgt-ink-faint: color-mix(in oklab, var(--text) 18%, transparent);
+}
+
+.s-dsgt--compact {
+  --dsgt-gap: 1.6cqw;
+}
+
+.s-dsgt--roomy {
+  --dsgt-gap: 3.4cqw;
+}
+
+/* The header block. Its layout, density and hairline all come from the
+   design's own header settings — the one part of a miniature that a reader
+   compares across cards without being told to. */
+.s-dsgt-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.4cqw;
+  padding: 4cqw var(--dsgt-pad);
+  background: var(--bg);
+  flex: none;
+}
+
+.s-dsgt-head--compact {
+  padding-block: 2.4cqw;
+}
+
+.s-dsgt-head--tall {
+  padding-block: 6.5cqw;
+}
+
+.s-dsgt-head--ruled {
+  border-bottom: 1px solid var(--border);
+}
+
+.s-dsgt-head--stackedStart {
+  align-items: flex-start;
+}
+
+.s-dsgt-head--inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3cqw;
+}
+
+.s-dsgt-head--inline .s-dsgt-tagline {
+  display: none;
+}
+
+.s-dsgt-mark {
+  /* The wordmark. Its HEIGHT is the design's heading weight and scale made
+     visible: a 700-weight uppercase masthead is a heavier bar than a
+     400-weight lowercase one, which is exactly the difference somebody is
+     scanning the grid for. */
+  display: block;
+  height: calc(2.2cqw * var(--dsgt-scale, 1.2));
+  width: 26cqw;
+  border-radius: 1px;
+  background: color-mix(in oklab, var(--text) calc(var(--dsgt-weight, 600) / 11 * 1%), transparent);
+}
+
+.s-dsgt-mark--upper {
+  width: 34cqw;
+  height: calc(1.9cqw * var(--dsgt-scale, 1.2));
+}
+
+.s-dsgt-tagline {
+  display: block;
+  height: 1.2cqw;
+  width: 40cqw;
+  border-radius: 1px;
+  background: var(--dsgt-ink-faint);
+}
+
+.s-dsgt-nav {
+  display: flex;
+  align-items: center;
+  gap: 2.2cqw;
+}
+
+.s-dsgt-navitem {
+  display: block;
+  height: 1.3cqw;
+  width: 7cqw;
+  border-radius: 1px;
+  background: var(--dsgt-ink);
+}
+
+.s-dsgt-navitem[data-w="1"] {
+  width: 9cqw;
+}
+
+.s-dsgt-navitem[data-w="2"] {
+  width: 5.5cqw;
+}
+
+.s-dsgt-tool {
+  display: block;
+  width: 2.2cqw;
+  height: 2.2cqw;
+  border-radius: 50%;
+  border: 1px solid var(--dsgt-ink);
+}
+
+/* The body column. `--dsgt-col` is the design's own width as a percentage of
+   the canvas it is drawn against, which is the fact a screenshot at this size
+   destroys and a miniature can keep: narrow reading column, or magazine. */
+.s-dsgt-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: var(--dsgt-col, 70%);
+  margin-inline: auto;
+  padding: 3cqw 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--dsgt-gap) * 1.8);
+  overflow: hidden;
+}
+
+.s-dsgt-line {
+  display: block;
+  height: 1.5cqw;
+  border-radius: 1px;
+  background: var(--dsgt-ink);
+}
+
+.s-dsgt-line[data-last] {
+  width: 62%;
+}
+
+.s-dsgt-line--tight {
+  height: 1.1cqw;
+  background: var(--dsgt-ink-faint);
+}
+
+.s-dsgt-line--title {
+  height: 2cqw;
+  width: 78%;
+  background: var(--dsgt-ink-strong);
+}
+
+.s-dsgt-line--head {
+  height: 2.4cqw;
+  width: 40%;
+  background: var(--dsgt-ink-strong);
+}
+
+.s-dsgt-line--meta {
+  height: 1cqw;
+  width: 28%;
+  background: var(--dsgt-ink-faint);
+}
+
+.s-dsgt-line--display {
+  height: 4cqw;
+  width: 66%;
+  background: color-mix(in oklab, var(--bg) 78%, transparent);
+}
+
+.s-dsgt-line--sub {
+  height: 1.6cqw;
+  width: 44%;
+  background: color-mix(in oklab, var(--bg) 58%, transparent);
+}
+
+.s-dsgt-hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 1.4cqw;
+  padding: 3cqw;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.s-dsgt-hero--short {
+  min-height: 18cqw;
+}
+
+.s-dsgt-hero--tall {
+  min-height: 34cqw;
+}
+
+.s-dsgt-hero--center {
+  align-items: center;
+  text-align: center;
+}
+
+.s-dsgt-block,
+.s-dsgt-rich,
+.s-dsgt-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dsgt-gap);
+}
+
+.s-dsgt-rich--center {
+  align-items: center;
+}
+
+.s-dsgt-rich--center .s-dsgt-line {
+  width: 70%;
+}
+
+.s-dsgt-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--dsgt-cols, 2), minmax(0, 1fr));
+  gap: calc(var(--dsgt-gap) * 1.4);
+}
+
+.s-dsgt-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2cqw;
+}
+
+.s-dsgt-card__art {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 3px;
+}
+
+.s-dsgt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.4cqw;
+}
+
+.s-dsgt-chip {
+  display: block;
+  height: 3cqw;
+  width: 11cqw;
+  border-radius: 999px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+}
+
+.s-dsgt-chip[data-w="1"] {
+  width: 8cqw;
+}
+
+.s-dsgt-chip[data-w="2"] {
+  width: 14cqw;
+}
+
+.s-dsgt-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.6cqw;
+  padding: 4cqw;
+  border-radius: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+}
+
+.s-dsgt-cta .s-dsgt-line--head {
+  width: 50%;
+}
+
+.s-dsgt-cta .s-dsgt-line--sub {
+  width: 66%;
+  background: var(--dsgt-ink-faint);
+}
+
+.s-dsgt-btn {
+  display: block;
+  height: 4cqw;
+  width: 22cqw;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.s-dsgt-div {
+  flex: none;
+  height: var(--dsgt-space, 2cqw);
+  display: flex;
+  align-items: center;
+}
+
+.s-dsgt-div--rule::before {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 1px;
+  background: var(--border);
+}
+
+.s-dsgt-div--dots::before {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 1px;
+  background: repeating-linear-gradient(
+    to right,
+    var(--border) 0 2px,
+    transparent 2px 7px
+  );
+}
+
+.s-dsgt-foot {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding: 3cqw var(--dsgt-pad);
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.s-dsgt-foot--start {
+  justify-content: flex-start;
+}
+
+/* ── The gallery ─────────────────────────────────────────────────────────── */
+
+.s-dsgp {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.s-dsgp__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.s-dsgp__search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.s-dsgp__count {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.s-dsgp__families {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.s-dsgp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.s-dsgp-chip:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.s-dsgp-chip--on {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.s-dsgp-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.s-dsgp-chip__n {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.s-dsgp__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.s-dsgp__cell {
+  min-width: 0;
+}
+
+.s-dsgp-card,
+.s-dsgp-blank {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  text-align: start;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  /* The lift. Cheap (transform + shadow only), and it is what makes a grid of
+     fifty feel like a shelf rather than a table. */
+  transition: transform 160ms cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow 160ms ease,
+    border-color 160ms ease;
+}
+
+.s-dsgp-card:hover,
+.s-dsgp-card:focus-visible,
+.s-dsgp-blank:hover,
+.s-dsgp-blank:focus-visible {
+  transform: translateY(-3px);
+  border-color: var(--accent);
+  box-shadow: 0 10px 26px -14px color-mix(in oklab, var(--text) 55%, transparent);
+}
+
+.s-dsgp-card--on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 45%, transparent);
+}
+
+.s-dsgp-card__stage {
+  display: block;
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.s-dsgp-card__stage > * {
+  /* Miniature and canvas occupy the same box, so the swap on hover is a
+     crossfade in place rather than a reflow of the card. */
+  position: absolute;
+  inset: 0;
+  animation: s-dsgp-fade 180ms ease both;
+}
+
+@keyframes s-dsgp-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.s-dsgp-card__canvas {
+  border-radius: 0;
+}
+
+.s-dsgp-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border-top: 1px solid var(--border);
+}
+
+.s-dsgp-card__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-dsgp-card__fam {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* The theme this preset was drawn against, as its own accent. The swatch
+   carries `data-theme`, so tokens.css paints it — one element in the operator's
+   gallery wearing somebody else's palette, which is exactly what a swatch is
+   for and exactly why the miniature beside it is not. */
+.s-dsgp-card__theme {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 1px solid var(--border);
+}
+
+.s-dsgp-blank {
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  aspect-ratio: 4 / 3;
+  padding: 18px;
+  text-align: center;
+  border-style: dashed;
+  background: var(--bg);
+}
+
+.s-dsgp-blank__mark {
+  font-size: 26px;
+  line-height: 1;
+  color: var(--text-faint);
+}
+
+.s-dsgp-blank__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.s-dsgp-blank__why {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.s-dsgp__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* The detail pane — the chosen preset, big, above the grid. */
+.s-dsgp-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr);
+  gap: 16px;
+  padding: 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  animation: s-dsgp-open 200ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+@keyframes s-dsgp-open {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.s-dsgp-detail__stage {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.s-dsgp-detail__text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.s-dsgp-detail__name {
+  margin: 0;
+  font-size: 17px;
+}
+
+.s-dsgp-detail__blurb,
+.s-dsgp-detail__fill,
+.s-dsgp-detail__fork {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.s-dsgp-detail__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.s-dsgp-detail__theme {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.s-dsgp-detail__acts {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+@media (max-width: 720px) {
+  .s-dsgp-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A pointer that cannot hover never reaches the live canvas, so the miniature
+   is all there is — and it has to be the whole answer. Bigger cells, one
+   column of information, and the detail pane is where the real render lives. */
+@media (hover: none) {
+  .s-dsgp__grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-dsgp-card,
+  .s-dsgp-blank,
+  .s-dsgp-card__stage > *,
+  .s-dsgp-detail {
+    transition: none;
+    animation: none;
+  }
+
+  .s-dsgp-card:hover,
+  .s-dsgp-blank:hover {
+    transform: none;
+  }
+}

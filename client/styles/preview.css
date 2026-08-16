@@ -226,18 +226,29 @@
 .s-editor .cm-line.cm-s-callout--example { --co: var(--callout-example); }
 .s-editor .cm-line.cm-s-callout--quote { --co: var(--callout-quote); }
 
+/* The 0.3em of air above/below a callout is a TRANSPARENT BORDER, not a
+   margin. CodeMirror's height map measures each .cm-line by its border box:
+   padding and borders are counted, margins are not. A margin here therefore
+   made every line below the callout resolve ~5px too low, and posAtCoords —
+   which is what CodeMirror's own mouse selection uses — landed the caret, the
+   double-click word and the triple-click line on the wrong row.
+   `background-clip: padding-box` keeps the tint out of that transparent
+   border so it still reads as a gap, and the radii are grown by the border
+   width so the tinted box keeps exactly its old corner curve. */
 .s-editor .cm-line.cm-s-callout--first {
-  border-top-left-radius: var(--radius);
-  border-top-right-radius: var(--radius);
+  border-top: 0.3em solid transparent;
+  border-top-left-radius: calc(var(--radius) + 0.3em);
+  border-top-right-radius: calc(var(--radius) + 0.3em);
   padding-top: 0.45em;
-  margin-top: 0.3em;
+  background-clip: padding-box;
 }
 
 .s-editor .cm-line.cm-s-callout--last {
-  border-bottom-left-radius: var(--radius);
-  border-bottom-right-radius: var(--radius);
+  border-bottom: 0.3em solid transparent;
+  border-bottom-left-radius: calc(var(--radius) + 0.3em);
+  border-bottom-right-radius: calc(var(--radius) + 0.3em);
   padding-bottom: 0.45em;
-  margin-bottom: 0.3em;
+  background-clip: padding-box;
 }
 
 /* title bar widget (replaces "> [!type] Title") */
@@ -397,8 +408,11 @@
 
 /* ── Raw HTML blocks (rendered, sanitized, cursor-outside) ─────────────── */
 
+/* Padding, not margin: this is a block widget and CodeMirror sizes it by its
+   border box (see .cm-s-fmblock in app.css). It carries no background, so the
+   swap is invisible. */
 .s-editor .cm-s-htmlblock {
-  margin: 0.4em 0;
+  padding: 0.4em 0;
   max-width: 100%;
   overflow-x: auto;
 }

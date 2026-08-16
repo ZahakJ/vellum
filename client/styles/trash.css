@@ -1,0 +1,273 @@
+/* ── Trash browser (palette: "Open trash") ───────────────────────────────────
+   The surface that makes ".trash — recoverable from disk" a promise the
+   product can keep. Same panel family as the moderation feed (raised ground,
+   serif small-caps header, scrolling row list) so it reads as a sibling and
+   not as a new kind of window; the rows differ because what they carry does.
+
+   Every colour is a token and every edge is logical, so the panel mirrors
+   whole in Arabic.
+
+   z-index: above the mobile sidebar drawer (400), below .s-confirm-overlay
+   (500) so the purge and empty-trash dialogs stack ON this panel rather than
+   behind it. The moderation feed's 110 is the number this was copied from and
+   deliberately not kept: at 110 an open drawer paints over the whole panel,
+   which is the bug the confirm overlay's comment describes. */
+
+.s-trash-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 420;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.s-trash {
+  width: min(660px, calc(100vw - 32px));
+  margin-top: 12vh;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.s-trash__header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.s-trash__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.071rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-variant-caps: small-caps;
+  color: color-mix(in srgb, var(--accent) 40%, var(--text));
+}
+
+/* A count, which is something the reader READS — --text-muted, not the
+   non-text floor. (DESIGN.md: --text-faint is not a text color.) */
+.s-trash__count {
+  font-size: 0.821rem;
+  color: var(--text-muted);
+}
+
+/* "Empty trash" is destructive and it is not the reason anyone opened this
+   panel, so it is quiet at rest and earns the danger hue on approach — the
+   same grammar .s-confirm__extra uses for the same kind of act. */
+.s-trash__empty-all {
+  margin-inline-start: auto;
+  padding: 3px 8px;
+  font-size: 0.821rem;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.s-trash__empty-all:hover,
+.s-trash__empty-all:focus-visible {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.s-trash__close {
+  border: none;
+  background: none;
+  padding: 0 4px;
+  font-size: 1.286rem;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.s-trash__close:hover {
+  color: var(--text);
+}
+
+.s-trash__list {
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.s-trash__empty {
+  padding: 36px 20px;
+  text-align: center;
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+
+.s-trashrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 12px 10px;
+  background: var(--bg-hover);
+  border: 1px solid transparent;
+  border-inline-start: 2px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: var(--radius);
+  transition: border-color 0.15s ease;
+}
+
+.s-trashrow:hover {
+  border-color: var(--border);
+  border-inline-start-color: var(--accent);
+}
+
+/* The kind glyph is UI, not text, so --text-faint is its floor by the rule
+   (3:1 non-text) — the same treatment the tree's attachment glyph gets. */
+.s-trashrow__glyph {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 2px;
+  color: var(--text-faint);
+  flex: none;
+}
+
+.s-trashrow__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.s-trashrow__name {
+  font-family: var(--font-serif);
+  font-size: 0.964rem;
+  color: var(--text);
+  unicode-bidi: isolate;
+  overflow-wrap: anywhere;
+}
+
+.s-trashrow__meta {
+  font-size: 0.786rem;
+  color: var(--text-muted);
+}
+
+.s-trashrow__origin {
+  font-size: 0.786rem;
+  color: var(--text-muted);
+  unicode-bidi: isolate;
+  overflow-wrap: anywhere;
+}
+
+/* An unknown or occupied origin changes where Restore lands. It is a fact the
+   reader needs before clicking, not after — so it is tinted, and it stays
+   readable prose rather than a faint aside. */
+.s-trashrow__origin--warn {
+  color: var(--danger);
+}
+
+.s-trashrow__tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+/* Tools are ALWAYS visible: hover-only controls are undiscoverable in a
+   static panel and unreachable on touch (the moderation feed learned the
+   same lesson). Restore is the reason this panel exists, so it is the one
+   affordance here that wears the accent. */
+.s-trashrow__restore {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 3px 10px;
+  font-size: 0.821rem;
+  color: var(--accent);
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.s-trashrow__restore:hover:not(:disabled),
+.s-trashrow__restore:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.s-trashrow__purge {
+  min-width: 24px;
+  min-height: 28px;
+  padding: 0 6px;
+  font-size: 1.143rem;
+  line-height: 1;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.s-trashrow__purge:hover:not(:disabled),
+.s-trashrow__purge:focus-visible {
+  color: var(--danger);
+}
+
+.s-trashrow__restore:disabled,
+.s-trashrow__purge:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Below the narrow breakpoint the row stacks and every target clears the 44px
+   floor DESIGN.md sets for coarse pointers — including the two here, which
+   are the only way back from a delete. */
+@media (max-width: 700px), (pointer: coarse) {
+  .s-trashrow {
+    flex-wrap: wrap;
+  }
+
+  .s-trashrow__tools {
+    width: 100%;
+    justify-content: flex-end;
+    margin-top: 4px;
+  }
+
+  .s-trashrow__restore,
+  .s-trashrow__purge {
+    min-height: 44px;
+  }
+
+  .s-trashrow__purge {
+    min-width: 44px;
+  }
+
+  .s-trash__empty-all,
+  .s-trash__close {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* The label collapses on the narrowest screens; the glyph and the title
+   attribute carry it, and the button keeps its 44px box. */
+@media (max-width: 420px) {
+  .s-trashrow__restore-label {
+    display: none;
+  }
+}

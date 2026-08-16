@@ -11,7 +11,8 @@ import { api, contentTypeFor } from "./api.ts";
 import { ConfigError, canRead, initAuth } from "./auth.ts";
 import { injectHead, renderFeed, requestOrigin } from "./blog.ts";
 import { startGitSyncTimer } from "./gitSync.ts";
-import { faviconPath } from "./settings.ts";
+import { languageScope } from "./language.ts";
+import { faviconPath, migrateSettings } from "./settings.ts";
 import { initSite } from "./site.ts";
 import { initComments } from "./comments.ts";
 import { initIndexer } from "./indexer.ts";
@@ -67,6 +68,9 @@ try {
   process.exit(1);
 }
 initSite();
+// One-time settings migrations, after initSite (they may need siteLanguage())
+// and before anything reads the merged view. Silent unless something moved.
+migrateSettings();
 initComments();
 initVault(vaultDir);
 startWatcher();
@@ -123,7 +127,10 @@ app.use("*", async (c, next) => {
   // PUBLIC=false vault without a cookie gets generic meta; an admin gets the
   // note's own), so it is exactly as session-varying as the API is.
   if (!headers.has("Cache-Control")) headers.set("Cache-Control", "private, no-cache");
-  if (!headers.has("Vary")) headers.set("Vary", "Cookie, X-Vellum-Preview");
+  // Same three dimensions the API varies on (api.ts::VARY_ON): the injected
+  // <head> is built from the visitor-visible post set, so under
+  // `languageFilter: "follow"` it differs by reader language too.
+  if (!headers.has("Vary")) headers.set("Vary", "Cookie, X-Vellum-Preview, X-Vellum-Lang");
 });
 
 app.route("/api", api);
@@ -133,12 +140,18 @@ app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 // but gated exactly like API reads: PUBLIC=false keeps it behind login.
 app.get("/feed.xml", (c) => {
   if (!canRead(c)) return c.json({ error: "Sign in required" }, 401);
-  return c.body(renderFeed(requestOrigin(c)), 200, {
+  // The feed is a VISITOR surface even when an admin fetches it — it is the
+  // document strangers subscribe to, so it is always language-scoped (unlike
+  // /api/posts, which answers the admin with their whole vault). A feed reader
+  // has no headers to offer, so the scope comes from ?lang= — /feed.xml?lang=ar
+  // is the Arabic side of a bilingual site as its own subscribable URL.
+  return c.body(renderFeed(requestOrigin(c), languageScope(c, true)), 200, {
     "Content-Type": "application/rss+xml; charset=utf-8",
     "Cache-Control": "no-cache",
     // Same reason as every /api body: with PUBLIC=false this is a 401 without
-    // a session and a full feed with one, off one URL.
-    "Vary": "Cookie, X-Vellum-Preview",
+    // a session and a full feed with one, off one URL — and now one feed per
+    // ?lang= as well, which is a query dimension caches already key on.
+    "Vary": "Cookie, X-Vellum-Preview, X-Vellum-Lang",
   });
 });
 

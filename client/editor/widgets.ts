@@ -53,23 +53,37 @@ export class ImageWidget extends WidgetType {
       other.width === this.width
     );
   }
-  toDOM(): HTMLElement {
+  toDOM(view: EditorView): HTMLElement {
     const wrap = document.createElement("span");
     wrap.className = "cm-s-embed-image";
+    // AN IMAGE ARRIVES AFTER THE EDITOR HAS MEASURED IT. Until it does, this
+    // widget is a few pixels tall and CodeMirror's height map records that;
+    // when the bitmap lands the DOM grows by hundreds of pixels. Unless the
+    // map is told, every document position below the embed resolves that far
+    // off — the caret lands lines away from the pointer, hover previews open
+    // on the wrong link, scrollIntoView misses. Same failure as an
+    // unmeasurable CSS margin, different cause. This is an INLINE widget, so
+    // it lives inside a .cm-line whose height a measure cycle does re-read;
+    // TransclusionWidget already asks for this after its async render, and
+    // images never did.
+    const remeasure = (): void => view.requestMeasure();
     const mount = (url: string): void => {
       // Known-404s render the placeholder straight away — decoration rebuilds
       // must not re-request a missing file over and over.
       if (embedKnownBroken(url) || embedKnownBroken(this.name)) {
         wrap.replaceChildren(brokenEmbed(this.name));
+        remeasure();
         return;
       }
       const img = document.createElement("img");
       img.alt = this.name;
       img.draggable = false;
       if (this.width) img.style.width = `${this.width}px`;
+      img.onload = remeasure;
       img.onerror = () => {
         markEmbedBroken(url);
         wrap.replaceChildren(brokenEmbed(this.name));
+        remeasure();
       };
       img.src = url;
       wrap.replaceChildren(img);

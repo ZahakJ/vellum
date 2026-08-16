@@ -4,7 +4,14 @@
 import { promises as fs, lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { watch, type FSWatcher } from "chokidar";
-import type { AttachmentInfo, AttachmentKind, NoteData, TreeNode, VaultEvent } from "../shared/types.ts";
+import type {
+  AttachmentInfo,
+  AttachmentKind,
+  NoteData,
+  TrashEntry,
+  TreeNode,
+  VaultEvent,
+} from "../shared/types.ts";
 import { isNotePath, noteExtOf } from "../shared/noteFormat.ts";
 
 export class VaultError extends Error {
@@ -267,7 +274,9 @@ function rank(node: TreeNode): number {
 
 /** One walk over the whole vault (ignore rules applied) listing notes and
  *  attachments separately — used by the indexer at boot so it never walks twice. */
-export async function listVaultFiles(): Promise<{ notes: string[]; attachments: string[] }> {
+export async function listVaultFiles(
+  relRoot = "",
+): Promise<{ notes: string[]; attachments: string[] }> {
   const notes: string[] = [];
   const attachments: string[] = [];
   async function walk(relDir: string): Promise<void> {
@@ -287,7 +296,11 @@ export async function listVaultFiles(): Promise<{ notes: string[]; attachments: 
       }
     }
   }
-  await walk("");
+  // `relRoot` scopes the walk to one subtree — what a folder restored out of
+  // `.trash/` needs so the index catches up before the response returns,
+  // rather than after the watcher's debounce. "" is the whole vault, which is
+  // what boot passes.
+  await walk(normalizeRel(relRoot));
   return { notes, attachments };
 }
 
@@ -432,9 +445,76 @@ export async function deleteNote(
       await fs.rm(abs);
     }
     trashPath = `${TRASH_DIR}/${path.basename(destAbs)}`;
+    // Where it came from, so the trash browser can put it back rather than
+    // dumping it at the vault root. Never throws into the delete.
+    await recordTrashed(path.basename(destAbs), relPath, "note");
   }
   emit({ kind: "deleted", path: relPath });
   return trashPath ? { trashPath } : {};
+}
+
+/** Everything that is NOT a note: the images, PDFs and recordings the tree
+ *  lists under a folder's writing. Rejects markdown so the two verbs stay
+ *  distinct (a note has backlinks and a publish flag; an attachment has
+ *  embedders), and rejects the empty path so nothing can aim this at a
+ *  folder. */
+export function assertAttachment(rel: string): string {
+  const normalized = normalizeRel(rel);
+  if (!normalized) throw new VaultError(400, "File path required");
+  if (isNotePath(normalized)) {
+    throw new VaultError(400, `Not an attachment path: ${rel}`);
+  }
+  return normalized;
+}
+
+/** Delete ONE attachment, at the same two speeds as a note and a folder.
+ *
+ *  There used to be no way to delete one at all: the tree listed a vault's
+ *  1,176 images and offered no verb on any of them, so the only route to
+ *  removing a stale upload was deleting the folder around it — which is the
+ *  gesture that lost the owner an essay. The safety here is the same as
+ *  everywhere else, and so is the honesty: the caller is expected to have
+ *  asked `deletePreview()` first, because an attachment a published note
+ *  embeds is the one file in a vault whose removal is visible to strangers.
+ *
+ *  `lstat` + `isFile()`, not `stat`: a symlink is not an attachment, and the
+ *  rename below would move the LINK while the dialog described the target. */
+export async function deleteAttachment(
+  rel: string,
+  opts?: { permanent?: boolean },
+): Promise<DeleteNoteResult> {
+  const relPath = assertAttachment(rel);
+  const abs = safeAbs(relPath);
+  let stat;
+  try {
+    stat = await fs.lstat(abs);
+  } catch {
+    throw new VaultError(404, `File not found: ${relPath}`);
+  }
+  if (!stat.isFile()) throw new VaultError(404, `File not found: ${relPath}`);
+  // One synthetic event tells the whole story and lands before the response;
+  // the watcher's own debounced unlink for the same removal is swallowed.
+  suppress(relPath);
+  if (opts?.permanent) {
+    await fs.rm(abs);
+    emit({ kind: "deleted", path: relPath });
+    return {};
+  }
+  const base = path.posix.basename(relPath);
+  const dot = base.lastIndexOf(".");
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot) : "";
+  const destAbs = await trashDestination(stem, ext);
+  try {
+    await fs.rename(abs, destAbs);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+    await fs.cp(abs, destAbs);
+    await fs.rm(abs);
+  }
+  await recordTrashed(path.basename(destAbs), relPath, "attachment");
+  emit({ kind: "deleted", path: relPath });
+  return { trashPath: `${TRASH_DIR}/${path.basename(destAbs)}` };
 }
 
 export async function createFolder(rel: string): Promise<void> {
@@ -552,6 +632,7 @@ export async function deleteFolder(
       await fs.rm(abs, { recursive: true, force: true });
     }
     trashPath = `${TRASH_DIR}/${path.basename(destAbs)}`;
+    await recordTrashed(path.basename(destAbs), relPath, "folder");
   }
   emit({ kind: "deleted", path: relPath, dir: true });
   return trashPath ? { notes, trashPath } : { notes };
@@ -721,6 +802,340 @@ export async function moveFolder(rel: string, toRel: string): Promise<MoveFolder
   }
   emit({ kind: "renamed", path: fromPath, toPath, dir: true });
   return { notes: notes.length, moved };
+}
+
+// ------------------------------------------------------------------- trash
+//
+// Every delete dialog in this product promises the same thing — "recoverable
+// from disk" — and until this section existed the product itself could not
+// keep it: `.trash/` is a dot-dir, invisible to the tree, the indexer and the
+// watcher by design, so the only way to act on the promise was a terminal and
+// a `mv`. An owner who deleted the wrong folder had to be told to go and use
+// the filesystem. The bin is now a surface: list it, restore from it, empty
+// it.
+//
+// It stays flat at its top level (one entry per delete) and it stays ignored
+// everywhere else, so nothing here changes what the rest of the app can see.
+
+/** Where a trashed thing came from, so restore is a restore rather than a
+ *  dump at the vault root. Lives INSIDE `.trash/`, which `.gitignore` already
+ *  covers (gitSync.ts) — it is local bookkeeping and must never reach a
+ *  remote. Dot-prefixed, so `trashEntryAbs()` refuses to treat it as an entry
+ *  and `listTrash()` never lists it. */
+const TRASH_MANIFEST = ".vellum-trash.json";
+
+interface TrashRecord {
+  origin: string;
+  deletedMs: number;
+  kind: "folder" | "note" | "attachment";
+}
+
+/** Manifest writes are serialized on this chain: two deletes landing in the
+ *  same tick would otherwise read the same file, and the second write would
+ *  drop the first entry — losing the origin of a folder somebody is about to
+ *  need back. */
+let manifestChain: Promise<void> = Promise.resolve();
+
+async function readManifest(): Promise<Record<string, TrashRecord>> {
+  try {
+    const raw = await fs.readFile(path.join(vaultRoot, TRASH_DIR, TRASH_MANIFEST), "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const entries = (parsed as { entries?: unknown }).entries;
+    return entries && typeof entries === "object" ? (entries as Record<string, TrashRecord>) : {};
+  } catch {
+    // Absent, unreadable or corrupt: the trash still WORKS without it. Every
+    // entry simply reports origin null and restores to the vault root, which
+    // is exactly the pre-manifest behaviour and is stated in the dialog.
+    return {};
+  }
+}
+
+async function writeManifest(entries: Record<string, TrashRecord>): Promise<void> {
+  const dir = path.join(vaultRoot, TRASH_DIR);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(
+    path.join(dir, TRASH_MANIFEST),
+    `${JSON.stringify({ version: 1, entries }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+/** Note where a just-trashed entry came from. Never throws into the delete:
+ *  losing the manifest must not lose the file, so a failed write degrades the
+ *  entry to "origin unknown" and is logged, not raised. */
+function recordTrashed(
+  name: string,
+  origin: string,
+  kind: TrashRecord["kind"],
+): Promise<void> {
+  manifestChain = manifestChain.then(async () => {
+    const entries = await readManifest();
+    entries[name] = { origin, deletedMs: Date.now(), kind };
+    await writeManifest(entries);
+  }).catch((err: unknown) => {
+    console.warn("vellum: could not record trash origin —", err);
+  });
+  return manifestChain;
+}
+
+function forgetTrashed(name: string): Promise<void> {
+  manifestChain = manifestChain.then(async () => {
+    const entries = await readManifest();
+    if (!(name in entries)) return;
+    delete entries[name];
+    await writeManifest(entries);
+  }).catch((err: unknown) => {
+    console.warn("vellum: could not update trash manifest —", err);
+  });
+  return manifestChain;
+}
+
+/** A trash entry's absolute path. The name is an ID, not a path: separators,
+ *  `..`, NULs and dot-prefixes are all refused up front (a real vault entry
+ *  can never start with a dot — `isIgnoredSegment` keeps those out of the
+ *  vault in the first place — so the rule costs nothing and it is what keeps
+ *  the manifest itself from being restorable or purgeable through the API).
+ *  Containment is then re-checked against the resolved string, and the caller
+ *  lstats: a symlink inside the trash is not an entry. */
+function trashEntryAbs(name: string): string {
+  const clean = name.trim();
+  if (
+    !clean ||
+    clean.startsWith(".") ||
+    clean.includes("/") ||
+    clean.includes("\\") ||
+    clean.includes("\0")
+  ) {
+    throw new VaultError(400, `Invalid trash entry: ${name}`);
+  }
+  const trashRoot = path.join(vaultRoot, TRASH_DIR);
+  const abs = path.resolve(trashRoot, clean);
+  if (!abs.startsWith(trashRoot + path.sep)) {
+    throw new VaultError(400, `Invalid trash entry: ${name}`);
+  }
+  return abs;
+}
+
+/** Recursive tally of one trash entry: markdown, everything else, and bytes.
+ *  Bounded — a bin holding a 1,176-image folder must not cost an unbounded
+ *  walk on every open of the browser — and symlinks are counted as nothing,
+ *  never followed. */
+const TRASH_WALK_MAX = 20_000;
+
+async function tallyTrash(abs: string): Promise<{ notes: number; attachments: number; bytes: number }> {
+  let notes = 0;
+  let attachments = 0;
+  let bytes = 0;
+  let seen = 0;
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (seen++ > TRASH_WALK_MAX) return;
+      if (entry.isSymbolicLink()) continue;
+      const child = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(child);
+      } else if (entry.isFile()) {
+        if (isNotePath(entry.name)) notes++;
+        else attachments++;
+        bytes += await fs.stat(child).then((s) => s.size, () => 0);
+      }
+    }
+  }
+  // Vanished between the listing's own lstat and this one: report nothing
+  // rather than throwing, or one racing entry takes the whole browser down.
+  const stat = await fs.lstat(abs).catch(() => null);
+  if (stat === null) return { notes: 0, attachments: 0, bytes: 0 };
+  if (stat.isDirectory()) await walk(abs);
+  else if (isNotePath(abs)) {
+    notes = 1;
+    bytes = stat.size;
+  } else {
+    attachments = 1;
+    bytes = stat.size;
+  }
+  return { notes, attachments, bytes };
+}
+
+/** Paths inside a trash folder, relative to it — what a restore is about to
+ *  drop into the vault, and therefore what the watcher must be told to keep
+ *  quiet about. Bounded by the same walk cap the tally uses; symlinks are
+ *  skipped, as everywhere else. */
+async function trashChildren(abs: string): Promise<string[]> {
+  const out: string[] = [];
+  async function walk(dir: string, prefix: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (out.length > TRASH_WALK_MAX || entry.isSymbolicLink()) continue;
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      out.push(rel);
+      if (entry.isDirectory()) await walk(path.join(dir, entry.name), rel);
+    }
+  }
+  await walk(abs, "");
+  return out;
+}
+
+/** Everything currently in `.trash/`, newest first. */
+export async function listTrash(): Promise<TrashEntry[]> {
+  const trashRoot = path.join(vaultRoot, TRASH_DIR);
+  let names;
+  try {
+    names = await fs.readdir(trashRoot, { withFileTypes: true });
+  } catch {
+    return []; // no trash directory yet: an empty bin, not an error
+  }
+  const manifest = await readManifest();
+  const out: TrashEntry[] = [];
+  for (const entry of names) {
+    // Dotfiles (the manifest) and symlinks are not entries.
+    if (entry.name.startsWith(".") || entry.isSymbolicLink()) continue;
+    const abs = path.join(trashRoot, entry.name);
+    let stat;
+    try {
+      stat = await fs.lstat(abs);
+    } catch {
+      continue; // vanished mid-listing
+    }
+    const record = manifest[entry.name];
+    const kind: TrashEntry["kind"] = stat.isDirectory()
+      ? "folder"
+      : isNotePath(entry.name)
+        ? "note"
+        : "attachment";
+    const { notes, attachments, bytes } = await tallyTrash(abs);
+    const origin = record?.origin ?? null;
+    out.push({
+      name: entry.name,
+      origin,
+      kind,
+      deletedMs: record?.deletedMs ?? stat.mtimeMs,
+      notes,
+      attachments,
+      bytes,
+      originTaken: origin ? await originOccupied(origin) : false,
+    });
+  }
+  return out.sort((a, b) => b.deletedMs - a.deletedMs || a.name.localeCompare(b.name));
+}
+
+/** True when something already sits at a recorded origin — a note recreated
+ *  under the old name, a folder rebuilt. The browser says so BEFORE the
+ *  restore, because "restored" landing beside the file it was supposed to be
+ *  is the kind of surprise this whole section exists to avoid. */
+async function originOccupied(origin: string): Promise<boolean> {
+  try {
+    return await exists(safeAbs(origin));
+  } catch {
+    return false; // an origin the path rules refuse is handled at restore time
+  }
+}
+
+export interface RestoreResult {
+  /** Where it actually landed — which is NOT always the origin: a taken
+   *  origin gets the same counter the trash itself uses, and an entry with no
+   *  recorded origin lands at the vault root. */
+  path: string;
+  /** True when the origin was taken (or unknown) and the name had to move. */
+  renamed: boolean;
+  /** Folder restores need a subtree reindex; the caller does that. */
+  dir: boolean;
+}
+
+/** Move one entry out of `.trash/` and back into the vault — at its recorded
+ *  origin when that is still free, beside it under a counter when it is not,
+ *  and at the vault root for an entry no manifest covers (trashed by hand, or
+ *  by a build older than the manifest).
+ *
+ *  The restore is deliberately NOT silent about which of those three happened:
+ *  it answers with the path it used and whether that differs from the ask, and
+ *  the client says so in the toast. */
+export async function restoreFromTrash(name: string): Promise<RestoreResult> {
+  const abs = trashEntryAbs(name);
+  let stat;
+  try {
+    stat = await fs.lstat(abs);
+  } catch {
+    throw new VaultError(404, `Trash entry not found: ${name}`);
+  }
+  if (stat.isSymbolicLink()) throw new VaultError(400, `Invalid trash entry: ${name}`);
+  const manifest = await readManifest();
+  const recorded = manifest[name]?.origin;
+  // An origin that no longer passes the path rules (it named an ignored tree,
+  // or the vault moved under it) is treated as no origin at all.
+  let target = "";
+  if (recorded) {
+    try {
+      safeAbs(recorded);
+      target = normalizeRel(recorded);
+    } catch {
+      target = "";
+    }
+  }
+  if (!target) target = name;
+  const wanted = target;
+  const dir = path.posix.dirname(target) === "." ? "" : path.posix.dirname(target);
+  const base = path.posix.basename(target);
+  const dot = stat.isDirectory() ? -1 : base.lastIndexOf(".");
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot) : "";
+  let rel = "";
+  let destAbs = "";
+  for (let n = 1; n <= 500; n++) {
+    const candidate = normalizeRel(
+      `${dir ? `${dir}/` : ""}${n === 1 ? `${stem}${ext}` : `${stem}-${n}${ext}`}`,
+    );
+    const candidateAbs = safeAbs(candidate);
+    if (!(await exists(candidateAbs))) {
+      rel = candidate;
+      destAbs = candidateAbs;
+      break;
+    }
+  }
+  if (!rel) throw new VaultError(409, `No free name to restore ${name} into`);
+  // Swallow the watcher's per-file `add` storm for this move: the route emits
+  // ONE synthetic event and reindexes the subtree itself, exactly as
+  // deleteFolder() does on the way out. Without this, restoring a 1,214-note
+  // folder fans 1,214 debounced events onto every open SSE stream to say
+  // something the single created event already said.
+  suppress(rel);
+  if (stat.isDirectory()) {
+    for (const child of await trashChildren(abs)) suppress(`${rel}/${child}`);
+  }
+  await fs.mkdir(path.dirname(destAbs), { recursive: true });
+  try {
+    await fs.rename(abs, destAbs);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+    await fs.cp(abs, destAbs, { recursive: true });
+    await fs.rm(abs, { recursive: true, force: true });
+  }
+  await forgetTrashed(name);
+  return { path: rel, renamed: rel !== wanted, dir: stat.isDirectory() };
+}
+
+/** Erase one entry from `.trash/` for good — the bin's own permanent delete,
+ *  and the only delete in the product with nothing behind it. */
+export async function purgeFromTrash(name: string): Promise<void> {
+  const abs = trashEntryAbs(name);
+  try {
+    await fs.lstat(abs);
+  } catch {
+    throw new VaultError(404, `Trash entry not found: ${name}`);
+  }
+  await fs.rm(abs, { recursive: true, force: true });
+  await forgetTrashed(name);
 }
 
 /** Does a NAME exist at `abs` — `lstat`, not `access`.

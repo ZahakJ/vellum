@@ -151,7 +151,10 @@ function build() {
 
 const FIXTURE = {
   name: "Boundary gate",
-  site: { header: "bar", width: 820, density: "regular" },
+  // zsh: command not found: site holds width and density and nothing else — the strict allowlist in
+  // shared/design.ts refuses an unknown key by name, and a fixture carrying one
+  // fails the gate before it can break anything on purpose.
+  site: { width: 820, density: "regular" },
   sections: [
     { id: "hero", kind: "hero", heading: "Boundary gate", sub: "A design under test." },
     { id: "topics", kind: "topics", heading: "Topics", limit: 8 },
