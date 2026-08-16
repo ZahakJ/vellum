@@ -5,7 +5,7 @@
 // is imported rather than reimplemented.
 
 import { withPreview } from "../api.ts";
-import type { PageMeta } from "../../shared/types.ts";
+import type { PageMeta, PostMeta } from "../../shared/types.ts";
 import type { CustomTheme, TokenSpec } from "../../shared/customTheme.ts";
 import type { DesignDoc, DesignSummary, SectionKind } from "../../shared/design.ts";
 
@@ -40,9 +40,21 @@ export interface DesignOverview {
   /** Every path a VISITOR can reach (posts + pages), so the nav builder can
    *  flag an item pointing at something the public site cannot open. */
   visible: string[];
+  /** THE FEED THE DESIGNED SITE WILL PRINT — visitor-scoped, language-scoped
+   *  and with static pages already out. Every preview in the panel and every
+   *  card in the gallery draws from this rather than from `/api/posts`, whose
+   *  answer depends on the session and on the layout that happens to be live
+   *  (server/designRoutes.ts says why that made every fresh instance preview a
+   *  front page led by its own Contact page). */
+  posts: PostMeta[];
 }
 
-class DesignApiError extends Error {
+/** A refusal the server NAMED. `message` is the sentence the API sent —
+ *  "sections[0].url: must be a site path starting with / or an https:// URL",
+ *  "nav.items[0].kind must be one of: …" — and the panel prints it instead of
+ *  a static "Could not save the design", because the field that is wrong is
+ *  the only thing the author needs to know. */
+export class DesignApiError extends Error {
   readonly status: number;
   constructor(message: string, status: number) {
     super(message);
@@ -68,6 +80,30 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   }
   return body as T;
 }
+
+/**
+ * WHAT TO SHOW THE AUTHOR WHEN A DESIGN REQUEST IS REFUSED.
+ *
+ * The server already answers a rejection with the offending FIELD in it —
+ * `sections[0].url: must be a site path starting with / or an https:// URL`,
+ * `nav.items[0].kind must be one of: …`, `Request body too large (…)` — and
+ * the panel used to throw all of it away and toast "Could not save the
+ * design", which tells an author neither what is wrong nor where. A 4xx is the
+ * server saying something about THIS document, so it is printed; a 5xx says
+ * only that something broke, so the caller's own sentence is kinder.
+ */
+export function designErrorText(err: unknown, fallback: string): string {
+  if (err instanceof DesignApiError && err.status >= 400 && err.status < 500) {
+    const message = err.message.trim();
+    if (message !== "") return message;
+  }
+  return fallback;
+}
+
+/** The API's own body cap (server/api.ts, API_BODY_MAX). Mirrored here so an
+ *  11 MB file the server will 413 is refused before the admin's tab reads and
+ *  parses the whole thing. */
+export const DESIGN_IMPORT_MAX_BYTES = 10 * 1024 * 1024;
 
 function json(method: string, payload: unknown): RequestInit {
   return {

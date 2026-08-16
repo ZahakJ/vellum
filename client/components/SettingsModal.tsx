@@ -59,6 +59,7 @@ import {
   syncWhen,
 } from "../sync.ts";
 import { isThemePickerOpen, openThemePicker } from "./ThemePicker.tsx";
+import { openDesigner } from "./design/DesignerPanel.tsx";
 import { toast } from "../toast.ts";
 import { isNotePath } from "../../shared/noteFormat.ts";
 
@@ -2522,6 +2523,27 @@ export default function SettingsModal() {
                       ]}
                       {...field("publicLayout")}
                     />
+                  </Row>
+                  {/* THE DOOR TO THE DESIGNER, BESIDE THE SWITCH THAT NEEDS IT.
+                      `openDesigner()` had exactly ONE call site in the whole
+                      client — the command palette — so an operator who flipped
+                      the segment above landed on a designed site with no design
+                      and nothing anywhere saying where designs are made. This
+                      is the row that just told them the word "designed"; it is
+                      the row that has to hand them the tool. (WordPress puts
+                      Appearance → Themes in the primary nav; this is the same
+                      idea, one panel over.) */}
+                  <Row label={t("rowOpenDesigner")} hint={t("hintOpenDesigner")}>
+                    <button
+                      type="button"
+                      className="s-btn s-btn--accent"
+                      onClick={() => {
+                        setOpen(false);
+                        openDesigner();
+                      }}
+                    >
+                      {t("designTitle")}
+                    </button>
                   </Row>
                   {/* Same treatment as the language filter, one control over:
                       this removes topic pills — and with them whole topic

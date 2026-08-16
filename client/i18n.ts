@@ -651,6 +651,11 @@ const DICT = {
   hintDefaultTheme: { en: "visitors without a stored choice", ar: "للزوار بلا اختيار محفوظ" },
   rowPublicLayout: { en: "Public layout", ar: "التخطيط العام" },
   hintPublicLayout: { en: "visitor-facing shell", ar: "واجهة الزوار" },
+  rowOpenDesigner: { en: "Design the site", ar: "صمّم الموقع" },
+  hintOpenDesigner: {
+    en: "Presets, sections, navigation and type — what \"Designed\" above renders from.",
+    ar: "قوالب وأقسام وتنقّل وطباعة — وهي ما يرسم منه خيار «مصمَّم» أعلاه.",
+  },
   rowLanguage: { en: "Language", ar: "اللغة" },
   hintLanguage: { en: "site chrome language & direction", ar: "لغة واجهة الموقع واتجاهها" },
   // The notes sidebar's edge. The segment labels name a PHYSICAL edge in both
@@ -1925,7 +1930,15 @@ const DICT = {
   },
 
   designTitle: { en: "Design your site", ar: "صمّم موقعك" },
-  designPaletteHint: { en: "navigation, pages, type, header & footer", ar: "التنقل والصفحات والخط والترويسة والتذييل" },
+  // The hint is searched as well as read (CommandPalette: "typing what you can
+  // read must never answer 'no matches'"), and the Arabic label is the
+  // imperative «صمّم» — so the noun every Arabic speaker actually types,
+  // «تصميم», reached nothing. It is in the hint now, where it is also the
+  // plainest description of what the row opens.
+  designPaletteHint: {
+    en: "site design: presets, navigation, pages, type, header & footer",
+    ar: "تصميم الموقع: القوالب والتنقل والصفحات والخط والترويسة والتذييل",
+  },
   designPublicSite: { en: "Public site", ar: "الموقع العام" },
   designLayoutApp: { en: "App", ar: "التطبيق" },
   designLayoutBlog: { en: "Stock blog", ar: "المدونة الأصلية" },
@@ -2133,6 +2146,10 @@ const DICT = {
   designImport: { en: "Import JSON", ar: "استيراد JSON" },
   designImported: { en: "Design imported", ar: "تم استيراد التصميم" },
   designImportFailed: { en: "That file is not a valid design", ar: "هذا الملف ليس تصميمًا صالحًا" },
+  designImportTooBig: {
+    en: "That file is too large — a design is at most {n} MB",
+    ar: "هذا الملف كبير جدًا — حجم التصميم {n} م.ب على الأكثر",
+  },
   designReset: { en: "Reset to stock", ar: "إعادة الضبط الأصلي" },
   designResetTitle: { en: "Reset the design?", ar: "إعادة ضبط التصميم؟" },
   designResetBody: {
@@ -2235,6 +2252,7 @@ const DICT = {
     ar: "تُفرض على القرّاء الذين لم يختاروا سمة بأنفسهم. التصميم مظهر، والمظهر سمة وتخطيط معًا.",
   },
   designThemeInherit: { en: "Site default", ar: "افتراضي الموقع" },
+  designThemeInheritNote: { en: "The reader's own", ar: "اختيار القارئ نفسه" },
 
   dsoHintHero: { en: "A big opening block", ar: "كتلة افتتاحية كبيرة" },
   dsoHintRichText: { en: "Your own markdown", ar: "نصّك بصيغة ماركداون" },

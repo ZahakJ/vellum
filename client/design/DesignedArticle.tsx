@@ -25,6 +25,38 @@ import { renderMarkdown } from "../reading/render.ts";
 import { notePathToUrl } from "../router.ts";
 import { useStore } from "../state.ts";
 import { SectionError } from "./DesignBoundary.tsx";
+import { usePreviewContent } from "./previewContent.tsx";
+
+/**
+ * THE ARTICLE PAGE, PREVIEWED — the same component, not a second one.
+ *
+ * The designer's "Article" route used to draw a bare typography SPECIMEN: a
+ * title and four blocks of prose in the design's chrome. That is the right
+ * picture for a type control and the wrong one for a designer, because it left
+ * all five `design.article` switches — Banner, Date and reading time, Tags,
+ * Related posts, Back link — with no visible effect anywhere in the product.
+ * Five toggles and no preview.
+ *
+ * So the preview is THIS renderer, against `PreviewContent` instead of against
+ * the network: the seam is `usePreviewContent()`, exactly as it is for a `note`
+ * section and a `postGrid`'s banners (previewContent.tsx says why a context
+ * beats a fork). Two things change and nothing else does — the body is the
+ * specimen rather than a fetched note, and the page does not tell the app which
+ * note is open, because a picture of a page is not a page anybody navigated to.
+ *
+ * The specimen body is assembled from the dictionary keys the old specimen
+ * already used, so it is still the heading ladder and the measure an author
+ * needs to judge type, and there is not one new string to translate.
+ */
+function specimenMarkdown(): string {
+  return [
+    t("designSpecimenLead"),
+    `## ${t("designSpecimenH2")}`,
+    t("designSpecimenBody"),
+    `### ${t("designSpecimenH3")}`,
+    t("designSpecimenBody"),
+  ].join("\n\n");
+}
 
 export default function DesignedArticle({
   path,
@@ -38,25 +70,43 @@ export default function DesignedArticle({
   options: DesignArticle;
 }) {
   const host = useRef<HTMLDivElement | null>(null);
+  const preview = usePreviewContent();
   const tree = useStore((s) => s.tree);
-  const bannerFallback = useStore((s) => s.bannerFallback);
+  const storedFallback = useStore((s) => s.bannerFallback);
+  // Generated artwork in every preview, whatever this instance chose for its
+  // live site: an author still has to see what a banner does before they turn
+  // one on (previewContent.tsx, forceGeneratedBanners).
+  const bannerFallback = preview?.forceGeneratedBanners ? "generated" : storedFallback;
   const language = useStore((s) => s.language);
   const [content, setContent] = useState<string | null>(null);
   const [failure, setFailure] = useState<SectionError | null>(null);
 
   // Bidi controls out of the headline — the H1 is a filename, and an RLO in
   // one reorders every word after it.
-  const title = stripBidiControls(path.split("/").pop()!.replace(/\.md$/i, ""));
+  const fileTitle = stripBidiControls(path.split("/").pop()!.replace(/\.md$/i, ""));
   const meta = posts?.find((post) => post.path === path) ?? null;
+  // On the live site the H1 is the FILENAME, which is what a permalink names.
+  // A preview may be drawing a sample row, whose path is a slot number, so
+  // there the post's own title is the honest heading.
+  const title = preview ? (meta?.title ?? fileTitle) : fileTitle;
 
   // Raised after every hook has run — see the note in Sections.tsx::NoteBlock.
+  // NOT in a preview: the canvas is a picture, and a picture of an article
+  // must not tell the app which note the reader has open.
   useEffect(() => {
+    if (preview) return;
     useStore.setState({ openPath: path });
-  }, [path]);
+  }, [path, preview]);
 
   useEffect(() => {
     let disposed = false;
     setContent(null);
+    // A PREVIEW NEVER FETCHES. The designer would be requesting a note per
+    // keystroke and the gallery one per card, for a page that is a picture.
+    if (preview) {
+      setContent(specimenMarkdown());
+      return;
+    }
     getNote(path)
       .then((data) => {
         if (!disposed) setContent(data.content);
@@ -73,7 +123,7 @@ export default function DesignedArticle({
     return () => {
       disposed = true;
     };
-  }, [path]);
+  }, [path, preview]);
 
   const visibleTags = useMemo(
     () => (meta ? new Set(meta.tags.map((tag) => tag.toLowerCase())) : undefined),

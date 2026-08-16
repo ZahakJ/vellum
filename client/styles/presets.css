@@ -726,3 +726,66 @@
     transform: none;
   }
 }
+
+/* ── What a card and a detail sheet say in words ──────────────────────────── */
+
+/* The preset's named theme, spelled out. The dot beside it is decoration and
+   is aria-hidden; this is the label — a `title` is a tooltip, and a tooltip is
+   not a label on a touch screen. */
+.s-dsgp-card__themename {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* WHAT THIS PAGE IS MADE OF. The detail sheet's right half was a name, a
+   blurb, two buttons and then a third of a pane of nothing. */
+.s-dsgp-detail__manifest {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.s-dsgp-detail__part {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.s-dsgp-detail__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-block-start: 2px;
+}
+
+/* A tag is a FACET: every preset carries them and the only way to reach one
+   was to guess the word into the search box. */
+.s-dsgp-facet {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+
+.s-dsgp-facet:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-dsgp-facet {
+    transition: none;
+  }
+}

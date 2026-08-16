@@ -26,7 +26,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DesignDoc } from "../../../shared/design.ts";
 import DesignCanvas from "../../design/DesignCanvas.tsx";
 import type { PreviewContent } from "../../design/previewContent.tsx";
-import PreviewFrame from "../../design/PreviewFrame.tsx";
+import { themeChoiceAttrs } from "../../design/customThemes.ts";
+import PreviewFrame, { type FrameTheme } from "../../design/PreviewFrame.tsx";
 import { localeNum, t, tf, type I18nKey } from "../../i18n.ts";
 import { SegmentedControl } from "../controls/Fields.tsx";
 
@@ -68,6 +69,12 @@ export default function PreviewStage({ design, content, route }: PreviewStagePro
   const [zoom, setZoom] = useState<"fit" | "actual">("fit");
   const shown = useSettled(design, SETTLE_MS);
   const pending = shown !== design;
+  /** A DIFFERENT DOCUMENT ARRIVES, IT DOES NOT CUT. Applying a preset or
+   *  opening another design replaces the whole page in the pane, and a hard
+   *  cut between two complete sites reads as a glitch rather than as a choice
+   *  somebody just made. An edit to the SAME document still updates in place —
+   *  that is the 120ms settle above, and it must not be dressed up. */
+  const arriving = useArrival(shown.id);
 
   const width = DEVICES[device];
   const box = useRef<HTMLDivElement | null>(null);
@@ -101,6 +108,22 @@ export default function PreviewStage({ design, content, route }: PreviewStagePro
     [design.name],
   );
 
+  /**
+   * THE DESIGN'S OWN COLOURS, IN THE PANE THE AUTHOR LIVES IN.
+   *
+   * `design.theme` is FORCED on every reader who has not chosen one — it is
+   * what a first-time visitor sees — so a preview painted in the OPERATOR's
+   * theme is a preview of a site nobody will be served. Measured before this:
+   * a Front Page design (linen) previewed dark on an iron-gall operator while
+   * the live page was light, and the gallery card that sold it was a third
+   * colour again. The frame is a document of its own, so unlike a scaled
+   * canvas it can honour a `custom:` choice as well as one of the fifteen.
+   */
+  const ownTheme: FrameTheme | null = useMemo(
+    () => (shown.theme ? themeChoiceAttrs(shown.theme) : null),
+    [shown.theme],
+  );
+
   // A DIFFERENT PAGE STARTS AT ITS TOP. The frame keeps its scroll position
   // across every edit — that is the whole point of reconciling into it rather
   // than remounting — but switching from the front page to the article page is
@@ -123,7 +146,11 @@ export default function PreviewStage({ design, content, route }: PreviewStagePro
   }, [zoom, width]);
 
   return (
-    <div className={`s-dsgs${pending ? " s-dsgs--pending" : ""}`}>
+    <div
+      className={`s-dsgs${pending ? " s-dsgs--pending" : ""}${
+        arriving ? " s-dsgs--arriving" : ""
+      }`}
+    >
       <div className="s-dsgs__bar">
         <SegmentedControl
           value={device}
@@ -165,6 +192,7 @@ export default function PreviewStage({ design, content, route }: PreviewStagePro
           >
             <PreviewFrame
               title={label}
+              ownTheme={ownTheme}
               onReady={(doc) => {
                 frameDoc.current = doc;
               }}
@@ -197,6 +225,28 @@ export default function PreviewStage({ design, content, route }: PreviewStagePro
  *  because the scale factor is computed against it; the stylesheet reads the
  *  same number from `--dsgs-pad`. */
 const STAGE_PAD = 16;
+
+/** True for one beat after `key` changes — the hook behind the cross-fade
+ *  above. Never true on the first render: a pane that animates its own arrival
+ *  every time the designer opens is an animation about nothing. */
+function useArrival(key: string): boolean {
+  const first = useRef(true);
+  const previous = useRef(key);
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      previous.current = key;
+      return;
+    }
+    if (previous.current === key) return;
+    previous.current = key;
+    setOn(true);
+    const id = setTimeout(() => setOn(false), 280);
+    return () => clearTimeout(id);
+  }, [key]);
+  return on;
+}
 
 /**
  * The trailing edge of a stream of edits.

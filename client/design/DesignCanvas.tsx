@@ -44,6 +44,7 @@ import { typographyVars } from "../../shared/designChrome.ts";
 import { isTheme } from "../../shared/themes.ts";
 import { t } from "../i18n.ts";
 import { useStore } from "../state.ts";
+import DesignedArticle from "./DesignedArticle.tsx";
 import DesignFooter from "./DesignFooter.tsx";
 import DesignHeader from "./DesignHeader.tsx";
 import { DesignBoundary, type SectionFailure } from "./DesignBoundary.tsx";
@@ -289,7 +290,33 @@ export default function DesignCanvas({
           <main className="s-dsn-main">
             <div className="s-dsn-page">
               {route === "article" ? (
-                <ArticleSpecimen />
+                // THE ARTICLE PAGE IS A COMPOSED PAGE TOO, and drawing a bare
+                // specimen here left all five `design.article` switches with
+                // no visible effect in the whole product. `DesignedArticle` is
+                // the renderer the live site uses; against `PreviewContent` it
+                // draws the specimen prose under the design's own banner, meta,
+                // tags, related list and back link, so a toggle is a toggle.
+                // (Wrapped in the same per-part boundary as a section: a design
+                // whose article furniture throws is a caption in the pane, not
+                // a designer that unmounts.)
+                <DesignBoundary
+                  key={`${design.updatedMs}:article`}
+                  id="article"
+                  kind="page"
+                  onFail={noop}
+                  fallback={(failure) => <CanvasFailure failure={failure} />}
+                >
+                  {content.posts.length > 0 ? (
+                    <DesignedArticle
+                      path={content.posts[0].path}
+                      posts={content.posts}
+                      locale={locale}
+                      options={design.article}
+                    />
+                  ) : (
+                    <ArticleSpecimen />
+                  )}
+                </DesignBoundary>
               ) : (
                 sections.map((section) => (
                   <DesignBoundary

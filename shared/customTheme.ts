@@ -28,6 +28,7 @@
 // exactly what it meant (a BUILT-IN theme) while the new callers ask
 // `isThemeChoice()` instead.
 
+import { stripBidiControls } from "./bidi.ts";
 import { checkTheme, type ContrastCheck } from "./contrast.ts";
 import { isTheme, themeGroup, type Theme, type ThemeGroup } from "./themes.ts";
 
@@ -239,7 +240,12 @@ export function validateCustomTheme(input: unknown, now = Date.now()): CustomThe
   }
   const raw = input as Record<string, unknown>;
 
-  const name = typeof raw.name === "string" ? raw.name.replace(/\s+/g, " ").trim() : "";
+  // A theme NAME is drawn in the public theme picker and in the designer's own
+  // list, so it is stripped like every other operator string that reaches a
+  // page (shared/bidi.ts). The field's own doc comment has claimed this since
+  // the day it was written; now it is true.
+  const name =
+    typeof raw.name === "string" ? stripBidiControls(raw.name).replace(/\s+/g, " ").trim() : "";
   if (name === "") throw new ThemeError("Custom theme needs a name");
   if (name.length > THEME_NAME_MAX) {
     throw new ThemeError(`Custom theme name is too long (${THEME_NAME_MAX} characters max)`);

@@ -20,6 +20,7 @@ import { DRAWER_QUERY, useStore } from "../state.ts";
 import { choiceGroup, choiceLabel } from "../themes.ts";
 import SyncBadge from "./SyncBadge.tsx";
 import { openThemePicker } from "./ThemePicker.tsx";
+import { openDesigner } from "./design/DesignerPanel.tsx";
 import { noteLabelOf, stripNoteExt } from "../../shared/noteFormat.ts";
 import { dailyNoteLabel } from "../daily.ts";
 import { isHardWrapped, layoutBadge, noteLayout, type NoteLayout } from "../textLayout.ts";
@@ -440,6 +441,34 @@ export default function StatusBar() {
           on its far side is a rule separating a group from empty space. */}
       {admin && (
         <span className="s-statusbar__group">
+          {/* THE DESIGNER'S OWN DOOR. `openDesigner()` used to have exactly one
+              call site in the client — the command palette — so the whole
+              feature was behind Ctrl+P and a guess at the word. It sits beside
+              the gear because that is where an admin already goes to change
+              what a visitor sees, and its glyph is the shape of a composed
+              page: a masthead over a column and a grid. */}
+          <button
+            type="button"
+            className="s-statusbar__btn s-statusbar__icon"
+            onClick={openDesigner}
+            title={t("designTitle")}
+            aria-label={t("designTitle")}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="13"
+              height="13"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <path d="M3 9h18M9 9v12" />
+            </svg>
+          </button>
           <button
             type="button"
             className="s-statusbar__btn s-statusbar__gear"
