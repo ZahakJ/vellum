@@ -11,6 +11,7 @@ import { toast } from "../toast.ts";
 import { confirmModal } from "./Confirm.tsx";
 import { authorName, deleteComment, IconEyeSlash, setCommentHidden } from "./Marginalia.tsx";
 import "../styles/comments.css";
+import { stripNoteExt } from "../../shared/noteFormat.ts";
 
 const FEED_LIMIT = 100;
 
@@ -29,7 +30,7 @@ async function fetchFeed(): Promise<Feed> {
 
 function titleOf(path: string): string {
   const base = path.split("/").pop() ?? path;
-  return base.replace(/\.md$/i, "");
+  return stripNoteExt(base);
 }
 
 function snippetOf(body: string): string {

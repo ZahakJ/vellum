@@ -1,0 +1,337 @@
+/* Vellum — the selection menu and the floating formatting toolbar.
+   Imported by client/components/SelectionMenu.tsx.
+
+   Everything reads tokens from tokens.css; the only colours written here are
+   the two the swatches carry, and those come from the component as inline
+   backgrounds (a swatch has to be painted in the colour it names).
+
+   RTL comes from logical properties throughout — the menu is placed by JS
+   (it is `position: fixed` at the pointer and clamped into the viewport), but
+   its INSIDES mirror by themselves, which is the same division of labour the
+   tree's context menu settled on. */
+
+.s-selmenu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+
+.s-selmenu {
+  position: fixed;
+  min-width: 15rem;
+  max-width: min(22rem, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
+  font-family: var(--font-ui);
+  font-size: 0.86rem;
+  outline: none;
+}
+
+.s-selmenu__group + .s-selmenu__group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+/* A GROUP LABEL IS SOMETHING THE READER READS, so it is --text-muted (4.5:1
+   in all fifteen) and not --text-faint. The pair used to sit at the 3:1
+   non-text floor, which held on --bg and --bg-raised and did NOT hold on the
+   highlighted row's own ground: measured on --bg-hover, iron-gall 2.74:1,
+   sumi 2.89, tallow 2.89, parchment 2.98 — under DESIGN.md's own bar, one
+   substrate over from where check-contrast.mjs was looking. */
+.s-selmenu__title {
+  margin: 0;
+  padding: 5px 10px 3px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.s-selmenu__row,
+.s-selmenu__back {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+/* ONE LIT ROW. `button:hover` in app.css paints --bg-hover on every button in
+   the product, which was exactly the ground `--active` carried here: the row
+   under the pointer and the row Enter would run looked equally chosen, and on
+   a keyboard they were regularly not the same row. The pointer moves the
+   highlight (onMouseMove), so hover needs no paint of its own — and the lit
+   state is the one the command palette already uses, --accent-soft with a
+   gold leading bar, because two menus in one product may not have two
+   vocabularies for "this is the row". */
+.s-selmenu__row:hover,
+.s-selmenu__back:hover {
+  background: none;
+}
+
+.s-selmenu__row--active,
+.s-selmenu__row--active:hover {
+  background: var(--accent-soft);
+}
+
+.s-selmenu__row--active::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.s-selmenu__back {
+  margin-bottom: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 4px 4px 0 0;
+  color: var(--text-muted);
+}
+
+.s-selmenu__back:hover {
+  color: var(--text);
+}
+
+.s-selmenu__label {
+  flex: 1;
+}
+
+/* The submenu chevron and the back arrow mirror with the reading direction —
+   a door that opens toward the trailing edge points at it in both scripts —
+   and NOTHING HERE DOES THAT WORK. U+2039/U+203A are bidi-mirrored
+   characters: the browser already draws `›` as `‹` inside an RTL paragraph.
+   A `scaleX(-1)` under `[dir="rtl"]` (the first draft) mirrors the mirror and
+   puts the chevron back the wrong way round — verified in the browser,
+   computed `matrix(-1, 0, 0, 1, 0, 0)` over an already-flipped glyph. */
+.s-selmenu__chev {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.s-selmenu__row--active .s-selmenu__chev {
+  color: var(--accent);
+}
+
+/* The checkbox mark: the box is always there, the ✓ appears. A control whose
+   OFF state is an empty gap reads as a missing row. */
+.s-selmenu__check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--text-faint);
+  border-radius: 3px;
+  color: transparent;
+  font-size: 0.66rem;
+  line-height: 1;
+}
+
+.s-selmenu__check--on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* Keycaps are machine text and must not be reordered by an RTL paragraph. */
+.s-selmenu__keys {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  white-space: nowrap;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* ONE ROW OF CHIPS, ending in the ⊘ that takes colour back off. `nowrap` is
+   load-bearing: flexbox WRAPS before it shrinks, so with wrapping allowed the
+   chips broke onto a second line at narrow widths instead of narrowing — a
+   second row of colour by another name, which is the thing this row exists to
+   not be. */
+.s-selmenu__swatches {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+
+.s-selmenu__swatches--active {
+  background: var(--accent-soft);
+}
+
+/* `flex: 0 1 <size>` + `aspect-ratio`, not width/height: the row must stay ONE
+   row at every width. At 390 the nine chips at their touch size came to 328px
+   against 321px of box and the ⊘ wrapped onto a line of its own, which is a
+   second row of colour by another name. They shrink evenly instead. */
+.s-selmenu__chip {
+  position: relative;
+  flex: 0 1 1.35rem;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.s-selmenu__chip--none {
+  background: transparent;
+}
+
+/* ⊘ drawn rather than typed: a glyph would sit at the font's own size and
+   baseline inside a 1.35rem circle and never centre in both scripts. */
+.s-selmenu__chip--none::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: linear-gradient(
+    to bottom right,
+    transparent calc(50% - 0.75px),
+    var(--text-muted) calc(50% - 0.75px),
+    var(--text-muted) calc(50% + 0.75px),
+    transparent calc(50% + 0.75px)
+  );
+}
+
+.s-selmenu__chip--active,
+.s-selmenu__chip:hover {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ── The floating toolbar ─────────────────────────────────────────────────
+   On <body>, not inside the scroller: it has to sit above the selection
+   without being clipped by the editor's overflow, and it is positioned from
+   the selection's own client rect (SelectionMenu.tsx), which is viewport
+   coordinates already. */
+
+.s-seltool {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  padding: 3px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 0.32);
+  font-family: var(--font-ui);
+  /* The strip is a row of glyph buttons whose ORDER is a toolbar's order, not
+     a sentence's: B, I, S read the same way in both languages. */
+  direction: ltr;
+}
+
+.s-seltool__btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* background-COLOR, so the highlight button keeps its swatch on hover. */
+.s-seltool__btn:hover,
+.s-seltool__btn:focus-visible {
+  background-color: var(--bg-hover);
+  color: var(--text);
+}
+
+.s-seltool__btn--fmtBold {
+  font-weight: 700;
+}
+.s-seltool__btn--fmtItalic {
+  font-style: italic;
+  font-family: var(--font-serif);
+}
+.s-seltool__btn--fmtStrikethrough {
+  text-decoration: line-through;
+}
+/* The glyph carries its own meaning: struck S, HIGHLIGHTED H, mono brackets.
+   It was a 3px gold rule UNDER the H — one row away from a genuine Underline
+   command in the menu, which is exactly what it read as. A highlighter lays
+   ink BEHIND a word, so the swatch goes behind the letter. */
+.s-seltool .s-seltool__btn--fmtHighlight {
+  font-weight: 600;
+  /* A background-image, not a pseudo-element: an absolutely positioned ::before
+     paints ABOVE the button's own text node and would cover the letter. */
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--accent) 55%, transparent),
+    color-mix(in srgb, var(--accent) 55%, transparent)
+  );
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 1.15em 1.1em;
+}
+.s-seltool__btn--fmtCode {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.s-seltool__more {
+  margin-inline-start: 2px;
+  border-inline-start: 1px solid var(--border);
+  border-radius: 0 4px 4px 0;
+  letter-spacing: 0.05em;
+}
+
+/* Touch: the same 44px floor the rest of the shell holds to. A toolbar whose
+   buttons are 30px is a toolbar that formats the wrong word on a phone. */
+@media (max-width: 700px), (pointer: coarse) {
+  .s-seltool__btn {
+    min-width: 44px;
+    height: 44px;
+  }
+  .s-selmenu__row,
+  .s-selmenu__back {
+    min-height: 44px;
+  }
+  .s-selmenu__chip {
+    flex-basis: 2rem;
+  }
+  /* Wide enough for nine touch-sized chips in one row. A context menu at
+     phone width is a sheet, and the alternative is 20px colour targets. */
+  .s-selmenu {
+    min-width: min(22rem, calc(100vw - 16px));
+  }
+  /* NO KEYCAPS ON A DEVICE WITH NO KEYBOARD. "Ctrl/Cmd ⇧ X" printed on every
+     row of a phone-sized menu is the same taunt DESIGN.md already writes down
+     for the empty state's keymap, and it was the widest thing in the box. */
+  .s-selmenu__keys {
+    display: none;
+  }
+}

@@ -16,6 +16,7 @@ import { initSite } from "./site.ts";
 import { initComments } from "./comments.ts";
 import { initIndexer } from "./indexer.ts";
 import { initVault, isIgnoredSegment, resolveVaultRoot, startWatcher, statAttachment } from "./vault.ts";
+import { isNotePath } from "../shared/noteFormat.ts";
 
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const port = Number(process.env.PORT) || 6801;
@@ -38,7 +39,7 @@ function hasMarkdown(dir: string): boolean {
     }
     for (const entry of entries) {
       if (isIgnoredSegment(entry.name)) continue;
-      if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) return true;
+      if (entry.isFile() && isNotePath(entry.name)) return true;
       if (entry.isDirectory()) stack.push(path.join(current, entry.name));
     }
   }

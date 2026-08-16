@@ -1,6 +1,7 @@
 // Wikilink parsing + resolution against the vault tree held in the zustand store.
 
 import type { TreeNode } from "../../shared/types.ts";
+import { isNotePath, noteCandidates, stripNoteExt } from "../../shared/noteFormat.ts";
 
 export interface NoteRef {
   title: string; // basename without .md
@@ -41,8 +42,10 @@ export function collectNotes(tree: TreeNode | null): NoteRef[] {
     if (node.type === "file") {
       // Match on PATH, not name: the visitor-facing published tree names
       // nodes by bare title (no ".md") while paths stay real vault paths.
-      if (node.path.toLowerCase().endsWith(".md")) {
-        out.push({ title: node.name.replace(/\.md$/i, ""), path: node.path });
+      // Any note format: a `.tex` file is a note, so it is a wikilink target,
+      // an autocomplete candidate and a graph node like any other.
+      if (isNotePath(node.path)) {
+        out.push({ title: stripNoteExt(node.name), path: node.path });
       }
       return;
     }
@@ -59,7 +62,9 @@ export function collectNotes(tree: TreeNode | null): NoteRef[] {
  * duplicates. Also accepts an explicit vault-relative path as target.
  */
 export function resolveLink(target: string, tree: TreeNode | null): string | null {
-  const name = parseWikilink(target).target.toLowerCase();
+  // `[[Paper.tex]]` and `[[Paper]]` name the same note — the extension comes
+  // off whichever one it is, exactly as `.md` always did.
+  const name = stripNoteExt(parseWikilink(target).target.toLowerCase());
   if (!name) return null;
   const notes = collectNotes(tree);
 
@@ -71,10 +76,14 @@ export function resolveLink(target: string, tree: TreeNode | null): string | nul
     return matches[0].path;
   }
 
-  // Fall back to a path-style target like "folder/Note" or "folder/Note.md".
-  const asPath = name.endsWith(".md") ? name : `${name}.md`;
-  const byPath = notes.find((n) => n.path.toLowerCase() === asPath);
-  return byPath ? byPath.path : null;
+  // Fall back to a path-style target like "folder/Note" or "folder/Note.tex".
+  // Candidate ORDER mirrors the server's (`.md` first), so client and server
+  // never disagree about which of two same-named notes a link means.
+  for (const candidate of noteCandidates(name)) {
+    const byPath = notes.find((n) => n.path.toLowerCase() === candidate);
+    if (byPath) return byPath.path;
+  }
+  return null;
 }
 
 /** All ATX heading texts in a note, in order, skipping fenced code. */

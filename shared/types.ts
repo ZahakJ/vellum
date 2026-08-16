@@ -69,6 +69,15 @@ export interface MeData {
   defaultTheme?: string; // theme applied when the visitor has no stored choice (DEFAULT_THEME)
   language?: "en" | "ar"; // site chrome language (settings.language / SITE_LANG; default "en"); "ar" flips the whole chrome RTL. Sent to every session.
   languageToggle?: boolean; // settings.languageToggle — the public shell offers visitors an EN/ع chrome switch (default off; absent = off)
+  /** settings.languageFilter / LANGUAGE_FILTER is on: the public lists carry
+   *  only notes written in the site language's script. A BOOLEAN POLICY FLAG,
+   *  never a count — the filter's own contract is that a filtered-out note's
+   *  existence does not leak, so the empty state may say "this list is
+   *  language-scoped" and may not say how many notes that scoping hid. Without
+   *  it the blog's empty state read "Nothing published here yet." on an
+   *  instance with twenty-one published posts, which is a true sentence about
+   *  the list and a false one about the site. */
+  languageFilter?: boolean;
   /** Marginalia are live on this instance (COMMENTS=on, or
    *  settings.commentsEnabled). Absent = off, and the client then never asks
    *  /api/comments at all: without this the reading view fired one request per
@@ -473,4 +482,45 @@ export interface GitSyncStatus {
   authMode: "ssh" | "token";
   tokenSet: boolean;
   last: GitSyncResult | null;
+}
+
+// ── LaTeX notes: anchors & cross-references ─────────────────────────────────
+// `.tex` and `.latex` files are notes throughout (tree, index, search, graph,
+// backlinks, tags, publish, posts, RSS). The two wire shapes below exist for
+// the one thing markdown never needed: a NAMED PLACE inside a note that
+// another note can point at from either format.
+
+/** One named anchor inside a note — a markdown heading or a LaTeX `\label`,
+ *  deliberately the same kind of thing. `[[Note#anchor]]` and
+ *  `\ref{Note#anchor}` are one lookup against this table, whatever the
+ *  target's format, and `![[Paper#eq:fourier]]` transcludes the one block it
+ *  names. Mirrors `NoteAnchor` in shared/tex.ts, which is where it is built. */
+export interface NoteAnchorInfo {
+  /** Address: a slugified heading, or a `\label{…}` value verbatim. */
+  id: string;
+  kind: "heading" | "label" | "equation" | "figure" | "table" | "section" | "theorem";
+  /** What a reader would call it — heading text, caption, or "(3)". */
+  title: string;
+  /** 1-based source line. */
+  line: number;
+  /** Printed number when the thing carries one ("3", "1.2", "A.1"). */
+  number?: string;
+}
+
+// GET /api/anchors?path= → AnchorsResponse. Visitor-scoped exactly like
+// /api/note: a published note's anchors are readable, nothing else is.
+export interface AnchorsResponse {
+  path: string;
+  anchors: NoteAnchorInfo[];
+}
+
+// GET /api/xref?label= | ?cite= → XrefResponse. The VAULT-WIDE half of LaTeX
+// cross-referencing, asked only after the local document has been checked —
+// local-first is what guarantees that importing a project never changes how it
+// compiles. A miss is 200 with nulls, like /api/resolve.
+export interface XrefResponse {
+  /** The note carrying the label or citekey, or null. */
+  path: string | null;
+  /** The matched anchor (label lookups only; null for a citekey). */
+  anchor: NoteAnchorInfo | null;
 }

@@ -17,6 +17,7 @@ import type { TreeNode } from "../shared/types.ts";
 import { getNote } from "./api.ts";
 import { collectNotes, resolveLink } from "./editor/links.ts";
 import { t } from "./i18n.ts";
+import { isNotePath, noteCandidates, noteTitleOf, stripNoteExt } from "../shared/noteFormat.ts";
 import { useStore } from "./state.ts";
 import { toast } from "./toast.ts";
 
@@ -26,7 +27,7 @@ let applying = false;
 
 /** Vault note path → pathname for the address bar ("a/b.md" → "/a/b"). */
 export function notePathToUrl(path: string): string {
-  const trimmed = path.replace(/\.md$/i, "");
+  const trimmed = stripNoteExt(path);
   return "/" + trimmed.split("/").map(encodeURIComponent).join("/");
 }
 
@@ -45,7 +46,10 @@ export function urlToNoteGuess(pathname: string): string | null {
   }
   const rel = decoded.replace(/^\/+/, "").replace(/\/+$/, "");
   if (!rel || rel.includes("..")) return null;
-  return rel.toLowerCase().endsWith(".md") ? rel : `${rel}.md`;
+  // A permalink carries no extension, so the guess has to pick one. `.md`
+  // first, matching the server's own resolution order — a vault that grows a
+  // `Paper.tex` beside its `Paper.md` must not re-point existing permalinks.
+  return isNotePath(rel) ? rel : `${rel}.md`;
 }
 
 /** Pathname → vault note path, matched against the loaded tree.
@@ -60,9 +64,14 @@ export function urlToNotePath(pathname: string, tree: TreeNode | null): string |
   }
   const rel = decoded.replace(/^\/+/, "").replace(/\/+$/, "");
   if (!rel) return null;
-  const want = (rel.toLowerCase().endsWith(".md") ? rel : `${rel}.md`).toLowerCase();
-  for (const note of collectNotes(tree)) {
-    if (note.path.toLowerCase() === want) return note.path;
+  // Every note extension is tried, in resolution order: "/Papers/Heat Equation"
+  // must find `Papers/Heat Equation.tex` exactly as it finds a `.md`.
+  const wants = noteCandidates(rel).map((c) => c.toLowerCase());
+  const notes = collectNotes(tree);
+  for (const want of wants) {
+    for (const note of notes) {
+      if (note.path.toLowerCase() === want) return note.path;
+    }
   }
   // Short link like /Welcome for a nested note — resolve like a wikilink.
   if (!rel.includes("/")) return resolveLink(rel, tree);
@@ -84,7 +93,7 @@ function setTitle(openPath: string | null, view: string): void {
   if (view === "graph") {
     document.title = `${t("docTitleGraph")} · ${base}`;
   } else if (openPath) {
-    const name = stripBidiControls(openPath.split("/").pop()!.replace(/\.md$/i, ""));
+    const name = stripBidiControls(noteTitleOf(openPath));
     document.title = `${name} · ${base}`;
   } else {
     document.title = base;

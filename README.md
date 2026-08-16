@@ -853,10 +853,29 @@ captures every section through the rail (printing the panel's scroll geometry an
 font sizes), and `node scripts/shoot-sync.mjs <url> <password> <outdir>` captures the Backup &
 sync section plus the status badge's detail panel. Both take `THEME=parchment` and
 `LANGSET=ar` to check a theme or the right-to-left mirror.
+`node scripts/check-caret.mjs <url> [outdir]` is the **click-to-caret** gate. Live preview replaces
+markdown source with rendered boxes of a different width *and* a different length — eighteen
+characters of `$7.7\ \text{km/s}$` standing under seven glyphs of KaTeX — so any pointer→document
+mapping that reasons about geometry instead of about the DOM drifts by exactly that difference. It
+writes its own note (inline math, inline code, wikilinks, tags, highlights and an image, in English
+and Arabic, on lines long enough to wrap several times), runs the whole matrix once in each shell
+direction, and requires every clicked glyph to take the caret **within one character**. Before the
+fix it reported misses up to **82 characters** — the owner's "click near the start of a line, the
+caret lands about 25 words in"; after it, zero. Needs an admin session (open local mode is fine)
+and `CHROMIUM=/usr/bin/chromium`; it restores the instance language and deletes its fixture
+however the run ends.
 `node scripts/check-contrast.mjs` is the accessibility gate for `client/styles/tokens.css`:
 every theme must keep body text ≥ 4.5:1, secondary text ≥ 3:1, and the accent ≥ 4.5:1 against
 the page — the accent pair is read as text twice over (wikilinks and tag pills in the prose, and
 the lit mode pill, which is the same two colors swapped). Run it after touching theme tokens.
+It also holds the **text-colour palettes** (`shared/textColors.ts`, `client/styles/textcolor.css`),
+which exist in two tiers for an arithmetic reason: against `void`'s `#050508` a colour needs
+relative luminance ≥ 0.186 and against `solar`'s `#ffffff` it needs ≤ 0.183, so **no single colour
+clears AA on all fifteen themes**. The theme-aware tier (`var(--vc-*)`, the default) therefore
+carries one value per theme *group* and is held to 4.5:1 against every ground in its group; the
+fixed-ink tier carries one hex for all fifteen and is held to 3:1, WCAG 1.4.11's non-text floor,
+which is the most a fixed colour can promise. The gate prints both, and checks the stylesheet's
+values against the module's.
 
 ## Features
 
@@ -873,6 +892,9 @@ the lit mode pill, which is the same two colors swapped). Run it after touching 
 - **Heading folding** — a chevron sits beside every heading (visible at rest, not on hover — a control nobody can see is a control nobody finds, and there is no hover on a phone); click it, or `Ctrl/Cmd Shift [` / `]`, to fold a section down to a "N folded lines" chip. `Ctrl/Cmd Alt [` / `]` folds or opens everything
 - **List/quote continuation** — `Enter` continues `-` lists, `- [ ]` tasks, numbered lists, and `>` quotes; `Enter` on an empty item exits. `Ctrl/Cmd ↑/↓` moves the current line. Pasting a URL over selected text makes a markdown link
 - **Folder delete, Obsidian-safe** — right-click a folder in the sidebar: "Delete folder" *moves* the whole subtree to the vault's `.trash/`, so it is recoverable from disk (the dialog names the folder and counts the notes first); a quieter "Delete permanently" beside it erases instead, behind its own confirmation
+- **Text formatting on the keys you already know** — `Ctrl/Cmd B` / `I` / `U`, plus strikethrough (`Ctrl/Cmd Shift X`) and highlight (`Ctrl/Cmd Shift H`) on Obsidian's own bindings. Every one toggles, works with no selection (markers inserted, caret between them), and applies per line across a multi-line selection
+- **Selection menu and floating toolbar** — right-click a selection (or `Shift F10`) for the whole vocabulary, grouped: text style, structure, insert, colour. It is keyboard-complete, never overflows the viewport, and mirrors in Arabic. A Notion-style strip with the six most-used actions floats over every selection unless you turn it off from the menu's last row (the palette turns it back on)
+- **Coloured text in two tiers** — the default writes `var(--vc-blue)`, a *meaning* that every one of the fifteen themes resolves to something clearing AA on its own ground, light or dark; a fixed-ink palette writes a literal hex when you mean *that* colour. Both render identically in the editor, the reading view and the blog, and the sanitizer admits `style` on a `<span>` for `color`/`background-color` only — no `url()`, no other properties
 - **Vim mode**, autosave (600 ms debounce + `Ctrl/Cmd S`), and a keyboard-first surface
 
 ### Rendering
@@ -886,6 +908,95 @@ the lit mode pill, which is the same two colors swapped). Run it after touching 
 - **Highlights, comments, footnotes** — `==mark==`, `%%hidden comment%%`, `[^1]` superscript refs that jump to their definitions
 - **Reading view** — `Ctrl/Cmd E` flips the note to a fully rendered, read-only page (tables included), sharing the editor's resolve logic
 
+### LaTeX notes (`.tex`, `.latex`)
+
+A `.tex` file is a **note**, not an import. It is in the tree, in search, in
+the graph, in the backlinks panel, in the tag counts, in the post list and in
+the RSS feed, and it publishes to the blog exactly as a `.md` note does — same
+typography, same themes, same visitor scoping, both languages. And it still
+compiles: everything Vellum adds is a LaTeX comment or a macro you can ship
+beside the file.
+
+- **Live-preview editor** — the CodeMirror `stex` mode themed to whichever of
+  the fifteen rooms you are in, with the same bargain the markdown editor
+  makes: the caret's line shows raw TeX, every other line reads as the thing it
+  becomes. Sectioning is set in serif, `\emph`/`\textbf`/`\texttt` render,
+  `\item` becomes a bullet or its number, `$…$` and display environments are
+  set by KaTeX, `\cite` is a chip, and `\begin{figure}` shows **your vault's
+  actual image** with its caption. (Section and equation *numbers* are the
+  reading view's — they are a property of the whole document, and a number that
+  renumbered itself as you typed above it would be a distraction rather than a
+  preview; the outline panel beside the editor prints them.) Fold any
+  environment or section from the chevron beside it. Autocomplete covers
+  `\note{`, `\ref{`, `\cite{` and `\begin{` (which writes the matching `\end`)
+- **The formatting keys write LaTeX here** — `Ctrl/Cmd B` in a `.tex` note is
+  `\textbf{…}`, not `**…**`; `Ctrl/Cmd I` is `\emph{…}`, inline code is
+  `\texttt{…}`, "Heading 2" is `\subsection{…}`, a bulleted list is an
+  `itemize` environment and a wikilink is `\note{…}`. Strikethrough, highlight,
+  the task list and the colour swatches are **absent** from the menu in a
+  `.tex` note rather than approximated: LaTeX cannot spell them without a
+  package your document may not load, and a key that quietly writes something
+  neither Vellum nor `pdflatex` can render is worse than a key that does
+  nothing
+- **Reading & publishing** — rendered in the same visual language as markdown:
+  numbered sections, numbered equations, "Figure 1" captions, theorem boxes,
+  resolved cross-references, a `\bibitem` bibliography, footnotes. The outline
+  panel follows the `\section` hierarchy
+- **Frontmatter that pdflatex ignores** — a leading comment block:
+  ```latex
+  %---
+  % publish: true
+  % tags: [physics, fourier]
+  % banner: "Media/heat.png"
+  %---%
+  ```
+  or, if you would rather write a macro, `\vellum{publish=true, citekey=fourier1822}`
+- **Links, three ways** — `\note{Fourier Transform}` and
+  `\note[the transform]{Fourier Transform}` are Vellum's own macro (ship
+  [`vellum.sty`](#latex-linking) beside the file and it compiles anywhere);
+  `%% [[Private Scratch]] %%` is a link the PDF never shows; and an existing
+  project lights up **unmodified**, because `\input`, `\include`, `\cite`,
+  `\ref` and `\eqref` already say what they mean — Vellum simply extends their
+  search path to the vault, local definitions first, so importing a project can
+  never change how it compiles
+- **One anchor space** — a markdown heading and a LaTeX `\label` are the same
+  kind of thing, so `[[Heat Equation#eq:fourier]]` and `\note{Notes\#Derivation}`
+  are one lookup in either direction, and `![[Heat Equation#eq:fourier]]`
+  transcludes **just that equation**, rendered by KaTeX, into a markdown note
+
+<a id="latex-linking"></a>
+**`vellum.sty`** — the dozen lines that make `\note{…}` compile outside Vellum.
+Download it from your own instance at `/api/vellum.sty` (or "LaTeX: download
+vellum.sty" in the command palette), drop it beside your document, and
+`\usepackage{vellum}`. Without it the file still opens in Vellum; with it,
+`pdflatex` renders the very same file.
+
+#### What renders, and what does not
+
+An honest boundary beats a leaky claim of "full LaTeX". Anything not listed
+below is **passed through as a quiet inline marker** — never as raw source,
+never as a crash — and an unparseable document still opens, lists, publishes
+and searches by its title.
+
+| | |
+| --- | --- |
+| **Structure** | `\part` `\chapter` `\section` `\subsection` `\subsubsection` `\paragraph` `\subparagraph` (starred forms unnumbered), `\appendix`, `\maketitle` with `\title`/`\author`/`\date`, `abstract`, `\tableofcontents`, `\label` anywhere |
+| **Text** | `\emph` `\textit` `\textbf` `\texttt` `\textsc` `\textsf` `\underline`, `\footnote`, `\\` breaks, `~`, `--`/`---`, ` ``…'' ` quotes, accents (`\'e` `\"o` `\c{c}` …), `\LaTeX` and the common symbol macros, `\url` and `\href` |
+| **Lists** | `itemize`, `enumerate` (numbered), `description` |
+| **Maths** | `$…$`, `\(…\)`, `\[…\]`, `$$…$$`, `equation` `align` `gather` `multline` `alignat` `flalign` `eqnarray` `displaymath` and their starred forms, `aligned` `gathered` `split` `cases` `array` and the matrix family — all through KaTeX, with **Vellum's own equation numbering** (KaTeX restarts its counter per block, which would print "(1)" for every equation in a paper) and `\nonumber`/`\notag` honoured |
+| **Floats** | `figure` with `\includegraphics` (extension optional, resolved against your vault) and `\caption`; `table` with `tabular`/`tabularx`/`longtable`, `\multicolumn`, alignment from the column spec |
+| **Blocks** | `quote` `quotation` `verse`, `center`, `verbatim` `lstlisting` `minted` (highlighted), `thebibliography` with `\bibitem` |
+| **Theorems** | `theorem` `lemma` `proposition` `corollary` `definition` `remark` `example` `proof` and friends, numbered, with the optional `[title]` |
+| **Macros** | `\newcommand`/`\renewcommand` with up to nine arguments and an optional default — expanded in text, and handed to KaTeX for maths |
+| **Ignored** | preamble furniture (`\documentclass`, `\usepackage`, `\setlength`, `\hypersetup`, spacing commands, `\index`, `\nocite`) — consumed silently, never printed |
+
+Known simplifications, stated rather than discovered: numbering is
+article-style (`1`, `1.1`, `1.1.1`) whatever the document class; `\ref` prints a
+number for a local label and the target's *title* across a note boundary,
+because a bare "1" means nothing in someone else's paper; and BibTeX is not
+run — `\cite` resolves against a `\bibitem` in the document or a note carrying
+that `citekey:`, and is otherwise left alone.
+
 ### Navigating
 
 - **Backlinks panel** — every note shows who links to it, with the sentence that did
@@ -894,8 +1005,9 @@ the lit mode pill, which is the same two colors swapped). Run it after touching 
 - **Full-text search** — prefix + fuzzy (MiniSearch), highlighted snippets with markdown syntax stripped, instant
 - **Tags** — `#inline` and frontmatter `tags:`, counted and clickable in the sidebar
 - **Attachments are in the tree** — your vault is not only `.md`, and the sidebar says so: images, PDFs, audio, video and everything else sit under their folder beneath the notes, each with a type glyph, and the footer counts both ("1,388 notes · 1,176 files"). Clicking an image opens a lightbox — natural size capped to the viewport, filename, pixel dimensions and file size, `←`/`→` through the rest of that folder ("3 / 47"), `Esc` or a click outside to leave. PDFs open in a browser tab, audio and video get an inline player, anything else offers a download. The paperclip in the sidebar footer hides them all again, and remembers
+- **Reorganize by dragging** — drag a note or a whole folder onto any folder row, onto an ancestor, or onto the vault's name to send it back to the top level. The valid target lights up in the accent; one it cannot take — a folder onto its own descendant, or the folder it is already in — is refused in red rather than staying quiet. Hovering a collapsed folder mid-drag **springs it open** after a beat so you can drill into a nested destination without letting go, the tree auto-scrolls near either edge, and dropping onto a folder that is still shut works fine. **Every link follows**: `[[wikilinks]]` written as paths, `[markdown](links)`, and the relative `![embeds](../Media/x.png)` inside the notes that moved — a folder move of 1,214 notes repairs 246 notes' links and is indexed before the request answers, so search, the graph and the public site are correct the moment it lands. A name collision asks for another name instead of overwriting, and every move raises a toast naming both ends **with Undo**. No mouse? "Move to…" in a row's right-click menu and in the command palette opens a filterable folder picker that does exactly the same thing — as does dropping images straight from your desktop onto a folder row
 - **Daily notes** — `Ctrl/Cmd D` opens (or creates) `daily/YYYY-MM-DD.md`
-- **A shell that gets out of the way** — collapse either pane (`Ctrl/Cmd B`, `Ctrl/Cmd Shift B`) down to a slim reopen handle, or go **zen** (`Ctrl/Cmd Shift Z`): sidebar, panel, tabs and status bar step aside and the prose centers on a wide measure. `Esc` (or the faint ✕) comes back. Every state is remembered across reloads — and **folding a pane never moves the note**: the column stays optically centred in the window whichever panes are open, with deliberate air beside a closed pane's reopen handle
+- **A shell that gets out of the way** — collapse either pane (`Ctrl/Cmd Alt B`, `Ctrl/Cmd Alt Shift B`) down to a slim reopen handle, or go **zen** (`Ctrl/Cmd Shift Z`): sidebar, panel, tabs and status bar step aside and the prose centers on a wide measure. `Esc` (or the faint ✕) comes back. Every state is remembered across reloads — and **folding a pane never moves the note**: the column stays optically centred in the window whichever panes are open, with deliberate air beside a closed pane's reopen handle
 - **Notes sidebar on either side** — three states, in the palette and in Settings → Appearance & language: *follow the language* (the default — left in English, right in Arabic, re-evaluated whenever the language changes) or pin it to the left or right screen edge for good
 - **Command palette** — fuzzy over notes and commands, including "Toggle reading view", "Open daily note", "Zen mode", themes, vim
 - **Live vault watching** — edit a file in any other editor and the app updates within ~100 ms (chokidar + SSE)
@@ -916,8 +1028,14 @@ the lit mode pill, which is the same two colors swapped). Run it after touching 
 | `Ctrl/Cmd D` | Open today's daily note |
 | `Ctrl/Cmd N` | New note |
 | `Ctrl/Cmd G` | Toggle graph view |
-| `Ctrl/Cmd B` | Collapse / reopen the **Notes sidebar** |
-| `Ctrl/Cmd Shift B` | Collapse / reopen **Outline & backlinks** |
+| `Ctrl/Cmd B` | **Bold** |
+| `Ctrl/Cmd I` | *Italic* |
+| `Ctrl/Cmd U` | Underline (`<u>`) |
+| `Ctrl/Cmd Shift X` | Strikethrough |
+| `Ctrl/Cmd Shift H` | Highlight |
+| Right-click / `Shift F10` | Formatting menu for the selection — text style, structure, insert, colour |
+| `Ctrl/Cmd Alt B` | Collapse / reopen the **Notes sidebar** |
+| `Ctrl/Cmd Alt Shift B` | Collapse / reopen **Outline & backlinks** |
 | `Ctrl/Cmd Shift Z` | Zen mode — all chrome steps aside (`Esc` returns) |
 | `Ctrl/Cmd S` | Save now (autosave runs regardless) |
 | `Ctrl/Cmd ↑` / `↓` | Move the current line up / down |
@@ -927,6 +1045,21 @@ the lit mode pill, which is the same two colors swapped). Run it after touching 
 | `↑` `↓` `Enter` `Esc` | Navigate / confirm / dismiss the palette (`Enter` always runs the keyboard's row, never whatever the mouse happens to rest on) |
 | `Esc` | Out of visitor preview, out of zen, and back to the note from `Ctrl/Cmd K` |
 | `←` `→` `Esc` | Previous / next file in the attachment viewer, and out of it |
+
+The five formatting keys are Obsidian's, checked against its shortcut tables rather than guessed —
+except underline, which Obsidian has no command for at all (markdown has no underline; Vellum's
+emits `<u>`, which the sanitizer already admitted and the reading view already rendered). All five
+**toggle**: press twice and the markers come off. With nothing selected they insert the pair and
+park the caret between them, so bold-then-type works. Across a multi-line selection they apply
+**per line** — markdown emphasis cannot cross a blank line, and one `**` at the top of three
+paragraphs is two stray asterisks, not bold text.
+
+**`Ctrl/Cmd B` used to fold the notes sidebar.** Formatting won it: it is the binding every reader
+arrives with, and a key that bolds a word in one half of the window and folds a pane in the other
+is a key nobody can describe. The two pane toggles kept their shape — one key, `Shift` picks the
+second pane — and moved one modifier out, so the only thing to re-learn is "add `Alt`". Outside the
+editor `Ctrl/Cmd B` and `Ctrl/Cmd Shift B` are still swallowed, because Firefox's bookmarks sidebar
+and Chrome's bookmark bar must never open over the app.
 
 In vim mode, `Ctrl D` and `Ctrl B` inside the editor keep their half-page scroll and page-up, and
 `Esc` stays vim's mode key — use `Cmd`, the palette, or zen's ✕ instead. On macOS, `Cmd Shift Z`

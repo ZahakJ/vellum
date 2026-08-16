@@ -254,21 +254,24 @@ const DICT = {
   // keystroke, in both languages.
   paneNotes: { en: "Notes sidebar", ar: "لوحة الملاحظات" },
   paneOutline: { en: "Outline & backlinks", ar: "المحتويات والروابط الراجعة" },
+  // The keystrokes moved: Ctrl/Cmd+B is BOLD in the editor now (every reader
+  // arrives with that binding), so the two pane toggles took one more
+  // modifier and kept their shape — same key, Shift picks the second pane.
   showPaneNotes: {
-    en: "Show Notes sidebar (Ctrl/Cmd+B)",
-    ar: "إظهار لوحة الملاحظات (Ctrl/Cmd+B)",
+    en: "Show Notes sidebar (Ctrl/Cmd+Alt+B)",
+    ar: "إظهار لوحة الملاحظات (Ctrl/Cmd+Alt+B)",
   },
   hidePaneNotes: {
-    en: "Hide Notes sidebar (Ctrl/Cmd+B)",
-    ar: "إخفاء لوحة الملاحظات (Ctrl/Cmd+B)",
+    en: "Hide Notes sidebar (Ctrl/Cmd+Alt+B)",
+    ar: "إخفاء لوحة الملاحظات (Ctrl/Cmd+Alt+B)",
   },
   showPaneOutline: {
-    en: "Show Outline & backlinks (Ctrl/Cmd+Shift+B)",
-    ar: "إظهار المحتويات والروابط الراجعة (Ctrl/Cmd+Shift+B)",
+    en: "Show Outline & backlinks (Ctrl/Cmd+Alt+Shift+B)",
+    ar: "إظهار المحتويات والروابط الراجعة (Ctrl/Cmd+Alt+Shift+B)",
   },
   hidePaneOutline: {
-    en: "Hide Outline & backlinks (Ctrl/Cmd+Shift+B)",
-    ar: "إخفاء المحتويات والروابط الراجعة (Ctrl/Cmd+Shift+B)",
+    en: "Hide Outline & backlinks (Ctrl/Cmd+Alt+Shift+B)",
+    ar: "إخفاء المحتويات والروابط الراجعة (Ctrl/Cmd+Alt+Shift+B)",
   },
 
   // ── Right panel ─────────────────────────────────────────────────────────
@@ -624,7 +627,12 @@ const DICT = {
   errMaxChars: { en: "{count} max", ar: "{count} كحد أقصى" },
   errLocale: { en: "not a valid BCP47 locale (en, ar-EG, de…)", ar: "ليست لغة ‎BCP47‎ صالحة (‎en, ar-EG, de‎…)" },
   errNotSimpleTag: { en: "“{tag}” is not a simple tag", ar: "“{tag}” ليس وسمًا بسيطًا" },
-  errMdPath: { en: "must be a vault .md path", ar: "يجب أن يكون مسار ‎.md‎ داخل الخزانة" },
+  // A note is `.md`, `.tex` or `.latex` now — the field validates all three,
+  // so the message may not keep naming only one of them.
+  errMdPath: {
+    en: "must be a vault note path (.md, .tex, .latex)",
+    ar: "يجب أن يكون مسار ملاحظة داخل الخزانة (‎.md‎ أو ‎.tex‎ أو ‎.latex‎)",
+  },
   errMixedContent: {
     en: "http:// would be mixed content — use https:// or a vault path",
     ar: "‏‎http://‎ يسبب محتوى مختلطًا — استخدم ‎https://‎ أو مسارًا داخل الخزانة",
@@ -787,6 +795,10 @@ const DICT = {
   blogLatestWritings: { en: "Latest writings", ar: "أحدث الكتابات" },
   blogMostDiscussed: { en: "Most discussed", ar: "الأكثر نقاشًا" },
   blogNothingPublished: { en: "Nothing published here yet.", ar: "لا شيء منشور هنا بعد." },
+  blogFilteredByLanguage: {
+    en: "This site lists only notes written in its own language.",
+    ar: "يعرض هذا الموقع الملاحظات المكتوبة بلغته فقط.",
+  },
   blogNoTopicWritings: { en: "No writings under this topic.", ar: "لا كتابات تحت هذا الموضوع." },
   blogChangeBanner: { en: "Change banner…", ar: "تغيير الغلاف…" },
 
@@ -1212,6 +1224,167 @@ const DICT = {
   scViaPalette: { en: "Command palette", ar: "لوحة الأوامر" },
   scViaStatusBar: { en: "Status bar", ar: "شريط الحالة" },
   scHelp: { en: "This list", ar: "هذه القائمة" },
+
+  // ── Moving things (drag in the tree, "Move to…", undo) ────────────────────
+  // Every one of these is reachable without a mouse: the row menu and the
+  // palette open the same picker the drag ends in, and the undo is a real
+  // <button> in the toast, not a gesture.
+  moveTo: { en: "Move to…", ar: "نقل إلى…" },
+  cmdMoveCurrent: { en: "Move note to…", ar: "نقل الملاحظة إلى…" },
+  cmdMoveFolderHint: { en: "picks a folder", ar: "اختيار مجلد" },
+  moveToTitle: { en: "Move “{name}” to…", ar: "نقل “{name}” إلى…" },
+  moveAction: { en: "Move", ar: "نقل" },
+  moveFilter: { en: "Filter folders…", ar: "تصفية المجلدات…" },
+  moveVaultRoot: { en: "Vault root", ar: "جذر الخزانة" },
+  moveNoFolders: { en: "No folder matches.", ar: "لا يوجد مجلد مطابق." },
+  moveNowhere: {
+    en: "There is nowhere else to put it — the vault has no other folder.",
+    // «الخزانة» is feminine, so the verb is تحتوي, not يحتوي.
+    ar: "لا مكان آخر له — لا تحتوي الخزانة على مجلد آخر.",
+  },
+  // The conflict dialog. It offers a NAME, never an overwrite: the two files
+  // both exist and the reader decides which name the arriving one keeps.
+  moveConflictTitle: { en: "“{name}” is already there", ar: "“{name}” موجود هناك بالفعل" },
+  moveConflictBody: {
+    en: "{folder} already holds a “{name}”. Give this one another name, or cancel.",
+    ar: "يحتوي {folder} على “{name}” بالفعل. اختر اسمًا آخر لهذا، أو ألغِ النقل.",
+  },
+  moveNameTaken: { en: "That name is taken here too.", ar: "هذا الاسم مأخوذ هنا أيضًا." },
+  moveNameSlash: { en: "A name cannot contain “/”.", ar: "لا يمكن أن يحتوي الاسم على “/”." },
+  moveNameDot: { en: "A name cannot start with “.”.", ar: "لا يمكن أن يبدأ الاسم بنقطة “.”." },
+  moveLands: { en: "Lands at {path}", ar: "سيستقر في {path}" },
+  moveCurrently: { en: "Currently in {folder}", ar: "موجود حاليًا في {folder}" },
+  // The toast. It names BOTH ends, because the whole risk of a drag is landing
+  // somewhere you were not looking.
+  movedToast: { en: "Moved “{name}” from {from} to {to}", ar: "نُقل “{name}” من {from} إلى {to}" },
+  moveUndoneToast: { en: "Move undone — “{name}” is back in {folder}", ar: "أُلغي النقل — عاد “{name}” إلى {folder}" },
+  undo: { en: "Undo", ar: "تراجع" },
+  // Refusals. The server names a code for each; the generic line is the
+  // fallback for anything it has not named.
+  moveFailed: { en: "Could not move “{name}”.", ar: "تعذّر نقل “{name}”." },
+  moveNotAllowed: { en: "That folder cannot take “{name}”.", ar: "لا يمكن لهذا المجلد استقبال “{name}”." },
+  moveIntoSelfError: { en: "A folder cannot move inside itself.", ar: "لا يمكن نقل مجلد إلى داخل نفسه." },
+  moveConflictError: { en: "“{name}” already exists there.", ar: "“{name}” موجود هناك بالفعل." },
+  moveGoneError: { en: "“{name}” is no longer there.", ar: "“{name}” لم يعد موجودًا." },
+  // Files dragged in from the desktop onto a folder row. The landed NAME is in
+  // the message because the server takes the first free one — a counter the
+  // reader does not see is a file they will not find.
+  uploadedOneToast: { en: "Added “{name}” to {folder}", ar: "أُضيف “{name}” إلى {folder}" },
+  uploadedManyToast: { en: "Added {count} to {folder}", ar: "أُضيف {count} إلى {folder}" },
+  uploadIntoFailed: { en: "Could not add “{name}”.", ar: "تعذّرت إضافة “{name}”." },
+  uploadNotImage: { en: "“{name}” is not an image the vault accepts.", ar: "“{name}” ليس صورة تقبلها الخزانة." },
+
+  // ── Text formatting, the selection menu and colour ──────────────────────
+  // Added with the formatting round. Ctrl/Cmd+B stopped folding a pane and
+  // started making text bold, so the sheet needs a group that says so, and
+  // the menu needs a full vocabulary in both languages. The colour names are
+  // written out one by one rather than composed at the call site: the i18n
+  // gate counts a key as used only when it appears as a quoted token, and a
+  // template-literal key would report all nine as dead.
+  scGroupFormatting: { en: "Formatting", ar: "التنسيق" },
+  scBold: { en: "Bold", ar: "عريض" },
+  scItalic: { en: "Italic", ar: "مائل" },
+  scUnderline: { en: "Underline", ar: "تحته خط" },
+  scStrikethrough: { en: "Strikethrough", ar: "يتوسطه خط" },
+  scHighlight: { en: "Highlight", ar: "تظليل" },
+  scSelectionMenu: { en: "Formatting menu for the selection", ar: "قائمة تنسيق التحديد" },
+  scSelectionMenuKey: { en: "Right-click, or Shift+F10", ar: "نقر يمين، أو Shift+F10" },
+  scTextColor: { en: "Text colour", ar: "لون النص" },
+  scViaSelectionMenu: { en: "Selection menu", ar: "قائمة التحديد" },
+
+  selMenuTitle: { en: "Formatting", ar: "التنسيق" },
+  selMenuBack: { en: "Back", ar: "رجوع" },
+  selGroupStyle: { en: "Text style", ar: "نمط النص" },
+  selGroupStructure: { en: "Structure", ar: "البنية" },
+  selGroupInsert: { en: "Insert", ar: "إدراج" },
+  selGroupColor: { en: "Colour", ar: "اللون" },
+  fmtBold: { en: "Bold", ar: "عريض" },
+  fmtItalic: { en: "Italic", ar: "مائل" },
+  fmtUnderline: { en: "Underline", ar: "تحته خط" },
+  fmtStrikethrough: { en: "Strikethrough", ar: "يتوسطه خط" },
+  fmtHighlight: { en: "Highlight", ar: "تظليل" },
+  fmtCode: { en: "Inline code", ar: "شفرة داخل السطر" },
+  fmtHeading1: { en: "Heading 1", ar: "عنوان ١" },
+  fmtHeading2: { en: "Heading 2", ar: "عنوان ٢" },
+  fmtHeading3: { en: "Heading 3", ar: "عنوان ٣" },
+  fmtBulletList: { en: "Bulleted list", ar: "قائمة نقطية" },
+  fmtNumberedList: { en: "Numbered list", ar: "قائمة مرقّمة" },
+  fmtTaskList: { en: "Task list", ar: "قائمة مهام" },
+  fmtQuote: { en: "Quote", ar: "اقتباس" },
+  insWikilink: { en: "Wikilink", ar: "رابط داخلي" },
+  insLink: { en: "Link", ar: "رابط" },
+  insMath: { en: "Inline math", ar: "رياضيات داخل السطر" },
+  insCodeBlock: { en: "Code block", ar: "كتلة شفرة" },
+  // The two tiers, named by what they DO rather than by their implementation.
+  // The notes are the whole argument in one line each, because the choice
+  // between them is a real one and the reader is making it here.
+  colorThemeAware: { en: "Theme-aware", ar: "متوافق مع السمة" },
+  colorThemeAwareNote: {
+    en: "Follows the theme — stays legible in all fifteen, light and dark.",
+    ar: "يتبع السمة — يبقى مقروءًا في السمات الخمس عشرة، الفاتحة والداكنة.",
+  },
+  colorFixed: { en: "Fixed ink", ar: "لون ثابت" },
+  colorFixedNote: {
+    en: "One exact colour, whatever the theme. Readable everywhere, sharpest on some.",
+    ar: "لون واحد محدّد مهما كانت السمة. مقروء في كل مكان، وأوضح في بعضها.",
+  },
+  colorRemove: { en: "Remove colour", ar: "إزالة اللون" },
+  colorRed: { en: "Red", ar: "أحمر" },
+  colorOrange: { en: "Orange", ar: "برتقالي" },
+  colorAmber: { en: "Amber", ar: "كهرماني" },
+  colorGreen: { en: "Green", ar: "أخضر" },
+  colorTeal: { en: "Teal", ar: "أزرق مخضرّ" },
+  colorBlue: { en: "Blue", ar: "أزرق" },
+  colorViolet: { en: "Violet", ar: "بنفسجي" },
+  colorMagenta: { en: "Magenta", ar: "أرجواني" },
+  colorGrey: { en: "Grey", ar: "رمادي" },
+  selToolbarLabel: { en: "Formatting toolbar", ar: "شريط التنسيق" },
+  selToolbarHide: { en: "Hide the floating toolbar", ar: "إخفاء الشريط العائم" },
+  selToolbarShow: { en: "Show the floating toolbar", ar: "إظهار الشريط العائم" },
+  cmdSelectionToolbar: { en: "Floating formatting toolbar", ar: "شريط التنسيق العائم" },
+  cmdSelectionToolbarHint: {
+    en: "Appears over a selection",
+    ar: "يظهر فوق النص المحدّد",
+  },
+
+  // ── LaTeX notes (.tex / .latex) ──────────────────────────────────────────
+  // A `.tex` note is a note like any other, so its chrome is localized like
+  // any other. Only the words LaTeX itself has and markdown does not live
+  // here: numbered floats, theorem environments, a bibliography.
+  texAbstract: { en: "Abstract", ar: "الملخّص" },
+  texContents: { en: "Contents", ar: "المحتويات" },
+  texReferences: { en: "References", ar: "المراجع" },
+  texFigure: { en: "Figure", ar: "شكل" },
+  texTable: { en: "Table", ar: "جدول" },
+  texTheorem: { en: "Theorem", ar: "مبرهنة" },
+  texLemma: { en: "Lemma", ar: "قضية مساعدة" },
+  texProposition: { en: "Proposition", ar: "قضية" },
+  texCorollary: { en: "Corollary", ar: "نتيجة" },
+  texDefinition: { en: "Definition", ar: "تعريف" },
+  texRemark: { en: "Remark", ar: "ملحوظة" },
+  texExample: { en: "Example", ar: "مثال" },
+  texProof: { en: "Proof", ar: "برهان" },
+  // An unimplemented command renders as a muted dot, never as raw source; the
+  // tooltip is the only place its name is ever shown.
+  texUnsupportedCommand: {
+    en: "{name} is not rendered here",
+    ar: "لا يُعرض {name} هنا",
+  },
+  texUnresolvedRef: {
+    en: "No note in this vault defines {key}",
+    ar: "لا توجد ملاحظة في هذه الخزانة تعرّف {key}",
+  },
+  texRefIn: { en: "{title} — in {note}", ar: "{title} — في {note}" },
+  texCiteOpens: { en: "Opens {note}", ar: "يفتح {note}" },
+  cmdCopyVellumSty: {
+    en: "LaTeX: download vellum.sty",
+    ar: "لاتخ: تنزيل ملف vellum.sty",
+  },
+  cmdCopyVellumStyHint: {
+    en: "The macro package that makes a .tex note compile outside Vellum",
+    ar: "حزمة الماكرو التي تجعل ملاحظة ‎.tex‎ تُترجم خارج ڤيلوم",
+  },
+  newTexNote: { en: "New LaTeX note", ar: "ملاحظة لاتخ جديدة" },
 } satisfies Record<string, Entry>;
 
 export type I18nKey = keyof typeof DICT;

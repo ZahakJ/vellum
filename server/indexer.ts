@@ -6,9 +6,13 @@ import path from "node:path";
 import MiniSearch from "minisearch";
 import type { Backlink, GraphData, GraphEdge, PostMeta, SearchHit, TagCount, VaultEvent } from "../shared/types.ts";
 import { stripBidiControls } from "../shared/bidi.ts";
+import { isNotePath, isTexPath, noteCandidates, noteTitleOf, stripNoteExt } from "../shared/noteFormat.ts";
+import { markdownAnchors, type NoteAnchor } from "../shared/anchors.ts";
 import { publishFlag, readFrontmatter } from "./publish.ts";
+import { readNoteFrontmatter } from "./noteFrontmatter.ts";
+import { readTexNote } from "./texNote.ts";
 import { excludedTags, languageFilterEnabled, siteLanguage } from "./site.ts";
-import { listVaultFiles, onEvent, readNote, safeAbs } from "./vault.ts";
+import { listFolderFiles, listVaultFiles, onEvent, readNote, safeAbs } from "./vault.ts";
 
 interface NoteRecord {
   path: string;
@@ -39,6 +43,32 @@ interface NoteRecord {
    *  filter leaves it alone rather than guessing. Computed once per
    *  (re)index: the languageFilter's per-note cache. */
   arabic: boolean | null;
+  /** For a `.tex` note: the reader's prose, with every control sequence,
+   *  math delimiter, label and citation key already gone. NULL for markdown,
+   *  which derives the same thing lazily from `body` via stripMarkdown().
+   *
+   *  This one field is what makes a LaTeX note searchable by its WORDS. The
+   *  raw source stays in `body` because backlink context and the editor both
+   *  count in source LINES, and a prose string has none. */
+  prose: string | null;
+  /** Named places inside this note — markdown headings and LaTeX labels in one
+   *  table, which is what lets `[[Note#anchor]]` and `\ref{Note#anchor}` be a
+   *  single lookup regardless of the target's format. */
+  anchors: NoteAnchor[];
+  /** LaTeX's own cross-reference vocabulary: `\cite{key}` and the `\ref{key}`
+   *  that found NO local `\label`. Kept apart from `links` because it resolves
+   *  against different tables (byCitekey / byLabel) — and because a
+   *  bibliography key is not a note name, so putting it through basename
+   *  resolution would draw a broken edge for every reference in a paper. */
+  xrefs: { kind: "cite" | "ref"; key: string; line: string; lineIdx: number }[];
+  /** LaTeX only: the paragraph a post excerpt is cut from (the abstract when
+   *  the paper has one). Extracted at parse time because finding it means
+   *  walking the document TREE, not the source lines. */
+  excerptSource: string | null;
+  /** Bibliography keys this note ANSWERS to: `\bibitem{…}` values plus a
+   *  frontmatter `citekey:`. A `\cite{knuth1997}` anywhere in the vault
+   *  becomes an edge to the note carrying that key. */
+  citekeys: string[];
   /** Lazily computed prose-stripped body for snippets (null until first use).
    *  Records are replaced wholesale on reindex, so this never goes stale. */
   flat: string | null;
@@ -49,6 +79,11 @@ interface NoteRecord {
 const notes = new Map<string, NoteRecord>();
 const byName = new Map<string, Set<string>>(); // lowercased basename -> paths
 const byPathLower = new Map<string, string>(); // lowercased vault-relative path -> path
+// The two vault-wide LaTeX lookups, so an imported project lights up unmodified:
+// a `\ref{sec:method}` that matches no label in its own document, and a
+// `\cite{knuth1997}` whose key some note in the vault carries.
+const byLabel = new Map<string, Set<string>>();   // lowercased \label id -> paths
+const byCitekey = new Map<string, Set<string>>(); // lowercased citekey  -> paths
 
 // Publish state: the set of published note paths, plus (derived lazily) the
 // set of attachment paths that published notes embed/link — the only files
@@ -221,21 +256,32 @@ export function whenIndexed(): Promise<void> {
 }
 
 function handleEvent(event: VaultEvent): void {
-  const isMd = event.path.toLowerCase().endsWith(".md");
+  const isNote = isNotePath(event.path);
   const apply = async (): Promise<void> => {
     switch (event.kind) {
       case "created":
       case "changed":
         if (event.dir) break;
-        if (isMd) await indexFile(event.path);
+        if (isNote) await indexFile(event.path);
         else addAttachment(event.path);
         break;
       case "deleted":
         if (event.dir) removeFolder(event.path);
-        else if (isMd) removeFile(event.path);
+        else if (isNote) removeFile(event.path);
         else removeAttachment(event.path);
         break;
       case "renamed":
+        // A FOLDER move arrives as one `dir` event (vault.moveFolder), the
+        // same shape a folder delete uses — the per-file storm is suppressed,
+        // so this branch is the only thing that will ever tell the index that
+        // 715 notes changed address. Without it the old records survived as
+        // ghosts: search hit paths that 404'd, the graph drew edges into a
+        // folder that no longer existed, and the moved notes were not indexed
+        // at their new home at all.
+        if (event.dir) {
+          if (event.toPath) await reindexFolderMove(event.path, event.toPath);
+          break;
+        }
         removeFile(event.path);
         if (event.toPath) await indexFile(event.toPath);
         break;
@@ -280,17 +326,24 @@ export async function indexFile(relPath: string): Promise<void> {
   // render as "invoiceexe.pdf" in the public post list, in RSS <title> and in
   // the og: tags third parties consume. The RESOLUTION key below keeps the raw
   // basename, so [[wikilinks]] written with the same characters still resolve.
-  const rawTitle = path.posix.basename(relPath, ".md");
+  const rawTitle = noteTitleOf(relPath);
   const title = stripBidiControls(rawTitle);
-  const { body, frontmatter } = splitFrontmatter(content);
-  const fm = readFrontmatter(content);
+  // ONE branch, at the one point where a note's TEXT is interpreted. Below it
+  // every field is format-blind again: links are wikilink-shaped either way,
+  // tags come from the same frontmatter text, and `prose` is what the search
+  // index, the language detector and the excerpt builder all read.
+  const parts = isTexPath(relPath)
+    ? texParts(relPath, content)
+    : markdownParts(relPath, content);
+  const fm = parts.fm;
   const record: NoteRecord = {
     path: relPath,
     title,
-    body,
-    links: parseLinks(body),
-    assets: parseAssets(body, relPath),
-    tags: parseTags(body, frontmatter),
+    body: parts.body,
+    links: parts.links,
+    xrefs: parts.xrefs,
+    assets: parts.assets,
+    tags: parseTags(parts.tagSource, parts.frontmatter),
     published: publishFlag(fm),
     banner: typeof fm.banner === "string" && fm.banner.trim() ? fm.banner.trim() : null,
     dateMs:
@@ -298,7 +351,11 @@ export async function indexFile(relPath: string): Promise<void> {
       parseFmDate(fm.created) ??
       parseFmDate(fm.published) ??
       (stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs),
-    arabic: detectArabic(body),
+    arabic: detectArabic(parts.prose ?? parts.body),
+    prose: parts.prose,
+    anchors: parts.anchors,
+    citekeys: parts.citekeys,
+    excerptSource: parts.firstParagraph,
     flat: null,
     post: null,
   };
@@ -306,10 +363,165 @@ export async function indexFile(relPath: string): Promise<void> {
   notes.set(relPath, record);
   addName(rawTitle, relPath);
   byPathLower.set(relPath.toLowerCase(), relPath);
+  addKeys(record);
   if (record.published) publishedSet.add(relPath);
   allowedAttachmentsCache = null;
   // Tags are indexed too so "#tag" (and frontmatter-only tags) are findable.
-  mini.add({ path: relPath, title, body, tags: record.tags.join(" ") });
+  mini.add({
+    path: relPath,
+    title,
+    // A `.tex` note is indexed on its PROSE. Feeding minisearch the raw source
+    // would make every document match "begin", "textbf" and "usepackage" and
+    // none of them match the sentence the reader remembers writing.
+    body: record.prose ?? record.body,
+    tags: record.tags.join(" "),
+  });
+}
+
+/** What indexFile() needs from a note's text, in one shape for both formats. */
+interface NoteParts {
+  /** Raw source minus frontmatter — LINE-indexed, because backlink context and
+   *  the editor both count in source lines. */
+  body: string;
+  /** Frontmatter TEXT (YAML), for parseTags(). */
+  frontmatter: string;
+  /** Where inline `#tags` are looked for. Markdown: the body. LaTeX: nowhere —
+   *  `#` is a macro-parameter character there, so `#tag` in a `.tex` file is a
+   *  compile error, not a tag. Frontmatter tags work in both. */
+  tagSource: string;
+  fm: Record<string, unknown>;
+  links: NoteRecord["links"];
+  xrefs: NoteRecord["xrefs"];
+  assets: string[];
+  prose: string | null;
+  anchors: NoteAnchor[];
+  citekeys: string[];
+  /** LaTeX only: the abstract-or-first paragraph, already plain prose. */
+  firstParagraph: string | null;
+}
+
+function markdownParts(relPath: string, content: string): NoteParts {
+  const { body, frontmatter } = splitFrontmatter(content);
+  return {
+    body,
+    frontmatter,
+    tagSource: body,
+    fm: readFrontmatter(content),
+    links: parseLinks(body),
+    xrefs: [],
+    assets: parseAssets(body, relPath),
+    prose: null,
+    anchors: markdownAnchors(content),
+    citekeys: citekeyOf(readFrontmatter(content)),
+    firstParagraph: null,
+  };
+}
+
+function texParts(relPath: string, content: string): NoteParts {
+  const tex = readTexNote(relPath, content);
+  return {
+    body: content,
+    frontmatter: tex.frontmatter,
+    tagSource: "",
+    fm: tex.fm,
+    links: tex.links,
+    xrefs: tex.xrefs,
+    assets: tex.assets,
+    prose: tex.prose,
+    anchors: tex.anchors,
+    citekeys: tex.citekeys,
+    firstParagraph: tex.firstParagraph,
+  };
+}
+
+/** A markdown note can claim a citation key too — `citekey: knuth1997` in its
+ *  frontmatter — so a literature note written in markdown answers a `\cite`
+ *  from a LaTeX paper. The vocabulary is LaTeX's; the notes need not be. */
+function citekeyOf(fm: Record<string, unknown>): string[] {
+  const value = fm.citekey;
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  if (Array.isArray(value)) {
+    return value.filter((v): v is string => typeof v === "string" && v.trim() !== "").map((v) => v.trim());
+  }
+  return [];
+}
+
+/** Register a record's labels and citekeys in the two vault-wide tables. */
+function addKeys(record: NoteRecord): void {
+  for (const anchor of record.anchors) {
+    if (anchor.kind === "heading" || anchor.kind === "section") continue; // slugs are not labels
+    let set = byLabel.get(anchor.id.toLowerCase());
+    if (!set) byLabel.set(anchor.id.toLowerCase(), (set = new Set()));
+    set.add(record.path);
+  }
+  for (const key of record.citekeys) {
+    let set = byCitekey.get(key.toLowerCase());
+    if (!set) byCitekey.set(key.toLowerCase(), (set = new Set()));
+    set.add(record.path);
+  }
+}
+
+function removeKeys(record: NoteRecord): void {
+  const drop = (map: Map<string, Set<string>>, key: string): void => {
+    const set = map.get(key.toLowerCase());
+    if (!set) return;
+    set.delete(record.path);
+    if (set.size === 0) map.delete(key.toLowerCase());
+  };
+  for (const anchor of record.anchors) drop(byLabel, anchor.id);
+  for (const key of record.citekeys) drop(byCitekey, key);
+}
+
+/** A folder MOVED: drop every record under the old prefix, then index the
+ *  subtree at its new home. Walks only what moved — `listVaultFiles()` would
+ *  re-read all 1,388 notes of a real vault to learn what one drag did.
+ *
+ *  Awaited through the same `settled` chain every other event uses, so the
+ *  route's `whenIndexed()` covers it and the `/api/tree` + `/api/graph` refetch
+ *  the client fires on the 200 is already correct. */
+export async function reindexFolderMove(fromRel: string, toRel: string): Promise<void> {
+  removeFolder(fromRel);
+  const { notes: moved, attachments } = await listFolderFiles(toRel);
+  for (const file of attachments) addAttachment(file);
+  for (const file of moved) await indexFile(file);
+}
+
+/** Every note that a move of the subtree at `relFolder` could invalidate — the
+ *  set the link rewrite has to walk, sampled BEFORE the move while the links
+ *  still resolve.
+ *
+ *  Three kinds, in one pass over the index. Calling `backlinks()` once per moved
+ *  note instead is O(notes²): on the 715-note folder of a real vault that is a
+ *  million link resolutions for one drag.
+ *   - notes INSIDE the folder: they travel, so every relative destination they
+ *     carry has to be re-expressed from the new address;
+ *   - notes whose `[[wikilinks]]` resolve to a note inside it (path-form links
+ *     dangle; basename links do not, and the rewriter leaves them alone);
+ *   - notes whose markdown embeds point at any file inside it — the case that
+ *     breaks when a `Media/` folder is dragged and every `![](Media/x.png)` in
+ *     the vault stops resolving, for the admin and for every visitor. */
+export function notesAffectedByFolderMove(relFolder: string): string[] {
+  const prefix = `${relFolder}/`;
+  const out = new Set<string>();
+  for (const record of notes.values()) {
+    if (record.path.startsWith(prefix)) {
+      out.add(record.path);
+      continue;
+    }
+    if (record.assets.some((asset) => asset.startsWith(prefix))) {
+      out.add(record.path);
+      continue;
+    }
+    for (const link of record.links) {
+      if (!link.target.includes("/") && !link.target.includes("\\")) continue; // basename form survives
+      const hit = resolveLink(link.target);
+      if (hit !== null && hit.startsWith(prefix)) {
+        out.add(record.path);
+        break;
+      }
+    }
+  }
+  return [...out].sort();
 }
 
 /** The first `bytes` of a file as UTF-8, without reading the rest of it. */
@@ -338,15 +550,24 @@ async function indexOversized(relPath: string, abs: string, stat: { size: number
     return;
   }
   removeFile(relPath);
-  const rawTitle = path.posix.basename(relPath, ".md");
-  const { frontmatter } = splitFrontmatter(head);
-  const fm = readFrontmatter(head);
+  const rawTitle = noteTitleOf(relPath);
+  // The head is enough for frontmatter in BOTH formats: a `%--- … %---%` block
+  // opens on line 1 exactly as a `---` block does.
+  const frontmatter = isTexPath(relPath)
+    ? readTexNote(relPath, head).frontmatter
+    : splitFrontmatter(head).frontmatter;
+  const fm = readNoteFrontmatter(relPath, head);
   const record: NoteRecord = {
     path: relPath,
     title: stripBidiControls(rawTitle),
     body: "",
     links: [],
+    xrefs: [],
     assets: [],
+    prose: null,
+    anchors: [],
+    citekeys: citekeyOf(fm),
+    excerptSource: null,
     tags: parseTags("", frontmatter),
     published: publishFlag(fm),
     banner: typeof fm.banner === "string" && fm.banner.trim() ? fm.banner.trim() : null,
@@ -364,6 +585,7 @@ async function indexOversized(relPath: string, abs: string, stat: { size: number
   notes.set(relPath, record);
   addName(rawTitle, relPath);
   byPathLower.set(relPath.toLowerCase(), relPath);
+  addKeys(record);
   if (record.published) publishedSet.add(relPath);
   allowedAttachmentsCache = null;
   // Say it out loud, once per file: a silently unsearchable note is exactly
@@ -382,9 +604,10 @@ function removeFile(relPath: string): void {
   if (!record) return;
   notes.delete(relPath);
   oversized.delete(relPath);
+  removeKeys(record);
   // The resolution key is the RAW basename (record.title is the sanitized
   // display title) — addName registered it, removeName must unregister it.
-  removeName(path.posix.basename(relPath, ".md"), relPath);
+  removeName(noteTitleOf(relPath), relPath);
   if (byPathLower.get(relPath.toLowerCase()) === relPath) byPathLower.delete(relPath.toLowerCase());
   publishedSet.delete(relPath);
   allowedAttachmentsCache = null;
@@ -594,12 +817,21 @@ function filterCandidates(
  *  caller is trying to learn. Direct access by full path stays allowed — this
  *  changes discovery, not reads. */
 export function resolveLink(name: string, publishedOnly = false): string | null {
-  let key = name.split(/[#|]/)[0].trim().toLowerCase();
-  if (key.endsWith(".md")) key = key.slice(0, -3);
+  // The extension comes off whatever it is: `[[Paper.tex]]` and `[[Paper]]`
+  // name the same note, exactly as `[[Note.md]]` and `[[Note]]` always did.
+  const key = stripNoteExt(name.split(/[#|]/)[0].trim().toLowerCase());
   // Path-form targets ([[Folder/Note]]): exact vault-relative match first
-  // (with or without .md, case-insensitive), mirroring the client resolver.
+  // (with or without an extension, case-insensitive), mirroring the client
+  // resolver. Candidate ORDER is the tie-break: `.md` first, so a vault that
+  // grows a `Fourier.tex` beside its `Fourier.md` does not silently
+  // re-point every existing link.
   const asPath = path.posix.normalize(key.replace(/\\/g, "/")).replace(/^\.?\/+/, "");
-  const pathHit = byPathLower.get(`${asPath}.md`) ?? byPathLower.get(asPath);
+  let pathHit: string | undefined;
+  for (const candidate of noteCandidates(asPath)) {
+    pathHit = byPathLower.get(candidate);
+    if (pathHit) break;
+  }
+  pathHit ??= byPathLower.get(asPath);
   if (pathHit && (!publishedOnly || isNoteVisibleToVisitor(pathHit))) return pathHit;
   let candidates = byName.get(key);
   if (!candidates || candidates.size === 0) return null;
@@ -627,6 +859,74 @@ export function resolveEmbed(name: string, publishedOnly = false): string | null
   if (publishedOnly) {
     const allowed = allowedAttachments();
     const kept = filterCandidates(candidates, (p) => allowed.has(p));
+    if (!kept) return null;
+    candidates = kept;
+  }
+  return pickShortest(candidates);
+}
+
+// ------------------------------------------------- anchors & cross-references
+
+/** The anchor table for an indexed note — headings, `\label`s, sections,
+ *  equations, figures, tables — sorted by source line. Empty for an unknown
+ *  path AND for an oversized one (its body was never read), which is why every
+ *  caller treats an empty table as "no anchor matched" rather than an error. */
+export function noteAnchors(relPath: string): NoteAnchor[] {
+  return notes.get(relPath)?.anchors ?? [];
+}
+
+/** Where one LaTeX cross-reference points, or null. A `\cite` answers the note
+ *  carrying the key; a `\ref` answers the note defining the label. Both are
+ *  vault-wide lookups reached only AFTER the document's own definitions have
+ *  been checked — the local-first rule lives in server/texNote.ts, which never
+ *  records a `\ref` whose label is defined in the same file. */
+function resolveXref(
+  xref: NoteRecord["xrefs"][number],
+  publishedOnly: boolean,
+): string | null {
+  if (xref.kind === "cite") return resolveCitekey(xref.key, publishedOnly);
+  return resolveLabel(xref.key, publishedOnly)?.path ?? null;
+}
+
+/** The note a `\label{…}` lives in, for a `\ref` that found no local match.
+ *
+ *  LOCAL-FIRST is the caller's job and is not optional: a `\ref` that matches
+ *  a label in its own document must never look here, or importing a project
+ *  into a vault could change what its own cross-references point at — which is
+ *  precisely the promise that makes dropping a LaTeX project into Vellum safe.
+ *
+ *  `publishedOnly` scopes to what a visitor may discover, exactly as
+ *  resolveLink does: an anonymous caller must not learn that a private note
+ *  defines `sec:acquisition`. */
+export function resolveLabel(
+  label: string,
+  publishedOnly = false,
+): { path: string; anchor: NoteAnchor } | null {
+  const key = label.trim().toLowerCase();
+  if (!key) return null;
+  let candidates = byLabel.get(key);
+  if (!candidates || candidates.size === 0) return null;
+  if (publishedOnly) {
+    const kept = filterCandidates(candidates, isNoteVisibleToVisitor);
+    if (!kept) return null;
+    candidates = kept;
+  }
+  const notePath = pickShortest(candidates);
+  const anchor = notes.get(notePath)?.anchors.find((a) => a.id.toLowerCase() === key);
+  return anchor ? { path: notePath, anchor } : null;
+}
+
+/** The note that CARRIES a citation key — a `\bibitem{knuth1997}` or a
+ *  frontmatter `citekey: knuth1997`. Null leaves the `\cite` alone as an
+ *  ordinary bibliography reference, which is the honest default: most keys in
+ *  a real paper name a book, not a note. */
+export function resolveCitekey(key: string, publishedOnly = false): string | null {
+  const want = key.trim().toLowerCase();
+  if (!want) return null;
+  let candidates = byCitekey.get(want);
+  if (!candidates || candidates.size === 0) return null;
+  if (publishedOnly) {
+    const kept = filterCandidates(candidates, isNoteVisibleToVisitor);
     if (!kept) return null;
     candidates = kept;
   }
@@ -833,9 +1133,17 @@ function firstParagraph(body: string): string {
  *  Single-char emphasis (*em*, _em_) is stripped here too — excerpts are
  *  plain text, unlike search snippets which keep the historical behavior. */
 function excerptOf(body: string): string {
-  const para = firstParagraph(body)
-    .replace(/(^|[\s([{])\*([^*\n]+)\*(?=[\s)\]}.,;:!?…]|$)/g, "$1$2")
-    .replace(/(^|[\s([{])_([^_\n]+)_(?=[\s)\]}.,;:!?…]|$)/g, "$1$2");
+  return cutExcerpt(
+    firstParagraph(body)
+      .replace(/(^|[\s([{])\*([^*\n]+)\*(?=[\s)\]}.,;:!?…]|$)/g, "$1$2")
+      .replace(/(^|[\s([{])_([^_\n]+)_(?=[\s)\]}.,;:!?…]|$)/g, "$1$2"),
+  );
+}
+
+/** Cut an already-plain paragraph to EXCERPT_MAX on a word boundary. Shared by
+ *  both formats: markdown reaches it through firstParagraph(), LaTeX through
+ *  the abstract-or-first-paragraph the parser hands over. */
+function cutExcerpt(para: string): string {
   if (para.length <= EXCERPT_MAX) return para;
   let cut = para.slice(0, EXCERPT_MAX + 1);
   const space = cut.lastIndexOf(" ");
@@ -847,7 +1155,10 @@ function postMeta(record: NoteRecord): PostMeta {
   if (record.post === null) {
     const flat = flatBody(record);
     record.post = {
-      excerpt: excerptOf(record.body),
+      // LaTeX: the abstract when the paper has one, else its first real
+      // paragraph — both already plain prose, so the markdown paragraph
+      // walker (which reads `#`, `|`, fences and `$$`) never sees TeX.
+      excerpt: record.prose !== null ? cutExcerpt(record.excerptSource ?? "") : excerptOf(record.body),
       words: flat === "" ? 0 : flat.split(" ").length,
     };
   }
@@ -913,7 +1224,7 @@ export function search(query: string, publishedOnly = false): SearchHit[] {
     .map((result, order) => {
       const id = String(result.id);
       const record = notes.get(id);
-      const title = record?.title ?? path.posix.basename(id, ".md");
+      const title = record?.title ?? noteTitleOf(id);
       return { result, record, id, title, tier: tierOf(title), order };
     })
     .sort((a, b) => a.tier - b.tier || a.order - b.order);
@@ -953,18 +1264,23 @@ export function graph(publishedOnly = false): GraphData {
   for (const record of notes.values()) {
     if (publishedOnly && !record.published) continue;
     if (hidden(record)) continue;
-    for (const link of record.links) {
-      const target = resolveLink(link.target, publishedOnly);
-      if (!target || target === record.path) continue;
+    const connect = (target: string | null): void => {
+      if (!target || target === record.path) return;
       const targetRecord = notes.get(target);
-      if (targetRecord !== undefined && hidden(targetRecord)) continue;
+      if (targetRecord !== undefined && hidden(targetRecord)) return;
       const key = `${record.path}\0${target}`;
-      if (edgeKeys.has(key)) continue;
+      if (edgeKeys.has(key)) return;
       edgeKeys.add(key);
       edges.push({ source: record.path, target });
       degree.set(record.path, (degree.get(record.path) ?? 0) + 1);
       degree.set(target, (degree.get(target) ?? 0) + 1);
-    }
+    };
+    for (const link of record.links) connect(resolveLink(link.target, publishedOnly));
+    // …and LaTeX's own vocabulary. THIS is what makes an existing project,
+    // dropped into a vault unmodified, light up the graph: a `\cite` whose key
+    // some note carries and a `\ref` whose label some note defines are edges,
+    // and nothing in either document had to be rewritten to say so.
+    for (const xref of record.xrefs) connect(resolveXref(xref, publishedOnly));
   }
   const nodes = [...notes.values()]
     .filter((record) => (!publishedOnly || record.published) && !hidden(record))
@@ -1001,11 +1317,15 @@ export function backlinks(targetPath: string, publishedOnly = false): Backlink[]
       // client renders those as gold spans. Long lines are cut to a
       // word-boundary window centered on the link; "…" marks only real
       // elisions (a cut, or a line that starts mid-sentence).
-      let context = cleanContextLine(link.line);
+      // A `.tex` link arrives with its context already extracted as PROSE
+      // (shared/tex.ts hands over the paragraph's text, never its source), so
+      // the markdown line cleaner — which strips `#`, `>` and table pipes —
+      // has nothing to do and the widening below would read raw TeX lines.
+      let context = record.prose !== null ? link.line : cleanContextLine(link.line);
       // A line that is little more than the link itself ("- [[History]]")
       // makes a useless card — widen to the surrounding lines so the card
       // reads like Obsidian's backlink context.
-      if (contextProse(context).length < 16) {
+      if (record.prose === null && contextProse(context).length < 16) {
         bodyLines ??= record.body.split("\n");
         context = expandedContext(bodyLines, link.lineIdx);
       }
@@ -1034,6 +1354,16 @@ export function backlinks(targetPath: string, publishedOnly = false): Backlink[]
         context = `${context}…`;
       }
       hits.push({ path: record.path, title: record.title, context });
+    }
+    // A `\cite` or a cross-note `\ref` is a backlink like any other — the
+    // panel is where a note learns who leans on it, and a paper that cites this
+    // note by its citekey leans on it exactly as a `[[wikilink]]` does.
+    for (const xref of record.xrefs) {
+      if (resolveXref(xref, publishedOnly) !== targetPath) continue;
+      const key = `${record.path}\0${xref.line}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      hits.push({ path: record.path, title: record.title, context: xref.line });
     }
   }
   return hits.sort((a, b) => a.path.localeCompare(b.path));
@@ -1136,7 +1466,14 @@ function stripInlineMd(text: string): string {
     .replace(/(^|[^[])\[([^[\]]+)\]\(([^)]+)\)/g, "$1$2")
     .replace(/\*\*|__|~~/g, "")
     .replace(/`+/g, "")
-    .replace(/(^|[\s([{])#(?=[\p{L}\p{N}_])/gu, "$1");
+    // A TAG GOES OUT WHOLE. This used to remove the `#` and leave the word
+    // standing in the sentence, so a post ending "…it buys the reader a
+    // breath. #design #typography" shipped on the front page as "…it buys the
+    // reader a breath. design typography" — a nonsense noun phrase glued to
+    // real prose. DESIGN.md's hard rule is that a snippet STRIPS or RENDERS
+    // `#`; de-hashing a tag into a noun is neither, and plain text has no way
+    // to render one, so it strips. Same token shape isFurnitureLine() uses.
+    .replace(/(^|[\s([{])#[\p{L}\p{N}_][\p{L}\p{N}_/-]*/gu, "$1");
 }
 
 /** Line-skipping state for fenced code and $$ display math blocks — shared by
@@ -1256,9 +1593,12 @@ function windowAround(flat: string, at: number, len: number, radius: number): st
  *  note can't stall a search response. */
 function flatBody(record: NoteRecord): string {
   if (record.flat === null) {
-    record.flat = stripMarkdown(record.body.slice(0, MAX_SNIPPET_SOURCE_CHARS))
-      .replace(/\s+/g, " ")
-      .trim();
+    // A `.tex` note arrives with its prose already extracted (the parse is
+    // whole-document, so slicing the SOURCE would cut a snippet mid-macro).
+    record.flat =
+      record.prose !== null
+        ? record.prose.slice(0, MAX_SNIPPET_SOURCE_CHARS).replace(/\s+/g, " ").trim()
+        : stripMarkdown(record.body.slice(0, MAX_SNIPPET_SOURCE_CHARS)).replace(/\s+/g, " ").trim();
   }
   return record.flat;
 }

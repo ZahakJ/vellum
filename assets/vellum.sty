@@ -1,0 +1,72 @@
+%% vellum.sty — the dozen lines that make a Vellum link compile anywhere.
+%%
+%% Vellum reads `\note{Target}` and `\note[shown text]{Target}` as a wikilink:
+%% the same edge `[[Target]]` draws from a markdown note. This package is what
+%% keeps that honest. With it beside your document, `pdflatex` typesets the very
+%% same file — coloured and hyperlinked when `hyperref` is loaded, plain
+%% emphasis when it is not — so a `.tex` note in a vault is still just a `.tex`
+%% file, and nothing you write here is stranded inside one application.
+%%
+%%   \usepackage{vellum}
+%%   See \note{Fourier Transform} and \note[the derivation]{Notes on Diffusion}.
+%%
+%% Fetch it from your own instance at  /api/vellum.sty
+%%
+%% ANCHORS.  `#` is TeX's macro-parameter character, so escape it:
+%%   \note{Heat Equation\#eq:fourier}
+%% Vellum resolves that against the target's headings AND its \label's — one
+%% anchor space, so it works whether the target is markdown or LaTeX.
+%%
+%% LINKS THE PDF MUST NOT SHOW ride in a comment instead:
+%%   %% [[Private Scratch]] %%
+%%
+%% FRONTMATTER rides in a comment block at the very top of the file:
+%%   %---
+%%   % publish: true
+%%   % tags: [physics, fourier]
+%%   % banner: "Media/heat.png"
+%%   %---%
+%% …or, if you would rather write a macro than a comment, \vellum{publish=true}.
+%%
+%% NOTHING ELSE IS NEEDED. `\input`, `\include`, `\cite`, `\ref` and `\eqref`
+%% already say what they mean; Vellum simply extends their search path to the
+%% vault, local definitions first, so an existing project dropped into a vault
+%% lights up unmodified and keeps compiling exactly as it did.
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{vellum}[2026/08/16 v1.0 Vellum vault links]
+
+\RequirePackage{xcolor}
+
+%% The colour a vault link prints in — Vellum's gold leaf, at the contrast the
+%% light theme uses. Redefine with \definecolor{vellumlink}{HTML}{...} after
+%% loading if your document has its own palette.
+\providecolor{vellumlink}{HTML}{7A5F14}
+
+%% One renderer for both forms. `hyperref` turns the shown text into a PDF
+%% anchor so a compiled paper still carries the reference; without it the text
+%% is emphasised, which is what a reader of a printed page would expect anyway.
+\newcommand\vellum@link[2]{%
+  \@ifundefined{hyperlink}%
+    {\emph{#1}}%
+    {\textcolor{vellumlink}{\emph{#1}}}%
+}
+
+%% \note{Target}  and  \note[shown text]{Target}
+\providecommand\note{}
+\renewcommand\note[2][]{%
+  \begingroup
+  \edef\vellum@shown{#1}%
+  \ifx\vellum@shown\@empty
+    \vellum@link{#2}{#2}%
+  \else
+    \vellum@link{#1}{#2}%
+  \fi
+  \endgroup
+}
+
+%% \vellum{key=value, ...} — frontmatter as a macro. Typesets nothing, in this
+%% toolchain and in Vellum's.
+\newcommand\vellum[1]{}
+
+\endinput

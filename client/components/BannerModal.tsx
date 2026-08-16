@@ -10,9 +10,10 @@ import { localeNum, t, tf } from "../i18n.ts";
 import { UPLOAD_MAX_MB } from "../../shared/limits.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
+import { noteTitleOf } from "../../shared/noteFormat.ts";
 
 function titleOf(path: string): string {
-  return (path.split("/").pop() ?? path).replace(/\.md$/i, "");
+  return noteTitleOf(path);
 }
 
 export default function BannerModal() {

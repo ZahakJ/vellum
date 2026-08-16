@@ -93,7 +93,20 @@ export default function PostList({
   locale: string;
 }) {
   if (posts.length === 0) {
-    return <p className="s-blog-empty">{t("blogNothingPublished")}</p>;
+    // AN EMPTY LIST IS NOT AN EMPTY SITE. With the languageFilter on, this
+    // page carries only the notes written in the site language's script, and
+    // "Nothing published here yet." was a true sentence about the list and a
+    // false one about the vault behind it. The filter's own contract forbids
+    // saying HOW MANY notes it hid — that is exactly the existence it exists
+    // to withhold — so the second line names the rule, not the count.
+    return (
+      <div className="s-blog-empty">
+        <p>{t("blogNothingPublished")}</p>
+        {useStore.getState().languageFilter && (
+          <p className="s-blog-empty__why">{t("blogFilteredByLanguage")}</p>
+        )}
+      </div>
+    );
   }
   return (
     <div className="s-blog-list">

@@ -9,7 +9,7 @@ import Marginalia from "../components/Marginalia.tsx";
 import { t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
-import { renderMarkdown } from "./render.ts";
+import { renderNoteContent } from "./renderNote.ts";
 import "./reading.css";
 
 /** Scroll positions survive tab switches; module-level so remounts keep them. */
@@ -48,7 +48,7 @@ export default function ReadingView({ path }: { path: string }) {
     getNote(path)
       .then((note) => {
         if (disposed || !hostRef.current) return;
-        const el = renderMarkdown(note.content, {
+        const el = renderNoteContent(note.content, {
           notePath: path,
           tree: useStore.getState().tree,
         });
@@ -67,9 +67,18 @@ export default function ReadingView({ path }: { path: string }) {
         if (pending !== null) {
           useStore.getState().setPendingHeading(null);
           const want = pending.trim().toLowerCase();
-          const target = [
-            ...hostRef.current.querySelectorAll<HTMLElement>(".s-rv-h"),
-          ].find((h) => (h.textContent ?? "").trim().toLowerCase() === want);
+          // A LaTeX anchor is a \label, not a heading's text, so the id is
+          // tried first — `[[Paper#eq:fourier]]` lands on the equation, not on
+          // nothing. Heading-text matching stays as the markdown fallback.
+          const byId =
+            hostRef.current.querySelector<HTMLElement>(
+              `#${CSS.escape(`tex-${pending.trim()}`)}`,
+            ) ?? hostRef.current.querySelector<HTMLElement>(`#${CSS.escape(pending.trim())}`);
+          const target =
+            byId ??
+            [...hostRef.current.querySelectorAll<HTMLElement>(".s-rv-h")].find(
+              (h) => (h.textContent ?? "").trim().toLowerCase() === want,
+            );
           if (target) {
             const hostTop = hostRef.current.getBoundingClientRect().top;
             hostRef.current.scrollTop =

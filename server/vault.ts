@@ -5,6 +5,7 @@ import { promises as fs, lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { watch, type FSWatcher } from "chokidar";
 import type { AttachmentInfo, AttachmentKind, NoteData, TreeNode, VaultEvent } from "../shared/types.ts";
+import { isNotePath, noteExtOf } from "../shared/noteFormat.ts";
 
 export class VaultError extends Error {
   status: number;
@@ -133,13 +134,22 @@ export function safeAbs(rel: string): string {
   return abs;
 }
 
-export function assertMarkdown(rel: string): string {
+/** Assert that `rel` names a NOTE — `.md`, `.tex` or `.latex` — and return it
+ *  normalized. Every CRUD entry point below funnels through this one check, so
+ *  widening it here is what makes a `.tex` file a first-class note everywhere
+ *  rather than in one route at a time. */
+export function assertNotePath(rel: string): string {
   const normalized = normalizeRel(rel);
-  if (!normalized || !normalized.toLowerCase().endsWith(".md")) {
-    throw new VaultError(400, `Not a markdown path: ${rel}`);
+  if (!normalized || !isNotePath(normalized)) {
+    throw new VaultError(400, `Not a note path: ${rel}`);
   }
   return normalized;
 }
+
+/** The name every caller in the tree already uses. Kept as an alias rather
+ *  than renamed at ~10 call sites in a file four agents are editing; the
+ *  honest name is `assertNotePath` above. */
+export const assertMarkdown = assertNotePath;
 
 // Names never listed, indexed, watched, or served: dotfiles (covers .obsidian,
 // .git) plus a few well-known junk dirs that may not be dot-prefixed everywhere.
@@ -219,7 +229,7 @@ export async function buildTree(): Promise<TreeNode> {
       if (entry.isDirectory()) {
         nodes.push({ name: entry.name, path: relPath, type: "folder", children: await walk(relPath) });
       } else if (entry.isFile()) {
-        if (entry.name.toLowerCase().endsWith(".md")) {
+        if (isNotePath(entry.name)) {
           nodes.push({ name: entry.name, path: relPath, type: "file" });
         } else {
           attachments.push({ name: entry.name, path: relPath });
@@ -273,7 +283,7 @@ export async function listVaultFiles(): Promise<{ notes: string[]; attachments: 
       const relPath = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
       if (entry.isDirectory()) await walk(relPath);
       else if (entry.isFile()) {
-        (entry.name.toLowerCase().endsWith(".md") ? notes : attachments).push(relPath);
+        (isNotePath(entry.name) ? notes : attachments).push(relPath);
       }
     }
   }
@@ -293,8 +303,11 @@ export interface AttachmentStat {
 export async function statAttachment(rel: string): Promise<AttachmentStat> {
   const relPath = normalizeRel(rel);
   if (!relPath) throw new VaultError(400, "File path required");
-  if (relPath.toLowerCase().endsWith(".md")) {
-    throw new VaultError(400, "Markdown is served via /api/note");
+  if (isNotePath(relPath)) {
+    // Notes of EVERY format are served by /api/note, which is publish-gated;
+    // /api/file is the attachment door and must never become a second, ungated
+    // way to read a `.tex` note's source.
+    throw new VaultError(400, "Notes are served via /api/note");
   }
   const abs = safeAbs(relPath);
   if (isIgnoredRel(relPath)) throw new VaultError(404, `File not found: ${relPath}`);
@@ -389,22 +402,39 @@ export async function deleteNote(
   const relPath = assertMarkdown(rel);
   const abs = safeAbs(relPath);
   if (!(await exists(abs))) throw new VaultError(404, `Note not found: ${relPath}`);
+
+  // THE DELETE ANNOUNCES ITSELF, exactly as deleteFolder does, and for a
+  // sharper reason than symmetry: leaving it to the watcher made the removal
+  // LOSABLE. `suppress()` is keyed on the path alone and holds for a second,
+  // so any write to this note in the preceding second — the editor's own
+  // 600ms-debounced autosave, a publish toggle, /api/note's PUT — swallowed
+  // the `unlink` that was the only thing telling the indexer the note was
+  // gone. Measured: PUT then DELETE on one path, 0–200ms apart, left a note
+  // in the index, the graph and the search results with no file behind it,
+  // resolvable by `[[wikilink]]` and unremovable (a second DELETE 404s).
+  // Reachable by hand in one gesture: type a word, then delete the note.
+  // Suppressing the echo FIRST is what keeps the two from arriving twice.
+  suppress(relPath);
+  let trashPath: string | undefined;
   if (opts?.permanent) {
     await fs.rm(abs);
-    return {};
+  } else {
+    const base = path.posix.basename(relPath);
+    const ext = noteExtOf(base);
+    const destAbs = await trashDestination(base.slice(0, base.length - ext.length), ext);
+    try {
+      await fs.rename(abs, destAbs);
+    } catch (err) {
+      // Same EXDEV fallback deleteFolder() carries: VELLUM_VAULT and its own
+      // `.trash` are normally one filesystem, but a bind-mounted sub-tree is not.
+      if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+      await fs.cp(abs, destAbs);
+      await fs.rm(abs);
+    }
+    trashPath = `${TRASH_DIR}/${path.basename(destAbs)}`;
   }
-  const base = path.posix.basename(relPath);
-  const destAbs = await trashDestination(base.replace(/\.md$/i, ""), base.slice(base.length - 3));
-  try {
-    await fs.rename(abs, destAbs);
-  } catch (err) {
-    // Same EXDEV fallback deleteFolder() carries: VELLUM_VAULT and its own
-    // `.trash` are normally one filesystem, but a bind-mounted sub-tree is not.
-    if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
-    await fs.cp(abs, destAbs);
-    await fs.rm(abs);
-  }
-  return { trashPath: `${TRASH_DIR}/${path.basename(destAbs)}` };
+  emit({ kind: "deleted", path: relPath });
+  return trashPath ? { trashPath } : {};
 }
 
 export async function createFolder(rel: string): Promise<void> {
@@ -441,7 +471,7 @@ async function collectFolder(relFolder: string): Promise<{ paths: string[]; note
         await walk(relPath);
         paths.push(relPath);
       } else if (entry.isFile()) {
-        if (entry.name.toLowerCase().endsWith(".md")) notes++;
+        if (isNotePath(entry.name)) notes++;
         paths.push(relPath);
       }
     }
@@ -527,13 +557,211 @@ export async function deleteFolder(
   return trashPath ? { notes, trashPath } : { notes };
 }
 
+/** Every file under a folder, ignore rules and the symlink skip applied,
+ *  notes and attachments kept apart — the shape `listVaultFiles()` returns for
+ *  the whole vault, scoped to one subtree. A folder move needs it twice: to
+ *  suppress the watcher's per-file echo of a move it is about to announce in
+ *  one event, and to reindex exactly the subtree that moved instead of walking
+ *  1,388 notes again. */
+export async function listFolderFiles(
+  relFolder: string,
+): Promise<{ notes: string[]; attachments: string[]; dirs: string[] }> {
+  const notes: string[] = [];
+  const attachments: string[] = [];
+  const dirs: string[] = [];
+  async function walk(relDir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(path.join(vaultRoot, relDir), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (isIgnoredSegment(entry.name) || entry.isSymbolicLink()) continue;
+      const relPath = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        dirs.push(relPath);
+        await walk(relPath);
+      } else if (entry.isFile()) {
+        (isNotePath(entry.name) ? notes : attachments).push(relPath);
+      }
+    }
+  }
+  await walk(normalizeRel(relFolder));
+  return { notes, attachments, dirs };
+}
+
+export interface MoveFolderResult {
+  /** How many `.md` files travelled with the folder — the toast's number. */
+  notes: number;
+  /** Every file that moved, old path → new path, for the link rewrite. */
+  moved: { from: string; to: string }[];
+}
+
+/** Move a folder (and everything under it) to a new vault-relative PATH — the
+ *  same `path` → `toPath` shape `/api/rename` uses for a note, so the drop in
+ *  the tree and the "Move to…" command speak one language.
+ *
+ *  The refusals are the feature. A drag is a gesture the hand can make by
+ *  accident, so every way this could quietly destroy a vault is a 4xx before a
+ *  single byte moves:
+ *   - **into its own descendant** (`Ideas` → `Ideas/2026/Ideas`) is the classic
+ *     recursive-move foot-gun: `fs.rename` answers EINVAL on some platforms and
+ *     happily builds an unreachable loop on others. Checked on the STRING, both
+ *     as written and lowercased, so a case-insensitive filesystem cannot slip
+ *     past it.
+ *   - **onto an existing name** is a 409, never a merge and never an overwrite.
+ *     `fs.rename` over a non-empty directory fails, but over an EMPTY one it
+ *     succeeds — silently swallowing the folder that was there.
+ *   - **a symlinked folder** is a link, not a tree: `fs.rename` would move the
+ *     link and every count and rewrite below would describe files outside the
+ *     vault. Refused, exactly as `deleteFolder` refuses to count through one.
+ *
+ *  One `fs.rename` does the work — atomic within a filesystem, and nothing is
+ *  removed from the source until the copy succeeded in the EXDEV fallback, so a
+ *  failure at any point leaves the vault as it was.
+ *
+ *  Emits exactly ONE `{kind:"renamed", dir:true}` event and suppresses the
+ *  watcher's per-file storm for the same move — the pattern the folder DELETE
+ *  established, for the same reason: 715 events describing one gesture is not a
+ *  description, it is noise the client has to de-duplicate. */
+export async function moveFolder(rel: string, toRel: string): Promise<MoveFolderResult> {
+  const fromPath = normalizeRel(rel);
+  const toPath = normalizeRel(toRel);
+  if (!fromPath) throw new VaultError(400, "Folder path required", "move_no_source");
+  if (!toPath) throw new VaultError(400, "Destination path required", "move_no_target");
+  // Static rules, so a 400 on the NAME reveals nothing about what exists. Each
+  // side names ITSELF: "Invalid folder path: <source>" for a bad destination is
+  // the message that sends an operator to read the wrong half of their request.
+  if (isIgnoredRel(fromPath) || looksAbsolute(rel)) {
+    throw new VaultError(400, `Invalid folder path: ${fromPath}`, "move_invalid");
+  }
+  if (isIgnoredRel(toPath) || looksAbsolute(toRel)) {
+    throw new VaultError(400, `Invalid destination path: ${toPath}`, "move_invalid_target");
+  }
+  if (fromPath === toPath) {
+    throw new VaultError(400, `Folder is already at ${toPath}`, "move_same");
+  }
+  const lowerFrom = fromPath.toLowerCase();
+  const lowerTo = toPath.toLowerCase();
+  if (lowerTo === lowerFrom || lowerTo.startsWith(`${lowerFrom}/`)) {
+    throw new VaultError(400, `Cannot move ${fromPath} into itself`, "move_into_self");
+  }
+
+  const fromAbs = safeAbs(fromPath);
+  const toAbs = safeAbs(toPath);
+  let stat;
+  try {
+    stat = await fs.lstat(fromAbs);
+  } catch {
+    throw new VaultError(404, `Folder not found: ${fromPath}`, "move_missing");
+  }
+  if (stat.isSymbolicLink()) {
+    throw new VaultError(400, `Not a folder: ${fromPath}`, "move_not_folder");
+  }
+  if (!stat.isDirectory()) {
+    throw new VaultError(400, `Not a folder: ${fromPath}`, "move_not_folder");
+  }
+  if (await exists(toAbs)) {
+    throw new VaultError(409, `Target already exists: ${toPath}`, "move_conflict");
+  }
+
+  const { notes, attachments, dirs } = await listFolderFiles(fromPath);
+  const moved = [...notes, ...attachments].map((from) => ({
+    from,
+    to: `${toPath}${from.slice(fromPath.length)}`,
+  }));
+
+  try {
+    await fs.mkdir(path.dirname(toAbs), { recursive: true });
+  } catch {
+    throw new VaultError(400, `Destination is not a folder: ${toPath}`, "move_bad_parent");
+  }
+
+  // The synthetic event below is the whole story; swallow the watcher's
+  // add/unlink/addDir/unlinkDir storm for the same move, on both sides. The
+  // SUB-DIRECTORIES matter as much as the files: without them a move of a
+  // folder holding one sub-folder still leaked an `unlinkDir` + `addDir` pair
+  // after the event that had already said the same thing.
+  const window = Math.max(5_000, (moved.length + dirs.length) * 10);
+  suppress(fromPath, window);
+  suppress(toPath, window);
+  for (const dir of dirs) {
+    suppress(dir, window);
+    suppress(`${toPath}${dir.slice(fromPath.length)}`, window);
+  }
+  for (const m of moved) {
+    suppress(m.from, window);
+    suppress(m.to, window);
+  }
+
+  try {
+    await fs.rename(fromAbs, toAbs);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "EXDEV") {
+      // The `mkdir -p` above ran for a move that did not happen; take its
+      // empty directories back out before answering.
+      await pruneEmptyParents(toAbs, vaultRoot);
+      if (code === "ENOTEMPTY" || code === "EEXIST") {
+        throw new VaultError(409, `Target already exists: ${toPath}`, "move_conflict");
+      }
+      throw err;
+    }
+    // A bind-mounted sub-tree: copy first, and only remove the source once the
+    // copy is whole. A half-copy is cleaned up rather than left as a second,
+    // partial folder next to the original.
+    try {
+      await fs.cp(fromAbs, toAbs, { recursive: true, errorOnExist: true, force: false });
+    } catch (copyErr) {
+      await fs.rm(toAbs, { recursive: true, force: true }).catch(() => {});
+      throw copyErr;
+    }
+    await fs.rm(fromAbs, { recursive: true, force: true });
+  }
+  emit({ kind: "renamed", path: fromPath, toPath, dir: true });
+  return { notes: notes.length, moved };
+}
+
+/** Does a NAME exist at `abs` — `lstat`, not `access`.
+ *
+ *  `fs.access` follows symlinks, so a DANGLING link sitting at the
+ *  destination name answered "no" and the rename that followed replaced it
+ *  without a word. The source side already refuses symlinks by `lstat`; the
+ *  destination side asks the same question about the same kind of thing. */
 async function exists(abs: string): Promise<boolean> {
   try {
-    await fs.access(abs);
+    await fs.lstat(abs);
     return true;
   } catch {
     return false;
   }
+}
+
+/** Remove the (empty) directories a failed move created on its way to the
+ *  destination, stopping at the first one that is not empty and never leaving
+ *  the vault. `mkdir -p` before a `rename` that then throws used to leave the
+ *  half-built path behind as a folder the reader never asked for. */
+async function pruneEmptyParents(abs: string, stopAt: string): Promise<void> {
+  let dir = path.dirname(abs);
+  while (dir.startsWith(`${stopAt}${path.sep}`)) {
+    try {
+      await fs.rmdir(dir); // fails with ENOTEMPTY, which is the stop condition
+    } catch {
+      return;
+    }
+    dir = path.dirname(dir);
+  }
+}
+
+/** True when `rel` was WRITTEN as an absolute path (POSIX or Windows).
+ *
+ *  `normalizeRel` strips the leading slash, so `toPath:"/tmp/escaped"` used to
+ *  answer 200 and invent a top-level `tmp/` folder inside the vault. Nothing
+ *  escaped — but a request that reads as "put this at /tmp" and succeeds by
+ *  meaning something else is a success nobody asked for. */
+export function looksAbsolute(rel: string): boolean {
+  return /^[/\\]/.test(rel) || /^[a-zA-Z]:[/\\]/.test(rel);
 }
 
 // ------------------------------------------------------------------- watcher
@@ -566,9 +794,16 @@ function emit(event: VaultEvent): void {
   }
 }
 
-/** Ignore imminent watcher noise for a path we mutate deliberately (renames). */
-function suppress(relPath: string): void {
-  suppressed.set(relPath, Date.now() + 1000);
+/** Ignore imminent watcher noise for a path we mutate deliberately (renames).
+ *
+ *  `ms` is the window. One second is plenty for a single file, and far too
+ *  little for a folder MOVE: chokidar re-walks the arriving subtree, so a
+ *  715-note folder produces ~1,500 add/addDir events that trickle in for
+ *  several seconds — every one of them after the window closed, i.e. exactly
+ *  the storm the single synthetic event exists to replace. Callers moving a
+ *  tree scale the window to its size. */
+function suppress(relPath: string, ms = 1000): void {
+  suppressed.set(relPath, Date.now() + ms);
 }
 
 /** Public wrapper: a route that writes a file AND emits its own synthetic

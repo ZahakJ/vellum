@@ -12,7 +12,9 @@ import { bannerSrc } from "../banner.ts";
 import { installHoverCards } from "../hovercard.ts";
 import { t, tf } from "../i18n.ts";
 import LoginModal from "../components/LoginModal.tsx";
-import { renderMarkdown } from "../reading/render.ts";
+import { renderNoteContent } from "../reading/renderNote.ts";
+import { texPreviewSource } from "../reading/texRender.ts";
+import { isTexPath, noteTitleOf } from "../../shared/noteFormat.ts";
 import { notePathToUrl, urlToNoteGuess, urlToNotePath } from "../router.ts";
 import { useStore } from "../state.ts";
 import { counterpartTheme, themeGroup } from "../themes.ts";
@@ -33,7 +35,7 @@ import "../styles/blog.css";
 /** Basename of a note path, bidi controls stripped — the card header and the
  *  duplicate-H1 trim both key off it. */
 function noteTitle(path: string): string {
-  return stripBidiControls((path.split("/").pop() ?? path).replace(/\.md$/i, ""));
+  return stripBidiControls(noteTitleOf(path));
 }
 
 type Route =
@@ -262,7 +264,7 @@ export default function BlogShell() {
   // Per-page document title.
   useEffect(() => {
     if (route.kind === "article") {
-      const title = stripBidiControls(route.path.split("/").pop()!.replace(/\.md$/i, ""));
+      const title = stripBidiControls(noteTitleOf(route.path));
       document.title = `${title} · ${siteName}`;
     } else if (route.kind === "topic") {
       document.title = `${route.tag} · ${siteName}`;
@@ -319,10 +321,12 @@ export default function BlogShell() {
         } catch {
           return null;
         }
-        const md = previewExcerpt(content, noteTitle(path));
+        const md = isTexPath(path)
+          ? texPreviewSource(content, null)
+          : previewExcerpt(content, noteTitle(path));
         if (!md) return null;
         const tags = postTags.current.get(path);
-        return renderMarkdown(md, {
+        return renderNoteContent(md, {
           notePath: path,
           tree: useStore.getState().tree,
           embedded: true,

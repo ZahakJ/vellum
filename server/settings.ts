@@ -13,6 +13,7 @@
 
 import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { isNotePath } from "../shared/noteFormat.ts";
 import type {
   AboutInfo,
   EffectiveSettings,
@@ -491,8 +492,8 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
           } catch {
             throw new VaultError(400, 'Settings key "home.note" is not a valid vault path');
           }
-          if (!rel.toLowerCase().endsWith(".md")) {
-            throw new VaultError(400, 'Settings key "home.note" must be a markdown path (…​.md)');
+          if (!isNotePath(rel)) {
+            throw new VaultError(400, 'Settings key "home.note" must be a note path (.md, .tex or .latex)');
           }
           current.note = rel;
         }

@@ -2,6 +2,7 @@
 // in CONTRACTS.md and returns the shared wire types.
 
 import type {
+  AnchorsResponse,
   Backlink,
   CustomFontInfo,
   FrontmatterResult,
@@ -19,6 +20,7 @@ import type {
   TreeNode,
   UploadResult,
   VaultEvent,
+  XrefResponse,
 } from "../shared/types.ts";
 
 // ── Visitor preview (admin-only) ────────────────────────────────────────────
@@ -121,6 +123,25 @@ export function getNote(path: string): Promise<NoteData> {
   return request<NoteData>(`/api/note?path=${encodeURIComponent(path)}`);
 }
 
+/** A note's anchor table — markdown headings and LaTeX `\label`s in one list,
+ *  because they are the same kind of thing. Used where the CONTENT is not at
+ *  hand (autocomplete after `[[Note#`, the hover preview of a link into a note
+ *  that is not open). */
+export async function getAnchors(path: string): Promise<AnchorsResponse["anchors"]> {
+  const res = await request<AnchorsResponse>(`/api/anchors?path=${encodeURIComponent(path)}`);
+  return res.anchors;
+}
+
+/** The VAULT-WIDE half of a LaTeX cross-reference: which note defines a
+ *  `\label`, or which note answers to a citation key. Asked only after the
+ *  document's own definitions have been checked — local-first is what keeps an
+ *  imported project compiling exactly as it did. A miss is `{ path: null }`,
+ *  not an error: unresolved keys are the normal state of a bibliography. */
+export function lookupXref(query: { label: string } | { cite: string }): Promise<XrefResponse> {
+  const param = "label" in query ? `label=${encodeURIComponent(query.label)}` : `cite=${encodeURIComponent(query.cite)}`;
+  return request<XrefResponse>(`/api/xref?${param}`);
+}
+
 export function putNote(path: string, content: string): Promise<NoteData> {
   return request<NoteData>(
     `/api/note?path=${encodeURIComponent(path)}`,
@@ -163,6 +184,23 @@ export function deleteFolder(
   return request<{ notes: number; trashPath?: string }>(
     `/api/folder?path=${encodeURIComponent(path)}${permanent ? "&permanent=true" : ""}`,
     { method: "DELETE" },
+  );
+}
+
+/** Move a folder and everything under it to a new vault-relative PATH. Same
+ *  `{ path, toPath }` shape as `renameNote`, because dragging a note and
+ *  dragging a folder are one gesture to the reader — and the server does the
+ *  same job for both: move the files, then repair every `[[wikilink]]` and
+ *  relative embed the move would otherwise have broken. `notes` is how many
+ *  `.md` files travelled (the toast's number); `rewritten` how many notes had
+ *  links repaired. */
+export function moveFolder(
+  path: string,
+  toPath: string,
+): Promise<{ ok: true; notes: number; rewritten: number }> {
+  return request<{ ok: true; notes: number; rewritten: number }>(
+    "/api/folder/move",
+    json("POST", { path, toPath }),
   );
 }
 
@@ -209,11 +247,16 @@ export function setFrontmatter(
   return request<FrontmatterResult>("/api/frontmatter", json("POST", { path, key, value }));
 }
 
-/** Upload an image into the vault's attachments dir (admin only). `asAdmin`
- *  bypasses the visitor-preview header (see request). */
-export function uploadAttachment(file: File, asAdmin = false): Promise<UploadResult> {
+/** Upload an image into the vault (admin only). `asAdmin` bypasses the
+ *  visitor-preview header (see request). `dir` names a destination FOLDER —
+ *  the sidebar's drop-a-desktop-file-on-a-folder-row route; omitted, it is the
+ *  instance's configured attachments dir, which is what every other caller
+ *  wants. The server picks the first free filename either way, so an upload
+ *  never overwrites and the answer carries the name it actually landed under. */
+export function uploadAttachment(file: File, asAdmin = false, dir?: string): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file, file.name);
+  if (dir !== undefined) form.append("dir", dir);
   // No Content-Type header: the browser sets the multipart boundary itself.
   return request<UploadResult>("/api/upload", { method: "POST", body: form }, asAdmin);
 }

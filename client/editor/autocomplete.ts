@@ -13,7 +13,10 @@ import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { getNote } from "../api.ts";
 import { useStore } from "../state.ts";
-import { collectNotes, extractHeadings, resolveLink } from "./links.ts";
+import { collectNotes, resolveLink } from "./links.ts";
+import { noteAnchors } from "../../shared/anchors.ts";
+import { stripNoteExt } from "../../shared/noteFormat.ts";
+import { notePathFacet } from "./livePreview.ts";
 import {
   calloutIconRender,
   calloutTypeSource,
@@ -54,19 +57,30 @@ async function noteContent(path: string): Promise<string | null> {
   }
 }
 
-/** Headings of the wikilink's target note, offered after "#" inside [[ ]]. */
+/** ANCHORS of the wikilink's target note, offered after "#" inside [[ ]].
+ *
+ *  Anchors, not headings: a markdown heading and a LaTeX `\label` are the same
+ *  kind of thing, so `[[Heat Equation#` completes `eq:fourier` and `fig:bar`
+ *  exactly as `[[Notes#` completes `Derivation`. Without this the `#` half of
+ *  autocomplete was silently markdown-only, and the one link form the whole
+ *  cross-format design turns on was the one you could not complete. */
 async function headingOptions(
   context: CompletionContext,
   target: string,
 ): Promise<string[] | null> {
   if (!target.trim()) {
     // [[#…]] — the note being edited.
-    return extractHeadings(context.state.doc.toString());
+    return noteAnchors(hostPath(context), context.state.doc.toString()).map((a) => a.id);
   }
   const path = resolveLink(target, useStore.getState().tree);
   if (!path) return null;
   const content = await noteContent(path);
-  return content === null ? null : extractHeadings(content);
+  return content === null ? null : noteAnchors(path, content).map((a) => a.id);
+}
+
+/** The path of the note being edited, for anchor extraction on the open doc. */
+function hostPath(context: CompletionContext): string {
+  return context.state.facet(notePathFacet);
 }
 
 async function wikilinkSource(
@@ -101,7 +115,7 @@ async function wikilinkSource(
 
   const options: Completion[] = notes.map((note) => ({
     label: note.title,
-    detail: note.path === `${note.title}.md` ? undefined : note.path,
+    detail: stripNoteExt(note.path) === note.title ? undefined : note.path,
     type: "text",
     apply: applyInner,
   }));

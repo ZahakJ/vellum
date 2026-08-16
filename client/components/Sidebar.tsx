@@ -3,17 +3,34 @@
 // double-click; context menu for new note / new folder / rename / delete.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
 import type { AttachmentKind, SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
 import { getGraph, getTags, search } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
 import { collectNotes, resolveLink, type NoteRef } from "../editor/links.ts";
 import { countPhrase, localeNum, t, tf, type Lang } from "../i18n.ts";
+import {
+  autoScroll,
+  beginDrag,
+  canDrop,
+  dragHasFiles,
+  draggedItem,
+  droppedImages,
+  endDrag,
+  itemOf,
+  makeDragGhost,
+  moveTo,
+  stopAutoScroll,
+  uploadInto,
+} from "../move.ts";
 import { promptNewFolder, promptNewNote } from "../prompts.ts";
 import { useStore } from "../state.ts";
 import AttachmentViewer, { fileUrl, isViewable } from "./AttachmentViewer.tsx";
 import { confirmModal, confirmModalEx } from "./Confirm.tsx";
+import { moveViaPicker } from "./MovePicker.tsx";
 import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
+import "../styles/move.css";
+import { isNotePath, noteLabelOf } from "../../shared/noteFormat.ts";
 
 const SEARCH_DEBOUNCE_MS = 200;
 
@@ -41,6 +58,14 @@ function loadShowAttachments(): boolean {
 /** Margin the context menu keeps from every viewport edge. */
 const MENU_EDGE = 8;
 
+// How long a collapsed folder has to be hovered, mid-drag, before it opens —
+// "spring-loaded folders", the thing that makes a deep destination reachable
+// without dropping, expanding, and picking the item up again. 600ms is the
+// Finder/Obsidian figure: long enough that passing OVER a folder on the way
+// somewhere else never opens it, short enough that deliberately resting on one
+// does not feel broken.
+const SPRING_MS = 600;
+
 // Tags section collapse (tag-heavy vaults: the pill cloud can eat the tree's
 // room) — persisted like the tree's folder expansion.
 const TAGS_COLLAPSED_KEY = "vellum.tags-collapsed";
@@ -63,7 +88,7 @@ function joinPath(dir: string, name: string): string {
 }
 
 function ensureMd(name: string): string {
-  return name.endsWith(".md") ? name : `${name}.md`;
+  return isNotePath(name) ? name : `${name}.md`;
 }
 
 interface MenuState {
@@ -309,6 +334,45 @@ export default function Sidebar() {
   // position inside it, so ← / → walk that folder and nothing else.
   const [viewer, setViewer] = useState<{ items: TreeNode[]; index: number } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  // The tree's own scroller — the auto-scroll target during a drag, and the
+  // element that wears the vault-root drop ring.
+  const treeRef = useRef<HTMLElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+
+  // The vault ROOT is the one folder with no row of its own, and "put this back
+  // at the top level" has to be a gesture. Two surfaces stand in for it, both
+  // wired here so they cannot drift apart:
+  //   - the tree's own empty space under the last row, which is the obvious
+  //     place to reach for — and is exactly what a 1,375-note vault does not
+  //     have, since the rows fill the pane;
+  //   - the sidebar HEADER, which carries the vault's name, is on screen at
+  //     every scroll position, and never moves. That one is the answer for a
+  //     full tree.
+  // A sticky "vault root" row inside the tree was the other candidate and was
+  // rejected: appearing at dragstart it pushes every row down 26px under a
+  // pointer that has already picked something up.
+  const rootDropProps = useCallback((ref: { current: HTMLElement | null }, cls: string) => ({
+    onDragOver: (e: ReactDragEvent) => {
+      const item = draggedItem();
+      if (!item) return;
+      const ok = canDrop(item, "");
+      // preventDefault is what allows the drop; withholding it is the refusal.
+      if (ok) e.preventDefault();
+      e.dataTransfer.dropEffect = ok ? "move" : "none";
+      ref.current?.classList.toggle(cls, ok);
+    },
+    onDragLeave: (e: ReactDragEvent) => {
+      if (ref.current?.contains(e.relatedTarget as Node | null)) return;
+      ref.current?.classList.remove(cls);
+    },
+    onDrop: (e: ReactDragEvent) => {
+      e.preventDefault();
+      ref.current?.classList.remove(cls);
+      const item = draggedItem();
+      endDrag();
+      if (item && canDrop(item, "")) void moveTo(item, "");
+    },
+  }), []);
   // Set when a reveal had to happen first; the effect below focuses once the
   // pane is actually on screen (see revealSidebar).
   const focusWhenShown = useRef(false);
@@ -613,8 +677,29 @@ export default function Sidebar() {
   return (
     // Named by what it holds ("Notes sidebar"), never by the edge it is on:
     // that edge is right in Arabic and left in English.
-    <aside className="s-sidebar" aria-label={t("paneNotes")}>
-      <header className="s-sidebar-header">
+    <aside
+      className="s-sidebar"
+      aria-label={t("paneNotes")}
+      // A file dragged in from the desktop and dropped ANYWHERE in this pane
+      // that is not a folder row must do nothing — the browser's default is to
+      // navigate away to the image, which throws the reader's whole session
+      // out for missing a 26px row by a few pixels. Folder rows stop `dragover`
+      // from reaching here and set their own "copy"; everything else answers
+      // "none", which both paints the refusal and suppresses the navigation.
+      onDragOver={(e) => {
+        if (draggedItem() || !dragHasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "none";
+      }}
+    >
+      {/* The header doubles as the vault-root drop target — see rootDropProps.
+          It is the only part of the sidebar that names the vault and is on
+          screen at every scroll position. */}
+      <header
+        className="s-sidebar-header"
+        ref={headerRef}
+        {...(admin ? rootDropProps(headerRef, "s-sidebar-header--dropok") : {})}
+      >
         {admin ? (
           // The wordmark doubles as the preview toggle: one click shows the
           // site exactly as a visitor gets it (same path as the status-bar eye).
@@ -781,8 +866,27 @@ export default function Sidebar() {
       ) : (
         <nav
           className="s-tree"
+          ref={treeRef}
           onContextMenu={(e) => {
             if (tree && e.target === e.currentTarget) openMenu(e, tree);
+          }}
+          // CAPTURE phase, deliberately: the rows stop dragover from bubbling
+          // (so a row inside a folder never lights the root up), and auto-scroll
+          // has to run while the pointer is over ROWS — which is all of the
+          // time. This is the only handler that sees every dragover.
+          onDragOverCapture={(e) => {
+            if (draggedItem() && treeRef.current) autoScroll(treeRef.current, e.clientY);
+          }}
+          // The other vault-root surface: the tree's own empty space below the
+          // last row (rows stop dragover from bubbling, so anything arriving
+          // here came from the container itself).
+          {...rootDropProps(treeRef, "s-tree--droproot")}
+          // …plus the one thing the shared handler cannot know: a pointer that
+          // has left the tree entirely must stop the auto-scroll it started.
+          onDragLeave={(e) => {
+            if (treeRef.current?.contains(e.relatedTarget as Node | null)) return;
+            treeRef.current?.classList.remove("s-tree--droproot");
+            stopAutoScroll();
           }}
         >
           <TreeChildren
@@ -790,6 +894,7 @@ export default function Sidebar() {
             depth={0}
             renaming={renaming}
             lang={lang}
+            admin={admin}
             showAttachments={showAttachments}
             onOpen={openNote}
             onStartRename={startRename}
@@ -933,6 +1038,25 @@ export default function Sidebar() {
               }}
             >
               {t("rename")}
+            </button>
+          )}
+          {/* The keyboard and touch route to the same operation the drag
+              performs. It is not a convenience: HTML5 drag does not exist on a
+              touch screen and cannot be reached from the keyboard at all, so
+              without this row the tree's ONLY way to move a note is mouse-only.
+              Offered on notes and folders alike — never on an attachment (the
+              move endpoints are note routes) and never on the vault root. */}
+          {menu.node.path !== "" && !menu.node.attachment && (
+            <button
+              type="button"
+              className="s-menu__item"
+              onClick={() => {
+                const node = menu.node;
+                setMenu(null);
+                void moveViaPicker(itemOf(node));
+              }}
+            >
+              {t("moveTo")}
             </button>
           )}
           {menu.node.type === "file" && !menu.node.attachment && (
@@ -1088,6 +1212,9 @@ interface TreeRowProps {
    *  live language change busts memo() on every row and re-renders the
    *  t() tooltips, without paying for a store subscription per row. */
   lang: Lang;
+  /** Whether this session may mutate the vault — what makes a row draggable.
+   *  A visitor's tree is a reading surface. */
+  admin: boolean;
   /** False hides every attachment row (the sidebar footer's filter). */
   showAttachments: boolean;
   /** The rows rendered beside this one, filter applied — what the viewer
@@ -1176,13 +1303,118 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
   );
   // Attachments keep their extension — it is half of what the name says —
   // while a note sheds the ".md" it always has.
-  const label = isFolder || attachment ? node.name : node.name.replace(/\.md$/, "");
+  const label = isFolder || attachment ? node.name : noteLabelOf(node.name);
+
+  const open = (): void => {
+    setIsOpen(true);
+    expandedMap.set(node.path, true);
+    persistExpanded();
+  };
 
   const toggle = () => {
     const next = !isOpen;
     setIsOpen(next);
     expandedMap.set(node.path, next);
     persistExpanded();
+  };
+
+  // ── Drag and drop ─────────────────────────────────────────────────────────
+  // The drop state lives on the DOM node, not in React state. A drag crosses
+  // hundreds of rows; a `dropTarget` prop would bust memo() on all 1.4k of them
+  // every time the pointer moved one row, twelve times a second, to repaint
+  // one background.
+  const rowRef = useRef<HTMLDivElement>(null);
+  const springRef = useRef(0);
+
+  const clearDropState = useCallback(() => {
+    rowRef.current?.classList.remove("s-tree__item--dropok", "s-tree__item--dropbad");
+    if (springRef.current !== 0) {
+      window.clearTimeout(springRef.current);
+      springRef.current = 0;
+    }
+  }, []);
+
+  useEffect(() => clearDropState, [clearDropState]);
+
+  const onDragStart = (e: ReactDragEvent<HTMLDivElement>): void => {
+    const item = itemOf(node);
+    beginDrag(item);
+    e.dataTransfer.effectAllowed = "move";
+    // Firefox refuses to start a drag with an empty payload.
+    e.dataTransfer.setData("text/plain", node.path);
+    e.dataTransfer.setDragImage(makeDragGhost(item), 14, 14);
+    rowRef.current?.classList.add("s-tree__item--dragging");
+  };
+
+  const onDragEnd = (): void => {
+    rowRef.current?.classList.remove("s-tree__item--dragging");
+    endDrag();
+  };
+
+  const onDragOver = (e: ReactDragEvent<HTMLDivElement>): void => {
+    const item = draggedItem();
+    if (!item) {
+      // Files dragged in from the DESKTOP. Without this branch the browser's
+      // default takes over on drop and navigates the whole app away to the
+      // image — the reader loses their vault to a gesture the tree invites.
+      if (!isFolder || !props.admin || !dragHasFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "copy";
+      rowRef.current?.classList.add("s-tree__item--dropok");
+      return;
+    }
+    // Answered here, so it never reaches the tree's own root handler: a pointer
+    // resting on a row inside a folder must not light the VAULT ROOT up.
+    e.stopPropagation();
+    if (!isFolder) {
+      // A note is not a container. No colour (every file row flashing red on
+      // the way past its folder would be noise), just the browser's own refusal.
+      e.dataTransfer.dropEffect = "none";
+      return;
+    }
+    // Spring-loading arms for ANY folder, including one this item cannot land
+    // in: resting on the folder you are dragging out of is exactly how you
+    // reach the sub-folder you are dragging into.
+    if (!isOpen && springRef.current === 0) {
+      springRef.current = window.setTimeout(() => {
+        springRef.current = 0;
+        open();
+      }, SPRING_MS);
+    }
+    const ok = canDrop(item, node.path);
+    // preventDefault is what ALLOWS the drop. Withholding it on a refused
+    // target is what makes the cursor say no, and it is why an invalid drop
+    // cannot fire at all rather than being caught later.
+    if (ok) e.preventDefault();
+    e.dataTransfer.dropEffect = ok ? "move" : "none";
+    rowRef.current?.classList.toggle("s-tree__item--dropok", ok);
+    rowRef.current?.classList.toggle("s-tree__item--dropbad", !ok);
+  };
+
+  const onDragLeave = (e: ReactDragEvent<HTMLDivElement>): void => {
+    // dragleave also fires when the pointer crosses onto a CHILD of the row
+    // (the label span, the chevron). Cancelling the spring timer there would
+    // make the folder never open.
+    if (rowRef.current?.contains(e.relatedTarget as Node | null)) return;
+    clearDropState();
+  };
+
+  const onDrop = (e: ReactDragEvent<HTMLDivElement>): void => {
+    e.preventDefault();
+    e.stopPropagation();
+    clearDropState();
+    const item = draggedItem();
+    endDrag();
+    if (!item) {
+      // Desktop files land in this folder, through the same magic-byte-checked
+      // upload the editor's paste uses.
+      if (isFolder && props.admin) void uploadInto(droppedImages(e.dataTransfer), node.path);
+      return;
+    }
+    // Dropping onto a COLLAPSED folder works, and does not expand it: the
+    // spring is an aid for reaching deeper, never a precondition.
+    if (isFolder && canDrop(item, node.path)) void moveTo(item, node.path);
   };
 
   const classes = [
@@ -1197,8 +1429,19 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
   return (
     <div className="s-tree__node">
       <div
+        ref={rowRef}
         className={classes}
         style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
+        // Notes and folders move; an attachment does not (the move endpoints
+        // are note routes — an image travels only inside a folder that moves).
+        // A row being renamed is not draggable either: the field inside it
+        // needs its text selectable.
+        draggable={props.admin && !attachment && renaming !== node.path}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
         onClick={() =>
           isFolder
             ? toggle()

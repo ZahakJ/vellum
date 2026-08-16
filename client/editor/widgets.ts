@@ -13,12 +13,11 @@
 
 import { WidgetType, type EditorView } from "@codemirror/view";
 import { getNote } from "../api.ts";
+import { noteTitleOf } from "../../shared/noteFormat.ts";
 import { getLang, t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
-import {
-  markTransclusionOverflow,
-  renderMarkdown,
-} from "../reading/render.ts";
+import { markTransclusionOverflow } from "../reading/render.ts";
+import { renderNoteSlice } from "../reading/renderNote.ts";
 import "../reading/reading.css";
 
 // ── Embed classification & resolution: shared, CM-free helpers ──────────────
@@ -144,6 +143,12 @@ export class TransclusionWidget extends WidgetType {
     readonly target: string, // raw wikilink target (display)
     readonly path: string | null, // resolved vault path, null → broken
     readonly hostPath: string, // note the embed appears in (cycle guard)
+    /** The `#…` the embed named, if any. A transclusion that names an anchor
+     *  pulls in JUST that block — one equation, one figure, one section — and
+     *  the card's title says so. It is part of the widget's IDENTITY: two
+     *  embeds of the same note at different anchors are different widgets, and
+     *  leaving it out of `eq()` would let CodeMirror reuse one for the other. */
+    readonly anchor: string | null = null,
   ) {
     super();
   }
@@ -154,6 +159,7 @@ export class TransclusionWidget extends WidgetType {
       other.target === this.target &&
       other.path === this.path &&
       other.hostPath === this.hostPath &&
+      other.anchor === this.anchor &&
       other.lang === this.lang
     );
   }
@@ -162,12 +168,20 @@ export class TransclusionWidget extends WidgetType {
     card.className = "cm-s-transclude";
 
     const title = this.path
-      ? this.path.split("/").pop()!.replace(/\.md$/i, "")
+      ? noteTitleOf(this.path)
       : this.target;
     const header = document.createElement("span");
     header.className = "cm-s-transclude__title";
     header.textContent = title;
     header.title = this.path ? tf("openNote", { path: title }) : "";
+    // The same `note › anchor` trail the reading view's card prints, so a
+    // partial transclusion says which part it is on both surfaces.
+    if (this.anchor) {
+      const suffix = document.createElement("span");
+      suffix.className = "cm-s-transclude__anchor";
+      suffix.textContent = ` › ${this.anchor}`;
+      header.appendChild(suffix);
+    }
     card.appendChild(header);
 
     const body = document.createElement("span");
@@ -186,6 +200,7 @@ export class TransclusionWidget extends WidgetType {
     }
 
     const path = this.path;
+    const anchor = this.anchor;
     header.addEventListener("mousedown", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -197,12 +212,16 @@ export class TransclusionWidget extends WidgetType {
       // Full-fidelity body via the reading-view renderer (embedded mode:
       // nested note embeds render as chips, cycle-safe via ancestors).
       body.replaceChildren(
-        renderMarkdown(content, {
-          notePath: path,
-          tree: useStore.getState().tree,
-          embedded: true,
-          ancestors: new Set([hostPath]),
-        }),
+        renderNoteSlice(
+          content,
+          {
+            notePath: path,
+            tree: useStore.getState().tree,
+            embedded: true,
+            ancestors: new Set([hostPath]),
+          },
+          anchor,
+        ),
       );
       markTransclusionOverflow(
         card,

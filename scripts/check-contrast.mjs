@@ -1,9 +1,9 @@
 // WCAG contrast gate for client/styles/tokens.css.
 // Every theme (the :root default plus each [data-theme="…"] block) must hold:
-//   --text        >= 4.5:1  against --bg and --bg-raised   (body text)
-//   --text-muted  >= 3:1    against --bg and --bg-raised   (secondary text)
-//   --accent      >= 4.5:1  against --bg                   (see below)
-//   --text-faint  >= 3:1    against --bg and --bg-raised   (UI glyphs)
+//   --text        >= 4.5:1  against --bg, --bg-raised and --bg-hover  (body text)
+//   --text-muted  >= 3:1    against --bg, --bg-raised and --bg-hover  (secondary text)
+//   --accent      >= 4.5:1  against --bg                              (see below)
+//   --text-faint  >= 3:1    against --bg and --bg-raised              (UI glyphs)
 // Exits 1 on any failure.
 //
 // --text-faint used to print "(info)" against a minimum of 0 — a number the
@@ -126,6 +126,17 @@ const ACCENT_TEXT_MIN_DE = 18;
 let failures = 0;
 for (const [name, t] of Object.entries(themes)) {
   const need = ["--bg", "--bg-raised", "--text", "--text-muted", "--accent", "--text-faint"];
+  // --bg-hover is a THIRD ground, not a shade. Every hovered row, every
+  // highlighted menu row and every tag pill in the product is painted with it,
+  // so a token that clears its floor on --bg and --bg-raised and fails on
+  // --bg-hover is failing the floor without failing the check — one substrate
+  // over from where this script was looking. The selection menu shipped
+  // exactly that: keycaps and group titles at --text-faint on a --bg-hover
+  // active row measured 2.74:1 on iron-gall, 2.89 on sumi and tallow, 2.98 on
+  // parchment. --text-faint is NOT checked here, and that is the point: it is
+  // a two-ground token by construction (DESIGN.md), so a surface that paints
+  // --bg-hover may not put --text-faint on it — it uses --text-muted, which
+  // this gate now proves holds there in all fifteen.
   const missing = need.filter((k) => !t[k]);
   if (missing.length > 0) {
     console.error(`${name}: missing ${missing.join(", ")}`);
@@ -137,6 +148,12 @@ for (const [name, t] of Object.entries(themes)) {
     ["text / raised", t["--text"], t["--bg-raised"], 4.5],
     ["muted / bg", t["--text-muted"], t["--bg"], 3],
     ["muted / raised", t["--text-muted"], t["--bg-raised"], 3],
+    ...(t["--bg-hover"]
+      ? [
+          ["text / hover", t["--text"], t["--bg-hover"], 4.5],
+          ["muted / hover", t["--text-muted"], t["--bg-hover"], 3],
+        ]
+      : []),
     ["accent / bg", t["--accent"], t["--bg"], 4.5],
     ["faint / bg", t["--text-faint"], t["--bg"], 3],
     ["faint / raised", t["--text-faint"], t["--bg-raised"], 3],
@@ -161,6 +178,104 @@ for (const [name, t] of Object.entries(themes)) {
         min === 0 ? "(info)" : ok ? "PASS" : `FAIL (needs ${min}:1)`
       }`,
     );
+  }
+}
+
+// ── The text-colour palettes (shared/textColors.ts) ────────────────────────
+// A colour a reader puts INSIDE a note is the one token in the product that
+// outlives the theme it was chosen under, so it has to be solved against every
+// ground at once — and there are two lists because that problem has two
+// answers, one of which is provably impossible in one form:
+//
+//   · SEMANTIC (`--vc-*`, client/styles/textcolor.css): one value per THEME
+//     GROUP, held to 4.5:1 — AA body text — against every ground in its group.
+//     This is the default tier and the reason it is the default.
+//   · LITERAL (nine hexes): one value for all fifteen themes, held to 3:1,
+//     WCAG 1.4.11's non-text floor. It cannot be held to 4.5: against `void`'s
+//     #050508 a colour needs relative luminance >= 0.186 and against `solar`'s
+//     #ffffff it needs <= 0.183, and no colour satisfies both. The gate prints
+//     that as the reason rather than leaving the lower floor looking like
+//     sloppiness.
+//
+// Both lists are DATA, imported from the same module the client uses, so a
+// swatch cannot be added in the UI without being answerable here.
+
+const { SEMANTIC_COLORS, LITERAL_COLORS } = await import("../shared/textColors.ts");
+
+const LIGHT_THEMES = ["parchment", "sandstone", "linen", "solar"];
+const isLight = (name) => LIGHT_THEMES.some((id) => name.startsWith(id));
+
+/** Every ground a note's prose can sit on, per theme. `--bg-raised` counts:
+ *  colored text shows up inside hover preview cards and callouts too. */
+const grounds = [];
+for (const [name, t] of Object.entries(themes)) {
+  if (!t["--bg"]) continue;
+  grounds.push([`${name} / bg`, t["--bg"], isLight(name)]);
+  if (t["--bg-raised"]) grounds.push([`${name} / raised`, t["--bg-raised"], isLight(name)]);
+}
+
+console.log("\ntext colours — semantic (var(--vc-*), per theme group, AA)");
+for (const c of SEMANTIC_COLORS) {
+  for (const [group, hex, light] of [
+    ["dark", c.swatchDark, false],
+    ["light", c.swatchLight, true],
+  ]) {
+    let worst = Infinity;
+    let where = "";
+    for (const [label, bg, bgLight] of grounds) {
+      if (bgLight !== light) continue;
+      const r = ratio(hex, bg);
+      if (r < worst) {
+        worst = r;
+        where = label;
+      }
+    }
+    const ok = worst >= 4.5;
+    if (!ok) failures++;
+    console.log(
+      `  ${`--vc-${c.id} (${group})`.padEnd(24)} ${worst.toFixed(2).padStart(5)}:1  ${
+        ok ? "PASS" : "FAIL (needs 4.5:1)"
+      }  worst on ${where}`,
+    );
+  }
+}
+
+console.log("\ntext colours — literal (one ink, every ground, non-text 3:1)");
+for (const c of LITERAL_COLORS) {
+  let worst = Infinity;
+  let where = "";
+  for (const [label, bg] of grounds) {
+    const r = ratio(c.value, bg);
+    if (r < worst) {
+      worst = r;
+      where = label;
+    }
+  }
+  const ok = worst >= 3;
+  if (!ok) failures++;
+  console.log(
+    `  ${`${c.id} ${c.value}`.padEnd(24)} ${worst.toFixed(2).padStart(5)}:1  ${
+      ok ? "PASS" : "FAIL (needs 3:1)"
+    }  worst on ${where}`,
+  );
+}
+
+// The `--vc-*` values in the stylesheet must BE the ones the module publishes:
+// they are written twice by necessity (CSS cannot import) and a drift would
+// mean the gate is measuring one palette while the product paints another.
+const tcss = readFileSync(new URL("../client/styles/textcolor.css", import.meta.url), "utf8");
+const tblocks = [...tcss.matchAll(/\{([^}]*)\}/g)].map((m) => m[1]);
+for (const c of SEMANTIC_COLORS) {
+  for (const [i, want] of [c.swatchDark, c.swatchLight].entries()) {
+    const got = tblocks[i] && new RegExp(`--vc-${c.id}:\\s*(#[0-9a-fA-F]{6})`).exec(tblocks[i]);
+    if (!got || got[1].toLowerCase() !== want.toLowerCase()) {
+      console.error(
+        `  textcolor.css block ${i === 0 ? "dark" : "light"}: --vc-${c.id} is ${
+          got ? got[1] : "missing"
+        }, shared/textColors.ts says ${want}`,
+      );
+      failures++;
+    }
   }
 }
 

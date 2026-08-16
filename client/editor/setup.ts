@@ -35,12 +35,19 @@ import {
 import { autoLineDirection } from "./bidi.ts";
 import { editorTheme, vellumHighlighting } from "./theme.ts";
 import { livePreview } from "./livePreview.ts";
+import { pointerSelection } from "./pointer.ts";
+import { formatKeymap } from "./commands.ts";
+import { selectionMenu } from "../components/SelectionMenu.tsx";
 import { wikilinkAutocomplete } from "./autocomplete.ts";
 import { imageUploads } from "./uploads.ts";
 import { hoverPreviews } from "./hoverPreview.ts";
 import { headingFolds } from "./folding.ts";
 import { attachVimStatus, detachVimStatus } from "./vimStatus.ts";
 import { t } from "../i18n.ts";
+import { isTexPath } from "../../shared/noteFormat.ts";
+import { texFolds, texHighlighting, texLanguage } from "./tex/lang.ts";
+import { texPreview } from "./tex/preview.ts";
+import { texAutocomplete } from "./tex/complete.ts";
 
 export interface EditorSetupOptions {
   doc: string;
@@ -113,18 +120,54 @@ export function buildEditorState(options: EditorSetupOptions): EditorState {
       // honor that per-line direction for cursor movement.
       EditorView.perLineTextDirection.of(true),
       autoLineDirection,
-      markdown({ base: markdownLanguage, codeLanguages: languages }),
-      editorTheme(),
-      vellumHighlighting(),
-      livePreview(options.path),
-      wikilinkAutocomplete(),
+      // THE ONE BRANCH IN THE EXTENSION LIST. Everything above and below it is
+      // format-blind — the theme, the vim compartment, the save keymap, the
+      // caret handling, the uploads. What differs between a `.md` and a `.tex`
+      // note is the language, the folding and what live preview MEANS, and
+      // those three are exactly what the tex extensions swap.
+      //
+      // The FORMATTING is the exception, and it is not a fourth entry here: it
+      // branches one layer down, on `notePathFacet`, because the extension is
+      // the same in both notes and only its VOCABULARY changes (commands.ts's
+      // `syntaxOf`). `**bold**` typed into a `.tex` file is two pairs of
+      // asterisks nothing renders, so bold is `\textbf{…}` there, a heading is
+      // `\section{…}`, and strikethrough — which LaTeX cannot spell without a
+      // package a note may not load — is not offered at all.
+      ...(isTexPath(options.path)
+        ? [texLanguage, texFolds, texHighlighting(), texPreview(options.path), editorTheme(), vellumHighlighting()]
+        : [
+            markdown({ base: markdownLanguage, codeLanguages: languages }),
+            editorTheme(),
+            vellumHighlighting(),
+            livePreview(options.path),
+          ]),
+      // Caret placement resolved through the DOM rather than CodeMirror's
+      // `posAtCoords`, which mis-maps every row carrying a replaced inline
+      // widget (rendered math, an image, a hidden wikilink bracket) — see
+      // pointer.ts, and scripts/check-caret.mjs, which is the gate.
+      pointerSelection,
+      // Bold/italic/underline/strikethrough/highlight. Above defaultKeymap,
+      // below the vim compartment — see commands.ts for every number. Bound in
+      // BOTH formats: each key resolves its own spelling from the note, and
+      // the two LaTeX cannot spell decline rather than writing markdown.
+      formatKeymap,
+      // Right-click (and Shift+F10) over a selection opens the formatting
+      // menu; a floating toolbar follows every selection unless the reader
+      // has turned it off. Both run the same commands as the keystrokes, and
+      // both list only the rows the open note's language can carry.
+      selectionMenu(),
+      // `[[` is markdown's link syntax; a `.tex` note completes `\note{…}`,
+      // `\ref{…}`, `\cite{…}` and `\begin{…}` instead.
+      isTexPath(options.path) ? texAutocomplete() : wikilinkAutocomplete(),
       // Editing delight: paste/drop image uploads, pasting a URL over a
       // selection makes a markdown link, wikilink/footnote hover previews,
       // heading-section folding.
       imageUploads(),
       pasteURLAsLink,
       hoverPreviews(),
-      headingFolds(),
+      // Markdown's heading folds are markdown's; a `.tex` note folds
+      // environments and sections through texFolds above.
+      ...(isTexPath(options.path) ? [] : [headingFolds()]),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) options.onDocChanged(update.view);
       }),
