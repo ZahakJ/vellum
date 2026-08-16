@@ -192,7 +192,7 @@
   gap: 12px;
   max-width: 100%;
   max-height: 100%;
-  outline: none;
+  outline: none; /* a11y-ok: tabIndex={-1} lightbox shell, focused only so it can hear Esc; the visible ring lives on .s-att-view__nav */
   animation: s-att-in 0.14s ease;
 }
 

@@ -57,7 +57,7 @@
 .s-ctl-input {
   width: 100%;
   min-width: 0;
-  outline: none;
+  outline: none; /* a11y-ok: the ring is the `.s-ctl-input:focus` box-shadow four rules down, not a removal */
 }
 
 /* A FIELD'S `dir` FIXES ITS ORDER; IT MUST NOT ALSO FIX ITS ALIGNMENT.
@@ -243,7 +243,7 @@
   min-height: 0;
   overflow-y: auto;
   padding: 4px;
-  outline: none;
+  outline: none; /* a11y-ok: role=listbox scroll shell; the ring shows on the focused `.s-ctl-pop__opt` button inside it */
 }
 
 .s-ctl-pop__grouplabel {

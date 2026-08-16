@@ -1520,8 +1520,13 @@ function CustomFonts({
   useEffect(() => loadFontFaces(fonts.map((font) => font.id)), [fonts]);
   return (
     <div className="s-smodal__fonts">
-      <div
+      {/* Real button, like the banner and logo drop zones above: a div that
+          opens a file picker is a control no keyboard can reach. The drag
+          handlers ride along on it. */}
+      <button
+        type="button"
         className={`s-bmodal__drop${dragOver ? " s-bmodal__drop--over" : ""}`}
+        aria-label={t("chooseFontFile")}
         onClick={() => fileInputRef.current?.click()}
         onDragOver={(e) => {
           e.preventDefault();
@@ -1550,7 +1555,7 @@ function CustomFonts({
             e.target.value = "";
           }}
         />
-      </div>
+      </button>
       {fonts.length === 0 && <p className="s-smodal__note">{t("noCustomFonts")}</p>}
       {fonts.length > 0 && (
         <ul className="s-smodal__fontlist">

@@ -144,7 +144,15 @@ for (const f of code) {
     const m = /(?:const|let)\s+(\w+)\s*=\s*document\.createElement\(["']button["']\)/.exec(line);
     if (!m || OK.test(line)) return;
     const name = m[1];
-    const window_ = lines.slice(i, i + 14).join("\n");
+    // Fourteen lines of CODE, not fourteen lines of file. This codebase writes
+    // long "why" comments between the createElement and the assignments, and a
+    // raw slice let a comment block push a button's own `textContent =` out of
+    // view and report a named button as nameless.
+    const window_ = lines
+      .slice(i, i + 120)
+      .filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l) && l.trim() !== "")
+      .slice(0, 14)
+      .join("\n");
     const named = new RegExp(
       `${name}\\.(textContent|innerHTML|ariaLabel|title)\\s*=|${name}\\.setAttribute\\(\\s*["'](aria-label|title)["']`,
     );

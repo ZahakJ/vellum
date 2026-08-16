@@ -2443,6 +2443,7 @@ const DICT = {
   },
   linkedNotesAria: { en: "Linked notes", ar: "الملاحظات المرتبطة" },
   chooseImageFile: { en: "Choose an image file", ar: "اختر ملف صورة" },
+  chooseFontFile: { en: "Choose a font file", ar: "اختر ملف خط" },
   statusBarAria: { en: "Status bar", ar: "شريط الحالة" },
   backlinksPanelAria: { en: "Note context", ar: "سياق الملاحظة" },
   siteNav: { en: "Site sections", ar: "أقسام الموقع" },

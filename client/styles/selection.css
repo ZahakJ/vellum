@@ -29,7 +29,7 @@
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
   font-family: var(--font-ui);
   font-size: 0.86rem;
-  outline: none;
+  outline: none; /* a11y-ok: role=menu, tabIndex={-1}; the marker is `.s-selmenu__row--active`, not a ring on the box */
 }
 
 .s-selmenu__group + .s-selmenu__group {
