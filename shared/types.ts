@@ -1,5 +1,7 @@
 // Shared types — the wire contract between server and client. Do not drift from these.
 
+import type { AttachmentMode } from "./attachments.ts";
+
 export interface TreeNode {
   name: string;          // file or folder basename, e.g. "Ideas.md" or "projects"
   path: string;          // vault-relative POSIX path, e.g. "projects/Ideas.md"; "" for root
@@ -379,6 +381,11 @@ export interface SettingsData {
   /** Site logo image (https URL or vault path) shown in place of the
    *  site-name text where a logo fits (masthead, sidebar, dashboard hero). */
   logo?: string;
+  /** Where new attachments are written (Obsidian's "Default location for new
+   *  attachments"). Absent → mode "specified" with ATTACHMENTS_DIR as the
+   *  folder, i.e. exactly what instances did before this key existed.
+   *  Existing attachments are never moved by a change here. */
+  attachments?: AttachmentSettings;
   /** Templates folder (vault-relative), Obsidian's core-Templates setting.
    *  Absent → the server auto-detects an unambiguously named folder
    *  ("Templates", "_templates", "قوالب"); ambiguity means unset, never a
@@ -417,6 +424,15 @@ export interface SettingsData {
    *  EXCLUDE_TAGS and the language filter keep matching the canonical tag.
    *  Shape and resolution live in `shared/tagLabels.ts` (`TagLabelMap`). */
   tagLabels?: Record<string, Record<string, string>>;
+}
+
+export interface AttachmentSettings {
+  /** vault-root | same-folder | subfolder | specified (see shared/attachments.ts). */
+  mode?: AttachmentMode;
+  /** The folder the two folder-bearing modes use: a vault-relative path for
+   *  "specified", a relative subfolder name for "subfolder". Path-safe, never
+   *  a dot-folder, created on demand. */
+  folder?: string;
 }
 
 /** Mirrors `DateCalendar` in shared/dates.ts (types.ts stays import-free, the
@@ -486,6 +502,8 @@ export interface EffectiveSettings {
   templatesFolderDetected: boolean;
   defaultTemplate: string | null;
   home: Required<Pick<HomeSettings, "mode">> & Omit<HomeSettings, "mode">;
+  /** Always resolved: the attachment mode in force and the folder it uses. */
+  attachments: Required<AttachmentSettings>;
   gitSync: GitSyncEffective;
   /** Typography slots in effect (every slot present, "system" when unset). */
   fonts: FontSlotsEffective;
@@ -525,6 +543,12 @@ export interface SettingsPatch {
     banner?: string | null;
   } | null;
   logo?: string | null;
+  /** Where new attachments go. Either half may be set alone; null clears the
+   *  whole key back to the pre-setting behaviour. */
+  attachments?: {
+    mode?: AttachmentMode | null;
+    folder?: string | null;
+  } | null;
   /** Templates folder; null (or "") clears it back to auto-detection. */
   templatesFolder?: string | null;
   /** Template for new notes; null (or "") turns the default back off. */
@@ -654,10 +678,21 @@ export interface PublishResult {
   published: boolean; // publish state after the toggle
 }
 
-// POST /api/upload (admin only): multipart image → saved under ATTACHMENTS_DIR.
+// POST /api/upload (admin only): multipart file (field "file") → saved under
+// the folder the attachment-location setting resolves to. The optional field
+// "dir" carries the vault folder the upload happened in (the open note's
+// folder, the tree row dropped on) — it is what the "same folder" and
+// "subfolder" modes are relative to, and it is ignored by the other two.
 export interface UploadResult {
   path: string; // vault-relative path of the stored attachment
 }
+
+// `GET /api/impact` + `DeleteImpact` stood here and are gone. They asked what
+// a delete would really take — the right question, prompted by a folder of
+// four images truthfully answering "0 notes" — but `GET /api/delete-preview` +
+// `DeletePreview` (above) answer it for notes, folders AND attachments, and
+// carry the referencing titles the dialogs print. Two wire shapes for one
+// question is how two dialogs come to describe one delete differently.
 
 // POST /api/frontmatter { path, key, value } (admin only) → FrontmatterResult.
 // Surgical single-line frontmatter edit; key allowlisted ("banner" for now),

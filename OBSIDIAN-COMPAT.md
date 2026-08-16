@@ -11,6 +11,13 @@ config dir (must be ignored everywhere: tree, index, graph, watcher).
 - Tree/index still list only .md, but `resolveEmbed(name)` resolves attachment basenames
   (case-insensitive, shortest-path) like wikilinks — expose `GET /api/resolve?name=` returning
   `{ path } | 404` for both notes and attachments.
+- **Uploads honour Obsidian's own setting.** `settings.attachments.mode` is named after
+  Obsidian's "Default location for new attachments" and offers the same four choices (vault
+  root / same folder as the note / subfolder of the note's folder / one specified folder), so a
+  migrating vault keeps writing attachments where its owner already expects. `POST /api/upload`
+  accepts every kind an Obsidian vault holds — images, PDF, audio, video — sniffed by magic
+  number. Existing attachments are never moved by a change of the setting. See CONTRACTS.md,
+  "Attachments".
 
 ## B2. Editor rendering (client, live preview widgets)
 

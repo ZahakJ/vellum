@@ -309,6 +309,9 @@ export default function TocPanel() {
       </header>
       <nav
         className={`s-toc__list${dragSlug ? " s-toc__list--dragging" : ""}`}
+        // A navigation landmark with no name is one of several: this shell has
+        // the sidebar tree, the blog nav and this one.
+        aria-label={t("outline")}
         ref={listRef}
         onDragOver={(e) => {
           // Past the last row: the drop lands at the end of the note.
@@ -345,6 +348,9 @@ export default function TocPanel() {
               }${dragSlug === h.slug ? " s-toc__item--dragging" : ""}${
                 drop?.springSlug === h.slug ? " s-toc__item--spring" : ""
               }`}
+              // "You are here" was gold text and nothing else; aria-current is
+              // the same fact in a form a screen reader can read.
+              aria-current={active === h.slug ? "location" : undefined}
               /* The TOOLTIP keeps the heading as the FILE spells it, so a
                  reader looking at a localised row can still learn the
                  canonical tag it carries — the bargain every labelled chip in

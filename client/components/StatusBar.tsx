@@ -20,10 +20,14 @@ import { DRAWER_QUERY, useStore } from "../state.ts";
 import { choiceGroup, choiceLabel } from "../themes.ts";
 import SyncBadge from "./SyncBadge.tsx";
 import { openThemePicker } from "./ThemePicker.tsx";
-import { openDesigner } from "./design/DesignerPanel.tsx";
+import { openDesigner } from "./design/openDesigner.ts";
 import { noteLabelOf, stripNoteExt } from "../../shared/noteFormat.ts";
 import { dailyNoteLabel } from "../daily.ts";
 import { isHardWrapped, layoutBadge, noteLayout, type NoteLayout } from "../textLayout.ts";
+// The pill/tooltip/strip table moved out to its own module when this file
+// became lazy — App renders the zen strip from the same table and must be able
+// to read it without importing (and therefore eagerly loading) the status bar.
+import { vimSubCopy } from "../vimCopy.ts";
 
 /** True while the shell shows the sidebar as an overlay drawer (app.css's
  *  `@media (max-width: 999px)`). The switch below has to know: at those widths
@@ -79,19 +83,6 @@ function ModePill(props: {
       {sub && <span className="s-mode__sub">{sub}</span>}
     </button>
   );
-}
-
-/** Copy for a vim sub-mode: the pill word, its tooltip and the zen strip
- *  sentence all come from one table so they can never disagree. */
-const VIM_SUB = {
-  normal: { pill: "vimNormal", title: "vimNormalTitle", strip: "vimStripNormal" },
-  insert: { pill: "vimInsert", title: "vimInsertTitle", strip: "vimStripInsert" },
-  visual: { pill: "vimVisual", title: "vimVisualTitle", strip: "vimStripVisual" },
-  replace: { pill: "vimReplace", title: "vimReplaceTitle", strip: "vimStripReplace" },
-} as const;
-
-export function vimSubCopy(mode: keyof typeof VIM_SUB | null) {
-  return mode ? VIM_SUB[mode] : null;
 }
 
 /** Pane toggles: an icon each, so the sidebar, the right panel and zen are
@@ -237,7 +228,9 @@ export default function StatusBar() {
     : [];
 
   return (
-    <footer className="s-statusbar">
+    // A named landmark, because this <footer> is not a site footer: it is the
+    // app's status strip, and "contentinfo" with no name says nothing.
+    <footer className="s-statusbar" aria-label={t("statusBarAria")}>
       {crumbs.length > 0 ? (
         // Two flex children, not one segment per folder, and that is what
         // keeps a squeezed trail readable. Every segment used to shrink
@@ -304,6 +297,9 @@ export default function StatusBar() {
               className={`s-statusbar__btn s-statusbar__pubcount${
                 publishedFilter ? " s-statusbar__btn--on" : ""
               }`}
+              // It narrows the whole tree and stays narrowed — a state, not an
+              // action, and the only visual cue for it is a class.
+              aria-pressed={publishedFilter}
               onClick={() => setPublishedFilter(!publishedFilter)}
               title={t(publishedFilter ? "showFullVault" : "filterToPublished")}
             >
@@ -360,6 +356,7 @@ export default function StatusBar() {
             className={`s-statusbar__btn s-statusbar__pub${
               openPublished ? " s-statusbar__pub--on" : ""
             }`}
+            aria-pressed={openPublished === true}
             onClick={() => void togglePublish(openPath)}
             title={t(openPublished ? "unpublishTitle" : "publishTitle")}
           >
@@ -578,6 +575,10 @@ export default function StatusBar() {
         <button
           type="button"
           className={`s-statusbar__btn${view === "graph" ? " s-statusbar__btn--on" : ""}`}
+          // A toggle, not a link: it swaps the workspace between the note and
+          // the graph, and the class that says so visually needs a twin a
+          // screen reader can hear.
+          aria-pressed={view === "graph"}
           onClick={() => setView(view === "graph" ? "editor" : "graph")}
           title={t("graphTitle")}
         >

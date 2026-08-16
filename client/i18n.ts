@@ -1055,7 +1055,6 @@ const DICT = {
   // ── Home banner modal (dashboard hero) ──────────────────────────────────
   homeBannerTitle: { en: "Home banner", ar: "غلاف الرئيسية" },
   homeBannerSubtitle: { en: "dashboard hero", ar: "واجهة اللوحة" },
-  homeBannerAria: { en: "Change home banner", ar: "تغيير غلاف الرئيسية" },
   homeBannerSet: { en: "Home banner set", ar: "تم تعيين غلاف الرئيسية" },
   homeBannerRemoved: { en: "Home banner removed", ar: "تمت إزالة غلاف الرئيسية" },
   homeBannerFailed: { en: "Saving the banner failed", ar: "فشل حفظ الغلاف" },
@@ -1493,10 +1492,6 @@ const DICT = {
   // Files dragged in from the desktop onto a folder row. The landed NAME is in
   // the message because the server takes the first free one — a counter the
   // reader does not see is a file they will not find.
-  uploadedOneToast: { en: "Added “{name}” to {folder}", ar: "أُضيف “{name}” إلى {folder}" },
-  uploadedManyToast: { en: "Added {count} to {folder}", ar: "أُضيف {count} إلى {folder}" },
-  uploadIntoFailed: { en: "Could not add “{name}”.", ar: "تعذّرت إضافة “{name}”." },
-  uploadNotImage: { en: "“{name}” is not an image the vault accepts.", ar: "“{name}” ليس صورة تقبلها الخزانة." },
 
   // ── Text formatting, the selection menu and colour ──────────────────────
   // Added with the formatting round. Ctrl/Cmd+B stopped folding a pane and
@@ -2412,6 +2407,102 @@ const DICT = {
   pvNoteBody: {
     en: "A sample note, rendered where this section will render one of your own.",
     ar: "ملاحظة نموذجية تُعرض حيث ستُعرض ملاحظة من ملاحظاتك.",
+  },
+
+  // ── Accessibility: names for surfaces that carry no visible label ────────
+  // Every string here exists because something on screen is obvious to a
+  // reader who can see it and silent to one who cannot: a tree of rows, a
+  // canvas, a row of tabs, a bare landmark.
+  skipToContent: { en: "Skip to content", ar: "تخطَّ إلى المحتوى" },
+  mainContent: { en: "Main content", ar: "المحتوى الرئيسي" },
+  vaultTree: { en: "Vault files", ar: "ملفات الخزانة" },
+  rowActions: { en: "Row actions", ar: "إجراءات السطر" },
+  openTabsAria: { en: "Open notes", ar: "الملاحظات المفتوحة" },
+  searchResultsAria: { en: "Search results", ar: "نتائج البحث" },
+  paletteResultsAria: { en: "Commands and notes", ar: "الأوامر والملاحظات" },
+  resultCount: { en: "{count} results", ar: "{count} نتيجة" },
+  noResultsAria: { en: "No results", ar: "لا نتائج" },
+  graphAria: { en: "Vault link graph", ar: "رسم روابط الخزانة" },
+  localGraphAria: {
+    en: "Links around this note — the panel below lists them as text",
+    ar: "الروابط حول هذه الملاحظة — تسردها اللوحة أدناه نصًّا",
+  },
+  linkedNotesAria: { en: "Linked notes", ar: "الملاحظات المرتبطة" },
+  chooseImageFile: { en: "Choose an image file", ar: "اختر ملف صورة" },
+  statusBarAria: { en: "Status bar", ar: "شريط الحالة" },
+  backlinksPanelAria: { en: "Note context", ar: "سياق الملاحظة" },
+  siteNav: { en: "Site sections", ar: "أقسام الموقع" },
+  articleContent: { en: "Article", ar: "المقالة" },
+
+  // ── Attachments: dropping files, and what a delete really takes ─────────
+  // The refusal copy is spoken BEFORE anything is uploaded, so it names both
+  // what was turned away and what would have been welcome.
+  attachKinds: { en: "images, audio, video and PDF", ar: "الصور والصوت والفيديو وملفات PDF" },
+  refuseType: {
+    en: "{files} can’t be attached ({exts}) — Vellum takes {kinds}.",
+    ar: "تعذّر إرفاق {files} ({exts}) — المقبول هو {kinds}.",
+  },
+  refuseSize: {
+    en: "{files} are over the {max} MB limit.",
+    ar: "{files} تتجاوز الحد ({max} ميغابايت).",
+  },
+  someFilesRefused: { en: "Some files can’t be attached", ar: "بعض الملفات لا يمكن إرفاقها" },
+  unknownType: { en: "unknown type", ar: "نوع غير معروف" },
+  uploadTheRest: { en: "Upload {files}?", ar: "هل تريد رفع {files}؟" },
+  upload: { en: "Upload", ar: "رفع" },
+  filesAdded: { en: "Added {files} to {folder}", ar: "أُضيفت {files} إلى {folder}" },
+  // Covers both reasons a stored name can differ from the dropped one — the
+  // folder already held it, or it needed sanitizing — because the reader's
+  // question is the same either way: what is it called now?
+  savedAsName: {
+    en: "“{from}” was saved as “{to}”.",
+    ar: "حُفظ “{from}” باسم “{to}”.",
+  },
+  uploadUndone: { en: "Moved {files} to .trash", ar: "نُقلت {files} إلى ‎.trash‎" },
+  uploadUndoFailed: {
+    en: "Couldn’t undo every upload — check the server log.",
+    ar: "تعذّر التراجع عن كل الملفات المرفوعة — راجع سجل الخادم.",
+  },
+  vaultRoot: { en: "the vault root", ar: "جذر الخزانة" },
+  // A list separator, not a sentence: Arabic uses its own comma (U+060C).
+  deleteAttachmentTitle: { en: "Move “{name}” to .trash?", ar: "نقل “{name}” إلى ‎.trash‎؟" },
+  dropFilesTitle: { en: "Drop files to attach them here", ar: "أفلت الملفات لإرفاقها هنا" },
+
+  // ── Settings: where new attachments go ──────────────────────────────────
+  groupAttachments: { en: "Attachments", ar: "المرفقات" },
+  rowAttachmentLocation: { en: "New attachments", ar: "المرفقات الجديدة" },
+  hintAttachmentLocation: {
+    en: "Where an upload is written. Existing attachments are never moved.",
+    ar: "أين يُكتب الملف المرفوع. لا تُنقل المرفقات الموجودة أبدًا.",
+  },
+  locVaultRoot: { en: "Vault root", ar: "جذر الخزانة" },
+  locSameFolder: { en: "Same folder as the note", ar: "نفس مجلد الملاحظة" },
+  locSubfolder: { en: "Subfolder of the note’s folder", ar: "مجلد فرعي داخل مجلد الملاحظة" },
+  locSpecified: { en: "Specified folder", ar: "مجلد محدد" },
+  rowAttachmentFolder: { en: "Attachment folder", ar: "مجلد المرفقات" },
+  hintAttachmentFolder: {
+    en: "Vault-relative; created on demand",
+    ar: "نسبي إلى الخزانة؛ يُنشأ عند الحاجة",
+  },
+  hintAttachmentSubfolder: {
+    en: "Name only; sits inside the note’s folder",
+    ar: "الاسم فقط؛ داخل مجلد الملاحظة",
+  },
+  errFolderTraversal: {
+    en: "Must stay inside the vault (no “..”)",
+    ar: "يجب أن يبقى داخل الخزانة (بدون “..”)",
+  },
+  errFolderAbsolute: {
+    en: "Must be a vault-relative folder",
+    ar: "يجب أن يكون مسارًا نسبيًا داخل الخزانة",
+  },
+  errFolderDotfolder: {
+    en: "Dot-folders are invisible to the vault",
+    ar: "المجلدات التي تبدأ بنقطة غير مرئية للخزانة",
+  },
+  errFolderControl: {
+    en: "Control characters are not allowed",
+    ar: "لا يُسمح بمحارف التحكم",
   },
 } satisfies Record<string, Entry>;
 

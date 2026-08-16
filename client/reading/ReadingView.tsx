@@ -4,9 +4,11 @@
 // answers "vellum:goto-heading" requests from the outline panel.
 
 import { useEffect, useRef } from "react";
+import { scrollBehavior } from "../a11y.ts";
 import { getNote, isNotPublishedError } from "../api.ts";
 import Marginalia from "../components/Marginalia.tsx";
 import { t, tf } from "../i18n.ts";
+import { Lru } from "../lru.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { numberRendered, useHeadingNumberTick } from "./headingNumbers.ts";
@@ -14,8 +16,10 @@ import { renderNoteContent } from "./renderNote.ts";
 import { applyNoteLayoutTo } from "../textLayout.ts";
 import "./reading.css";
 
-/** Scroll positions survive tab switches; module-level so remounts keep them. */
-const scrollPositions = new Map<string, number>();
+/** Scroll positions survive tab switches; module-level so remounts keep them.
+ *  Bounded because "every note read this session" is the whole vault on a
+ *  long day — 256 is far more history than a reader ever walks back through. */
+const scrollPositions = new Lru<number>({ max: 256 });
 
 function publishActive(host: HTMLElement): void {
   const heads = host.querySelectorAll<HTMLElement>(".s-rv-h[id]");
@@ -34,7 +38,7 @@ export default function ReadingView({ path }: { path: string }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   // The rendered markdown lives in its own child div so React siblings
   // (Marginalia) survive the imperative replaceChildren below.
-  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLElement | null>(null);
   const tree = useStore((s) => s.tree);
   const isDirty = useStore((s) => !!s.dirty[path]);
   // The rendered body carries t() chrome (properties card, transclusion cards,
@@ -174,15 +178,25 @@ export default function ReadingView({ path }: { path: string }) {
         host.getBoundingClientRect().top +
         host.scrollTop -
         28;
-      host.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      host.scrollTo({ top: Math.max(0, top), behavior: scrollBehavior() });
     };
     window.addEventListener("vellum:goto-heading", onGoto);
     return () => window.removeEventListener("vellum:goto-heading", onGoto);
   }, []);
 
   return (
-    <div className="s-reading" ref={hostRef}>
-      <div className="s-reading__body" ref={bodyRef} />
+    // The prose column is its own scroll container, and a scroll container
+    // that nothing can focus cannot be scrolled with the keyboard at all —
+    // PageDown does nothing, the note is unreadable without a mouse. The tab
+    // stop is the fix, and it needs a name so the stop is not a mystery.
+    <div
+      className="s-reading"
+      ref={hostRef}
+      tabIndex={0}
+      role="region"
+      aria-label={t("articleContent")}
+    >
+      <article className="s-reading__body" ref={bodyRef} />
       <Marginalia path={path} />
     </div>
   );

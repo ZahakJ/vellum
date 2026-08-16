@@ -3,8 +3,9 @@
 // note a comment sits under. Admin-only; the server 404s the feed for anyone
 // else (and when COMMENTS is off, which renders the graceful disabled state).
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { CommentData } from "../../shared/types.ts";
+import { useDialog } from "../a11y.ts";
 import { getDateCalendar, siteDate } from "../dates.ts";
 import { countPhrase, t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
@@ -63,6 +64,8 @@ export default function ModerationPanel() {
   const setModerationOpen = useStore((s) => s.setModerationOpen);
   useStore((s) => s.language); // re-render the chrome strings on language change
   const [feed, setFeed] = useState<Feed>({ state: "loading" });
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     let disposed = false;
@@ -78,15 +81,11 @@ export default function ModerationPanel() {
     };
   }, []);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setModerationOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [setModerationOpen]);
+  const close = useCallback(() => setModerationOpen(false), [setModerationOpen]);
 
-  const close = () => setModerationOpen(false);
+  // Escape, a Tab ring that stays inside the panel, and focus handed back to
+  // the palette row that opened it.
+  useDialog(panelRef, { onEscape: close });
 
   const jump = (path: string) => {
     useStore.getState().openNote(path);
@@ -129,13 +128,15 @@ export default function ModerationPanel() {
   return (
     <div className="s-moderation-overlay" onMouseDown={close}>
       <div
+        ref={panelRef}
         className="s-moderation"
         role="dialog"
-        aria-label={t("cmdModerateComments")}
+        aria-modal="true"
+        aria-labelledby={titleId}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <header className="s-moderation__header">
-          <h2 className="s-moderation__title">{t("moderationTitle")}</h2>
+          <h2 className="s-moderation__title" id={titleId}>{t("moderationTitle")}</h2>
           {feed.state === "ready" && feed.comments.length > 0 && (
             <span className="s-moderation__count">
               {countPhrase(feed.comments.length, "comments")}

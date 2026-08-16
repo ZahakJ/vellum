@@ -5,6 +5,7 @@
 import { withPreview } from "../api.ts";
 import { clearBannerCache } from "../banner.ts";
 import { t } from "../i18n.ts";
+import { Lru } from "../lru.ts";
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 const ATTACHMENT_EXT = /\.(pdf|mp4|webm|mp3|ogg|wav|flac|zip|canvas|json|csv|txt)$/i;
@@ -47,7 +48,12 @@ export function fileUrl(path: string): string {
 
 // ── Attachment resolution (server /api/resolve, cached) ─────────────────────
 
-const resolveCache = new Map<string, string | null>();
+/** name → vault path (or null for a definitive miss). Bounded: the key space
+ *  is "every attachment name any open note embeds", which on the measured
+ *  fixture is 1,158 images and on a real photo-heavy vault is unbounded in
+ *  practice. Eviction only costs a repeat `/api/resolve`, and 512 is far past
+ *  the number of distinct embeds on screen at once. */
+const resolveCache = new Lru<string | null>({ max: 512 });
 const resolvePending = new Map<string, Promise<string | null>>();
 
 /** Resolve an attachment basename to a vault path. Returns the cached value

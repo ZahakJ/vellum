@@ -6,8 +6,9 @@
 // TRUSTED_PROXIES, PORT, HOST, VELLUM_VAULT, VELLUM_DATA, PUBLIC.
 // Keys: siteName, tagline, footer, defaultTheme, publicLayout, blogLocale,
 // language, languageFilter, languageToggle, excludeTags, commentsEnabled, shareButtons,
-// favicon, logo, home { mode, note, banner }, templatesFolder, defaultTemplate,
-// dateCalendar, textDirection, textAlign, tagsFolder, tagLabels.
+// favicon, logo, home { mode, note, banner }, attachments { mode, folder },
+// templatesFolder, defaultTemplate, dateCalendar, textDirection, textAlign,
+// tagsFolder, tagLabels.
 // Unknown keys in the file are preserved verbatim on every write so external
 // tooling (or future settings) can share the file safely; unknown keys in a
 // PATCH are a 400 (strict allowlist).
@@ -15,8 +16,16 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { isNotePath } from "../shared/noteFormat.ts";
+import {
+  ATTACHMENT_MODES,
+  folderError,
+  isAttachmentMode,
+  normalizeFolder,
+  type FolderProblem,
+} from "../shared/attachments.ts";
 import type {
   AboutInfo,
+  AttachmentSettings,
   EffectiveSettings,
   FontSlotsEffective,
   HomeSettings,
@@ -66,6 +75,7 @@ import {
   setGitUser,
 } from "./gitSync.ts";
 import {
+  attachmentLocation,
   blogLocale,
   dataDir,
   defaultTheme,
@@ -101,6 +111,16 @@ const FOOTER_MAX = 200;
 const LOCALE_MAX = 35; // BCP47 tags are short; RFC 5646 recommends ≤ 35
 const TAG_MAX = 50;
 const TAGS_MAX = 200;
+const FOLDER_MAX = 180; // attachments.folder — a vault-relative directory
+
+/** Why a folder value was refused, as the tail of the 400 message. */
+const FOLDER_PROBLEM: Record<FolderProblem, string> = {
+  traversal: "must stay inside the vault (no “..” segments)",
+  absolute: "must be a vault-relative folder, not an absolute path",
+  dotfolder: "must not be a dot-folder (those are invisible to the vault)",
+  control: "must not contain control characters",
+  tooLong: `is too long (${FOLDER_MAX} characters max)`,
+};
 
 /** The built-in themes. NOT a copy of the client's list — the same list:
  *  `shared/themes.ts` is the single definition both sides validate against,
@@ -330,6 +350,18 @@ export function getSettings(): SettingsData {
   if (typeof raw.shareButtons === "boolean") out.shareButtons = raw.shareButtons;
   str("favicon", VALUE_MAX);
   str("logo", VALUE_MAX);
+  // ── Attachments ──────────────────────────────────────────────────────────
+  const attachments = raw.attachments;
+  if (typeof attachments === "object" && attachments !== null && !Array.isArray(attachments)) {
+    const a = attachments as Record<string, unknown>;
+    const as: AttachmentSettings = {};
+    if (isAttachmentMode(a.mode)) as.mode = a.mode;
+    if (typeof a.folder === "string") {
+      const folder = normalizeFolder(a.folder);
+      if (folder !== "" && folderError(folder) === null) as.folder = folder;
+    }
+    if (Object.keys(as).length > 0) out.attachments = as;
+  }
   // ── Templates ────────────────────────────────────────────────────────────
   if (typeof raw.templatesFolder === "string" && raw.templatesFolder.trim() !== "") {
     out.templatesFolder = raw.templatesFolder.trim();
@@ -422,6 +454,8 @@ export function effectiveSettings(): EffectiveSettings {
     shareButtons: s.shareButtons ?? true,
     favicon: s.favicon ?? null,
     logo: s.logo ?? null,
+    // Always resolved: what the next upload will actually do.
+    attachments: attachmentLocation(),
     templatesFolder: templatesFolder(),
     templatesFolderDetected: s.templatesFolder === undefined && templatesFolder() !== null,
     defaultTemplate: defaultTemplate(),
@@ -758,6 +792,66 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     }
     return rel;
   }),
+  // Where new attachments land. Two sub-keys, patched together like `home`:
+  // an unknown mode or an unusable folder rejects the WHOLE patch, so a typo
+  // never half-lands and starts writing uploads somewhere unintended.
+  attachments: (raw, value) => {
+    if (value === null) {
+      delete raw.attachments;
+      return;
+    }
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new VaultError(400, 'Settings key "attachments" must be an object or null');
+    }
+    const a = value as Record<string, unknown>;
+    const current =
+      typeof raw.attachments === "object" && raw.attachments !== null && !Array.isArray(raw.attachments)
+        ? { ...(raw.attachments as Record<string, unknown>) }
+        : {};
+    for (const key of Object.keys(a)) {
+      if (key !== "mode" && key !== "folder") {
+        throw new VaultError(400, `Unknown settings key: attachments.${key}`);
+      }
+    }
+    if ("mode" in a) {
+      // "specified" IS the default; storing it would only pin the same
+      // behaviour absence already gives.
+      if (a.mode === null || a.mode === "" || a.mode === "specified") delete current.mode;
+      else if (isAttachmentMode(a.mode)) current.mode = a.mode;
+      else {
+        throw new VaultError(
+          400,
+          `Settings key "attachments.mode" must be one of: ${ATTACHMENT_MODES.join(", ")}`,
+        );
+      }
+    }
+    if ("folder" in a) {
+      if (a.folder === null || a.folder === "") delete current.folder;
+      else if (typeof a.folder === "string") {
+        const clean = cleanValue(a.folder, "attachments.folder", FOLDER_MAX);
+        if (clean === null) delete current.folder;
+        else {
+          const problem = folderError(clean);
+          if (problem !== null) {
+            throw new VaultError(400, `Settings key "attachments.folder" ${FOLDER_PROBLEM[problem]}`);
+          }
+          const folder = normalizeFolder(clean);
+          // Last word goes to the vault's own path rules (traversal, ignored
+          // trees): the upload will be written through safeAbs, so a folder
+          // that cannot survive it must not be storable in the first place.
+          try {
+            safeAbs(folder);
+          } catch {
+            throw new VaultError(400, 'Settings key "attachments.folder" is not a valid vault folder');
+          }
+          if (folder === "") delete current.folder;
+          else current.folder = folder;
+        }
+      } else throw new VaultError(400, 'Settings key "attachments.folder" must be a string or null');
+    }
+    if (Object.keys(current).length === 0) delete raw.attachments;
+    else raw.attachments = current;
+  },
   home: (raw, value) => {
     if (value === null) {
       delete raw.home;

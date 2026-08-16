@@ -3,11 +3,22 @@
 // double-click; context menu for new note / new folder / rename / delete.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
+import type {
+  DragEvent as ReactDragEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+} from "react";
 import type { AttachmentKind, SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
 import { getGraph, getTags, search } from "../api.ts";
+import {
+  dragFileCount,
+  dragHasFiles,
+  droppedFiles,
+  uploadDroppedFiles,
+} from "../attachments.ts";
 import { useBannerSrc } from "./BannerImg.tsx";
 import { collectNotes, resolveLink, type NoteRef } from "../editor/links.ts";
+import { useVaultGraph } from "../graphCache.ts";
 import { countPhrase, localeNum, t, tf, type Lang } from "../i18n.ts";
 // Tag chips print the vault's own display label when one exists (a tag page's
 // `labels:` map, or settings.tagLabels); `data`/keys/searches stay canonical.
@@ -16,16 +27,13 @@ import {
   autoScroll,
   beginDrag,
   canDrop,
-  dragHasFiles,
   draggedItem,
-  droppedImages,
   endDrag,
   itemLabel,
   itemOf,
   makeDragGhost,
   moveTo,
   stopAutoScroll,
-  uploadInto,
 } from "../move.ts";
 import { promptNewFolder, promptNewNote } from "../prompts.ts";
 import { newNoteFromTemplateCommand } from "../templateActions.ts";
@@ -105,6 +113,43 @@ interface MenuState {
   x: number;
   y: number;
   node: TreeNode; // the root node (path "") stands in for "vault root"
+  /** Opened from the keyboard (Shift+F10 / the menu key), so focus has to go
+   *  INTO the menu and come back to the row when it closes. A pointer-opened
+   *  menu leaves focus where the reader put it. */
+  fromKeyboard?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Tree keyboard model.
+//
+// The tree is one tab stop, not 1,388 of them: the container holds the focus
+// and `aria-activedescendant` names the row the reader is on. That is the
+// ARIA tree pattern, and here it is also the only shape that survives the
+// perf contract — a roving tabindex would have to re-render rows to move,
+// and these rows are memoized precisely so a keystroke doesn't touch all of
+// them. Everything below therefore reads the CURRENT tree out of the DOM:
+// only expanded folders render children, so "the rows in the container" and
+// "the rows the reader can see" are the same list by construction.
+// ---------------------------------------------------------------------------
+
+/** aria-activedescendant needs an id, and vault paths contain spaces and
+ *  slashes — so the path is encoded, never interpolated raw. */
+function rowId(path: string): string {
+  return `s-tree-row-${encodeURIComponent(path)}`;
+}
+
+function findNode(root: TreeNode | null, path: string): TreeNode | null {
+  if (!root) return null;
+  if (root.path === path) return root;
+  for (const child of root.children ?? []) {
+    const hit = findNode(child, path);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function visibleRows(container: HTMLElement): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>(".s-tree__item")];
 }
 
 // ---------------------------------------------------------------------------
@@ -350,8 +395,12 @@ export default function Sidebar() {
   const [viewer, setViewer] = useState<{ items: TreeNode[]; index: number } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   // The tree's own scroller — the auto-scroll target during a drag, and the
-  // element that wears the vault-root drop ring.
-  const treeRef = useRef<HTMLElement>(null);
+  // element that wears the vault-root drop ring. NOT the same element as
+  // `treeRef` below: that one is the inner `role="tree"` div, which is the
+  // single tab stop and carries aria-activedescendant. The scroller is the
+  // <nav> around it, because scrolling and dropping are the outer element's
+  // job and focus is the inner one's.
+  const treeScrollRef = useRef<HTMLElement>(null);
   const headerRef = useRef<HTMLElement>(null);
 
   // The vault ROOT is the one folder with no row of its own, and "put this back
@@ -366,10 +415,37 @@ export default function Sidebar() {
   // A sticky "vault root" row inside the tree was the other candidate and was
   // rejected: appearing at dragstart it pushes every row down 26px under a
   // pointer that has already picked something up.
+  // Dropping OS files anywhere on the tree attaches them to the vault: onto a
+  // folder row for that folder, onto the tree's own ground for the root. The
+  // attachment-location setting has the last word on where they actually land
+  // (the toast names it), and every type /api/upload accepts is welcome —
+  // anything else is refused before a byte goes on the wire.
+  const onDropFiles = useCallback((dir: string, files: File[]) => {
+    if (!useStore.getState().admin) return;
+    void uploadDroppedFiles(files, dir);
+  }, []);
+
+  //
+  // ONE set of handlers for BOTH drags that can land on the vault root: an
+  // in-app move (a tree path, `draggedItem()` set) and files from the desktop.
+  // They compose here rather than as two spreads on the same element, because
+  // two objects each carrying `onDragOver` would silently mean "the second
+  // one" — the first would be dropped by the spread and its affordance would
+  // simply stop appearing. Which drag is in flight is decided once, at the
+  // top of each handler, and the two never overlap.
   const rootDropProps = useCallback((ref: { current: HTMLElement | null }, cls: string) => ({
+    onDragEnter: (e: ReactDragEvent) => {
+      if (!admin || draggedItem() || !dragHasFiles(e.dataTransfer)) return;
+      setRootDrag(dragFileCount(e.dataTransfer));
+    },
     onDragOver: (e: ReactDragEvent) => {
       const item = draggedItem();
-      if (!item) return;
+      if (!item) {
+        if (!admin || !dragHasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        return;
+      }
       const ok = canDrop(item, "");
       // preventDefault is what allows the drop; withholding it is the refusal.
       if (ok) e.preventDefault();
@@ -377,6 +453,10 @@ export default function Sidebar() {
       ref.current?.classList.toggle(cls, ok);
     },
     onDragLeave: (e: ReactDragEvent) => {
+      if (!draggedItem() && dragHasFiles(e.dataTransfer)) {
+        if (e.currentTarget === e.target) setRootDrag(0);
+        return;
+      }
       if (ref.current?.contains(e.relatedTarget as Node | null)) return;
       ref.current?.classList.remove(cls);
     },
@@ -385,9 +465,16 @@ export default function Sidebar() {
       ref.current?.classList.remove(cls);
       const item = draggedItem();
       endDrag();
-      if (item && canDrop(item, "")) void moveTo(item, "");
+      if (!item) {
+        setRootDrag(0);
+        // "" is the vault root as CONTEXT — the attachment-location setting
+        // still has the last word on where the files actually land.
+        if (admin && dragHasFiles(e.dataTransfer)) onDropFiles("", droppedFiles(e.dataTransfer));
+        return;
+      }
+      if (canDrop(item, "")) void moveTo(item, "");
     },
-  }), []);
+  }), [admin, onDropFiles]);
   // Set when a reveal had to happen first; the effect below focuses once the
   // pane is actually on screen (see revealSidebar).
   const focusWhenShown = useRef(false);
@@ -468,35 +555,38 @@ export default function Sidebar() {
   }, [tree]);
 
   // Visitor topic sections need per-note tags; /api/graph carries them (and
-  // is publish-scoped for visitors). Keyed on the tree so SSE keeps it fresh.
-  const [noteTags, setNoteTags] = useState<Map<string, string[]> | null>(null);
-  useEffect(() => {
-    if (admin) return;
-    let cancelled = false;
-    getGraph()
-      .then((data) => {
-        if (!cancelled) setNoteTags(new Map(data.nodes.map((n) => [n.id, n.tags])));
-      })
-      .catch((err: unknown) => {
-        console.error("vellum: loading note tags failed", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [admin, tree]);
+  // is publish-scoped for visitors). It comes from the shared cache, which is
+  // what keeps SSE freshness without refetching the whole vault graph once
+  // per changed file (client/graphCache.ts).
+  const visitorGraph = useVaultGraph(!admin);
+  const noteTags = useMemo<Map<string, string[]> | null>(
+    () =>
+      visitorGraph
+        ? new Map(visitorGraph.nodes.map((n) => [n.id, n.tags] as [string, string[]]))
+        : null,
+    [visitorGraph],
+  );
 
-  // Dismiss the context menu on any outside click or Escape.
+  // Dismiss the context menu on any outside click or Escape. A menu opened
+  // from the keyboard hands focus back to the tree when it goes — otherwise
+  // Escape drops the reader on <body> and they have to Tab in from the top.
   useEffect(() => {
     if (!menu) return;
-    const close = () => setMenu(null);
+    const close = () => {
+      if (menu.fromKeyboard) treeRef.current?.focus();
+      setMenu(null);
+    };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close();
+      }
     };
     window.addEventListener("mousedown", close);
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
     };
   }, [menu]);
 
@@ -522,6 +612,11 @@ export default function Sidebar() {
   // "…still embedded by ‘essay’" line come from the server's own walk of the
   // files the delete will actually move, not from this component's tree.
 
+  // How many desktop files are hovering the tree's own ground (the vault
+  // root). Separate from the rows' own count so a row's highlight never leaves
+  // the whole pane lit; `rootDropProps` above sets it.
+  const [rootDrag, setRootDrag] = useState(0);
+
   // The context menu opens at the pointer, but the pointer can be anywhere —
   // and with the sidebar on the trailing edge (RTL by default, or a reader who
   // moved it there) a menu that grows toward the trailing edge runs straight
@@ -546,6 +641,9 @@ export default function Sidebar() {
     top = Math.max(MENU_EDGE, Math.min(top, vh - height - MENU_EDGE));
     el.style.left = `${Math.round(left)}px`;
     el.style.top = `${Math.round(top)}px`;
+    // Opened from the keyboard: focus goes into the menu, or it is a menu
+    // that only a mouse can reach.
+    if (menu.fromKeyboard) el.querySelector<HTMLButtonElement>(".s-menu__item")?.focus();
   }, [menu]);
 
   const openMenu = useCallback((e: ReactMouseEvent, node: TreeNode) => {
@@ -559,6 +657,166 @@ export default function Sidebar() {
     if (!useStore.getState().admin) return;
     setRenaming(path);
   }, []);
+
+  // ── Tree cursor (aria-activedescendant) ────────────────────────────────
+  const treeRef = useRef<HTMLDivElement | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  /** The cursor as a DOM class + activedescendant, applied imperatively so
+   *  moving it costs one attribute write instead of a re-render of the tree. */
+  const paintCursor = useCallback((path: string | null, scroll = true) => {
+    const container = treeRef.current;
+    if (!container) return;
+    for (const el of container.querySelectorAll(".s-tree__item--cursor")) {
+      el.classList.remove("s-tree__item--cursor");
+    }
+    if (path === null) {
+      container.removeAttribute("aria-activedescendant");
+      return;
+    }
+    const row = container.querySelector<HTMLElement>(
+      `[data-tree-path="${CSS.escape(path)}"]`,
+    );
+    if (!row) {
+      container.removeAttribute("aria-activedescendant");
+      return;
+    }
+    row.classList.add("s-tree__item--cursor");
+    container.setAttribute("aria-activedescendant", row.id);
+    if (scroll) row.scrollIntoView({ block: "nearest" });
+  }, []);
+
+  const moveCursor = useCallback(
+    (path: string | null) => {
+      setCursor(path);
+      paintCursor(path);
+    },
+    [paintCursor],
+  );
+
+  // The tree re-renders under the cursor constantly (SSE, folder toggles,
+  // publish marks). Repaint after every commit so the highlight and the
+  // activedescendant keep pointing at a row that still exists.
+  useLayoutEffect(() => {
+    paintCursor(cursor, false);
+  });
+
+  /** Where the cursor should start: the open note if it is on screen, else
+   *  the first row. Never nothing — a tree you can focus but not steer is a
+   *  dead end. (openPath is read off the store rather than subscribed to:
+   *  Sidebar re-rendering on every note switch would cost more than this
+   *  one lookup on focus.) */
+  const initialCursor = useCallback((): string | null => {
+    const container = treeRef.current;
+    if (!container) return null;
+    const rows = visibleRows(container);
+    if (rows.length === 0) return null;
+    const open = useStore.getState().openPath;
+    const found = open ? rows.find((r) => r.dataset.treePath === open) : undefined;
+    return (found ?? rows[0]).dataset.treePath ?? null;
+  }, []);
+
+  const onTreeKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLDivElement>) => {
+      const container = treeRef.current;
+      if (!container) return;
+      // A rename input inside a row owns its own keys (it stops propagation),
+      // so anything arriving here is the tree's.
+      const rows = visibleRows(container);
+      if (rows.length === 0) return;
+      const at = Math.max(
+        0,
+        rows.findIndex((r) => r.dataset.treePath === cursor),
+      );
+      const row = rows[at];
+      const path = row?.dataset.treePath ?? null;
+      const isFolder = row?.getAttribute("aria-expanded") !== null;
+      const isOpen = row?.getAttribute("aria-expanded") === "true";
+      const step = (to: number): void => {
+        e.preventDefault();
+        moveCursor(rows[Math.max(0, Math.min(rows.length - 1, to))]?.dataset.treePath ?? null);
+      };
+
+      switch (e.key) {
+        case "ArrowDown":
+          step(at + 1);
+          return;
+        case "ArrowUp":
+          step(at - 1);
+          return;
+        case "Home":
+          step(0);
+          return;
+        case "End":
+          step(rows.length - 1);
+          return;
+        case "ArrowRight":
+        case "ArrowLeft": {
+          // Logical, not physical: in an RTL sidebar the key that opens a
+          // folder is the one pointing INTO the indent, which is Left.
+          const rtl = getComputedStyle(container).direction === "rtl";
+          const forward = rtl ? e.key === "ArrowLeft" : e.key === "ArrowRight";
+          e.preventDefault();
+          if (forward) {
+            if (isFolder && !isOpen) row.click(); // expand
+            else if (isFolder && isOpen) step(at + 1); // …then walk in
+            return;
+          }
+          if (isFolder && isOpen) {
+            row.click(); // collapse
+            return;
+          }
+          // Otherwise climb to the parent row: the nearest row above whose
+          // indent is shallower than this one's.
+          if (!path) return;
+          const parent = parentOf(path);
+          const parentRow = rows.find((r) => r.dataset.treePath === parent);
+          if (parentRow) moveCursor(parent);
+          return;
+        }
+        case "Enter":
+        case " ":
+          if (!row) return;
+          e.preventDefault();
+          row.click();
+          return;
+        case "F2":
+          if (path && useStore.getState().admin) {
+            e.preventDefault();
+            startRename(path);
+          }
+          return;
+        case "Delete": {
+          if (!path || !useStore.getState().admin) return;
+          const node = findNode(tree, path);
+          if (!node) return;
+          e.preventDefault();
+          // The SAME flow the context menu runs (components/deleteFlow.ts):
+          // the keyboard route must not be the one that skips the preview and
+          // its "…still embedded by ‘essay’" warning.
+          if (node.type === "folder") void confirmDeleteFolder(node.path);
+          else if (node.attachment) void confirmDeleteAttachment(node.path);
+          else void confirmDeleteNote(node.path);
+          return;
+        }
+        case "ContextMenu":
+          break;
+        case "F10":
+          if (!e.shiftKey) return;
+          break;
+        default:
+          return;
+      }
+      // Shift+F10 / the context-menu key: the keyboard's right-click. It
+      // opens at the row, not at the last place the mouse happened to be.
+      if (!path || !useStore.getState().admin) return;
+      const node = findNode(tree, path);
+      if (!node) return;
+      e.preventDefault();
+      const box = row.getBoundingClientRect();
+      setMenu({ x: Math.round(box.left + 12), y: Math.round(box.bottom), node, fromKeyboard: true });
+    },
+    [cursor, moveCursor, startRename, tree],
+  );
 
   const noteCount = useMemo(() => countNotes(tree), [tree]);
   const attachmentCount = useMemo(() => countAttachments(tree), [tree]);
@@ -730,6 +988,9 @@ export default function Sidebar() {
           className="s-search__input"
           type="search"
           placeholder={t("searchPlaceholder")}
+          // A placeholder is not a label: it disappears the moment the reader
+          // types, and several screen readers never announce it at all.
+          aria-label={t("searchTitle")}
           title={t("searchTitle")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -759,7 +1020,12 @@ export default function Sidebar() {
       )}
 
       {hits !== null ? (
-        <div className="s-search__results">
+        // A results list that swaps in silently is a list a screen-reader user
+        // never learns about — the count is announced politely as it lands.
+        <div className="s-search__results" role="region" aria-label={t("searchResultsAria")}>
+          <p className="s-sr-only" role="status">
+            {hits.length === 0 ? t("noResultsAria") : tf("resultCount", { count: localeNum(hits.length) })}
+          </p>
           {hits.length === 0 && <p className="s-search__none">{t("noMatchesDot")}</p>}
           {hits.map((hit) => (
             <button
@@ -774,7 +1040,7 @@ export default function Sidebar() {
               <span className="s-search-hit__title">
                 <bdi>{hit.title}</bdi>
                 {admin && publishedPaths?.has(hit.path) && (
-                  <span className="s-pubstar" title={t("published")} aria-label={t("published")}>
+                  <span className="s-pubstar" role="img" title={t("published")} aria-label={t("published")}>
                     ✦
                   </span>
                 )}
@@ -836,8 +1102,13 @@ export default function Sidebar() {
         </nav>
       ) : (
         <nav
-          className="s-tree"
-          ref={treeRef}
+          // The dropping class and its title come from the desktop-drop work;
+          // everything else on this element is the in-app move machinery. They
+          // decorate the same <nav> but never at the same moment — one drag
+          // carries OS files, the other carries a tree path.
+          className={`s-tree${rootDrag > 0 ? " s-tree--dropping" : ""}`}
+          title={rootDrag > 0 ? t("dropFilesTitle") : undefined}
+          ref={treeScrollRef}
           onContextMenu={(e) => {
             if (tree && e.target === e.currentTarget) openMenu(e, tree);
           }}
@@ -846,35 +1117,68 @@ export default function Sidebar() {
           // has to run while the pointer is over ROWS — which is all of the
           // time. This is the only handler that sees every dragover.
           onDragOverCapture={(e) => {
-            if (draggedItem() && treeRef.current) autoScroll(treeRef.current, e.clientY);
+            if (draggedItem() && treeScrollRef.current) {
+              autoScroll(treeScrollRef.current, e.clientY);
+            }
           }}
           // The other vault-root surface: the tree's own empty space below the
           // last row (rows stop dragover from bubbling, so anything arriving
           // here came from the container itself).
-          {...rootDropProps(treeRef, "s-tree--droproot")}
+          {...rootDropProps(treeScrollRef, "s-tree--droproot")}
           // …plus the one thing the shared handler cannot know: a pointer that
           // has left the tree entirely must stop the auto-scroll it started.
           onDragLeave={(e) => {
-            if (treeRef.current?.contains(e.relatedTarget as Node | null)) return;
-            treeRef.current?.classList.remove("s-tree--droproot");
+            if (treeScrollRef.current?.contains(e.relatedTarget as Node | null)) return;
+            treeScrollRef.current?.classList.remove("s-tree--droproot");
             stopAutoScroll();
           }}
         >
-          <TreeChildren
-            nodes={tree?.children ?? []}
-            depth={0}
-            renaming={renaming}
-            lang={lang}
-            admin={admin}
-            showAttachments={showAttachments}
-            onOpen={openNote}
-            onStartRename={startRename}
-            onCommitRename={commitRename}
-            onCancelRename={cancelRename}
-            onMenu={openMenu}
-            onAttachment={openAttachment}
-            onShowAttachments={showAllAttachments}
-          />
+          {/* One tab stop for the whole vault. `aria-activedescendant` names
+              the row the reader is on (see the tree keyboard model above); the
+              roles make it a tree to a screen reader instead of a pile of
+              unlabelled divs, which is what it was. A 1,388-row vault that
+              spends 1,388 tab stops before the note is a tree nobody tabs
+              past twice. */}
+          <div
+            ref={treeRef}
+            className="s-tree__root"
+            role="tree"
+            aria-label={t("vaultTree")}
+            tabIndex={0}
+            onKeyDown={onTreeKeyDown}
+            onFocus={(e) => {
+              if (e.target !== e.currentTarget) return;
+              if (cursor === null) moveCursor(initialCursor());
+            }}
+            onMouseDown={(e) => {
+              // Clicking a row moves the cursor there, so the arrows continue
+              // from where the reader last pointed rather than from wherever
+              // the keyboard left off.
+              const row = (e.target as HTMLElement).closest<HTMLElement>(".s-tree__item");
+              if (row?.dataset.treePath !== undefined) setCursor(row.dataset.treePath);
+            }}
+          >
+            {/* TreeChildren, not a bare map: it is what knows about
+                attachments, the "show more" row that keeps a 1,158-file folder
+                from janking, and the folders-first ordering. It threads
+                index/setSize down to each row for aria-posinset/setsize. */}
+            <TreeChildren
+              nodes={tree?.children ?? []}
+              depth={0}
+              renaming={renaming}
+              lang={lang}
+              admin={admin}
+              showAttachments={showAttachments}
+              onOpen={openNote}
+              onStartRename={startRename}
+              onCommitRename={commitRename}
+              onCancelRename={cancelRename}
+              onMenu={openMenu}
+              onAttachment={openAttachment}
+              onShowAttachments={showAllAttachments}
+              onDropFiles={onDropFiles}
+            />
+          </div>
         </nav>
       )}
 
@@ -968,14 +1272,34 @@ export default function Sidebar() {
         <div
           ref={menuRef}
           className="s-menu"
+          role="menu"
+          aria-label={t("rowActions")}
           style={{ left: menu.x, top: menu.y }}
           onMouseDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            // Arrows walk the items, Tab leaves (a menu is not a tab ring),
+            // Escape is handled by the global listener above.
+            if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Tab") return;
+            const items = [
+              ...e.currentTarget.querySelectorAll<HTMLButtonElement>(".s-menu__item"),
+            ];
+            if (e.key === "Tab") {
+              treeRef.current?.focus();
+              setMenu(null);
+              return;
+            }
+            e.preventDefault();
+            const at = items.indexOf(document.activeElement as HTMLButtonElement);
+            const step = e.key === "ArrowDown" ? 1 : -1;
+            items[(Math.max(0, at) + step + items.length) % items.length]?.focus();
+          }}
         >
           {(menu.node.type === "folder" || menu.node.path === "") && (
             <>
               <button
                 type="button"
                 className="s-menu__item"
+                role="menuitem"
                 onClick={() => {
                   setMenu(null);
                   void promptNewNote(menu.node.path);
@@ -1002,6 +1326,7 @@ export default function Sidebar() {
               <button
                 type="button"
                 className="s-menu__item"
+                role="menuitem"
                 onClick={() => {
                   setMenu(null);
                   void promptNewFolder(menu.node.path);
@@ -1019,6 +1344,7 @@ export default function Sidebar() {
             <button
               type="button"
               className="s-menu__item"
+                role="menuitem"
               onClick={() => {
                 setMenu(null);
                 setRenaming(menu.node.path);
@@ -1050,6 +1376,7 @@ export default function Sidebar() {
             <button
               type="button"
               className="s-menu__item s-menu__item--danger"
+                role="menuitem"
               onClick={() => {
                 setMenu(null);
                 void confirmDeleteNote(menu.node.path);
@@ -1098,6 +1425,7 @@ export default function Sidebar() {
             <button
               type="button"
               className="s-menu__item s-menu__item--danger"
+                role="menuitem"
               onClick={() => {
                 setMenu(null);
                 void confirmDeleteFolder(menu.node.path);
@@ -1213,13 +1541,19 @@ const TopicSection = memo(function TopicSection({
 interface TreeRowProps {
   node: TreeNode;
   depth: number;
+  /** 0-based position among its siblings, and how many siblings there are —
+   *  the flat tree model states both on every row (aria-posinset/setsize). */
+  index: number;
+  setSize: number;
   renaming: string | null;
   /** Active chrome language. Not read directly — it is a prop purely so a
    *  live language change busts memo() on every row and re-renders the
    *  t() tooltips, without paying for a store subscription per row. */
   lang: Lang;
-  /** Whether this session may mutate the vault — what makes a row draggable.
-   *  A visitor's tree is a reading surface. */
+  /** Whether this session may mutate the vault — what makes a row draggable
+   *  and what makes it a drop target. A visitor's tree is a reading surface.
+   *  Passed down rather than subscribed to per row: 1.4k store subscriptions
+   *  to learn one boolean is not a price worth paying. */
   admin: boolean;
   /** False hides every attachment row (the sidebar footer's filter). */
   showAttachments: boolean;
@@ -1235,9 +1569,13 @@ interface TreeRowProps {
   onAttachment(node: TreeNode, siblings: TreeNode[]): void;
   /** Turns the filter back on, from the row that says what it is hiding. */
   onShowAttachments(): void;
+  /** Files dropped on this row from the desktop: attach them to `dir`. */
+  onDropFiles(dir: string, files: File[]): void;
 }
 
-type TreeChildrenProps = Omit<TreeRowProps, "node" | "siblings"> & { nodes: TreeNode[] };
+type TreeChildrenProps = Omit<TreeRowProps, "node" | "siblings" | "index" | "setSize"> & {
+  nodes: TreeNode[];
+};
 
 /** One level of the tree: the attachment filter, then the chunk cap, then the
  *  rows. Both live here rather than in TreeRow so a folder's children are
@@ -1256,8 +1594,18 @@ function TreeChildren({ nodes, ...rest }: TreeChildrenProps) {
 
   return (
     <>
-      {shown.map((child) => (
-        <TreeRow key={child.path} {...rest} node={child} siblings={visible} />
+      {/* posinset/setsize describe the rows a reader can actually reach, so
+          they count `visible` — the filtered list — not `nodes`. A tree that
+          announces "3 of 47" while showing three rows is worse than silence. */}
+      {shown.map((child, i) => (
+        <TreeRow
+          key={child.path}
+          {...rest}
+          node={child}
+          siblings={visible}
+          index={i}
+          setSize={visible.length}
+        />
       ))}
       {/* The bug this round answers was a folder that opened onto NOTHING.
           With attachments hidden, an all-attachment folder would do exactly
@@ -1325,12 +1673,34 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
   };
 
   // ── Drag and drop ─────────────────────────────────────────────────────────
-  // The drop state lives on the DOM node, not in React state. A drag crosses
-  // hundreds of rows; a `dropTarget` prop would bust memo() on all 1.4k of them
-  // every time the pointer moved one row, twelve times a second, to repaint
-  // one background.
+  // TWO drags land on this row and they are not the same gesture:
+  //
+  //   - an in-app drag carrying a tree path (move this note into that folder),
+  //     recognised by `draggedItem()` being set;
+  //   - an OS drag carrying files from the desktop (attach these here),
+  //     recognised by `dragHasFiles`.
+  //
+  // Each has its own affordance vocabulary — --dropok/--dropbad for the move,
+  // --dropping plus a file count for the attach — and the two can never be
+  // live at once, because a drag is one or the other from the moment it
+  // starts. The in-app drop state lives on the DOM node, not in React state: a
+  // drag crosses hundreds of rows, and a `dropTarget` prop would bust memo()
+  // on all 1.4k of them every time the pointer moved one row, twelve times a
+  // second, to repaint one background. The FILE state is React state because
+  // it carries a number the row has to print.
   const rowRef = useRef<HTMLDivElement>(null);
   const springRef = useRef(0);
+
+  // The target folder for dropped files is this row when it IS a folder, and
+  // the row's parent when it is a note — dropping onto a note means "beside
+  // this note", which is the answer a reader expects and the one the
+  // same-folder attachment mode would have given anyway.
+  const dropDir = isFolder ? node.path : parentOf(node.path);
+  // dragenter/dragleave fire for every child element the pointer crosses, so
+  // the state is a DEPTH, not a boolean: a plain flag flickers off the moment
+  // the pointer reaches the row's own label.
+  const dragDepth = useRef(0);
+  const [dropCount, setDropCount] = useState(0);
 
   const clearDropState = useCallback(() => {
     rowRef.current?.classList.remove("s-tree__item--dropok", "s-tree__item--dropbad");
@@ -1339,6 +1709,19 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
       springRef.current = 0;
     }
   }, []);
+
+  /** An OS file drag entering this row. Counted, not flagged — see dragDepth. */
+  const onDragEnterFiles = (e: ReactDragEvent<HTMLDivElement>): void => {
+    if (!props.admin || draggedItem() || !dragHasFiles(e.dataTransfer)) return;
+    e.stopPropagation();
+    dragDepth.current++;
+    setDropCount(dragFileCount(e.dataTransfer));
+  };
+
+  const clearFileDropState = (): void => {
+    dragDepth.current = 0;
+    setDropCount(0);
+  };
 
   useEffect(() => clearDropState, [clearDropState]);
 
@@ -1362,12 +1745,13 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
     if (!item) {
       // Files dragged in from the DESKTOP. Without this branch the browser's
       // default takes over on drop and navigates the whole app away to the
-      // image — the reader loses their vault to a gesture the tree invites.
-      if (!isFolder || !props.admin || !dragHasFiles(e.dataTransfer)) return;
+      // file — the reader loses their vault to a gesture the tree invites.
+      // EVERY row takes them, not only folders: a note row means "beside this
+      // note", and refusing there sent the reader hunting for the folder row.
+      if (!props.admin || !dragHasFiles(e.dataTransfer)) return;
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = "copy";
-      rowRef.current?.classList.add("s-tree__item--dropok");
       return;
     }
     // Answered here, so it never reaches the tree's own root handler: a pointer
@@ -1399,6 +1783,14 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
   };
 
   const onDragLeave = (e: ReactDragEvent<HTMLDivElement>): void => {
+    if (!draggedItem() && dragHasFiles(e.dataTransfer)) {
+      // The file drag counts down instead of testing containment: `dragDepth`
+      // is exactly the mechanism that survives the pointer crossing onto the
+      // row's own label, which is where a boolean flickers.
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setDropCount(0);
+      return;
+    }
     // dragleave also fires when the pointer crosses onto a CHILD of the row
     // (the label span, the chevron). Cancelling the spring timer there would
     // make the folder never open.
@@ -1408,14 +1800,17 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
 
   const onDrop = (e: ReactDragEvent<HTMLDivElement>): void => {
     e.preventDefault();
-    e.stopPropagation();
+    e.stopPropagation(); // the tree's own ground must not also take it
     clearDropState();
     const item = draggedItem();
     endDrag();
     if (!item) {
-      // Desktop files land in this folder, through the same magic-byte-checked
-      // upload the editor's paste uses.
-      if (isFolder && props.admin) void uploadInto(droppedImages(e.dataTransfer), node.path);
+      // Desktop files. Every accepted type, screened for size and kind before
+      // a byte goes on the wire and sniffed for magic bytes at the far end.
+      clearFileDropState();
+      if (props.admin && dragHasFiles(e.dataTransfer)) {
+        props.onDropFiles(dropDir, droppedFiles(e.dataTransfer));
+      }
       return;
     }
     // Dropping onto a COLLAPSED folder works, and does not expand it: the
@@ -1428,14 +1823,20 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
     isFolder ? "s-tree__item--folder" : "s-tree__item--file",
     attachment ? "s-tree__item--att" : "",
     isActive ? "s-tree__item--active" : "",
+    dropCount > 0 ? "s-tree__item--dropping" : "",
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
-    <div className="s-tree__node">
+    <div className="s-tree__node" role="none">
       <div
         ref={rowRef}
+        // The id and data-path are what aria-activedescendant and the keyboard
+        // model address this row BY — the tree's single tab stop names a row
+        // rather than focusing it, so the row has to be nameable.
+        id={rowId(node.path)}
+        data-tree-path={node.path}
         className={classes}
         style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
         // Notes and folders move; an attachment does not (the move endpoints
@@ -1445,6 +1846,7 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
         draggable={props.admin && !attachment && renaming !== node.path}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
+        onDragEnter={onDragEnterFiles}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
@@ -1462,6 +1864,16 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
         }}
         onContextMenu={(e) => props.onMenu(e, node)}
         role="treeitem"
+        // The FLAT tree model (ARIA APG's second shape): every row states its
+        // own level and position instead of relying on nested role="group"
+        // containers. The nesting here cannot express ownership anyway — the
+        // children div is a SIBLING of the row that opens it, because the row
+        // is a fixed-height flex line and the subtree is not inside it — and
+        // aria-owns is the weaker-supported of the two escapes.
+        aria-level={depth + 1}
+        aria-posinset={props.index + 1}
+        aria-setsize={props.setSize}
+        aria-selected={isActive}
         aria-expanded={isFolder ? isOpen : undefined}
         // Attachment names are long and the pane is narrow ("Pasted image
         // 20230906180811-10.png" is 38 characters); the tooltip is the only
@@ -1469,7 +1881,10 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
         title={attachment ? node.name : undefined}
       >
         {isFolder && (
-          <span className={`s-tree__chevron${isOpen ? " s-tree__chevron--open" : ""}`}>
+          <span
+            className={`s-tree__chevron${isOpen ? " s-tree__chevron--open" : ""}`}
+            aria-hidden="true"
+          >
             ›
           </span>
         )}
@@ -1483,8 +1898,10 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
         ) : (
           <span className="s-tree__label" dir="auto">
             {label}
+            {/* A bare aria-label on a <span> is not reliably exposed — the
+                star needs a role before it counts as a labelled thing. */}
             {isPublished && (
-              <span className="s-pubstar" title={t("published")} aria-label={t("published")}>
+              <span className="s-pubstar" role="img" title={t("published")} aria-label={t("published")}>
                 ✦
               </span>
             )}
@@ -1495,9 +1912,18 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
         {attachment?.kind === "other" && attachment.ext && (
           <span className="s-tree__ext">{attachment.ext}</span>
         )}
+        {/* How many files are about to land here — chrome, so it sits
+            OUTSIDE the label's isolate and keeps the row's own direction. */}
+        {dropCount > 0 && (
+          <span className="s-drop-count">{countPhrase(dropCount, "files")}</span>
+        )}
       </div>
       {isFolder && isOpen && (
-        <div className="s-tree__children" role="group">
+        // role="none" and not "group": in the FLAT tree model the level and
+        // position come off each row (aria-level/posinset/setsize), and a real
+        // group here would describe an ownership this markup does not have —
+        // the children div is a SIBLING of the row that opens it.
+        <div className="s-tree__children" role="none">
           <TreeChildren {...childProps} nodes={node.children ?? []} depth={depth + 1} />
         </div>
       )}
