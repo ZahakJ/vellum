@@ -83,7 +83,7 @@ interface Form {
   languageToggle: string; // "" | "on" | "off" (public EN/ع switch; default off)
   excludeTags: string;  // comma-separated
   comments: string;     // "" | "on" | "off"
-  share: string;        // "" | "on" | "off" (blog article share row; default off)
+  share: string;        // "" | "on" | "off" (blog article share row; default on)
   favicon: string;      // vault path or ""
   logo: string;         // vault path / https URL or ""
   homeMode: string;     // "" | "note" | "dashboard"

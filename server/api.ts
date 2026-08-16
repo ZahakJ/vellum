@@ -1303,11 +1303,6 @@ api.get("/search", (c) => {
   );
 });
 
-api.get("/search", (c) => {
-  const limited = isPublishLimited(c);
-  return c.json(search(c.req.query("q") ?? "", limited, languageScope(c, limited).lang));
-});
-
 api.get("/graph", (c) => {
   const limited = isPublishLimited(c);
   return c.json(graph(limited, languageScope(c, limited).lang));
