@@ -16,7 +16,11 @@ config dir (must be ignored everywhere: tree, index, graph, watcher).
 
 - `![[image.png]]` and `![[image.png|300]]` → inline <img> widget (max-width 100%, optional px
   width from alias), loaded from /api/file; broken → dashed placeholder with filename.
-- Standard `![alt](relative or URL)` images likewise (vault-relative resolved against note dir).
+- Standard `![alt](relative or URL)` images likewise (vault-relative resolved against note dir) —
+  **and on the PUBLISHED site too**: the indexer records those destinations as `NoteRecord.assets`,
+  resolved against the note's folder, so `allowedAttachments()` sees them. It only saw
+  `[[wikilink]]` embeds before, which meant every markdown-embedded image in a published note was
+  a 404 to every visitor while the admin saw it and nothing said why.
 - `![[Note]]` note embed → rendered transclusion card: note title header + rendered content
   (read-only, depth 1, cycle-safe), gold left border.
 - `![[file.pdf]]` → card link that opens /api/file in new tab.

@@ -13,14 +13,17 @@
 // reload.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, ReactNode } from "react";
-import type { FontCatalogEntry } from "../../shared/types.ts";
+// Aliased: the panel also installs a window keydown listener, and React's
+// KeyboardEvent would shadow the DOM one that listener is typed with.
+import type { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import type { AboutInfo, FontCatalogEntry } from "../../shared/types.ts";
 import type { SettingsPatch, SettingsResponse } from "../../shared/types.ts";
 import { getSettings, listAttachments, patchSettings, uploadAttachment } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
 import { countPhrase, localeNum, t, tf, type I18nKey } from "../i18n.ts";
 import { UPLOAD_MAX_MB } from "../../shared/limits.ts";
-import { THEMES, useStore } from "../state.ts";
+import { useStore } from "../state.ts";
+import { isTheme, THEME_GROUPS, THEME_LABELS, THEMES, type Theme } from "../themes.ts";
 import {
   onSyncChange,
   refreshSyncStatus,
@@ -31,6 +34,7 @@ import {
   syncSnapshot,
   syncWhen,
 } from "../sync.ts";
+import { isThemePickerOpen, openThemePicker } from "./ThemePicker.tsx";
 import { toast } from "../toast.ts";
 
 // ---------------------------------------------------------------------------
@@ -474,6 +478,7 @@ function Row({
   wide,
   off,
   inherited,
+  env,
   children,
 }: {
   label: string;
@@ -489,6 +494,12 @@ function Row({
    *  placeholder text alone made that indistinguishable from a field holding
    *  a muted value, which is why the convention needed a note to explain it. */
   inherited?: boolean;
+  /** The environment variable this row falls back to. "inherit (en)" was
+   *  honest about precedence and opaque about its source: a first-time owner
+   *  had no way to learn that the value came from SITE_LANG, or where to
+   *  change it. Rendered only while the row is actually inheriting — a row
+   *  holding its own value has no fallback worth naming. */
+  env?: string;
   children: ReactNode;
 }) {
   const cls = [
@@ -510,9 +521,32 @@ function Row({
       </div>
       <div className="s-smodal__control">
         {children}
+        {inherited && env && <EnvSource env={env} />}
         {error && <span className="s-smodal__error">{error}</span>}
       </div>
     </div>
+  );
+}
+
+/** A theme's human label, falling back to the product default for an unset or
+ *  unrecognised value. The picker, this panel and the palette all read the
+ *  same table (`THEME_LABELS`); the raw id stays the stored value. */
+function themeLabel(id: string | null): string {
+  return t(THEME_LABELS[isTheme(id ?? "") ? (id as Theme) : THEMES[0]].name);
+}
+
+/** "inherited from SITE_LANG" — the env NAME is a literal to be typed into a
+ *  shell or a .env file, so it gets the mono face and its own <bdi> isolate
+ *  rather than being interpolated into one text run (which is what tf() would
+ *  do; correct for direction, but it cannot style half a string). */
+function EnvSource({ env }: { env: string }) {
+  const [before, after = ""] = t("inheritedFromEnv").split("{env}");
+  return (
+    <span className="s-smodal__from">
+      {before}
+      <bdi className="s-smodal__envname">{env}</bdi>
+      {after}
+    </span>
   );
 }
 
@@ -885,19 +919,114 @@ function useFontPreview(prose: string, ui: string, mono: string, arabic: string)
 }
 
 // ---------------------------------------------------------------------------
+// About — what this instance IS. Everything here was previously answerable
+// only from the terminal that started the server, which is the wrong place to
+// ask from when you are editing the site in a browser tab.
+// ---------------------------------------------------------------------------
+
+/** The README sections this panel's own settings are documented in. Named
+ *  rather than linked: the README ships in the repository, not on the running
+ *  site, and a link that 404s into the SPA fallback is worse than a name a
+ *  reader can search for. */
+const DOC_TOPICS: { key: I18nKey; anchor: string }[] = [
+  { key: "docSiteSettings", anchor: "#site-settings" },
+  { key: "docTheming", anchor: "#theming" },
+  { key: "docTypography", anchor: "#typography" },
+  { key: "docArabic", anchor: "#arabic--rtl" },
+  { key: "docBlogMode", anchor: "#blog-mode" },
+  { key: "docComments", anchor: "#comments" },
+  { key: "docSync", anchor: "#backup--sync" },
+];
+
+function AboutTab({ about }: { about: AboutInfo | null }) {
+  if (about === null) return <div className="s-bmodal__empty">{t("loading")}</div>;
+  const facts: { label: string; value: string; path?: boolean }[] = [
+    { label: t("aboutVersion"), value: `Vellum ${about.version}` },
+    { label: t("aboutRuntime"), value: `Node ${about.node}` },
+    { label: t("aboutVault"), value: about.vaultPath, path: true },
+    { label: t("aboutData"), value: about.dataPath, path: true },
+  ];
+  const counts: { label: string; value: string }[] = [
+    { label: t("aboutNotes"), value: localeNum(about.notes) },
+    { label: t("aboutPublished"), value: localeNum(about.published) },
+    { label: t("aboutAttachments"), value: localeNum(about.attachments) },
+    { label: t("aboutTags"), value: localeNum(about.tags) },
+  ];
+  return (
+    <section data-section="about">
+      <dl className="s-about">
+        {facts.map((f) => (
+          <div className="s-about__row" key={f.label}>
+            <dt className="s-about__key">{f.label}</dt>
+            {/* Absolute paths are LTR machine strings; in an Arabic panel they
+                keep their own direction and their own start edge, or a
+                "/home/…" reorders around its slashes. */}
+            <dd className={`s-about__val${f.path ? " s-about__val--path" : ""}`} dir="ltr">
+              {f.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="s-smodal__sub">{t("aboutContents")}</div>
+      <div className="s-about__counts">
+        {counts.map((c) => (
+          <div className="s-about__count" key={c.label}>
+            <span className="s-about__countnum">{c.value}</span>
+            <span className="s-about__countlabel">{c.label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="s-smodal__sub">{t("aboutDocs")}</div>
+      <p className="s-smodal__note">{t("aboutDocsNote")}</p>
+      <ul className="s-about__docs">
+        {DOC_TOPICS.map((d) => (
+          <li key={d.anchor} className="s-about__doc">
+            <span className="s-about__docname">{t(d.key)}</span>
+            <code className="s-about__docanchor" dir="ltr">
+              README.md{d.anchor}
+            </code>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The panel
 // ---------------------------------------------------------------------------
 
-/** The section rail. Five groups over ~2,700px of content is four screens of
- *  one flat scroll: from Identity there was no way to learn that Typography or
- *  Backup & sync existed at all. The rail is the table of contents AND the
- *  position indicator — the same reason Obsidian's settings is two columns. */
-const SECTIONS: { id: string; key: I18nKey }[] = [
-  { id: "identity", key: "groupIdentity" },
-  { id: "home", key: "groupHome" },
-  { id: "behavior", key: "groupBehavior" },
-  { id: "typography", key: "groupTypography" },
-  { id: "sync", key: "groupSync" },
+/** The tabs. The rail used to scroll a single ~2,700px document, which made it
+ *  a table of contents for a form nobody could see the end of; seven TABS make
+ *  each one a short read — most of them fit without scrolling at all — and the
+ *  rail becomes navigation rather than a bookmark. Each tab opens with one
+ *  sentence saying what it decides, because "Language" and "Publishing" are
+ *  category names, not explanations. Order is the order an operator meets
+ *  them: what the site is, how it looks, what language it speaks, what it
+ *  publishes, what it is set in, how it is backed up, and what it is. */
+interface Tab {
+  id: string;
+  key: I18nKey;
+  /** One-sentence intro under the tab's heading. */
+  intro: I18nKey;
+}
+
+const TABS: Tab[] = [
+  { id: "identity", key: "tabIdentity", intro: "introIdentity" },
+  // Appearance did not earn its own tab. It carried THREE controls inside a
+  // panel fixed at 740px — measured body 609/609, so ~500px of dead space —
+  // while "Public layout" was a publishing decision filed under looks. The
+  // fixed height is right (a rail that moves under the pointer opens a tab
+  // nobody chose); the tab COUNT was what needed trimming. So the two theme
+  // rows join the language ones — both answer "what does this instance look
+  // and sound like to a reader" — and Public layout goes where it belongs.
+  { id: "language", key: "tabAppearance", intro: "introAppearance" },
+  { id: "publishing", key: "tabPublishing", intro: "introPublishing" },
+  { id: "typography", key: "groupTypography", intro: "typographyNote" },
+  { id: "sync", key: "groupSync", intro: "syncNote" },
+  { id: "about", key: "tabAbout", intro: "introAbout" },
 ];
 
 /** Automatic-sync periods. A closed set of sentences beats a free number with
@@ -917,6 +1046,9 @@ function intervalLabel(minutes: number): string {
 export default function SettingsModal() {
   const setOpen = useStore((s) => s.setSettingsOpen);
   useStore((s) => s.language); // re-render the chrome strings on language change
+  /** The reader's OWN theme (Appearance tab) — a live subscription, so a pick
+   *  made in the picker on top of this panel updates the row underneath it. */
+  const theme = useStore((s) => s.theme);
   const close = useCallback(() => setOpen(false), [setOpen]);
 
   const [loaded, setLoaded] = useState<SettingsResponse | null>(null);
@@ -926,50 +1058,55 @@ export default function SettingsModal() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [picker, setPicker] = useState<"favicon" | "logo" | "homeBanner" | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const [section, setSection] = useState(SECTIONS[0].id);
+  const railRef = useRef<HTMLElement>(null);
+  const [tab, setTab] = useState(TABS[0].id);
   /** Which scroll edges have content beyond them. Without this the content is
    *  sliced flush at the top and bottom of the box and reads as a rendering
    *  bug rather than as something that scrolls. */
   const [edges, setEdges] = useState({ top: false, bottom: false });
 
-  /** Active section + edge fades, from one scroll handler (also run on mount
-   *  and on resize, so the state is right before anything is scrolled). */
+  /** Edge fades, from one scroll handler (also run on mount, on resize and on
+   *  every tab change, so the state is right before anything is scrolled). */
   const syncScrollState = useCallback(() => {
     const body = bodyRef.current;
     if (!body) return;
     const top = body.scrollTop > 2;
     const bottom = body.scrollTop + body.clientHeight < body.scrollHeight - 2;
     setEdges((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }));
-    const bodyTop = body.getBoundingClientRect().top;
-    let active = SECTIONS[0].id;
-    for (const el of body.querySelectorAll<HTMLElement>("[data-section]")) {
-      // A section counts as "the one you are reading" once its heading has
-      // crossed a third of the way up the viewport.
-      if (el.getBoundingClientRect().top - bodyTop <= body.clientHeight / 3) {
-        active = el.dataset.section ?? active;
-      }
-    }
-    // The last section can never reach the threshold when it is shorter than
-    // the viewport, so the bottom of the scroll always names the last one.
-    if (!bottom) active = SECTIONS[SECTIONS.length - 1].id;
-    setSection(active);
   }, []);
 
   useEffect(() => {
     syncScrollState();
     window.addEventListener("resize", syncScrollState);
     return () => window.removeEventListener("resize", syncScrollState);
-  }, [syncScrollState, form]);
+  }, [syncScrollState, form, tab]);
 
-  const goToSection = useCallback((id: string) => {
-    const body = bodyRef.current;
-    const target = body?.querySelector<HTMLElement>(`[data-section="${id}"]`);
-    if (!body || !target) return;
-    body.scrollTo({
-      top: body.scrollTop + target.getBoundingClientRect().top - body.getBoundingClientRect().top - 4,
-      behavior: "smooth",
-    });
+  /** A new tab starts at ITS top — carrying the previous tab's scroll offset
+   *  into a shorter tab lands the reader in the middle of it (or past its
+   *  end), which reads as a broken panel. */
+  const goToTab = useCallback((id: string) => {
+    setTab(id);
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }, []);
+
+  /** ↑/↓ walk the rail, the way a tab list is expected to behave; the arrow
+   *  keys never leave the rail, and Home/End jump to its ends. */
+  const onRailKey = useCallback(
+    (e: ReactKeyboardEvent<HTMLElement>) => {
+      const keys: Record<string, number> = { ArrowDown: 1, ArrowUp: -1 };
+      const delta = keys[e.key];
+      const at = TABS.findIndex((s) => s.id === tab);
+      let next = -1;
+      if (delta !== undefined) next = Math.max(0, Math.min(TABS.length - 1, at + delta));
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = TABS.length - 1;
+      if (next < 0 || next === at) return;
+      e.preventDefault();
+      goToTab(TABS[next].id);
+      railRef.current?.querySelectorAll("button")[next]?.focus();
+    },
+    [goToTab, tab],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -995,6 +1132,11 @@ export default function SettingsModal() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== "Escape") return;
+      // The theme picker is mounted on <body>, so its own capture listener was
+      // registered LATER than this one and runs SECOND: without this line, Esc
+      // in the picker closed the settings panel underneath it (and the picker
+      // with it) instead of reverting the previewed theme.
+      if (isThemePickerOpen()) return;
       e.stopPropagation();
       setPicker((p) => {
         if (p !== null) return null;
@@ -1118,15 +1260,28 @@ export default function SettingsModal() {
 
         {form && eff && (
           <div className="s-smodal__cols">
-            {/* The panel's table of contents AND its position indicator. */}
-            <nav className="s-smodal__rail" aria-label={t("settingsSections")}>
-              {SECTIONS.map((s) => (
+            {/* Seven tabs, not seven anchors: the rail switches what the panel
+                is showing, and it is sticky so the whole map stays on screen
+                while a tab scrolls. */}
+            <nav
+              className="s-smodal__rail"
+              ref={railRef}
+              role="tablist"
+              aria-orientation="vertical"
+              aria-label={t("settingsSections")}
+              onKeyDown={onRailKey}
+            >
+              {TABS.map((s) => (
                 <button
                   key={s.id}
                   type="button"
-                  className={`s-smodal__railbtn${section === s.id ? " s-smodal__railbtn--on" : ""}`}
-                  aria-current={section === s.id ? "true" : undefined}
-                  onClick={() => goToSection(s.id)}
+                  role="tab"
+                  id={`s-smodal-tab-${s.id}`}
+                  aria-selected={tab === s.id}
+                  aria-controls={`s-smodal-panel-${s.id}`}
+                  tabIndex={tab === s.id ? 0 : -1}
+                  className={`s-smodal__railbtn${tab === s.id ? " s-smodal__railbtn--on" : ""}`}
+                  onClick={() => goToTab(s.id)}
                 >
                   {t(s.key)}
                 </button>
@@ -1134,14 +1289,27 @@ export default function SettingsModal() {
             </nav>
 
             <div className="s-smodal__scroll">
-              <div className="s-smodal__body" ref={bodyRef} onScroll={syncScrollState}>
+              <div
+                className="s-smodal__body"
+                ref={bodyRef}
+                onScroll={syncScrollState}
+                role="tabpanel"
+                id={`s-smodal-panel-${tab}`}
+                aria-labelledby={`s-smodal-tab-${tab}`}
+              >
+                {/* Every tab opens the same way: its name, then one sentence
+                    saying what it decides. */}
+                <div className="s-smodal__group">{t(TABS.find((s) => s.id === tab)?.key ?? "tabIdentity")}</div>
+                <p className="s-smodal__note">{t(TABS.find((s) => s.id === tab)?.intro ?? "introIdentity")}</p>
+
+                {tab === "identity" && (
                 <section data-section="identity">
-                  <div className="s-smodal__group">{t("groupIdentity")}</div>
-                  <p className="s-smodal__note">{t("settingsNote")}</p>
+                  <p className="s-smodal__note s-smodal__note--inherit">{t("settingsNote")}</p>
                   <Row
                     label={t("rowSiteName")}
                     error={errors.siteName}
                     inherited={form.siteName.trim() === ""}
+                    env="SITE_NAME"
                   >
                     <input
                       className="s-bmodal__input"
@@ -1156,6 +1324,7 @@ export default function SettingsModal() {
                     hint={t("hintTagline")}
                     error={errors.tagline}
                     inherited={form.tagline.trim() === ""}
+                    env="SITE_TAGLINE"
                   >
                     <input
                       className="s-bmodal__input"
@@ -1170,6 +1339,7 @@ export default function SettingsModal() {
                     hint={t("hintFooter")}
                     error={errors.footer}
                     inherited={form.footer.trim() === ""}
+                    env="SITE_FOOTER"
                   >
                     <input
                       className="s-bmodal__input"
@@ -1208,9 +1378,190 @@ export default function SettingsModal() {
                     />
                   </Row>
                 </section>
+                )}
 
-                <section data-section="home">
-                  <div className="s-smodal__group">{t("groupHome")}</div>
+                {tab === "language" && (
+                <section data-section="language">
+                  <div className="s-smodal__sub">{t("groupTheme")}</div>
+                  <Row
+                    label={t("rowDefaultTheme")}
+                    hint={t("hintDefaultTheme")}
+                    inherited={form.defaultTheme === ""}
+                    env="DEFAULT_THEME"
+                  >
+                    <select className="s-bmodal__input s-smodal__select" {...field("defaultTheme")}>
+                      <option value="">
+                        {tf("inheritOption", { value: themeLabel(eff.defaultTheme) })}
+                      </option>
+                      {/* Grouped, because fifteen names in one flat list is the
+                          same "which of these is dark?" guess the picker
+                          exists to end. The GROUP names and the theme labels
+                          are both chrome copy now — an Arabic reader met
+                          "verdigris" and "porphyry" in Latin script here — but
+                          the option VALUE is still the id, which is what
+                          settings.defaultTheme and DEFAULT_THEME take. */}
+                      {THEME_GROUPS.map((group) => (
+                        <optgroup
+                          key={group.group}
+                          label={t(group.group === "dark" ? "themeGroupDark" : "themeGroupLight")}
+                        >
+                          {group.themes.map((theme) => (
+                            <option key={theme} value={theme}>
+                              {`${t(THEME_LABELS[theme].name)} (${theme})`}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </Row>
+                  {/* The reader's OWN theme, which is a different thing from
+                      the row above it and was previously findable only by
+                      clicking a status-bar word until the room changed color.
+                      The picker previews live and reverts on Esc. */}
+                  <Row label={t("rowYourTheme")} hint={t("hintYourTheme")}>
+                    <div className="s-smodal__themepick">
+                      {/* The SAME miniature the picker draws, so the row and
+                          the panel it opens are visibly the same object. */}
+                      <span className="s-tpick__card" data-theme-swatch={theme} aria-hidden="true">
+                        <span className="s-tpick__card-rule" />
+                        <span className="s-tpick__card-line" />
+                        <span className="s-tpick__card-foot">
+                          <span className="s-tpick__card-chip" />
+                          <span className="s-tpick__card-line s-tpick__card-line--short" />
+                        </span>
+                      </span>
+                      <bdi className="s-smodal__themename">{t(THEME_LABELS[theme].name)}</bdi>
+                      <button type="button" className="s-btn" onClick={openThemePicker}>
+                        {t("browseThemes")}
+                      </button>
+                    </div>
+                  </Row>
+                
+                  <div className="s-smodal__sub">{t("groupLanguage")}</div>
+                  <Row
+                    label={t("rowLanguage")}
+                    hint={t("hintLanguage")}
+                    inherited={form.language === ""}
+                    env="SITE_LANG"
+                  >
+                    <select className="s-bmodal__input s-smodal__select" {...field("language")}>
+                      <option value="">{tf("inheritOption", { value: eff.language })}</option>
+                      {/* Language names stay in their own script — that is how a
+                          language picker reads to the person who needs it. */}
+                      <option value="en">English</option>
+                      <option value="ar">العربية</option>
+                    </select>
+                  </Row>
+                  <Row
+                    label={t("rowDateLocale")}
+                    hint={t("hintDateLocale")}
+                    error={errors.blogLocale}
+                    inherited={form.blogLocale.trim() === ""}
+                    env="BLOG_LOCALE"
+                  >
+                    <input
+                      className="s-bmodal__input"
+                      type="text"
+                      placeholder={eff.blogLocale}
+                      spellCheck={false}
+                      dir="ltr"
+                      {...field("blogLocale")}
+                    />
+                  </Row>
+                  <Row
+                    label={t("rowLanguageFilter")}
+                    hint={t("hintLanguageFilter")}
+                    inherited={form.languageFilter === ""}
+                    env="LANGUAGE_FILTER"
+                  >
+                    <select className="s-bmodal__input s-smodal__select" {...field("languageFilter")}>
+                      <option value="">
+                        {tf("inheritOption", { value: eff.languageFilter ? t("on") : t("off") })}
+                      </option>
+                      <option value="on">{t("on")}</option>
+                      <option value="off">{t("off")}</option>
+                    </select>
+                  </Row>
+                  {/* The visitor switch, spelled out. It EXISTS — it has since
+                      the language round — but it lived as a two-word row in a
+                      list nobody could reach, and the one person who wanted it
+                      could not tell whether it was there. So it gets its own
+                      sub-heading and a sentence saying exactly what turning it
+                      on puts on the public page, and what it deliberately does
+                      not move (dates and numerals stay on the site's locale). */}
+                  <div className="s-smodal__sub">{t("visitorSwitchHead")}</div>
+                  <p className="s-smodal__note">{t("visitorSwitchNote")}</p>
+                  <Row label={t("rowLanguageToggle")} hint={t("hintLanguageToggle")}>
+                    <select className="s-bmodal__input s-smodal__select" {...field("languageToggle")}>
+                      <option value="">
+                        {tf("inheritOption", { value: eff.languageToggle ? t("on") : t("off") })}
+                      </option>
+                      <option value="on">{t("on")}</option>
+                      <option value="off">{t("off")}</option>
+                    </select>
+                  </Row>
+                  {(form.languageToggle === "on" || (form.languageToggle === "" && eff.languageToggle)) && (
+                    <p className="s-smodal__offnote">{t("visitorSwitchOn")}</p>
+                  )}
+                </section>
+                )}
+
+                {tab === "publishing" && (
+                <section data-section="publishing">
+                  {/* Which shell a visitor lands in is a publishing decision,
+                      not a colour one — it moved here from Appearance. */}
+                  <Row
+                    label={t("rowPublicLayout")}
+                    hint={t("hintPublicLayout")}
+                    inherited={form.publicLayout === ""}
+                    env="PUBLIC_LAYOUT"
+                  >
+                    <select className="s-bmodal__input s-smodal__select" {...field("publicLayout")}>
+                      <option value="">{tf("inheritOption", { value: enumLabel(eff.publicLayout) })}</option>
+                      <option value="app">{t("layoutApp")}</option>
+                      <option value="blog">{t("layoutBlog")}</option>
+                    </select>
+                  </Row>
+                  <Row
+                    label={t("rowExcludeTags")}
+                    hint={t("hintExcludeTags")}
+                    error={errors.excludeTags}
+                    inherited={form.excludeTags.trim() === ""}
+                    env="EXCLUDE_TAGS"
+                  >
+                    <input
+                      className="s-bmodal__input"
+                      type="text"
+                      placeholder={eff.excludeTags.length > 0 ? eff.excludeTags.join(", ") : t("phExcludeTags")}
+                      spellCheck={false}
+                      {...field("excludeTags")}
+                    />
+                  </Row>
+                  <Row
+                    label={t("rowComments")}
+                    hint={t("hintComments")}
+                    inherited={form.comments === ""}
+                    env="COMMENTS"
+                  >
+                    <select className="s-bmodal__input s-smodal__select" {...field("comments")}>
+                      <option value="">
+                        {tf("inheritOption", { value: eff.commentsEnabled ? t("on") : t("off") })}
+                      </option>
+                      <option value="on">{t("on")}</option>
+                      <option value="off">{t("off")}</option>
+                    </select>
+                  </Row>
+                  <Row label={t("rowShareButtons")} hint={t("hintShareButtons")}>
+                    <select className="s-bmodal__input s-smodal__select" {...field("share")}>
+                      <option value="">
+                        {tf("inheritOption", { value: eff.shareButtons ? t("on") : t("off") })}
+                      </option>
+                      <option value="on">{t("on")}</option>
+                      <option value="off">{t("off")}</option>
+                    </select>
+                  </Row>
+                  <div className="s-smodal__sub">{t("groupHome")}</div>
+                  <p className="s-smodal__note">{t("homeNote")}</p>
                   <Row label={t("rowMode")} hint={t("hintMode")}>
                     <select className="s-bmodal__input s-smodal__select" {...field("homeMode")}>
                       <option value="">{tf("inheritOption", { value: enumLabel(eff.home.mode) })}</option>
@@ -1223,6 +1574,7 @@ export default function SettingsModal() {
                     hint={t("hintHomeNote")}
                     error={errors.homeNote}
                     inherited={form.homeNote.trim() === ""}
+                    env="HOME_NOTE"
                   >
                     <input
                       className="s-bmodal__input"
@@ -1248,107 +1600,10 @@ export default function SettingsModal() {
                     />
                   </Row>
                 </section>
+                )}
 
-                <section data-section="behavior">
-                  <div className="s-smodal__group">{t("groupBehavior")}</div>
-                  <Row label={t("rowDefaultTheme")} hint={t("hintDefaultTheme")}>
-                    <select className="s-bmodal__input s-smodal__select" {...field("defaultTheme")}>
-                      <option value="">
-                        {tf("inheritOption", { value: eff.defaultTheme ?? "iron-gall" })}
-                      </option>
-                      {THEMES.map((theme) => (
-                        <option key={theme} value={theme}>
-                          {theme}
-                        </option>
-                      ))}
-                    </select>
-                  </Row>
-                  <Row label={t("rowPublicLayout")} hint={t("hintPublicLayout")}>
-                    <select className="s-bmodal__input s-smodal__select" {...field("publicLayout")}>
-                      <option value="">{tf("inheritOption", { value: enumLabel(eff.publicLayout) })}</option>
-                      <option value="app">{t("layoutApp")}</option>
-                      <option value="blog">{t("layoutBlog")}</option>
-                    </select>
-                  </Row>
-                  <Row label={t("rowLanguage")} hint={t("hintLanguage")}>
-                    <select className="s-bmodal__input s-smodal__select" {...field("language")}>
-                      <option value="">{tf("inheritOption", { value: eff.language })}</option>
-                      {/* Language names stay in their own script — that is how a
-                          language picker reads to the person who needs it. */}
-                      <option value="en">English</option>
-                      <option value="ar">العربية</option>
-                    </select>
-                  </Row>
-                  <Row label={t("rowLanguageFilter")} hint={t("hintLanguageFilter")}>
-                    <select className="s-bmodal__input s-smodal__select" {...field("languageFilter")}>
-                      <option value="">
-                        {tf("inheritOption", { value: eff.languageFilter ? t("on") : t("off") })}
-                      </option>
-                      <option value="on">{t("on")}</option>
-                      <option value="off">{t("off")}</option>
-                    </select>
-                  </Row>
-                  <Row label={t("rowLanguageToggle")} hint={t("hintLanguageToggle")}>
-                    <select className="s-bmodal__input s-smodal__select" {...field("languageToggle")}>
-                      <option value="">
-                        {tf("inheritOption", { value: eff.languageToggle ? t("on") : t("off") })}
-                      </option>
-                      <option value="on">{t("on")}</option>
-                      <option value="off">{t("off")}</option>
-                    </select>
-                  </Row>
-                  <Row
-                    label={t("rowDateLocale")}
-                    hint={t("hintDateLocale")}
-                    error={errors.blogLocale}
-                    inherited={form.blogLocale.trim() === ""}
-                  >
-                    <input
-                      className="s-bmodal__input"
-                      type="text"
-                      placeholder={eff.blogLocale}
-                      spellCheck={false}
-                      dir="ltr"
-                      {...field("blogLocale")}
-                    />
-                  </Row>
-                  <Row
-                    label={t("rowExcludeTags")}
-                    hint={t("hintExcludeTags")}
-                    error={errors.excludeTags}
-                    inherited={form.excludeTags.trim() === ""}
-                  >
-                    <input
-                      className="s-bmodal__input"
-                      type="text"
-                      placeholder={eff.excludeTags.length > 0 ? eff.excludeTags.join(", ") : t("phExcludeTags")}
-                      spellCheck={false}
-                      {...field("excludeTags")}
-                    />
-                  </Row>
-                  <Row label={t("rowComments")} hint={t("hintComments")}>
-                    <select className="s-bmodal__input s-smodal__select" {...field("comments")}>
-                      <option value="">
-                        {tf("inheritOption", { value: eff.commentsEnabled ? t("on") : t("off") })}
-                      </option>
-                      <option value="on">{t("on")}</option>
-                      <option value="off">{t("off")}</option>
-                    </select>
-                  </Row>
-                  <Row label={t("rowShareButtons")} hint={t("hintShareButtons")}>
-                    <select className="s-bmodal__input s-smodal__select" {...field("share")}>
-                      <option value="">
-                        {tf("inheritOption", { value: eff.shareButtons ? t("on") : t("off") })}
-                      </option>
-                      <option value="on">{t("on")}</option>
-                      <option value="off">{t("off")}</option>
-                    </select>
-                  </Row>
-                </section>
-
+                {tab === "typography" && (
                 <section data-section="typography">
-                  <div className="s-smodal__group">{t("groupTypography")}</div>
-                  <p className="s-smodal__note">{t("typographyNote")}</p>
                   <Row label={t("rowFontProse")} hint={t("hintFontProse")}>
                     <FontSelect
                       value={form.fontProse}
@@ -1411,6 +1666,7 @@ export default function SettingsModal() {
                     </div>
                   </Row>
                 </section>
+                )}
 
                 {/* ── Backup & sync ───────────────────────────────────────
                     No "inherit" option anywhere in this group: sync has no env
@@ -1419,9 +1675,8 @@ export default function SettingsModal() {
                     switch is off — six fields and two actions at full contrast
                     and full interactivity, all inert, read as a configured and
                     running backup at a glance. */}
+                {tab === "sync" && (
                 <section data-section="sync">
-                  <div className="s-smodal__group">{t("groupSync")}</div>
-                  <p className="s-smodal__note">{t("syncNote")}</p>
                   <Row label={t("rowSyncEnabled")} hint={t("hintSyncEnabled")}>
                     <select className="s-bmodal__input s-smodal__select" {...field("syncEnabled")}>
                       <option value="off">{t("off")}</option>
@@ -1560,6 +1815,9 @@ export default function SettingsModal() {
                       the grid they do not belong in. */}
                   <SyncActions stale={syncStale} disabled={syncOff} />
                 </section>
+                )}
+
+                {tab === "about" && <AboutTab about={loaded?.about ?? null} />}
               </div>
               {/* Content beyond an edge gets a fade, so a sliced heading reads
                   as "there is more" instead of as a rendering bug. */}

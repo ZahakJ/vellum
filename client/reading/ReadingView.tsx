@@ -4,7 +4,7 @@
 // answers "vellum:goto-heading" requests from the outline panel.
 
 import { useEffect, useRef } from "react";
-import { getNote } from "../api.ts";
+import { getNote, isNotPublishedError } from "../api.ts";
 import Marginalia from "../components/Marginalia.tsx";
 import { t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
@@ -86,8 +86,17 @@ export default function ReadingView({ path }: { path: string }) {
         publishActive(hostRef.current);
       })
       .catch((err: unknown) => {
+        // Previewing as a visitor, the server 404s an unpublished note
+        // because that is the RIGHT answer for a visitor. Reporting it as
+        // "Failed to open <path>" made the eye button — the feature whose
+        // whole job is letting the owner inspect his own site — open with a
+        // fault report about a site that is fine.
+        if (isNotPublishedError(err)) {
+          toast(t("previewNotPublished"));
+          return;
+        }
         console.error(`vellum: failed to open ${path} for reading`, err);
-        toast(tf("openFailed", { path }));
+        toast(tf("openFailed", { path }), "error");
       });
     return () => {
       disposed = true;

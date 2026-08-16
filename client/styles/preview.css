@@ -516,27 +516,38 @@
   padding: 0;
   border: none;
   background: none;
+  /* VISIBLE AT REST. This was `opacity: 0`, raised to 0.6 on .cm-line:hover —
+     a pure hover-reveal, which is the exact rule DESIGN.md writes down for
+     the pane reopen handles ("always visible … never a hover-reveal") and
+     CONTRACTS' "discoverability is chrome, not folklore". The owner's report
+     was "could not find the fold controls", and the previous answer was to
+     NAME them in the Ctrl+/ sheet — documentation for an invisible control.
+     Two other things the hidden state broke: only the hovered heading's
+     chevron ever appeared, so nothing on screen said the document folds at
+     all; and on a touch device there is no hover, so folding was unreachable
+     entirely. At rest it is --text-faint at full strength (a UI glyph, held
+     to the 3:1 non-text bar, not the 4.5:1 body-text one), muted on the
+     line, accent on itself. */
   color: var(--text-faint);
   cursor: pointer;
   vertical-align: baseline;
-  opacity: 0;
+  opacity: 1;
   transition: opacity 150ms ease, color 150ms ease, transform 150ms ease;
   transform: rotate(90deg); /* open section: chevron points down */
 }
 
 .s-editor .cm-line:hover .cm-s-foldbtn,
 .s-editor .cm-s-foldbtn:focus-visible {
-  opacity: 0.6;
+  color: var(--text-muted);
 }
 
 .s-editor .cm-s-foldbtn:hover {
-  opacity: 1;
   color: var(--accent);
 }
 
 .s-editor .cm-s-foldbtn--folded {
   transform: rotate(0deg); /* folded: chevron points at the hidden text */
-  opacity: 0.85;
+  opacity: 1;
   color: var(--accent);
 }
 

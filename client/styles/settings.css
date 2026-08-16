@@ -1,0 +1,354 @@
+/* Vellum — the settings surface.
+   Linked after app.css (client/index.html), and it turns the panel app.css
+   built — a rail beside one long scrolling form — into seven TABS. What
+   changed, and why each change is here rather than in app.css:
+
+     · the panel sizes to its tab instead of standing at a fixed 860px, since
+       most tabs are now four rows and a sentence;
+     · the rail is sticky and reads as navigation (it switches the panel, it no
+       longer bookmarks a scroll position);
+     · every tab opens with a heading and ONE sentence saying what it decides;
+     · the control column is a fixed measure, so hints and inputs line up down
+       the whole panel instead of ranging with the widest row;
+     · About gets its own small type system (facts, counts, doc topics).
+
+   Everything is logical-property clean: the panel mirrors under dir="rtl"
+   with no [dir] rule of its own. */
+
+/* ── Shape ───────────────────────────────────────────────────────────────── */
+
+/* ONE height for all seven tabs, and that is the whole point of the rule.
+   Sizing to the tab — even between a floor and the viewport — meant the panel
+   stood at 467px on Appearance and 855px on Typography, and since it is
+   centred in the window, every click moved the RAIL as well as the body: the
+   row the pointer was resting on became a different tab under it, and the next
+   click opened a section nobody chose. A tab strip that walks away from the
+   cursor is the same class of bug as a mode that says nothing. So the panel
+   holds still and the tall tabs scroll (which they already did). */
+.s-smodal {
+  width: min(940px, calc(100vw - 32px));
+  height: min(740px, calc(100vh - 40px));
+  max-height: calc(100vh - 40px);
+}
+
+.s-smodal__cols {
+  gap: 22px;
+}
+
+/* Sticky: the map of the panel stays on screen while a long tab (Backup &
+   sync) scrolls under it. `align-self: flex-start` keeps it from stretching
+   to the full column height, which is what makes `top: 0` mean anything. */
+.s-smodal__rail {
+  width: 190px;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  max-height: 100%;
+  padding-block: 2px;
+  padding-inline-end: 14px;
+}
+
+.s-smodal__railbtn {
+  padding: 8px 10px;
+  font-size: 0.839rem;
+  line-height: 1.25;
+}
+
+/* The selected TAB, not a scroll position: filled, not just tinted, because
+   it is now the only thing on screen saying which of seven panels this is. */
+.s-smodal__railbtn--on {
+  background: var(--accent-soft);
+  border-inline-start-color: var(--accent);
+  color: var(--text);
+}
+
+/* ── Tab body ────────────────────────────────────────────────────────────── */
+
+/* The 18px gap between body children was the spacing between five section
+   blocks; a tab is a heading, a sentence and one section, and those three want
+   their own margins. Padding restated logically — the shorthand app.css uses
+   is physical, so its 4px sat on the wrong side under dir="rtl". */
+.s-smodal__body {
+  gap: 0;
+  padding: 2px 0 22px;
+  padding-inline-end: 6px;
+}
+
+/* The tab's own name. Serif and sentence case: this is a heading for a page,
+   not a gold rule over a form group. */
+.s-smodal__group {
+  margin-top: 0;
+  margin-bottom: 2px;
+  font-family: var(--font-serif);
+  font-size: 1.02rem;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+/* The one sentence under it. Measured (62ch) so it never runs the full width
+   of a 940px panel, and muted rather than faint — it is copy to be read, not
+   a footnote. */
+.s-smodal__note {
+  max-width: 62ch;
+  margin-bottom: 14px;
+  font-size: 0.821rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* The "empty fields inherit" convention note is a footnote — it explains a
+   mechanism rather than the tab, so it steps back down. */
+.s-smodal__note--inherit {
+  margin-top: -6px;
+  color: var(--text-faint);
+}
+
+/* A sub-heading inside a tab (Home page, the Arabic slot, the visitor
+   switch) needs air above it now that tabs are short enough to see whole. */
+.s-smodal__sub {
+  margin-top: 22px;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 0.714rem;
+}
+
+.s-smodal__sub + .s-smodal__note {
+  margin-top: -4px;
+}
+
+/* ── Rows ────────────────────────────────────────────────────────────────── */
+
+/* One measure for the label column and one for the control column, down the
+   whole panel. Before this the control column was 1fr — every select stretched
+   to ~500px, every hint wrapped against a different edge, and no two rows in
+   the panel shared a rhythm. */
+.s-smodal__row {
+  grid-template-columns: 224px minmax(0, 1fr);
+  gap: 10px 18px;
+  min-height: 46px;
+  padding-block: 2px;
+}
+
+.s-smodal__control {
+  max-width: 380px;
+}
+
+/* …except the ones that ARE the width: the type specimen and the sync status
+   block are content, not fields. The single-column restatement is required —
+   the two-column rule above is later in the cascade than app.css's
+   `--wide { grid-template-columns: 1fr }` and would otherwise squeeze the
+   specimen back into a control cell. */
+.s-smodal__row--wide {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  max-width: none;
+}
+
+.s-smodal__row--wide .s-smodal__control {
+  max-width: none;
+}
+
+.s-smodal__label {
+  padding-top: 7px;
+}
+
+.s-smodal__hint {
+  line-height: 1.45;
+  max-width: 30ch;
+}
+
+/* The sync status block reads as a paragraph, not as a field value. */
+.s-smodal__sync {
+  max-width: none;
+}
+
+/* ── Scroll edges ────────────────────────────────────────────────────────── */
+
+/* Taller fades: at 18px the gradient read as a hairline shadow rather than as
+   "there is more below". */
+.s-smodal__edge {
+  height: 26px;
+}
+
+/* ── Appearance: the reader's own theme ──────────────────────────────────── */
+
+.s-smodal__themepick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.s-smodal__themepick .s-btn {
+  margin-inline-start: auto;
+}
+
+
+.s-smodal__themename {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.857rem;
+  color: var(--text);
+}
+
+/* ── About ───────────────────────────────────────────────────────────────── */
+
+.s-about {
+  margin: 0 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.s-about__row {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  gap: 18px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.s-about__key {
+  font-size: 0.857rem;
+  color: var(--text);
+}
+
+.s-about__val {
+  /* <dd> carries a 40px inline-start margin by default — invisible in the
+     two-column layout, a stray indent once the rows stack. */
+  margin: 0;
+  min-width: 0;
+  font-size: 0.821rem;
+  color: var(--text-muted);
+  /* Paths are long and worth copying; they wrap rather than truncate, and
+     they are selectable text rather than a tooltip. */
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.s-about__val--path {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+/* Four counts, as figures rather than as a sentence: this is the only place
+   in the product that answers "how big is this vault" at a glance. */
+.s-about__counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.s-about__count {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-faint) 40%, transparent);
+}
+
+.s-about__countnum {
+  font-family: var(--font-serif);
+  font-size: 1.29rem;
+  line-height: 1.1;
+  color: var(--text);
+}
+
+.s-about__countlabel {
+  font-size: 0.714rem;
+  color: var(--text-faint);
+}
+
+.s-about__docs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.s-about__doc {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  gap: 18px;
+  align-items: baseline;
+  padding: 6px 0;
+}
+
+.s-about__docname {
+  font-size: 0.821rem;
+  color: var(--text);
+}
+
+.s-about__docanchor {
+  font-family: var(--font-mono);
+  font-size: 0.714rem;
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+
+/* ── Short viewports ─────────────────────────────────────────────────────── */
+
+/* At 768px tall the panel is still a panel — it just gives up its floor, so
+   it never grows past the window and starts scrolling the page behind it. */
+@media (max-height: 800px) {
+  .s-smodal {
+    height: calc(100vh - 32px);
+    max-height: calc(100vh - 32px);
+  }
+}
+
+/* ── Narrow viewports ────────────────────────────────────────────────────── */
+
+/* The two breakpoints are app.css's, deliberately: at ≤720px it turns the rail
+   into a scrolling strip across the top and at ≤560px it stacks the rows, and a
+   third breakpoint of my own would only produce a band where half of each
+   layout applies. */
+@media (max-width: 720px) {
+  /* Sticky is for a rail beside the content; as a top strip it scrolls with
+     the panel head. `align-self` has to go back to stretch with it: left at
+     flex-start in the COLUMN layout the strip sized to its seven tabs (701px)
+     instead of to the panel, so `overflow-x: auto` had nothing to scroll and
+     the whole modal overflowed sideways on a phone. */
+  .s-smodal__rail {
+    position: static;
+    align-self: stretch;
+    width: auto;
+    min-width: 0;
+    max-height: none;
+    padding-inline-end: 0;
+  }
+
+  /* app.css moves the marker to a bottom border for the strip; the fill stays
+     (it is what says "this tab", not the hairline). */
+  .s-smodal__railbtn--on {
+    border-bottom-color: var(--accent);
+  }
+}
+
+@media (max-width: 560px) {
+  .s-smodal__row,
+  .s-about__row,
+  .s-about__doc {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .s-smodal__control {
+    max-width: none;
+  }
+
+  .s-about__counts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

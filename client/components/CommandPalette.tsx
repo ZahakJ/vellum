@@ -5,7 +5,11 @@ import {
   useRef,
   useState,
 } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+} from "react";
 import { THEMES, useStore } from "../state.ts";
 import type { Theme } from "../state.ts";
 import { search } from "../api.ts";
@@ -16,6 +20,7 @@ import { runSyncNow, syncSnapshot } from "../sync.ts";
 import { toast } from "../toast.ts";
 import type { SearchHit } from "../../shared/types.ts";
 import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
+import { openThemePicker } from "./ThemePicker.tsx";
 
 // ---------------------------------------------------------------------------
 // Fuzzy matching (subsequence with consecutive/word-start bonuses)
@@ -136,6 +141,15 @@ const COMMANDS: Command[] = [
     hint: () => "Ctrl/Cmd E",
     available: ({ openPath, admin }) => admin && openPath !== null,
   },
+  {
+    // The browsing surface, not a sixteenth switch: the fifteen rows below
+    // jump straight to a theme by name, this one opens the panel that shows
+    // all of them with a live preview and an Esc that puts things back.
+    id: "theme-picker",
+    label: () => t("browseThemes"),
+    hint: () => t("cmdAppearanceHint"),
+    available: () => true,
+  },
   ...THEMES.map<Command>((theme) => ({
     id: `theme-${theme}`,
     label: () => tf("cmdTheme", { t: theme }),
@@ -168,6 +182,12 @@ const COMMANDS: Command[] = [
     id: "sidebar-side",
     label: () => t(useStore.getState().sidebarSide === "left" ? "cmdSidebarRight" : "cmdSidebarLeft"),
     hint: () => t("cmdLayoutHint"),
+    available: () => true,
+  },
+  {
+    id: "shortcuts",
+    label: () => t("shortcutsTitle"),
+    hint: () => "Ctrl/Cmd /",
     available: () => true,
   },
   {
@@ -335,6 +355,23 @@ export default function CommandPalette() {
   /** Enter was pressed while results were in flight: run the selection as soon
    *  as the current query's results land. */
   const pendingEnterRef = useRef(false);
+  // ---- Pointer arming -----------------------------------------------------
+  // Enter must run the KEYBOARD's selection. The palette opens under wherever
+  // the cursor happens to be resting, and `mouseenter` fires on whatever row
+  // materializes there — so the row the reader never chose silently became the
+  // one Enter ran. Hover is therefore ignored until the mouse actually MOVES:
+  // we arm on a mousemove whose coordinates differ from the previous one
+  // (browsers emit a synthetic move after layout/scroll changes, and one of
+  // those must not count), and disarm on every keystroke, so arrowing away
+  // from a stationary cursor is never undone by the cursor sitting there.
+  const armedRef = useRef(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+
+  const onListMouseMove = useCallback((e: ReactMouseEvent) => {
+    const last = lastPointRef.current;
+    if (last && (last.x !== e.clientX || last.y !== e.clientY)) armedRef.current = true;
+    lastPointRef.current = { x: e.clientX, y: e.clientY };
+  }, []);
 
   // Reset on open.
   useEffect(() => {
@@ -346,6 +383,8 @@ export default function CommandPalette() {
       setInFlight(false);
       seqRef.current++; // invalidate any response still in flight
       pendingEnterRef.current = false;
+      armedRef.current = false;
+      lastPointRef.current = null;
       // Focus after the modal renders.
       requestAnimationFrame(() => inputRef.current?.focus());
     }
@@ -464,6 +503,12 @@ export default function CommandPalette() {
         case "zen-mode":
           store.setZen(!store.zen);
           break;
+        case "shortcuts":
+          store.setShortcutsOpen(true);
+          break;
+        case "theme-picker":
+          openThemePicker();
+          break;
         case "toggle-sidebar":
           store.setSidebarCollapsed(!store.sidebarCollapsed);
           break;
@@ -568,6 +613,10 @@ export default function CommandPalette() {
 
   const onKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLInputElement>) => {
+      // Any keystroke hands the selection back to the keyboard: a cursor
+      // parked over row 5 must not re-steal it after ↓ moved to row 2.
+      armedRef.current = false;
+      lastPointRef.current = null;
       if (e.key === "Escape") {
         e.preventDefault();
         close();
@@ -641,15 +690,17 @@ export default function CommandPalette() {
           }
           onChange={(e) => {
             setQuery(e.target.value);
-            setSelected(0);
+            setSelected(0); // a new query is a new list — selection starts at the top
             pendingEnterRef.current = false; // typing again cancels a queued Enter
+            armedRef.current = false;
+            lastPointRef.current = null;
           }}
           onKeyDown={onKeyDown}
           spellCheck={false}
           autoComplete="off"
         />
         {!isPrompt && (
-          <div className="s-palette-list" ref={listRef}>
+          <div className="s-palette-list" ref={listRef} onMouseMove={onListMouseMove}>
             {items.map((item, i) => {
               const active = i === selected;
               const cls = `s-palette-item${active ? " s-palette-item--active" : ""}`;
@@ -668,7 +719,9 @@ export default function CommandPalette() {
                   {heading}
                   <div
                     className={cls}
-                    onMouseEnter={() => setSelected(i)}
+                    onMouseMove={() => {
+                      if (armedRef.current) setSelected(i);
+                    }}
                     onClick={() => execute(item)}
                   >
                     <span className="s-palette-item-icon" aria-hidden="true">

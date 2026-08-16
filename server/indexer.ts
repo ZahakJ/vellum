@@ -15,6 +15,14 @@ interface NoteRecord {
   title: string;
   body: string; // content minus frontmatter
   links: { target: string; line: string; lineIdx: number }[];
+  /** Vault-relative destinations of STANDARD-markdown images — `![alt](Media/x.png)`
+   *  — resolved against this note's own folder. `links` only ever holds
+   *  `[[wikilink]]`/`![[embed]]` targets, so without this the publish
+   *  allowlist could not see the other half of the syntax the renderer
+   *  supports, and every markdown-embedded image in a published note 404'd
+   *  to visitors while the admin saw it. Absolute URLs and anything that
+   *  climbs out of the vault are dropped here, not later. */
+  assets: string[];
   tags: string[];
   /** frontmatter `publish` is exactly true / "true" */
   published: boolean;
@@ -256,6 +264,7 @@ export async function indexFile(relPath: string): Promise<void> {
     title,
     body,
     links: parseLinks(body),
+    assets: parseAssets(body, relPath),
     tags: parseTags(body, frontmatter),
     published: publishFlag(fm),
     banner: typeof fm.banner === "string" && fm.banner.trim() ? fm.banner.trim() : null,
@@ -356,6 +365,58 @@ function parseLinks(body: string): NoteRecord["links"] {
     re.lastIndex = 0;
   }
   return links;
+}
+
+// `![alt](dest)` — the SAME shape the renderers match (client/reading/render.ts
+// and client/editor/livePreview.ts): the destination runs to the first
+// whitespace or `)`, with an optional quoted title after it. Keeping the three
+// regexes the same shape is the point — the allowlist must cover exactly what
+// the page will ask for, no more.
+const MD_IMAGE_RE = /!\[[^\]]*\]\(([^)\s]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\)/g;
+
+/** Vault-relative destinations of standard-markdown images in `body`, resolved
+ *  against the note's own folder — the server-side twin of the client's
+ *  `resolveRelative()` (client/editor/embeds.ts), which turns exactly these
+ *  strings into `/api/file?path=…`. External schemes are skipped, `.`/`..`
+ *  segments are folded, and a path that climbs above the vault root is
+ *  dropped rather than clamped. */
+function parseAssets(body: string, relPath: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const base = relPath.includes("/") ? relPath.slice(0, relPath.lastIndexOf("/")).split("/") : [];
+  MD_IMAGE_RE.lastIndex = 0;
+  for (let m = MD_IMAGE_RE.exec(body); m !== null; m = MD_IMAGE_RE.exec(body)) {
+    const raw = m[1];
+    if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith("//") || raw.startsWith("#")) continue;
+    let clean = raw.replace(/^<|>$/g, "").replace(/[?#].*$/, "");
+    try {
+      clean = decodeURIComponent(clean);
+    } catch {
+      // A stray '%' is not an encoding — take the destination literally.
+    }
+    clean = clean.replace(/\\/g, "/");
+    if (!clean) continue;
+    // A leading '/' means the vault root, exactly as resolveRelative() reads it.
+    const parts = clean.startsWith("/") ? [] : [...base];
+    let escaped = false;
+    for (const seg of clean.replace(/^\/+/, "").split("/")) {
+      if (seg === "" || seg === ".") continue;
+      if (seg === "..") {
+        if (parts.length === 0) {
+          escaped = true;
+          break;
+        }
+        parts.pop();
+      } else parts.push(seg);
+    }
+    if (escaped || parts.length === 0) continue;
+    const rel = parts.join("/");
+    if (!seen.has(rel)) {
+      seen.add(rel);
+      out.push(rel);
+    }
+  }
+  return out;
 }
 
 /** Frontmatter date value → epoch ms, or null when absent/unparseable.
@@ -518,6 +579,23 @@ function allowedAttachments(): Set<string> {
       for (const link of record.links) {
         const resolved = resolveEmbed(link.target);
         if (resolved && attachmentPaths.has(resolved)) allowed.add(resolved);
+      }
+      // The other half of the embed syntax. `![alt](Media/x.png)` never went
+      // through wikilinkRegex(), so `record.links` cannot see it — and the
+      // renderer turns it straight into /api/file?path=Media/x.png. Both
+      // OBSIDIAN-COMPAT.md and the README promise the form works on the
+      // published site; it failed CLOSED (admin saw the image, visitor saw a
+      // placeholder, nothing said why), which is a silent public-site
+      // breakage of exactly the invisible-state kind. Path first, then the
+      // basename fallback resolveEmbed() gives wikilinks, so a note that
+      // moved folders keeps rendering.
+      for (const asset of record.assets) {
+        if (attachmentPaths.has(asset)) {
+          allowed.add(asset);
+          continue;
+        }
+        const byName = resolveEmbed(path.posix.basename(asset));
+        if (byName && attachmentPaths.has(byName)) allowed.add(byName);
       }
       // A published note's banner attachment is visitor-visible too.
       const banner = resolveBanner(record);

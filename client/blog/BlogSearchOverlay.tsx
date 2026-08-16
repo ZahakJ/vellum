@@ -23,9 +23,22 @@ export default function BlogSearchOverlay() {
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  /** Where focus was when the overlay opened — Esc hands it back (the reader
+   *  came from an article, and closing must return them to it, not to body). */
+  const returnRef = useRef<HTMLElement | null>(null);
+  // Hover must not decide what Enter runs: the overlay opens under a
+  // stationary cursor and `mouseenter` on the row that lands there would
+  // silently move the selection. Armed only by genuine pointer MOVEMENT
+  // (coordinates that actually changed), disarmed by every keystroke.
+  const armedRef = useRef(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const onQuick = () => {
+      const from = document.activeElement;
+      if (!returnRef.current && from instanceof HTMLElement) returnRef.current = from;
+      armedRef.current = false;
+      lastPointRef.current = null;
       setOpen(true);
       // Already open: a repeat press just refocuses the input.
       inputRef.current?.focus();
@@ -44,6 +57,10 @@ export default function BlogSearchOverlay() {
     setQ("");
     setHits([]);
     setActive(0);
+    // Back to the article the reader was in, once the overlay has unmounted.
+    const back = returnRef.current;
+    returnRef.current = null;
+    if (back?.isConnected) window.setTimeout(() => back.focus(), 0);
   };
 
   // Debounced server search while typing.
@@ -81,11 +98,15 @@ export default function BlogSearchOverlay() {
 
   const pick = (hit: SearchHit | undefined): void => {
     if (!hit) return;
+    // Navigating replaces the page under us — there is nothing to return to.
+    returnRef.current = null;
     go(notePathToUrl(hit.path));
     close();
   };
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
+    armedRef.current = false;
+    lastPointRef.current = null;
     if (e.key === "Escape") {
       e.preventDefault();
       close();
@@ -122,14 +143,26 @@ export default function BlogSearchOverlay() {
           autoComplete="off"
         />
         {q.trim() !== "" && (
-          <div className="s-palette-list" ref={listRef}>
+          <div
+            className="s-palette-list"
+            ref={listRef}
+            onMouseMove={(e) => {
+              const last = lastPointRef.current;
+              if (last && (last.x !== e.clientX || last.y !== e.clientY)) {
+                armedRef.current = true;
+              }
+              lastPointRef.current = { x: e.clientX, y: e.clientY };
+            }}
+          >
             {hits.length > 0 && <div className="s-palette-section">{t("blogWritings")}</div>}
             {hits.map((hit, i) => (
               <div
                 key={hit.path}
                 className={`s-palette-item${i === active ? " s-palette-item--active" : ""}`}
                 data-preview-path={hit.path}
-                onMouseEnter={() => setActive(i)}
+                onMouseMove={() => {
+                  if (armedRef.current) setActive(i);
+                }}
                 onClick={() => pick(hit)}
               >
                 <span className="s-palette-item-title" dir="auto">

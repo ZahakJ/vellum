@@ -11,6 +11,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { numeralSystem, toNumerals } from "../shared/numerals.ts";
+import { isTheme, THEMES as THEME_IDS } from "../shared/themes.ts";
 import { getSettings } from "./settings.ts";
 
 interface SiteConfig {
@@ -45,13 +46,29 @@ let config: SiteConfig = {
   bannerFallback: "generated",
 };
 
+/** DEFAULT_THEME, checked against the shared theme list. An unknown name is
+ *  ignored (the instance keeps the built-in default) and SAID SO once, at
+ *  startup — the same list backs `settings.defaultTheme`, whose PATCH answers
+ *  400 rather than dropping the value quietly. */
+function readEnvTheme(raw: string | undefined): string | null {
+  const value = raw?.trim().toLowerCase() || null;
+  if (value === null || isTheme(value)) return value;
+  console.error(
+    `vellum: DEFAULT_THEME="${value}" is not a built-in theme — ignoring. ` +
+      `One of: ${THEME_IDS.join(", ")}`,
+  );
+  return null;
+}
+
 /** Read site settings from the environment. Call once at startup. */
 export function initSite(env: NodeJS.ProcessEnv = process.env): void {
   config = {
     siteName: env.SITE_NAME?.trim() || "Vellum",
-    // Passed through as-is; the client validates against its theme list and
-    // ignores unknown names, so the server never chases theme additions.
-    defaultTheme: env.DEFAULT_THEME?.trim().toLowerCase() || null,
+    // Validated against the shared theme list, not passed through: a typo'd
+    // DEFAULT_THEME used to travel all the way to /api/me and get silently
+    // dropped by the client, so the operator saw the default theme and no
+    // explanation anywhere. One line on stderr at startup is the whole fix.
+    defaultTheme: readEnvTheme(env.DEFAULT_THEME),
     dataDir: path.resolve(env.VELLUM_DATA?.trim() || "data"),
     // Workflow/status tags (e.g. zettel maturity markers) that shouldn't
     // surface as topic headings or tag pills on the published site. A leading

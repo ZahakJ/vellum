@@ -14,7 +14,8 @@ import { t, tf } from "../i18n.ts";
 import LoginModal from "../components/LoginModal.tsx";
 import { renderMarkdown } from "../reading/render.ts";
 import { notePathToUrl, urlToNoteGuess, urlToNotePath } from "../router.ts";
-import { nextTheme, useStore } from "../state.ts";
+import { useStore } from "../state.ts";
+import { counterpartTheme, themeGroup } from "../themes.ts";
 import BackToTop from "./BackToTop.tsx";
 import BlogArticle from "./BlogArticle.tsx";
 import BlogDashboard from "./BlogDashboard.tsx";
@@ -82,9 +83,13 @@ function ThemeButton() {
       className="s-blog-iconbtn"
       title={tf("cmdTheme", { t: theme })}
       aria-label={t("blogSwitchTheme")}
-      onClick={() => useStore.getState().setTheme(nextTheme(theme))}
+      // A ☾/☀ button on a public page means "the same site, lit
+      // differently" — with fifteen themes, stepping to the next one in the
+      // list means walking a visitor through ten dark rooms to reach daylight.
+      // counterpartTheme() names the pair for each theme instead.
+      onClick={() => useStore.getState().setTheme(counterpartTheme(theme))}
     >
-      {theme === "parchment" ? (
+      {themeGroup(theme) === "light" ? (
         <svg
           viewBox="0 0 24 24"
           width="16"

@@ -5,11 +5,12 @@
 
 import { useEffect, useRef } from "react";
 import { EditorView } from "@codemirror/view";
-import { getNote, putNote } from "../api.ts";
-import { tf } from "../i18n.ts";
+import { getNote, isNotPublishedError, putNote } from "../api.ts";
+import { t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { buildEditorState, setVim } from "../editor/setup.ts";
+import { attachVimStatus, detachVimStatus } from "../editor/vimStatus.ts";
 import { languageChanged } from "../editor/langEffect.ts";
 import { findHeadingLine } from "../editor/links.ts";
 
@@ -89,6 +90,10 @@ export default function Editor({ path }: { path: string }) {
 
         // Vim loads lazily; patch it into the fresh view once the module is in.
         if (useStore.getState().vimMode) setVim(view, true);
+        // The module may already be cached, in which case buildEditorState()
+        // brought the vim plugin up with the view and setVim's async path
+        // never runs — the pill would then show VIM with no sub-mode.
+        else attachVimStatus(view);
 
         const anchor = afterFrontmatter(note.content);
         if (anchor > 0 && anchor <= view.state.doc.length) {
@@ -126,8 +131,14 @@ export default function Editor({ path }: { path: string }) {
         view.focus();
       })
       .catch((err) => {
+        // See ReadingView: a 404 inside visitor preview means "not
+        // published", which is the correct answer, not a failure.
+        if (isNotPublishedError(err)) {
+          toast(t("previewNotPublished"));
+          return;
+        }
         console.error(`Failed to open ${path}`, err);
-        toast(tf("openFailed", { path }));
+        toast(tf("openFailed", { path }), "error");
       });
 
     return () => {
@@ -144,9 +155,12 @@ export default function Editor({ path }: { path: string }) {
           .then(() => markDirty(path, false))
           .catch((err) => {
             console.error(`Failed to save ${path}`, err);
-            toast(tf("saveFailed", { path }));
+            toast(tf("saveFailed", { path }), "error");
           });
       }
+      // The bar must not keep reporting a sub-mode for an editor that is
+      // gone (switching to reading mode, closing the last tab).
+      detachVimStatus(view);
       view.destroy();
     };
   }, [path]);

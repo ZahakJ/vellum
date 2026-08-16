@@ -10,7 +10,8 @@ server code must use only erasable TS (no enums/namespaces/parameter-properties)
 
 Vellum: a candlelit manuscript room. Dark theme "iron-gall" (near-black warm ink background,
 warm off-white text), light theme "parchment" (warm paper background). Accent: gold-leaf
-`#c9a227` (dark) / `#8a6d1a` (light). Serif display font for headings in rendered markdown
+`#c9a227` (dark) / `#7a5f14` (light — darkened from `#8a6d1a`, which sat at 4.13:1 and
+therefore failed AA as link text and as the lit mode pill; see the contrast gate below). Serif display font for headings in rendered markdown
 (Georgia/serif stack), system sans for UI, monospace (ui-monospace stack) for raw markdown/code. No
 external font/CDN fetch ever reaches a VISITOR's browser: the defaults are system stacks, and the
 opt-in webfont catalog is SELF-hosted — the server fetches once at save time, the instance serves
@@ -29,7 +30,7 @@ properties listed in the styles contract; components must use tokens, never hard
 
 ## API (all JSON; errors -> `{ error: string }` with 4xx/5xx)
 
-- `GET  /api/tree` → `TreeNode` (root folder node, path "")
+- `GET  /api/tree` → `TreeNode` (root folder node, path ""). Admin: notes **and** attachments (see "Attachments in the tree"). Visitor: the flat published-note list, notes only.
 - `GET  /api/note?path=a/b.md` → `NoteData`
 - `PUT  /api/note?path=` body `{ content: string }` → `NoteData` (writes file; creates parent dirs)
 - `POST /api/note` body `{ path: string }` → `NoteData` (create empty; 409 if exists)
@@ -65,7 +66,7 @@ interface State {
   openTabs: string[];           // ordered open note paths
   dirty: Record<string, boolean>;
   view: "editor" | "graph";
-  theme: "iron-gall" | "parchment";   // persisted localStorage "vellum.theme"; sets data-theme attr on <html>
+  theme: Theme;                 // one of shared/themes.ts THEMES (15); persisted localStorage "vellum.theme"; sets data-theme attr on <html>
   vimMode: boolean;                    // persisted "vellum.vim"
   paletteOpen: boolean;
   // Shell layout, all persisted (see "Shell layout" below):
@@ -183,7 +184,7 @@ stays on `.s-panel--collapsed`, as it always did.
   `Ctrl/Cmd+Shift+Z` (zen) `stopPropagation`s so CodeMirror cannot redo on the same keystroke —
   except on macOS inside the editor, where `Mod-Shift-z` is the *only* redo binding and keeps it.
 
-## CSS tokens (tokens.css must define exactly these on `:root` / `[data-theme="parchment"]`)
+## CSS tokens (tokens.css defines the FULL set on `:root` and on every `[data-theme="…"]`)
 
 `--bg`, `--bg-raised`, `--bg-hover`, `--text`, `--text-muted`, `--text-faint`, `--accent`,
 `--accent-soft` (translucent accent for backgrounds), `--border`, `--danger`, `--font-ui`,
@@ -192,11 +193,131 @@ multipliers, 1 by default; `:root[lang="ar"]` raises them because naskh reads sm
 Georgia at the same px — consumers must multiply, never replace, so a `custom.css` override of
 the sizes survives), `--font-base` (15.5px —
 drives `html { font-size }`; ALL chrome is sized in rem so this one token scales the whole UI),
-`--font-prose` (1.161rem ≈ 18px — editor/reading prose). Default (no attr) =
-iron-gall dark. `data-theme` attr lives on `<html>`. app.css: layout grid, sidebar, tabs, panels,
+`--font-prose` (1.161rem ≈ 18px — editor/reading prose), `--selection-bg` + `--focus-ring`
+(the selection wash and the `:focus-visible` ring — per theme, because an accent tuned for type
+is not always visible as a ring), `--graph-node`/`--graph-edge`/`--graph-vignette` (the graph
+canvas). Default (no attr) = iron-gall dark. `data-theme` attr lives on `<html>`. app.css: layout grid, sidebar, tabs, panels,
 palette, scrollbars (thin, themed), `::selection` gold. Class names are BEM-ish plain CSS,
 prefix `s-` (e.g. `.s-sidebar`, `.s-tab`, `.s-palette`). Components must use these exact class
 names where they exist in app.css; anything extra styled inline is a bug — put it in app.css.
+
+Two stylesheets are linked AFTER app.css (`client/index.html`), and the order is load-bearing:
+`styles/themes.css` (the theme library — the per-theme retunes of `::selection`, `:focus-visible`
+and the graph vignette, the `--sw-*` swatch machinery, the picker panel) and `styles/settings.css`
+(the settings surface over app.css's base panel rules).
+
+## The theme library (15 themes)
+
+- **`shared/themes.ts` is the one list.** `THEMES` (15 ids, `THEMES[0]` = `iron-gall` = the
+  product default), `DARK_THEMES`/`LIGHT_THEMES`, `isTheme()`, `themeGroup()`. Both sides
+  validate against it: the client's picker/palette/store and the server's `settings.defaultTheme`
+  validator plus `DEFAULT_THEME` at startup (`server/site.ts` warns on an unknown name instead of
+  passing it through). `client/themes.ts` re-exports it and adds `THEME_GROUPS` (the picker's
+  grouping) and `counterpartTheme()` (the ☾/☀ pairing — with fifteen themes a light/dark button
+  cannot mean "next in the list"). `client/state.ts` re-exports `THEMES`/`Theme`/`isTheme` so the
+  store's published surface is unchanged.
+- **Every theme defines the WHOLE token set**, solved against its own `--bg` (all callout and
+  syntax colors clear 4.8:1 there). A theme that omits one inherits the previous block's value —
+  iron-gall's amber warning on a green ground — which is why `scripts/check-contrast.mjs` walks
+  every block in `tokens.css` and why no two themes share a hex outside the `--danger` family.
+- **The gate also asserts an accent-vs-TEXT delta, and it is not a contrast ratio.** Two colors of
+  equal luminance and opposite hue pass every contrast formula while being perfectly
+  distinguishable, so the question "does this theme HAVE an accent channel" needs a perceptual
+  distance: `check-contrast.mjs` requires **ΔE (CIE76) ≥ 18** between `--accent` and `--text`.
+  `sumi` shipped `--text #e4e4e6` beside `--accent #f5efe3` — 8.5 ΔE, 1.11:1 — so tag pills, the
+  `#` glyph, the active-row bar, wikilinks, the publish star and the graph nodes all rendered as
+  body text, and the lit READING pill (an `--accent` fill carrying `--bg` letters) read as a text
+  selection rather than an alarm. The whole mode-pill argument below rests on that pair being
+  loud. It now carries an indigo; the next-closest theme sits at 23.9 ΔE, which is where the 18
+  floor comes from.
+- **"No two themes share a hex" is satisfiable and visually meaningless; the real test is whether
+  two swatches are separable at a glance.** Three pairs failed it and were retuned: `void`
+  (#101014 / pale steel) was basalt with less character — it is a true black under a cold signal
+  cyan now; `tallow` was iron-gall with the lamp turned up (2.4 ΔE of ground) — its ground climbs
+  to real brown paper and its amber warms into candle flame, which cost six mid-tone callouts
+  ~0.35:1 and so they were re-solved rather than left to slide under the 4.8:1 bar; `solar` was
+  `sandstone` with the hexes nudged (4.1 ΔE ground, 11.7 ΔE accent) — two of only FOUR light
+  themes in one room — and now opens on the brightest paper in the set under a yellower burnt
+  gold.
+- **`--accent` against `--bg` is a PASS in that gate, not an "(info)" line.** That pair is read as
+  type twice over: wikilinks and tag pills are `--accent` on `--bg` inside the prose, and the lit
+  mode pill is an `--accent` fill carrying `--bg` letters — the same two colors, swapped. While it
+  printed as information only, parchment (4.13:1), sandstone (4.17:1) and solar (4.24:1) all
+  shipped below AA, which is how the loudest control in the product came to be the least legible
+  one on the warm light themes. Their accents were darkened to 5.09 / 5.32 / 5.40; `--accent-soft`,
+  `--selection-bg` and `--swatch-<id>-accent` moved with them, since those are the same color
+  under other names.
+- **`--swatch-<id>-bg/-text/-accent` are CONSTANT across themes.** A preview of a theme painted
+  in the theme currently on screen is not a preview. `styles/themes.css` maps each id to
+  `--sw-bg/--sw-text/--sw-accent` on `[data-theme-swatch]` (picker) and `[data-theme-dot]`
+  (palette), so both surfaces are generic — a sixteenth theme needs one rule, not two.
+- **`client/components/ThemePicker.tsx` owns browsing, and all three doors are wired.** The
+  status-bar ☾/☀ button, the palette's *Browse themes…* command and Settings → Appearance's
+  *Browse themes…* button all call `openThemePicker()`. The status-bar button is the one that
+  mattered: it used to call `nextTheme()`, stepping blindly through fifteen looks with no way to
+  see what was available or to get back — the same invisible state as a silent reading mode, and
+  it contradicted this file, the picker's own header comment and the README, all three of which
+  already said the button opens the panel. **A row is a miniature of the ROOM plus a human name**:
+  three 10px dots previewed the tokens, and at that size sumi, void and basalt were the same
+  swatch three times over (dark dot, white dot, pale dot), so each row now draws the theme's
+  ground carrying a heading rule, a line of type and an accent chip — still from the CONSTANT
+  `--swatch-*` values — beside a localized label and a one-line description (`THEME_LABELS` in
+  `client/themes.ts`). Fifteen rooms identified by fifteen obscure Latin pigment nouns was not a
+  naming scheme in English and was untranslated in Arabic; the raw id is still the value
+  `DEFAULT_THEME`, `settings.defaultTheme` and the palette take, and it lives in the row's
+  `title`. `nextTheme()` survives in `state.ts` as a keyboard-only
+  "next look" helper; no chrome calls it. The glyph reads `themeGroup(theme)`, not
+  `theme === "parchment"` — there are four light themes and the moon was drawn on three of them.
+  The overlay carries **no scrim and no blur** (`styles/themes.css`): every other overlay dims the
+  app because the app is not what the reader is looking at, and this one exists so they can look
+  at it — stacked under the settings panel's own `.s-palette-overlay` the two washes made the live
+  preview a guess, so the settings overlay also steps back to 10% opacity while the picker is up
+  (`body:has(.s-tpick-host)`), without unmounting: Esc must return to the panel as it was.
+  `openThemePicker()` mounts it on `<body>` (like `toast.ts`) so the status bar, the settings
+  panel and the palette can all open the same panel from two component trees; `isThemePickerOpen()` exists because a capture-phase
+  Esc listener registered EARLIER (the settings panel's) would otherwise close the panel
+  underneath it. Arrow keys move the highlight and APPLY it live (`data-theme` only — not the
+  store, not localStorage), Enter commits through `setTheme`, Esc and unmount both restore the
+  theme in force when it opened. **Hover never moves the keyboard highlight** — that is the
+  palette's Enter-follows-the-mouse bug, and it must not be reproduced here.
+
+## Settings panel (SettingsModal)
+
+SIX TABS, not one scroll: Site identity / Appearance & language / Publishing & comments /
+Typography / Backup & sync / About. It was seven, and *Appearance* did not earn one: three
+controls in a panel fixed at 740px, measured body 609/609, ~500px of dead space — while *Public
+layout* sat under "looks" when it is a publishing decision. So the two theme rows joined the
+language ones (both answer "what does this instance look and sound like to a reader", and the
+merged tab scrolls at 833/609 rather than standing empty) and Public layout moved to Publishing.
+The FIXED height is not what was wrong and does not change: sizing to content moved the rail
+under the pointer, so a click opened a tab nobody chose. The rail is `role="tablist"` (↑↓/Home/End walk it), each tab
+opens with its name and ONE sentence (`intro` on the `TABS` table), and switching tabs resets the
+body scroll — carrying a long tab's offset into a short one lands the reader past its end.
+**The panel is ONE height for all six** (`height: min(740px, 100vh - 40px)` in `settings.css`),
+not a height per tab. Sizing to the content stood it at 467px on Appearance and 855px on
+Typography, and because it is centred, every click moved the RAIL as well as the body: the row
+under the pointer became a different tab, and the next click opened a section nobody chose. The
+two tall tabs scroll, which they always did; short tabs carry empty space, and a tab strip that
+stays put is worth it.
+**A row that is inheriting NAMES its source, and one disabled state wears one face.** Every
+select read `inherit (en)` / `inherit (off)` / `inherit (iron-gall)` — honest about precedence,
+opaque about where the value came from — so `Row` takes an `env` prop and renders
+`inherited from SITE_LANG` under the control while (and only while) the row is empty. The env
+name is a literal to be typed into a shell, so it is a mono `<bdi>` rather than a `tf()`
+interpolation. And with Backup=off the three `<select>`s took the browser's own greying ON TOP
+of `.s-smodal__row--off`'s 0.5 while the Remote URL and Branch `<input>`s took only the row's, so
+`:disabled` inside `.s-smodal__control` now neutralises the UA opacity and sets one
+`--text-muted` on `--bg-raised` treatment for both shapes.
+
+`settings.defaultTheme` is parsed leniently like `settings.language`: trimmed **and lowercased**.
+`DEFAULT_THEME` is lowercased by `readEnvTheme()` before validation, so trimming without
+lowercasing meant `DEFAULT_THEME=SOLAR` started the instance on solar while
+`PATCH {"defaultTheme":"SOLAR"}` was a 400 — the same value accepted through one door and refused
+at the other.
+
+`GET /api/settings` carries `about` (`AboutInfo`: version, node, vault path, data path, note /
+published / attachment / tag counts) — admin-only by construction, since the route 404s to
+visitors, which is what lets it name absolute paths.
 
 ## Conventions
 
@@ -239,8 +360,10 @@ confirm ("Move “name” to .trash?" / "N notes will move… recoverable from d
 resolves `confirmModalEx()` as `"extra"` — and that opens a SECOND confirm with the permanent
 copy. A checkbox would have let one click arm an irreversible erase of a whole subtree; a
 quiet-affordance-then-confirm makes the reader say "permanently" twice. The note count comes
-from the client's own tree (`countNotes`), which counts exactly what the server counts: the
-tree holds `.md` files only and applies the same ignore rules.
+from the client's own tree (`countNotes`), which counts exactly what the server counts: **file
+nodes with no `attachment` marker**, under the same ignore rules. (It used to count every file
+node, which was the same thing until the tree started carrying attachments; a plain count would
+now promise to move "1,214 notes" when it meant 800 notes and 414 images.)
 
 **The second dialog must LOOK like the second dialog.** `ConfirmOptions.grave` (Confirm.tsx) is
 what carries the escalation, and it is safety, not styling: the danger button is filled
@@ -254,6 +377,214 @@ is a note route and 400s on a folder — so the folder menu holds only actions t
 Server side, `deleteFolder` lstats before it counts: a symlinked folder is a link, `fs.rename` /
 `fs.rm` unlink it without touching the target, so it reports `notes: 0` rather than describing a
 tree outside the vault that the call will not touch.
+
+## Attachments in the tree (server tree + sidebar + viewer)
+
+A vault is not only `.md`. The tree used to list markdown and nothing else, so `Media/` — 1,158
+images in the fixture this was built against — appeared as a folder that expanded to **nothing**,
+and the owner of a real instance read that as lost files. Fixing it is three pieces:
+
+- **`TreeNode.attachment?: AttachmentInfo`** (`shared/types.ts`) — present on non-markdown FILE
+  nodes only: `{ kind: "image"|"pdf"|"audio"|"video"|"other", ext, size }`. **Its absence is the
+  definition of "note"**, and every consumer that wants notes only says so: `countNotes()` in the
+  sidebar checks the marker, `collectNotes()` in `client/editor/links.ts` filters on the `.md`
+  suffix of `path` (which is why the palette, router, daily notes, wikilink resolution and the
+  published-filter list needed no change at all). Anything new that walks the tree must pick one
+  of those two filters deliberately.
+- **`buildTree()` sorts folders → notes → attachments**, alphabetical within each band, so a
+  folder still opens onto its writing. Attachments cost one `fs.stat` each — for `size`, which the
+  viewer prints — and the stats of one directory run concurrently; the full 1,388-note /
+  1,176-attachment fixture serves `/api/tree` in ~60 ms.
+- **The visitor tree carries none of it.** `publishedTree()` is built from `publishedNotes()`, so
+  no filename outside the published set is ever named to a visitor or to an admin previewing as
+  one — whatever the sidebar filter is doing at the time. Attachment BYTES stay gated where they
+  always were, on `/api/file`'s `isAllowedAttachment()` check: a visitor asking for a real but
+  un-allowlisted file gets the same `404 {"error":"File not found: <path>"}` a missing file gets.
+  The viewer only ever fetches that route, so it cannot show what the server will not serve.
+- **The publish allowlist covers BOTH embed syntaxes.** `allowedAttachments()` built the visitor
+  allowlist from `record.links` + the banner, and `parseLinks()` fills `links` from
+  `wikilinkRegex()` alone — so `![[x.png]]` was allowlisted and `![alt](Media/x.png)` never was,
+  while the renderer turns the second straight into `/api/file?path=Media/x.png`
+  (`resolveRelative()` in `client/editor/embeds.ts`, used by `client/reading/render.ts`). Every
+  standard-markdown image in a published note 404'd to every visitor: the admin saw the picture,
+  the visitor saw a placeholder, and nothing said why — a silent public-site breakage of exactly
+  the invisible-state kind, against a promise `OBSIDIAN-COMPAT.md` and `README.md` both make.
+  `NoteRecord.assets` now holds those destinations, resolved against the note's own folder by
+  `parseAssets()` — the server-side twin of `resolveRelative()`, matching the SAME regex shape the
+  two renderers use, so the allowlist covers exactly what the page will ask for and no more.
+  External schemes are skipped and a path that climbs above the vault root is dropped rather than
+  clamped. It still fails CLOSED: an attachment no published note points at stays a 404.
+
+Client side (`Sidebar.tsx`, `AttachmentViewer.tsx`, `styles/attachments.css`):
+
+- **Attachment rows are quieter than note rows** (`--text-faint`, `--text-muted` on hover), carry
+  a 14px type glyph in the chevron's slot, keep their extension in the label (it is half of what
+  the name says) and carry the full name as a `title` — the pane is 292px and these names are not.
+- **The filter is visible in both states.** "Show attachments" lives in the sidebar footer as a
+  paperclip beside the counts (`localStorage["vellum.show-attachments"]`, default ON, admin only)
+  and in the tree's context menu. ON: gold clip, "1,176 files". OFF: grey clip, "**1,176 files
+  hidden**" — in words. A filter that removes a thousand rows and says nothing is the bug this
+  round is about, so a folder the filter has emptied also grows one italic row, *"18 files
+  hidden"*, which turns the filter back on when clicked. No folder ever opens onto nothing again.
+- **One level of the tree renders at most `CHUNK` (300) rows**, then a "Show N more" row.
+  `TreeChildren` owns the filter, the cap and the `siblings` array (memoized, so it does not bust
+  `memo()` on rows that did not change); `TreeRow` renders one row. Expanding the 1,158-image
+  folder measures ~70 ms end to end. This applies to notes too — the same fixture has a 715-note
+  folder.
+- **The nav handles sit on a fixed `rgba(0,0,0,.72)` scrim, so they cannot be painted as if they
+  were on the page.** `--bg-raised` is a near-black on eleven of the fifteen themes, which made
+  the only way to walk a 60-image folder the lowest-contrast control in the product: dark circles
+  on a dark wash. They take an accent-tinted ground, a lit rim and a `--text` glyph, and fill with
+  the accent on hover. The `N / M` position indicator had two `.s-att-view__pos` blocks, the
+  second overriding the first down to `--text-faint`, so the one number answering "how much more
+  is there" was fainter than the filename beside it; one block, `--text-muted`.
+- **The viewer is a portal onto `<body>`**, not a child of the sidebar: the sidebar is a grid pane
+  that animates its own width and clips its overflow. It shows the image at natural size capped to
+  the viewport (never upscaled), one caption line — name · `PNG · 1,045 × 657 · 92 KB` · position
+  · open-in-tab · download · close — and `←`/`→` walk the folder with wrapping. Pixel dimensions
+  come from the loaded `<img>`; the byte size comes from the tree, so the viewer makes no second
+  request. **Esc and the arrows are bound in the CAPTURE phase**, like the confirm dialog, so the
+  viewer outranks zen's Esc and every editor binding while it is open.
+- **PDFs never enter the carousel.** A click opens `/api/file` in a new tab (browsers render PDFs
+  better than we can), so a PDF is also skipped by the arrows rather than appearing as a card the
+  arrows can land on. Audio and video get an inline player; anything else shows an extension card
+  with a download.
+- **RTL:** the caption bar and nav buttons are logical (`inset-inline-*`), the `‹`/`›` glyphs are
+  `Bidi_Mirrored` and therefore carry **no** transform, and the arrow KEYS answer the physical
+  layout — in an RTL shell `ArrowLeft` is *next*. Sizes print through `localeNum()`, with the
+  Arabic decimal separator (U+066B) on the one decimal `formatSize()` emits.
+
+## Mode visibility (status bar, workspace, preview)
+
+A mode that removes the ability to TYPE must be impossible to sit in unknowingly. Three surfaces
+carry that, and none of them may be quiet:
+
+- **A mode with STATES must show the state, not the mode.** VIM told the reader the extension was
+  loaded; it never told them the keys under their fingers were currently COMMANDS, which is the
+  actual trap — and reading mode had three surfaces to vim's one. Two pieces carry it now.
+  `vim({ status: true })` (`client/editor/setup.ts`) mounts vim's own panel at the foot of the
+  editor: that panel draws `-- INSERT --` / `-- NORMAL --` **and** hosts the `:` and `/` command
+  line, so a modal editor finally has a command line. `client/editor/vimStatus.ts` forwards vim's
+  `vim-mode-change` into `state.vimSubMode` (`"normal" | "insert" | "visual" | "replace" | null`,
+  never persisted, written only by that module) and the pill renders it as a second word behind a
+  hairline — **VIM │ INSERT**. It attaches on `setVim(view, true)` and on mount (the module may
+  already be cached, in which case setVim's async path never runs), and detaches on unmount and
+  on switching vim off. Nothing imports `@replit/codemirror-vim` statically for this: `getCM(view)`
+  is `view.cm`, and the load must stay on demand.
+- **The status-bar cluster is switches, not labels.** `.s-modes` holds a `ModePill` per mode —
+  READING, VIM (admin) and PREVIEW (while previewing). ON is `--accent`-filled with `--bg` text, a
+  dot and a glow (that pairing clears 4.5:1 in every built-in theme: the dark themes carry a light
+  accent, parchment a dark one); OFF is a calm outline. Each pill LEAVES its own mode on click and
+  its `title` names the keystroke. Every rule is scoped `.s-statusbar .s-mode…` — `.s-statusbar
+  button` is `(0,1,1)` and would otherwise repaint the pills with the muted button color, the same
+  trap the sync badge documents.
+- **In zen the strip is the ONLY place a mode can live**, because zen takes the status bar — and
+  with it the whole pill cluster — to zero height. Reading already survived into zen; vim did not,
+  so ZEN + VIM was a modal editor with nothing on screen at all. `.s-modebar--vim` renders on the
+  same terms as the reading strip but **only in zen** (outside it the pill carries the sub-mode,
+  and a permanent second row would push every note down for every vim user). The two are mutually
+  exclusive by construction — reading unmounts the editor, so there is no vim to report — which is
+  why the zen ✕ offset keys off `.s-app--modebar` (either strip, one row's worth) rather than
+  `.s-app--reading`.
+- **The workspace says it too.** `.s-app--reading` (admin, editor view, note open, not previewing)
+  draws `.s-modebar` — one line, IN the flex column above `.s-view`, so it pushes the note down
+  instead of floating over it — plus an accent rule on `.s-view::before` at `inset-inline-start`
+  (a pseudo-element, not a border: a border would shift the prose 2px every time the mode flips,
+  and a physical `left` would land on the wrong edge in Arabic).
+- **A 404 inside visitor preview is the CORRECT answer, and must not be dressed as a fault.**
+  `setPreviewVisitor(true)` cannot scope the open tabs until `loadTree()` answers, and in the
+  meantime the reading view refetched the open note with the visitor header on — so the eye
+  button, whose entire job is letting the owner inspect his own site, opened by announcing
+  "Failed to open <path>" about a site that was fine. Two halves: `openPath` goes to **null** for
+  the length of the transition (drop the tab before the view refetches, restore it if it
+  survives), and when the note does NOT survive the scoping the store says why in its own words
+  — `previewNotPublishedNamed`, naming the note. Independently, `client/api.ts` throws
+  `ApiError` carrying the STATUS and exports `isNotPublishedError()`, so `ReadingView`/`Editor`
+  answer a preview 404 with the calm `previewNotPublished` instead of the generic
+  `openFailed`. `toast(msg, "error")` finally applies `.s-toast--error`, which existed in
+  app.css and was never once set.
+- **Inside preview the tail control is "Exit preview", not "Sign in".** The session IS still an
+  admin one — the shell is only wearing a visitor's clothes — so `signInTitle` ("Sign in to edit
+  this vault") was a promise the product could not keep: the modal opened, the password was
+  accepted, and the shell stayed a visitor shell.
+- **Visitor preview is a TOP strip that offsets the page, and it is never persisted.** In the app
+  shell `.s-app--preview` adds a `notice` grid row above every pane (the flipped variant carries
+  both classes so it outranks `.s-app--flip`), and the reopen handles start below it. In the blog
+  shell the strip is the first child of `#root`, which becomes a flex column (`:has()`) so
+  `.s-blog`'s own scroller takes what is left — the blog's sticky nav then sticks to the top of
+  THAT scroller and the two can never share a band. Nothing may overlay the site at either edge:
+  preview exists so the owner can judge his own layout. `Esc` exits, the store no longer writes
+  `vellum.preview`, and boot clears any value an older build left behind — a reload always returns
+  the admin to the app.
+- **Discoverability is chrome, not folklore.** The status bar carries icon toggles for the
+  sidebar, the right panel, zen and `Ctrl/Cmd+/`; a collapsed pane's reopen handle sits at a
+  visible rest contrast (accent-tinted ground + a lit edge facing the content), never a
+  hover-reveal. **The heading fold chevron answers to the same rule** (`preview.css`
+  `.cm-s-foldbtn`): it rested at `opacity: 0` and rose to 0.6 only on `.cm-line:hover`, so only
+  the hovered heading ever showed one, nothing on screen said a document folds at all, and on a
+  touch device folding was unreachable. Naming it in the `Ctrl/Cmd+/` sheet was documenting an
+  invisible control, not fixing one. It rests at full strength in `--text-faint` (a UI glyph,
+  held to the 3:1 non-text bar), steps to `--text-muted` on the line and to `--accent` on itself.
+  The sheet now names the KEYSTROKE too (`Ctrl/Cmd Shift [` / `]`, `Ctrl/Cmd Alt [` / `]`).
+- **`ShortcutsHelp` rows that light up must DO something.** Every row carried a hover highlight
+  while being a plain `div` — an affordance lie that read as a selection. Rows with a `run`
+  (palette, quick search, graph, daily note, reading, zen, vim, preview, themes, settings, both
+  pane toggles) are `<button>`s that close the sheet and then run the command; rows that only
+  document an editor keystroke are inert and carry no highlight at all. Search is RANKED, not
+  substring-filtered: "fold" used to put *Next / previous file in the folder* above *Fold a
+  section* under a NAVIGATION heading, so a word that opens a row's own label outweighs one
+  buried inside another word, and the GROUPS sort by their best row (otherwise the winning row
+  is still under whichever heading the authored order happens to put first). `\b` is ASCII-only
+  in JS, so the word-boundary test is a `\p{L}\p{N}` lookbehind done by hand — this sheet is
+  searched in Arabic.
+- **The bar's order of sacrifice is written down, it is MONOTONIC, and it ends in a scroll.**
+  `.s-statusbar` is `overflow: hidden`, so anything past its width vanishes with no scrollbar and
+  no hint. At ≤1200px the two counts go; at ≤640px the pane cluster, the crumb trail and the
+  separator dots go **and the bar becomes `overflow-x: auto`** (scrollbar hidden), because a phone can always be
+  narrower than the controls that must stay — sign-out was falling off that hidden overflow, and
+  there is no other way out of a session on a phone. The MODE PILLS never go. Each of those rules
+  is scoped `.s-statusbar .s-…`: the base `.s-statusbar .s-statusbar__panes` is (0,2,0), so a bare
+  `.s-statusbar__panes { display: none }` in a media query loses to it however late it sits — the
+  same specificity trap the pills and the sync badge document. The bar's own padding is logical
+  (`padding-inline: 14px 10px`); the `0 10px 0 14px` shorthand it replaced put the wider pad on
+  the screen's left in both directions.
+
+  **Identity outranks trivia at every width**, and the order above is only half of what enforces
+  it. `.s-statusbar__crumbs` carried `min-width: 0`, so at 1024px the trail was crushed to
+  `1 - … › Re…` while "140 words · 2,012 chars" AND "18 published notes" both rendered at full
+  width — the bar was strictly WORSE at 1024 than at 900, where the counts finally dropped and
+  the trail came back whole. So the crumb takes a floor of `min(20ch, 32%)`, released again at
+  ≤900px once there is nothing ambient left to spend. The counts' threshold had to clear 1100
+  rather than sit on it for the same reason: with the crumb no longer absorbing every overflow,
+  an admin bar carrying the counts at ~1120px pushed sign-out onto the hidden overflow instead,
+  which is trading one silent loss for a worse one. Measured on the 1,389-note fixture with
+  publish, the published-note filter and both mode pills up.
+
+  **The right cluster is GROUPS, marked once each by a hairline** — `.s-statusbar__group` for
+  admin tools (gear, eye), for the view controls (theme, graph) and for the session control
+  (sign-out / exit-preview), plus the existing `.s-statusbar__panes`. Separator dots between some
+  neighbours and not others made eleven controls read as one undifferentiated icon strip; the
+  hairline is the same separator the sync lines already use, and it drops on phones where the
+  groups are neighbours anyway.
+
+**`Ctrl/Cmd+/` opens `ShortcutsHelp` (`shortcutsOpen` in the store).** Searchable, grouped
+Navigation / Editing / Modes / Publishing / Panels, `Esc` closes, also reachable from the palette
+and the status-bar `?`. Rows with no keystroke still appear, naming the surface that carries them
+("Command palette", "Status bar", "Click") — the reader is asking "how do I do X".
+
+**Pointer hover must never decide what `Enter` runs.** The palette (and the blog search overlay)
+open under wherever the cursor is resting, and `mouseenter` on the row that materializes there used
+to move the selection silently. So hover is IGNORED until the pointer actually moves: a list-level
+`mousemove` arms the rows only when its coordinates differ from the previous one (browsers emit a
+synthetic move after layout/scroll changes, and one of those must not count), every keystroke and
+every query change disarms it and resets the selection to row 0, and rows select on `mousemove`
+rather than `mouseenter`. Clicking always activates regardless.
+
+**`Ctrl/Cmd+K` remembers where it came from.** App records the focused element before dispatching
+`vellum:quicksearch`; `Esc` inside `.s-search` returns focus to it (falling back to `.cm-content`,
+and to a plain blur when the reading view has nothing focusable), because a search box on the far
+side of the screen that only closes leaves the next keystroke nowhere. The blog overlay does the
+same with its own ref.
 
 ## Localization & RTL (client)
 

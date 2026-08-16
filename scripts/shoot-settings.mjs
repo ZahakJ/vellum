@@ -3,7 +3,7 @@
 // through the rail and prints the panel's scroll geometry and the specimen
 // font sizes, which is how the typography and panel-shape work is measured.
 //   node scripts/shoot-settings.mjs http://localhost:7006 test1234 /outdir
-// env: THEME=parchment  LANGSET=ar  CHROMIUM=/usr/bin/chromium
+// env: THEME=parchment  LANGSET=ar  HEIGHT=768  CHROMIUM=/usr/bin/chromium
 // LANGSET writes the instance language through the API — point it at a scratch
 // instance, not at anything you care about.
 import { chromium } from "playwright";
@@ -11,7 +11,8 @@ import { chromium } from "playwright";
 const [url = "http://localhost:7006", password = "test1234", out = "shots"] = process.argv.slice(2);
 const executablePath = process.env.CHROMIUM;
 const browser = await chromium.launch(executablePath ? { executablePath } : {});
-const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+const height = Number(process.env.HEIGHT || 900);
+const ctx = await browser.newContext({ viewport: { width: 1440, height } });
 const page = await ctx.newPage();
 page.on("console", (m) => { if (m.type() === "error") console.log("[console.error]", m.text().slice(0, 300)); });
 page.on("pageerror", (e) => console.log("[pageerror]", String(e).slice(0, 400)));

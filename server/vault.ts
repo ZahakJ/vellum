@@ -4,7 +4,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { watch, type FSWatcher } from "chokidar";
-import type { NoteData, TreeNode, VaultEvent } from "../shared/types.ts";
+import type { AttachmentInfo, AttachmentKind, NoteData, TreeNode, VaultEvent } from "../shared/types.ts";
 
 export class VaultError extends Error {
   status: number;
@@ -95,6 +95,39 @@ export function isIgnoredRel(rel: string): boolean {
 
 // ---------------------------------------------------------------- tree & CRUD
 
+/** Extension → attachment kind. Anything not listed is "other" (offered as a
+ *  download); the list is deliberately the same family the /api/file MIME
+ *  table serves, so what the tree promises is what the viewer can open. */
+const ATTACHMENT_KINDS: Record<string, AttachmentKind> = {
+  png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image",
+  avif: "image", svg: "image", bmp: "image", ico: "image", tif: "image", tiff: "image",
+  pdf: "pdf",
+  mp3: "audio", m4a: "audio", wav: "audio", ogg: "audio", oga: "audio", flac: "audio", aac: "audio", opus: "audio",
+  mp4: "video", webm: "video", mov: "video", mkv: "video", m4v: "video",
+};
+
+/** The extension of a vault-relative path, lowercase and without the dot
+ *  ("" when the basename carries none). */
+export function fileExt(rel: string): string {
+  const base = rel.slice(rel.lastIndexOf("/") + 1);
+  const dot = base.lastIndexOf(".");
+  return dot <= 0 ? "" : base.slice(dot + 1).toLowerCase();
+}
+
+/** What a non-markdown file IS, for the tree marker and the viewer. */
+export function attachmentInfo(rel: string, size: number): AttachmentInfo {
+  const ext = fileExt(rel);
+  return { kind: ATTACHMENT_KINDS[ext] ?? "other", ext, size };
+}
+
+/** The full vault tree (ADMIN surface): folders, notes, and — new — every
+ *  other file as an `attachment` node. A vault's `Media/` folder holding a
+ *  thousand images used to expand to nothing at all, which reads as data loss
+ *  rather than as a filter. Notes and attachments are separated in the sort
+ *  so a folder still opens onto its writing, with the files beneath it.
+ *
+ *  Attachments cost one `stat` each (for the size the viewer prints); notes
+ *  cost none, and the stats of one directory run concurrently. */
 export async function buildTree(): Promise<TreeNode> {
   async function walk(relDir: string): Promise<TreeNode[]> {
     const absDir = relDir === "" ? vaultRoot : path.join(vaultRoot, relDir);
@@ -105,23 +138,47 @@ export async function buildTree(): Promise<TreeNode> {
       return [];
     }
     const nodes: TreeNode[] = [];
+    const attachments: { name: string; path: string }[] = [];
     for (const entry of entries) {
       if (isIgnoredSegment(entry.name)) continue;
       const relPath = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
       if (entry.isDirectory()) {
         nodes.push({ name: entry.name, path: relPath, type: "folder", children: await walk(relPath) });
-      } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
-        nodes.push({ name: entry.name, path: relPath, type: "file" });
+      } else if (entry.isFile()) {
+        if (entry.name.toLowerCase().endsWith(".md")) {
+          nodes.push({ name: entry.name, path: relPath, type: "file" });
+        } else {
+          attachments.push({ name: entry.name, path: relPath });
+        }
       }
     }
-    nodes.sort((a, b) =>
-      a.type !== b.type
-        ? a.type === "folder" ? -1 : 1
-        : a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    const sizes = await Promise.all(
+      attachments.map((a) =>
+        fs.stat(path.join(vaultRoot, a.path)).then(
+          (s) => s.size,
+          () => 0, // vanished mid-walk (or unreadable): list it, size unknown
+        ),
+      ),
     );
+    attachments.forEach((a, i) => {
+      nodes.push({
+        name: a.name,
+        path: a.path,
+        type: "file",
+        attachment: attachmentInfo(a.path, sizes[i]),
+      });
+    });
+    // Folders, then notes, then attachments; alphabetical within each band.
+    nodes.sort((a, b) => rank(a) - rank(b) ||
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
     return nodes;
   }
   return { name: path.basename(vaultRoot), path: "", type: "folder", children: await walk("") };
+}
+
+function rank(node: TreeNode): number {
+  if (node.type === "folder") return 0;
+  return node.attachment ? 2 : 1;
 }
 
 /** One walk over the whole vault (ignore rules applied) listing notes and

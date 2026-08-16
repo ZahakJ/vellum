@@ -8,6 +8,12 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128396;</text></svg>" />
     <link rel="stylesheet" href="/styles/tokens.css" />
     <link rel="stylesheet" href="/styles/app.css" />
+    <!-- After app.css on purpose: the theme library retunes a handful of rules
+         app.css states in terms of --accent (selection, focus ring, the graph
+         vignette) into per-theme tokens, and the settings sheet is the
+         designed surface over app.css's base panel rules. -->
+    <link rel="stylesheet" href="/styles/themes.css" />
+    <link rel="stylesheet" href="/styles/settings.css" />
   </head>
   <body>
     <div id="root"></div>

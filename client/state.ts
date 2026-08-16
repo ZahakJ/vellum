@@ -12,8 +12,17 @@ import { collectNotes, resolveLink } from "./editor/links.ts";
 import { setLang, setNumeralLocale, t, tf } from "./i18n.ts";
 import type { Lang } from "./i18n.ts";
 import { readVisitorLang, writeVisitorLang } from "./langPref.ts";
+import { isTheme, THEMES } from "./themes.ts";
+import type { Theme } from "./themes.ts";
 import { isPublishedContent } from "./publish.ts";
 import { toast } from "./toast.ts";
+
+/** A note path as the reader knows it: the basename, minus `.md`. The toast
+ *  that names a note is a sentence, not a file listing — and tf() bidi-isolates
+ *  the value, so an Arabic title still reads correctly inside it. */
+function noteTitle(path: string): string {
+  return (path.split("/").pop() ?? path).replace(/\.md$/, "");
+}
 
 const THEME_KEY = "vellum.theme";
 const VIM_KEY = "vellum.vim";
@@ -32,16 +41,18 @@ const ZEN_KEY = "vellum.zen";
  *  not. */
 export type SidebarSide = "left" | "right";
 
-/** Every built-in theme (data-theme attr values; the first is the default).
- *  Order is the status-bar toggle's cycle order and the palette's list. */
-export const THEMES = ["iron-gall", "void", "lapis", "parchment"] as const;
-export type Theme = (typeof THEMES)[number];
+/** Every built-in theme, and its identity, live in `client/themes.ts` — the
+ *  list outgrew the store when it reached fifteen, and three surfaces outside
+ *  the store read it (the theme picker, the palette's per-theme commands, the
+ *  settings panel). Re-exported here so the store's published surface is
+ *  unchanged for everything that already imports THEMES/Theme from state. */
+export { THEMES, isTheme, counterpartTheme } from "./themes.ts";
+export type { Theme } from "./themes.ts";
 export type View = "editor" | "graph";
 
-function isTheme(value: unknown): value is Theme {
-  return typeof value === "string" && (THEMES as readonly string[]).includes(value);
-}
-
+/** The next theme in list order. `openThemePicker()` is what the chrome should
+ *  reach for — fifteen blind steps is not a control — but a plain cycle is
+ *  still the right answer for a keyboard-only "next look" command. */
 export function nextTheme(theme: Theme): Theme {
   return THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
 }
@@ -54,6 +65,14 @@ export interface State {
   view: View;
   theme: Theme;
   vimMode: boolean;
+  /** Which vim sub-mode the live editor is in, or null when vim is off /
+   *  no editor is mounted. NOT persisted and never written by the shell —
+   *  client/editor/vimStatus.ts is the only writer, forwarding vim's own
+   *  `vim-mode-change`. The VIM pill needs it because "the extension is
+   *  loaded" and "the keys under your fingers are commands right now" are
+   *  different facts, and only the second one traps a reader. */
+  vimSubMode: "normal" | "insert" | "visual" | "replace" | null;
+  setVimSubMode(m: State["vimSubMode"]): void;
   /** Ctrl/Cmd+E: render the open note read-only instead of editing. */
   readingMode: boolean;
   paletteOpen: boolean;
@@ -116,7 +135,8 @@ export interface State {
    *  flag and the server answers along its real visitor code path, so what
    *  renders IS the visitor experience (blog shell / visitor app view). */
   previewVisitor: boolean;
-  /** Enter/exit visitor preview (admin only; persisted across reloads). */
+  /** Enter/exit visitor preview (admin only; never persisted — a reload
+   *  always returns the admin to the app). */
   setPreviewVisitor(on: boolean): Promise<void>;
 
   // ------------------------------------------------- blog mode (PUBLIC_LAYOUT)
@@ -168,6 +188,11 @@ export interface State {
   /** Site settings panel (admin; status-bar gear / palette "Site settings"). */
   settingsOpen: boolean;
   setSettingsOpen(b: boolean): void;
+
+  /** Keyboard-shortcuts overlay (Ctrl/Cmd+/, the status-bar ? button, the
+   *  palette). Visitors get it too — the panes, themes and search are theirs. */
+  shortcutsOpen: boolean;
+  setShortcutsOpen(b: boolean): void;
 
   /** Boot: fetch /api/me, then load the vault + restore session/home note. */
   bootstrap(): Promise<void>;
@@ -382,22 +407,16 @@ function remap(current: string, from: string, to: string): string {
   return current;
 }
 
-// Visitor preview is persisted so a reload (or a pasted deep link) stays in
-// preview; read at module load so the very first /api/me already carries it.
-function readPreview(): boolean {
+// Visitor preview is deliberately NOT persisted: it is a mode that takes the
+// editor away, and the reader who lands in it after a reload has no memory of
+// asking for it — a reload always returns the admin to the app. (Older builds
+// stored the flag; clear it once so an upgrade cannot strand anyone in a
+// visitor shell they cannot reason about.)
+function clearStoredPreview(): void {
   try {
-    return localStorage.getItem(PREVIEW_KEY) === "true";
+    localStorage.removeItem(PREVIEW_KEY);
   } catch {
-    return false;
-  }
-}
-
-function persistPreview(on: boolean): void {
-  try {
-    if (on) localStorage.setItem(PREVIEW_KEY, "true");
-    else localStorage.removeItem(PREVIEW_KEY);
-  } catch {
-    // storage unavailable — preview just won't survive a reload
+    // storage unavailable — nothing was stored either
   }
 }
 
@@ -442,10 +461,9 @@ async function guarded(label: string, fn: () => Promise<void>): Promise<void> {
 export const useStore = create<State>()((set, get) => {
   const initialTheme = readTheme();
   applyTheme(initialTheme);
-  // Restore a persisted preview BEFORE the first /api/me, so bootstrap
-  // already sees the visitor-shaped world and re-enters preview seamlessly.
-  const initialPreview = readPreview();
-  api.setPreviewVisitor(initialPreview);
+  // Every boot starts OUT of preview (see clearStoredPreview).
+  clearStoredPreview();
+  api.setPreviewVisitor(false);
 
   /** Load the tree, then restore last session's tabs — or open the home note
    *  for fresh visitors (no tabs remembered in localStorage). */
@@ -482,6 +500,7 @@ export const useStore = create<State>()((set, get) => {
     view: "editor",
     theme: initialTheme,
     vimMode: readVim(),
+    vimSubMode: null,
     readingMode: readReading(),
     paletteOpen: false,
     sidebarOpen: false,
@@ -518,7 +537,7 @@ export const useStore = create<State>()((set, get) => {
     },
     loginOpen: false,
     moderationOpen: false,
-    previewVisitor: initialPreview,
+    previewVisitor: false,
 
     publicLayout: "app",
     tagline: null,
@@ -532,6 +551,8 @@ export const useStore = create<State>()((set, get) => {
     bannerModalOpen: false,
     settingsOpen: false,
     setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+    shortcutsOpen: false,
+    setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
 
     publishedPaths: null,
     publishedCounts: null,
@@ -559,7 +580,6 @@ export const useStore = create<State>()((set, get) => {
         // flag rather than showing a lying "previewing" banner.
         if (get().previewVisitor && me.preview !== true) {
           api.setPreviewVisitor(false);
-          persistPreview(false);
           set({ previewVisitor: false });
         }
         const siteLang: Lang = me.language === "ar" ? "ar" : "en";
@@ -662,12 +682,23 @@ export const useStore = create<State>()((set, get) => {
         const before = get().openPath;
         if (before && get().dirty[before]) await waitForClean(before, 2000);
         api.setPreviewVisitor(on);
-        persistPreview(on);
         // Attachment resolution is scope-dependent; never reuse across modes.
         clearBrokenEmbeds();
         if (on) {
           previewSnapshot = { tabs: [...get().openTabs], open: get().openPath };
-          set({ previewVisitor: true, paletteOpen: false, moderationOpen: false });
+          // openPath goes to null for the length of the transition. The
+          // scoping below cannot run until loadTree() has answered, and in
+          // the meantime the reading view would refetch the OPEN note with
+          // the visitor header on — the server correctly 404s an unpublished
+          // note, and the owner's very first use of preview announced
+          // "Failed to open <path>" about a site that is fine. Drop the tab
+          // before the view refetches, then put it back if it survives.
+          set({
+            previewVisitor: true,
+            openPath: null,
+            paletteOpen: false,
+            moderationOpen: false,
+          });
           // Tree BEFORE me: the shell swap (admin flips false on loadMe) must
           // find the visitor tree already in place, or the blog router would
           // transiently resolve routes against the full admin tree.
@@ -679,11 +710,15 @@ export const useStore = create<State>()((set, get) => {
           set((s) => {
             const openTabs = s.openTabs.filter((p) => visible.has(p));
             const openPath =
-              s.openPath && visible.has(s.openPath)
-                ? s.openPath
-                : openTabs[openTabs.length - 1] ?? null;
+              before && visible.has(before) ? before : openTabs[openTabs.length - 1] ?? null;
             return { openTabs, openPath, view: "editor" as const };
           });
+          // And SAY why the note went away. Silence here is the same bug in
+          // the other direction: the tab vanishes, the pane reads "The vault
+          // is open", and nothing connects either to the eye button.
+          if (before && !visible.has(before)) {
+            toast(tf("previewNotPublishedNamed", { path: noteTitle(before) }));
+          }
           void get().refreshBacklinks();
         } else {
           const current = get().openPath; // exit lands on the same note
@@ -824,8 +859,13 @@ export const useStore = create<State>()((set, get) => {
     toggleVim: () => {
       const vimMode = !get().vimMode;
       localStorage.setItem(VIM_KEY, String(vimMode));
-      set({ vimMode });
+      // Leaving vim clears the sub-mode straight away rather than waiting for
+      // the editor's effect: the pill must never read "VIM · INSERT" for a
+      // mode that is already off.
+      set({ vimMode, vimSubMode: vimMode ? get().vimSubMode : null });
     },
+
+    setVimSubMode: (vimSubMode) => set({ vimSubMode }),
 
     toggleReading: () => get().setReadingMode(!get().readingMode),
 

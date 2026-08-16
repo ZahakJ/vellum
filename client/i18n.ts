@@ -94,7 +94,13 @@ const DICT = {
     ar: "نُقل “{name}” إلى ‎.trash‎ — يمكن استرجاعه من مجلد الخزانة",
   },
   folderDeletedToast: { en: "Deleted “{name}” permanently", ar: "حُذف “{name}” نهائيًا" },
-  viewPublicSite: { en: "View public site", ar: "عرض الموقع العام" },
+  // The wordmark ENTERS visitor preview — a mode that takes the editor away.
+  // A tooltip reading "View public site" did not say that, and the click was
+  // the commonest accidental way into a shell with no editing in it.
+  viewPublicSite: {
+    en: "Preview the public site as a visitor (Esc returns)",
+    ar: "معاينة الموقع العام كزائر (Esc للعودة)",
+  },
   publishedOnly: { en: "Published only", ar: "المنشور فقط" },
   showAll: { en: "Show all", ar: "عرض الكل" },
   published: { en: "Published", ar: "منشور" },
@@ -105,6 +111,23 @@ const DICT = {
   home: { en: "Home", ar: "الرئيسية" },
   collapseSection: { en: "Collapse {label}", ar: "طي {label}" },
   expandSection: { en: "Expand {label}", ar: "توسيع {label}" },
+
+  // ── Attachments (tree rows, filter toggle, viewer) ──────────────────────
+  showAttachments: { en: "Show attachments", ar: "إظهار المرفقات" },
+  hideAttachments: { en: "Hide attachments", ar: "إخفاء المرفقات" },
+  attachmentsHidden: { en: "{count} hidden", ar: "{count} مخفية" },
+  showMoreRows: { en: "Show {count} more", ar: "عرض {count} إضافية" },
+  attachmentViewer: { en: "Attachment viewer", ar: "عارض المرفقات" },
+  closeViewer: { en: "Close (Esc)", ar: "إغلاق (Esc)" },
+  previousFile: { en: "Previous file", ar: "الملف السابق" },
+  nextFile: { en: "Next file", ar: "الملف التالي" },
+  openInNewTab: { en: "Open in new tab", ar: "فتح في تبويب جديد" },
+  downloadFile: { en: "Download", ar: "تنزيل" },
+  fileLoadFailed: { en: "This file could not be loaded.", ar: "تعذّر تحميل هذا الملف." },
+  noPreviewFor: { en: "No preview for this file type.", ar: "لا معاينة لهذا النوع من الملفات." },
+  unitBytes: { en: "B", ar: "بايت" },
+  unitKB: { en: "KB", ar: "ك.ب" },
+  unitMB: { en: "MB", ar: "م.ب" },
 
   // ── Tabs ────────────────────────────────────────────────────────────────
   closeTab: { en: "Close {title}", ar: "إغلاق {title}" },
@@ -140,10 +163,63 @@ const DICT = {
     ar: "معاينة كزائر — شاهد الموقع تمامًا كما يظهر للزوار",
   },
   read: { en: "read", ar: "قراءة" },
-  readTitle: { en: "Toggle reading view (Ctrl/Cmd+E)", ar: "تبديل وضع القراءة (Ctrl/Cmd+E)" },
-  vimTitle: { en: "Toggle vim keybindings", ar: "تبديل اختصارات vim" },
-  themeTitle: { en: "Theme: {theme} — click for {next}", ar: "السمة: {theme} — انقر للتبديل إلى {next}" },
-  cycleTheme: { en: "Cycle theme", ar: "تبديل السمة" },
+  // The button opens the PICKER (fifteen themes are browsed, not cycled), so
+  // its tooltip names where you are and what the click does — not the one
+  // theme a "next" step would have landed on.
+  themeTitle: {
+    en: "Theme: {theme} — click to browse all fifteen",
+    ar: "السمة: {theme} — انقر لتصفح السمات الخمس عشرة",
+  },
+
+  // ── Theme picker ────────────────────────────────────────────────────────
+  // Theme names USED to stay untranslated "because they are proper nouns".
+  // Fifteen rooms were therefore identified by fifteen obscure pigment nouns —
+  // verdigris, porphyry, iron-gall — which an Arabic reader met in Latin
+  // script and an English one mostly could not decode either. The raw id is
+  // still the value DEFAULT_THEME and the palette take (shared/themes.ts is
+  // the one list, and it does not move); what changed is that the PICKER now
+  // shows a human label and a one-line description of the room, in both
+  // languages, with the id kept in the row's tooltip.
+  thIronGall: { en: "Iron gall", ar: "حبر العفص" },
+  thIronGallDesc: { en: "Gold leaf on candlelit ink", ar: "ذهب على حبر أسود دافئ" },
+  thVoid: { en: "Void", ar: "الخلاء" },
+  thVoidDesc: { en: "Cold cyan on true black", ar: "سماوي بارد على أسود خالص" },
+  thLapis: { en: "Lapis", ar: "لازورد" },
+  thLapisDesc: { en: "Bright gold on lapis blue-black", ar: "ذهب لامع على أزرق داكن" },
+  thCinnabar: { en: "Cinnabar", ar: "زنجفر" },
+  thCinnabarDesc: { en: "Vermilion on neutral graphite", ar: "قرمزي على رمادي محايد" },
+  thBasalt: { en: "Basalt", ar: "بازلت" },
+  thBasaltDesc: { en: "Pale sky on blue-grey stone", ar: "أزرق فاتح على حجر رمادي" },
+  thVerdigris: { en: "Verdigris", ar: "زنجار" },
+  thVerdigrisDesc: { en: "Oxidised copper on green-black", ar: "نحاس مؤكسد على أخضر داكن" },
+  thPorphyry: { en: "Porphyry", ar: "سُمّاق" },
+  thPorphyryDesc: { en: "Dusty rose on purple-black stone", ar: "وردي باهت على حجر بنفسجي" },
+  thNocturne: { en: "Nocturne", ar: "ليليّة" },
+  thNocturneDesc: { en: "Periwinkle on blue-black night", ar: "بنفسجي فاتح على زرقة الليل" },
+  thTallow: { en: "Tallow", ar: "شحم الشموع" },
+  thTallowDesc: { en: "Candle-flame amber on brown paper", ar: "كهرمان كلهب الشمعة على ورق بني" },
+  thSumi: { en: "Sumi", ar: "سومي" },
+  thSumiDesc: { en: "Indigo on ink-stick grey", ar: "نيلي على رمادي حبر الصين" },
+  thMoss: { en: "Moss", ar: "طحلب" },
+  thMossDesc: { en: "Lichen green on olive-black", ar: "أخضر أشن على زيتوني داكن" },
+  thParchment: { en: "Parchment", ar: "رَقّ" },
+  thParchmentDesc: { en: "Gold leaf on warm paper", ar: "ذهب على ورق دافئ" },
+  thSandstone: { en: "Sandstone", ar: "حجر رملي" },
+  thSandstoneDesc: { en: "Burnt orange on desert paper", ar: "برتقالي محروق على ورق صحراوي" },
+  thLinen: { en: "Linen", ar: "كتان" },
+  thLinenDesc: { en: "Ink blue on cool daylight", ar: "أزرق حبري على ضوء نهار بارد" },
+  thSolar: { en: "Solar", ar: "شمسيّة" },
+  thSolarDesc: { en: "Burnt gold on the brightest paper", ar: "ذهب محروق على أنصع ورق" },
+  themeIdTitle: { en: "{name} — theme id “{id}”", ar: "{name} — معرّف السمة «{id}»" },
+  themePicker: { en: "Theme", ar: "السمة" },
+  themePickerHint: {
+    en: "↑↓←→ preview · Enter keeps · Esc restores",
+    ar: "↑↓←→ للمعاينة · Enter للتثبيت · Esc للاستعادة",
+  },
+  themeGroupDark: { en: "Dark", ar: "داكنة" },
+  themeGroupLight: { en: "Light", ar: "فاتحة" },
+  themeCurrent: { en: "current", ar: "الحالية" },
+  browseThemes: { en: "Browse themes…", ar: "تصفح السمات…" },
   graph: { en: "graph", ar: "مخطط" },
   graphTitle: { en: "Toggle graph view (Ctrl/Cmd+G)", ar: "تبديل عرض المخطط (Ctrl/Cmd+G)" },
   signIn: { en: "Sign in", ar: "تسجيل الدخول" },
@@ -299,9 +375,73 @@ const DICT = {
     en: "Empty fields inherit the server’s env defaults (shown greyed). Saved values win over env and apply live.",
     ar: "الحقول الفارغة ترث إعدادات الخادم الافتراضية (تظهر باهتة). القيم المحفوظة تتقدم عليها وتسري فورًا.",
   },
-  groupIdentity: { en: "Identity", ar: "الهوية" },
   groupHome: { en: "Home page", ar: "الصفحة الرئيسية" },
-  groupBehavior: { en: "Site behavior", ar: "سلوك الموقع" },
+  homeNote: {
+    en: "What “/” shows a visitor: an intro note, or a dashboard of the latest posts.",
+    ar: "ما تعرضه «/» للزائر: ملاحظة تعريفية، أو لوحة بأحدث المقالات.",
+  },
+
+  // ── Settings tabs ────────────────────────────────────────────────────────
+  // One name and one sentence each: a rail of seven category nouns tells a
+  // reader where things are, never what they decide.
+  tabIdentity: { en: "Site identity", ar: "هوية الموقع" },
+  tabAppearance: { en: "Appearance & language", ar: "المظهر واللغة" },
+  tabPublishing: { en: "Publishing & comments", ar: "النشر والتعليقات" },
+  tabAbout: { en: "About", ar: "حول" },
+  introIdentity: {
+    en: "What the site is called and the marks it wears — name, tagline, footer, logo, favicon.",
+    ar: "ما يُسمّى به الموقع والعلامات التي يحملها: الاسم وسطر التعريف والتذييل والشعار والأيقونة.",
+  },
+  introAppearance: {
+    en: "What this instance looks and sounds like: the theme visitors arrive on (yours is separate and stays in this browser), the language the chrome speaks, and how dates and numbers are written.",
+    ar: "كيف تبدو هذه النسخة وبأي لسان تتكلم: السمة التي يصل إليها الزوار (واختيارك أنت منفصل ويبقى في هذا المتصفح)، ولغة الواجهة، وطريقة كتابة التواريخ والأرقام.",
+  },
+  introPublishing: {
+    en: "What visitors are allowed to see, what they can say back, and what the front door shows them first.",
+    ar: "ما يُسمح للزوار برؤيته، وما يمكنهم قوله ردًّا، وما تعرضه عليهم الصفحة الأولى.",
+  },
+  introAbout: {
+    en: "This instance: the version it runs, where it keeps things, and how much is in it.",
+    ar: "هذه النسخة: الإصدار الذي تعمل به، وأين تحفظ ملفاتها، وكم فيها.",
+  },
+
+  // ── Appearance ───────────────────────────────────────────────────────────
+  rowYourTheme: { en: "Your theme", ar: "سمتك" },
+  hintYourTheme: { en: "your own pick — this browser only", ar: "اختيارك أنت — في هذا المتصفح فقط" },
+
+  // ── The visitor language switch, said out loud ───────────────────────────
+  visitorSwitchHead: { en: "Visitor language switch", ar: "مبدّل لغة الزائر" },
+  visitorSwitchNote: {
+    en: "Turning this on puts a small EN/ع switch in the public chrome. A reader who flips it changes the interface language and reading direction for themselves, and their choice is remembered in their own browser. Note text, dates and numerals never move: those stay in the site's own language and locale.",
+    ar: "تفعيل هذا يضع مبدّل ‎EN/ع‎ صغيرًا في واجهة الموقع العامة. من يبدّله من القراء يغيّر لغة الواجهة واتجاه القراءة لنفسه، ويُحفظ اختياره في متصفحه هو. أما نص الملاحظات والتواريخ والأرقام فلا تتغير: تبقى على لغة الموقع وإعداداته المحلية.",
+  },
+  visitorSwitchOn: {
+    en: "The switch is on: visitors see EN/ع in the public chrome.",
+    ar: "المبدّل مفعل: يرى الزوار ‎EN/ع‎ في واجهة الموقع العامة.",
+  },
+
+  // ── About ────────────────────────────────────────────────────────────────
+  aboutVersion: { en: "Version", ar: "الإصدار" },
+  aboutRuntime: { en: "Runtime", ar: "بيئة التشغيل" },
+  aboutVault: { en: "Vault", ar: "الخزانة" },
+  aboutData: { en: "Instance data", ar: "بيانات النسخة" },
+  aboutContents: { en: "Contents", ar: "المحتويات" },
+  aboutNotes: { en: "notes", ar: "ملاحظات" },
+  aboutPublished: { en: "published", ar: "منشورة" },
+  aboutAttachments: { en: "images", ar: "صور" },
+  aboutTags: { en: "tags", ar: "وسوم" },
+  aboutDocs: { en: "Documentation", ar: "التوثيق" },
+  aboutDocsNote: {
+    en: "Every setting in this panel is written up in the project README, in the section named beside it.",
+    ar: "كل إعداد في هذه اللوحة موثّق في ملف ‎README‎ للمشروع، في القسم المذكور بجانبه.",
+  },
+  docSiteSettings: { en: "Site settings", ar: "إعدادات الموقع" },
+  docTheming: { en: "Theming", ar: "السمات" },
+  docTypography: { en: "Typography", ar: "الطباعة" },
+  docArabic: { en: "Arabic & RTL", ar: "العربية والاتجاه" },
+  docBlogMode: { en: "Blog mode", ar: "وضع المدونة" },
+  docComments: { en: "Comments", ar: "التعليقات" },
+  docSync: { en: "Backup & sync", ar: "النسخ الاحتياطي والمزامنة" },
   rowSiteName: { en: "Site name", ar: "اسم الموقع" },
   rowTagline: { en: "Tagline", ar: "سطر التعريف" },
   hintTagline: { en: "masthead subtitle", ar: "العنوان الفرعي في الترويسة" },
@@ -351,6 +491,10 @@ const DICT = {
   },
   phExcludeTags: { en: "draft, todo…", ar: "مسودة، قيد الإنجاز…" },
   inheritOption: { en: "inherit ({value})", ar: "موروث ({value})" },
+  // "inherit (en)" was honest about precedence and silent about its source:
+  // the owner could read WHICH value was in force and never learn WHERE it
+  // came from, or where to change it outside the panel.
+  inheritedFromEnv: { en: "inherited from {env}", ar: "موروث من {env}" },
   on: { en: "on", ar: "مفعل" },
   off: { en: "off", ar: "معطل" },
   // Enum CHOICES a reader picks between, so they are copy — the same way the
@@ -400,6 +544,9 @@ const DICT = {
   keyNewNote: { en: "new note", ar: "ملاحظة جديدة" },
   keySave: { en: "save now", ar: "حفظ فوري" },
   keyReading: { en: "reading view", ar: "وضع القراءة" },
+  // Lowercase like its six neighbours: the empty state sets these as a caption
+  // row, and t("shortcutsTitle") arrived title-cased in the middle of them.
+  keyShortcuts: { en: "keyboard shortcuts", ar: "اختصارات لوحة المفاتيح" },
   openSidebar: { en: "Open sidebar", ar: "فتح الشريط الجانبي" },
   closeSidebar: { en: "Close sidebar", ar: "إغلاق الشريط الجانبي" },
   showSidebar: { en: "Show sidebar (Ctrl/Cmd+B)", ar: "إظهار الشريط الجانبي (Ctrl/Cmd+B)" },
@@ -427,6 +574,18 @@ const DICT = {
   dailyNoteFailed: { en: "Could not create today's daily note", ar: "تعذر إنشاء ملاحظة اليوم" },
   saveFailed: { en: "Failed to save {path}", ar: "فشل حفظ {path}" },
   openFailed: { en: "Failed to open {path}", ar: "فشل فتح {path}" },
+  // Not an error. Inside visitor preview the server 404s an unpublished note
+  // because that is the CORRECT answer for a visitor, and the generic failure
+  // string turned the owner's first use of the feature into a red alarm about
+  // his own site. The calm wording says what happened and what to do.
+  previewNotPublished: {
+    en: "Not published — visitors cannot see this note",
+    ar: "غير منشورة — لا يمكن للزوار رؤية هذه الملاحظة",
+  },
+  previewNotPublishedNamed: {
+    en: "“{path}” is not published — visitors cannot see it, so it left the tab bar",
+    ar: "«{path}» غير منشورة — لا يراها الزوار، لذلك غادرت شريط التبويبات",
+  },
 
   // ── Wikilink clicks (editor + reading view) ─────────────────────────────
   linkNotPublished: { en: "“{name}” isn’t published here", ar: "“{name}” غير منشورة هنا" },
@@ -564,6 +723,9 @@ const DICT = {
   // Arabic UI (and the Arabic one Arabic in an English UI) or the preview
   // stops previewing what it claims to. They live in SettingsModal.tsx.
   groupTypography: { en: "Typography", ar: "الطباعة" },
+  // Sub-heads inside the merged Appearance & language tab.
+  groupTheme: { en: "Theme", ar: "السمة" },
+  groupLanguage: { en: "Language & direction", ar: "اللغة والاتجاه" },
   typographyNote: {
     en: "Chosen faces are fetched once when you save, then served from your own machine — visitors never contact an external font host. Anything not listed here can still be dropped into VELLUM_DATA/fonts and named from custom.css.",
     ar: "تُجلب الخطوط المختارة مرة واحدة عند الحفظ، ثم تُقدَّم من جهازك — لا يتصل الزوار بأي مضيف خطوط خارجي. وما ليس في هذه القائمة يمكن وضعه في ⁨VELLUM_DATA/fonts⁩ واستدعاؤه من ⁨custom.css⁩.",
@@ -743,6 +905,125 @@ const DICT = {
   // value looked identical. The badge says which one this is, so the
   // convention no longer has to be explained in a note at the top.
   inheritedBadge: { en: "inherited", ar: "موروث" },
+
+  // ── Mode indicators ─────────────────────────────────────────────────────
+  // A mode that removes the ability to type must say so where the eye already
+  // is (the status bar) AND where the hands are (the editor column). These are
+  // the pills; the strip copy is below them.
+  modeRead: { en: "Reading", ar: "قراءة" },
+  modeVim: { en: "Vim", ar: "وضع vim" },
+  modePreview: { en: "Preview", ar: "معاينة" },
+  modeReadOnTitle: {
+    en: "Reading mode is ON — typing is off. Click (or Ctrl/Cmd+E) to edit.",
+    ar: "وضع القراءة مُفعَّل — الكتابة متوقفة. انقر (أو Ctrl/Cmd+E) للتحرير.",
+  },
+  modeReadOffTitle: {
+    en: "Editing. Click (or Ctrl/Cmd+E) for reading mode.",
+    ar: "وضع التحرير. انقر (أو Ctrl/Cmd+E) للانتقال إلى وضع القراءة.",
+  },
+  modeVimOnTitle: {
+    en: "Vim keybindings are ON — click to turn them off.",
+    ar: "اختصارات vim مُفعَّلة — انقر لإيقافها.",
+  },
+  modeVimOffTitle: {
+    en: "Vim keybindings are off — click to turn them on.",
+    ar: "اختصارات vim متوقفة — انقر لتفعيلها.",
+  },
+  modePreviewTitle: {
+    en: "Previewing as a visitor — click (or Esc) to return to the app.",
+    ar: "معاينة كزائر — انقر (أو Esc) للعودة إلى التطبيق.",
+  },
+  modesLabel: { en: "Modes", ar: "الأوضاع" },
+  // Vim's SUB-mode. "Vim is on" and "the keys under your fingers are commands
+  // right now" are different facts, and only the second one traps a reader —
+  // so the pill carries the sub-mode beside the name and vim's own panel at
+  // the foot of the editor spells it out in full.
+  vimNormal: { en: "NORMAL", ar: "أوامر" },
+  vimInsert: { en: "INSERT", ar: "إدراج" },
+  vimVisual: { en: "VISUAL", ar: "تحديد" },
+  vimReplace: { en: "REPLACE", ar: "استبدال" },
+  vimNormalTitle: {
+    en: "Vim NORMAL mode — keys are commands, not text. Press i to type; click to leave vim.",
+    ar: "وضع vim العادي — المفاتيح أوامر لا نص. اضغط i للكتابة؛ انقر للخروج من vim.",
+  },
+  vimInsertTitle: {
+    en: "Vim INSERT mode — keys type text. Press Esc for commands; click to leave vim.",
+    ar: "وضع الإدراج في vim — المفاتيح تكتب نصًا. اضغط Esc للأوامر؛ انقر للخروج من vim.",
+  },
+  vimVisualTitle: {
+    en: "Vim VISUAL mode — keys extend the selection. Press Esc; click to leave vim.",
+    ar: "وضع التحديد في vim — المفاتيح توسّع التحديد. اضغط Esc؛ انقر للخروج من vim.",
+  },
+  vimReplaceTitle: {
+    en: "Vim REPLACE mode — typing overwrites. Press Esc; click to leave vim.",
+    ar: "وضع الاستبدال في vim — الكتابة تستبدل النص. اضغط Esc؛ انقر للخروج من vim.",
+  },
+  // The in-workspace strip: one line, part of the layout, never an overlay.
+  readingStrip: { en: "Reading — this note is read-only", ar: "قراءة — هذه الملاحظة للقراءة فقط" },
+  readingStripAction: { en: "Edit (Ctrl/Cmd+E)", ar: "تحرير (Ctrl/Cmd+E)" },
+  // Zen takes the status bar to zero height, so in zen the pills are gone and
+  // the strip is the only place a mode can live. Reading already had one;
+  // ZEN + VIM was a modal editor with no on-screen state at all.
+  vimStripNormal: {
+    en: "Vim NORMAL — keys are commands, not text. Press i to type.",
+    ar: "vim العادي — المفاتيح أوامر لا نص. اضغط i للكتابة.",
+  },
+  vimStripInsert: {
+    en: "Vim INSERT — keys type text. Esc returns to commands.",
+    ar: "إدراج vim — المفاتيح تكتب نصًا. Esc يعيدك إلى الأوامر.",
+  },
+  vimStripVisual: {
+    en: "Vim VISUAL — keys extend the selection. Esc returns to commands.",
+    ar: "تحديد vim — المفاتيح توسّع التحديد. Esc يعيدك إلى الأوامر.",
+  },
+  vimStripReplace: {
+    en: "Vim REPLACE — typing overwrites. Esc returns to commands.",
+    ar: "استبدال vim — الكتابة تستبدل النص. Esc يعيدك إلى الأوامر.",
+  },
+  vimStripAction: { en: "Leave vim", ar: "الخروج من vim" },
+  previewStripHint: {
+    en: "This is exactly what a visitor sees",
+    ar: "هذا ما يراه الزائر تمامًا",
+  },
+  exitPreviewTitle: { en: "Exit preview (Esc)", ar: "إنهاء المعاينة (Esc)" },
+
+  // ── Status-bar panel toggles ────────────────────────────────────────────
+  hideSidebar: { en: "Hide sidebar (Ctrl/Cmd+B)", ar: "إخفاء الشريط الجانبي (Ctrl/Cmd+B)" },
+  enterZen: { en: "Zen mode (Ctrl/Cmd+Shift+Z)", ar: "وضع التركيز (Ctrl/Cmd+Shift+Z)" },
+
+  // ── Keyboard shortcuts overlay (Ctrl/Cmd+/) ─────────────────────────────
+  shortcutsTitle: { en: "Keyboard shortcuts", ar: "اختصارات لوحة المفاتيح" },
+  shortcutsTitleKey: {
+    en: "Keyboard shortcuts (Ctrl/Cmd+/)",
+    ar: "اختصارات لوحة المفاتيح (Ctrl/Cmd+/)",
+  },
+  shortcutsPlaceholder: { en: "Search shortcuts…", ar: "بحث في الاختصارات…" },
+  scGroupNav: { en: "Navigation", ar: "التنقل" },
+  scGroupEditing: { en: "Editing", ar: "التحرير" },
+  scGroupModes: { en: "Modes", ar: "الأوضاع" },
+  scGroupPublishing: { en: "Publishing", ar: "النشر" },
+  scGroupPanels: { en: "Panels", ar: "اللوحات" },
+  scPalette: { en: "Command palette", ar: "لوحة الأوامر" },
+  scSearch: { en: "Search notes", ar: "بحث في الملاحظات" },
+  scGraph: { en: "Graph view", ar: "عرض المخطط" },
+  scFollowLink: { en: "Follow a [[wikilink]]", ar: "فتح رابط ‎[[wikilink]]‎" },
+  scFollowLinkKey: { en: "Click", ar: "نقرة" },
+  scOpenFile: { en: "Open an image or PDF from the tree", ar: "فتح صورة أو ملف PDF من الشجرة" },
+  scWalkFiles: { en: "Next / previous file in the folder", ar: "الملف التالي/السابق في المجلد" },
+  scEscape: { en: "Close an overlay, leave zen or preview", ar: "إغلاق طبقة، أو مغادرة التركيز/المعاينة" },
+  scSave: { en: "Save now", ar: "حفظ فوري" },
+  scUndo: { en: "Undo", ar: "تراجع" },
+  scRedo: { en: "Redo", ar: "إعادة" },
+  scFind: { en: "Find in this note", ar: "بحث داخل الملاحظة" },
+  scMoveLine: { en: "Move line up / down", ar: "نقل السطر لأعلى/لأسفل" },
+  scSlash: { en: "Insert a block (callout, table, code…)", ar: "إدراج كتلة (تنبيه، جدول، شيفرة…)" },
+  scSlashKey: { en: "/ at line start", ar: "‎/‎ في بداية السطر" },
+  scFold: { en: "Fold a section", ar: "طي قسم" },
+  scFoldKey: { en: "or the chevron beside a heading", ar: "أو السهم بجانب العنوان" },
+  scFoldAll: { en: "Fold / unfold everything", ar: "طي كل الأقسام أو فتحها" },
+  scViaPalette: { en: "Command palette", ar: "لوحة الأوامر" },
+  scViaStatusBar: { en: "Status bar", ar: "شريط الحالة" },
+  scHelp: { en: "This list", ar: "هذه القائمة" },
 } satisfies Record<string, Entry>;
 
 export type I18nKey = keyof typeof DICT;
@@ -821,6 +1102,7 @@ export function tf(key: I18nKey, vars: Record<string, string | number>): string 
 
 type CountUnit =
   | "notes"
+  | "files"
   | "publishedNotes"
   | "links"
   | "words"
@@ -832,6 +1114,9 @@ type CountUnit =
 
 const UNITS: Record<CountUnit, { en: [string, string]; ar: { one: string; two: string; few: string; many: string } }> = {
   notes: { en: ["note", "notes"], ar: { one: "ملاحظة واحدة", two: "ملاحظتان", few: "ملاحظات", many: "ملاحظة" } },
+  // The sidebar footer counts the vault's ATTACHMENTS beside its notes — the
+  // images, PDFs and recordings that are not notes but are certainly files.
+  files: { en: ["file", "files"], ar: { one: "ملف واحد", two: "ملفان", few: "ملفات", many: "ملفًا" } },
   // The visitor graph HUD counts published notes specifically.
   publishedNotes: {
     en: ["published note", "published notes"],

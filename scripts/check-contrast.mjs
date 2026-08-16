@@ -2,7 +2,27 @@
 // Every theme (the :root default plus each [data-theme="…"] block) must hold:
 //   --text        >= 4.5:1  against --bg and --bg-raised   (body text)
 //   --text-muted  >= 3:1    against --bg and --bg-raised   (secondary text)
-// Accent and faint ratios are printed for information. Exits 1 on any failure.
+//   --accent      >= 4.5:1  against --bg                   (see below)
+// The faint ratio is printed for information. Exits 1 on any failure.
+//
+// The accent check is not decoration. That one pair is read as TEXT twice over:
+//   · wikilinks and tag pills render in --accent on --bg inside the prose, and
+//   · the lit mode pill is an --accent fill carrying --bg letters — the same
+//     two colors, swapped — which is the loudest thing in the product now that
+//     "you are in reading mode" depends on it.
+// It used to print as "(info)", and under that cover parchment (4.13:1),
+// sandstone (4.17:1) and solar (4.24:1) all shipped below AA.
+//
+// The accent is also checked against --text, and that one is NOT a WCAG
+// ratio: two colors of equal luminance and opposite hue pass every contrast
+// formula ever written while being perfectly distinguishable, and a theme
+// whose accent is a shade of its own type is the failure mode we are actually
+// guarding against. `sumi` shipped --text #e4e4e6 beside --accent #f5efe3 —
+// 1.11:1 and 8.5 ΔE — so the whole accent channel (tag pills, the `#` glyph,
+// the active-row bar, wikilinks, the publish star, graph nodes) rendered as
+// body text and the lit mode pill read as a text selection rather than an
+// alarm. CIE76 ΔE over CIELAB answers the right question: the next-closest
+// theme sits at 23.9, so the floor is 18.
 //
 //   node scripts/check-contrast.mjs
 
@@ -45,6 +65,30 @@ function ratio(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+/** sRGB hex → CIELAB (D65). Used only for the accent-vs-text delta below. */
+function lab(hex) {
+  const c = hex.slice(1);
+  const [r, g, b] = [0, 2, 4]
+    .map((i) => parseInt(c.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  let x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
+  const y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+  let z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
+  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  [x, z] = [f(x), f(z)];
+  const fy = f(y);
+  return [116 * fy - 16, 500 * (x - fy), 200 * (fy - z)];
+}
+
+/** CIE76 colour difference — perceptual distance, not a contrast ratio. */
+function deltaE(a, b) {
+  const [l1, a1, b1] = lab(a);
+  const [l2, a2, b2] = lab(b);
+  return Math.hypot(l1 - l2, a1 - a2, b1 - b2);
+}
+
+const ACCENT_TEXT_MIN_DE = 18;
+
 let failures = 0;
 for (const [name, t] of Object.entries(themes)) {
   const need = ["--bg", "--bg-raised", "--text", "--text-muted", "--accent", "--text-faint"];
@@ -59,10 +103,20 @@ for (const [name, t] of Object.entries(themes)) {
     ["text / raised", t["--text"], t["--bg-raised"], 4.5],
     ["muted / bg", t["--text-muted"], t["--bg"], 3],
     ["muted / raised", t["--text-muted"], t["--bg-raised"], 3],
-    ["accent / bg", t["--accent"], t["--bg"], 0],
+    ["accent / bg", t["--accent"], t["--bg"], 4.5],
     ["faint / bg", t["--text-faint"], t["--bg"], 0],
   ];
   console.log(`\n${name}`);
+  // Not a ratio: see the header. An accent that is a shade of the theme's own
+  // body text has no accent channel at all.
+  const dE = deltaE(t["--accent"], t["--text"]);
+  const dEok = dE >= ACCENT_TEXT_MIN_DE;
+  if (!dEok) failures++;
+  console.log(
+    `  ${"accent / text".padEnd(15)} ${dE.toFixed(1).padStart(5)} ΔE  ${
+      dEok ? "PASS" : `FAIL (needs ${ACCENT_TEXT_MIN_DE} ΔE)`
+    }`,
+  );
   for (const [label, fg, bg, min] of checks) {
     const r = ratio(fg, bg);
     const ok = r >= min;

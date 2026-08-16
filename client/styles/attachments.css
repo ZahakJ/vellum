@@ -1,0 +1,367 @@
+/* Attachments: the sidebar's non-note rows, the "show attachments" filter in
+   the sidebar footer, the "show more" row that keeps a 1,158-file folder from
+   janking, and the lightbox viewer.
+
+   Logical properties throughout (CONTRACTS, "Localization & RTL"): every one
+   of these rows lives in a pane that mirrors wholesale in Arabic. Colors are
+   tokens only — an attachment row is deliberately QUIETER than a note row
+   (--text-faint at rest, --text-muted on hover), because notes are the
+   writing and these are the things the writing points at. */
+
+/* ------------------------------------------------------------ tree rows -- */
+
+.s-tree__item--att {
+  color: var(--text-faint);
+}
+
+.s-tree__item--att:hover {
+  color: var(--text-muted);
+}
+
+/* The type glyph takes the chevron's slot, so attachment names line up with
+   note names instead of hanging under the folder chevrons. */
+.s-tree__item--att .s-tree__label {
+  padding-inline-start: 0;
+}
+
+.s-tree__glyph {
+  flex: none;
+  width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  opacity: 0.85;
+}
+
+.s-tree__item--att:hover .s-tree__glyph {
+  color: var(--accent);
+  opacity: 1;
+}
+
+/* Extension badge on the row: tiny, uppercase, only where the glyph alone
+   cannot say what the file is ("other"). */
+.s-tree__ext {
+  margin-inline-start: 6px;
+  font-size: 0.643rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  opacity: 0.75;
+}
+
+/* A folder is rendered in chunks; this row asks for the next one. Never a
+   silent truncation — the count is on the button. */
+.s-tree__more {
+  display: block;
+  width: calc(100% - 8px);
+  margin: 2px 4px 4px;
+  padding: 3px 8px;
+  background: var(--bg-hover);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.786rem;
+  text-align: start;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.s-tree__more:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* The row a folder shows when the filter has emptied it. Quiet, italic, and
+   clickable — the way back is the same row that explains the absence. */
+.s-tree__hidden {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  height: 1.8rem;
+  padding-inline-end: 8px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: 0.857rem;
+  font-style: italic;
+  text-align: start;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.s-tree__hidden:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+/* ------------------------------------------------- footer filter toggle -- */
+
+.s-sidebar-foot--split {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.s-attfilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 6px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--text-faint);
+  font-family: var(--font-ui);
+  font-size: 0.786rem;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.s-attfilter:hover {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+  background: var(--bg-hover);
+}
+
+/* ON: the paperclip wears the accent, so the tree's extra rows have a visible
+   cause. OFF: the clip greys out AND the label says "N files hidden" in
+   words — a filter that removes a thousand rows must announce itself, which
+   is the whole complaint this round answers. */
+.s-attfilter--on {
+  color: var(--text-muted);
+}
+
+.s-attfilter--on .s-attfilter__clip {
+  color: var(--accent);
+}
+
+.s-attfilter--off .s-attfilter__clip {
+  opacity: 0.6;
+}
+
+.s-attfilter__clip {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---------------------------------------------------------- the viewer -- */
+
+.s-att-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+  animation: s-fade-in 0.12s ease;
+}
+
+.s-att-view {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+  max-height: 100%;
+  outline: none;
+  animation: s-att-in 0.14s ease;
+}
+
+@keyframes s-att-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.s-att-view__stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  max-width: min(1200px, calc(100vw - 140px));
+  max-height: calc(100vh - 120px);
+}
+
+/* Natural size, capped to the viewport: no width/height is set, so a small
+   scan stays small instead of being blown up into mush. */
+.s-att-view__img {
+  display: block;
+  max-width: min(1200px, calc(100vw - 140px));
+  max-height: calc(100vh - 120px);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  background: var(--bg-raised);
+}
+
+.s-att-view__video {
+  display: block;
+  max-width: min(1200px, calc(100vw - 140px));
+  max-height: calc(100vh - 120px);
+  border-radius: var(--radius);
+  background: #000;
+}
+
+.s-att-view__audio {
+  width: min(520px, calc(100vw - 140px));
+}
+
+.s-att-view__blank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 56px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.s-att-view__ext {
+  font-family: var(--font-serif);
+  font-size: 2.5rem;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.s-att-view__empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.929rem;
+}
+
+/* Caption bar: name, then what the file IS, then where it sits in the folder,
+   then the ways out. One line, its own raised surface, never over the image. */
+.s-att-view__bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding-block: 6px;
+  padding-inline: 14px 8px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+
+.s-att-view__name {
+  font-family: var(--font-serif);
+  font-size: 0.929rem;
+  color: var(--text);
+  max-width: min(46ch, 42vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-att-view__meta,
+/* One block, not two: the second declaration used to override the first and
+   drop "1 / 60" to --text-faint, so the reader's POSITION in the folder was
+   fainter than the filename beside it — the one number in the caption that
+   answers "how much more is there". */
+.s-att-view__pos {
+  padding-inline: 8px;
+  border-inline-start: 1px solid var(--border);
+  font-size: 0.786rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.s-att-view__act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.s-att-view__act:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.s-att-view__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* These sit on a fixed rgba(0,0,0,.72) scrim, so they cannot be styled as
+     if they were on the page: --bg-raised is a near-black on eleven of the
+     fifteen themes, which made the only way to walk a 60-image folder the
+     lowest-contrast control in the product — dark circles on a dark wash.
+     An accent-tinted ground and a lit rim put them above the scrim in every
+     theme, and the glyph steps up from --text-muted to --text. */
+  background: color-mix(in srgb, var(--accent) 24%, var(--bg-raised));
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--border));
+  border-radius: 50%;
+  color: var(--text);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.s-att-view__nav:hover,
+.s-att-view__nav:focus-visible {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+.s-att-view__nav--prev {
+  inset-inline-start: -52px;
+}
+
+.s-att-view__nav--next {
+  inset-inline-end: -52px;
+}
+
+/* Phones: the round-trip buttons move inside the frame and the caption wraps
+   its name rather than pushing the actions off screen. */
+@media (max-width: 720px) {
+  .s-att-view__nav--prev {
+    inset-inline-start: 4px;
+  }
+  .s-att-view__nav--next {
+    inset-inline-end: 4px;
+  }
+  .s-att-view__stage,
+  .s-att-view__img,
+  .s-att-view__video {
+    max-width: calc(100vw - 48px);
+  }
+  .s-att-view__name {
+    max-width: 40vw;
+  }
+  .s-att-view__meta {
+    display: none;
+  }
+}

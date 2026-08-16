@@ -94,6 +94,40 @@ export function editorTheme(): Extension {
     ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--border)" },
     ".cm-panels.cm-panels-bottom": { borderTop: "1px solid var(--border)" },
     ".cm-panel.cm-search label": { color: "var(--text-muted)" },
+
+    // Vim's status line (vim({ status: true })). It is the modal editor's own
+    // `-- INSERT --` readout AND the host for the `:` / `/` command line, so
+    // it is the one piece of chrome that must stay legible even in zen, where
+    // the status bar and its pills are at zero height. The library ships a
+    // bare unstyled div; this gives it the accent, the mono face and enough
+    // weight to read as a mode line rather than as a stray caption.
+    ".cm-vim-panel": {
+      padding: "3px 12px",
+      background: "color-mix(in srgb, var(--accent) 10%, var(--bg-raised))",
+      color: "var(--accent)",
+      fontFamily: "var(--font-mono)",
+      fontSize: "0.786rem",
+      fontWeight: "600",
+      letterSpacing: "0.04em",
+      minHeight: "1.6rem",
+      // Vim's own words are ASCII and its command line is a terminal line, so
+      // the RUN is ltr on an Arabic instance too — the same treatment
+      // CONTRACTS gives git's verbatim error text ("its OWN dir=ltr block").
+      // `start` rather than `left`: no physical value in the stylesheet; under
+      // this block's own ltr direction it resolves to the left, where a vim
+      // mode line belongs.
+      direction: "ltr",
+      textAlign: "start",
+    },
+    ".cm-vim-panel input": {
+      background: "transparent",
+      border: "none",
+      outline: "none",
+      color: "var(--text)",
+      fontFamily: "var(--font-mono)",
+      fontSize: "0.786rem",
+      width: "100%",
+    },
     ".cm-textfield": {
       background: "var(--bg)",
       border: "1px solid var(--border)",

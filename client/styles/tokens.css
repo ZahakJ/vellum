@@ -1,8 +1,30 @@
-/* Vellum — design tokens.
-   Default (no data-theme attr) = "iron-gall" dark: warm near-black ink, ivory text, gold leaf.
-   [data-theme="void"]      = true-neutral cool near-black, starlight-steel accent.
-   [data-theme="lapis"]     = deep lapis-lazuli blue-black, brightened gold leaf.
-   [data-theme="parchment"] = warm paper light theme.
+/* Vellum — design tokens. FIFTEEN themes: the default (no data-theme attr) is
+   "iron-gall", and every other one is a [data-theme="…"] block below.
+
+     dark   iron-gall  warm near-black ink, ivory text, gold leaf (the default)
+            void       true black, cold signal-cyan accent
+            lapis      deep lapis-lazuli blue-black, brightened gold leaf
+            cinnabar   neutral graphite ground, vermilion type accent
+            basalt     cool blue-grey stone, pale sky accent
+            verdigris  green-black ground, oxidized-copper accent
+            porphyry   purple-black stone, dusty rose accent
+            nocturne   blue-black night, periwinkle accent
+            tallow     warm brown paper, candle-flame amber accent
+            sumi       ink-grey ground, aizome indigo accent
+            moss       olive-black forest floor, lichen accent
+     light  parchment  warm paper, gold-leaf accent
+            sandstone  dry desert paper, burnt-orange accent
+            linen      cool neutral daylight, ink-blue accent
+            solar      brightest white paper, burnt-gold accent
+
+   EVERY theme defines the WHOLE set — ground, type, accent, selection, focus
+   ring, graph colors, all thirteen callout hues and all eight syntax colors.
+   None of them inherits another's leftovers: a block that left, say,
+   --callout-warning out would silently wear iron-gall's amber on a green
+   ground. The derived values were solved against each theme's OWN --bg (every
+   callout and syntax color clears 4.8:1 there), which is why no two themes
+   share a hex outside their shared --danger family.
+
    Components must consume these variables only — never hard-coded colors.
    Contrast is enforced by `node scripts/check-contrast.mjs` (body >= 4.5:1,
    muted >= 3:1 against both --bg and --bg-raised) — run it after any edit here. */
@@ -10,16 +32,55 @@
 :root {
   color-scheme: dark;
 
-  /* Theme identity swatches (constant across themes — the palette's
-     "Theme: …" commands draw their color dots from these). */
+  /* Theme identity swatches: each theme's ground, type and accent, held
+     CONSTANT across themes so a preview of a theme is never painted in the
+     theme currently on screen. The three-dot swatches in the theme picker and
+     the palette's "Theme: …" dots read them. */
   --swatch-iron-gall-bg: #16130e;
+  --swatch-iron-gall-text: #eae2d0;
   --swatch-iron-gall-accent: #c9a227;
-  --swatch-void-bg: #101014;
-  --swatch-void-accent: #9db2cf;
+  --swatch-void-bg: #050508;
+  --swatch-void-text: #e4e4e9;
+  --swatch-void-accent: #5fc9dd;
   --swatch-lapis-bg: #0d1526;
+  --swatch-lapis-text: #e7eaf4;
   --swatch-lapis-accent: #d9b23a;
+  --swatch-cinnabar-bg: #1a1a1c;
+  --swatch-cinnabar-text: #e8e6e3;
+  --swatch-cinnabar-accent: #e2543c;
+  --swatch-basalt-bg: #15181d;
+  --swatch-basalt-text: #dde3ea;
+  --swatch-basalt-accent: #7fb6d9;
+  --swatch-verdigris-bg: #0f1a18;
+  --swatch-verdigris-text: #dfe9e5;
+  --swatch-verdigris-accent: #5fbfa4;
+  --swatch-porphyry-bg: #1b141a;
+  --swatch-porphyry-text: #ece2e8;
+  --swatch-porphyry-accent: #d98aa6;
+  --swatch-nocturne-bg: #14151f;
+  --swatch-nocturne-text: #e2e2f0;
+  --swatch-nocturne-accent: #a99bf0;
+  --swatch-tallow-bg: #241b14;
+  --swatch-tallow-text: #ece0d4;
+  --swatch-tallow-accent: #f2b062;
+  --swatch-sumi-bg: #161617;
+  --swatch-sumi-text: #e4e4e6;
+  --swatch-sumi-accent: #6b7fe8;
+  --swatch-moss-bg: #151a13;
+  --swatch-moss-text: #e0e6da;
+  --swatch-moss-accent: #9dc46a;
   --swatch-parchment-bg: #f2ebda;
-  --swatch-parchment-accent: #8a6d1a;
+  --swatch-parchment-text: #33291a;
+  --swatch-parchment-accent: #7a5f14;
+  --swatch-sandstone-bg: #f5efe4;
+  --swatch-sandstone-text: #2e2823;
+  --swatch-sandstone-accent: #9c4b27;
+  --swatch-linen-bg: #f4f5f7;
+  --swatch-linen-text: #232830;
+  --swatch-linen-accent: #3a6ea5;
+  --swatch-solar-bg: #fffdf4;
+  --swatch-solar-text: #2b2620;
+  --swatch-solar-accent: #a35c00;
 
   --bg: #16130e;
   --bg-raised: #1e1a13;
@@ -31,6 +92,23 @@
   --accent-soft: rgba(201, 162, 39, 0.14);
   --border: #2f2920;
   --danger: #c4574a;
+
+  /* Selection wash and focus ring. Both used to be spelled as --accent-soft
+     and --accent directly in app.css, which meant a theme could not tune
+     them: a selection that reads at 14% on iron-gall's near-black is a
+     smudge on paper, and an accent that is nearly the ground (sumi's grey)
+     makes a focus ring no one can find. Per theme, so both stay findable. */
+  --selection-bg: rgba(201, 162, 39, 0.24);
+  --focus-ring: #c9a227;
+
+  /* Graph canvas. The node/edge colors are tokens rather than derivations of
+     --accent + --border inside GraphView, so a theme whose accent is right
+     for text can still choose a different disc color for a 1,400-node
+     constellation. The vignette is the theme's own ground driven dark — a
+     black wash greys out a paper theme instead of framing it. */
+  --graph-node: #c9a227;
+  --graph-edge: #5a5245;
+  --graph-vignette: rgba(9, 8, 6, 0.4);
 
   /* How far generated banner gradients (client/banner.ts) pull their hash
      hues toward --accent. Dark themes clamp hard — raw saturated hues fight
@@ -114,23 +192,34 @@
   --syn-operator: #a99f89;
 }
 
-/* "void" — a true neutral dark: cool near-black, no warm cast, and the one
-   theme that trades gold leaf for starlight steel — a cool moonlit accent so
-   it reads as its own choice next to iron-gall instead of a slightly grayer
-   twin of it. */
+/* "void" — the one theme that is actually BLACK. It used to open at #101014
+   under a pale steel-blue accent, which put it 3.8 ΔE from basalt's ground
+   and 10.2 ΔE from basalt's accent: two desaturated-blue near-blacks that no
+   reader could separate in the picker, and "void" delivered less drama than
+   the theme named after volcanic rock. The ground drops to a true black and
+   the accent trades steel for a cold signal cyan, so the pair is now 24 ΔE
+   apart on ground + accent combined. No two themes sharing a hex was always
+   satisfied here; being separable at a glance is the test that was not. */
 [data-theme="void"] {
   color-scheme: dark;
 
-  --bg: #101014;
-  --bg-raised: #17171c;
-  --bg-hover: #202028;
+  --bg: #050508;
+  --bg-raised: #0e0e12;
+  --bg-hover: #191920;
   --text: #e4e4e9;
   --text-muted: #a2a2ad;
   --text-faint: #6b6b76;
-  --accent: #9db2cf;
-  --accent-soft: rgba(157, 178, 207, 0.14);
-  --border: #26262e;
+  --accent: #5fc9dd;
+  --accent-soft: rgba(95, 201, 221, 0.14);
+  --border: #1f1f27;
   --danger: #c4574a;
+
+  --selection-bg: rgba(95, 201, 221, 0.24);
+  --focus-ring: #5fc9dd;
+
+  --graph-node: #5fc9dd;
+  --graph-edge: #51515a;
+  --graph-vignette: rgba(0, 0, 0, 0.55);
 
   --callout-note: #6d9dc5;
   --callout-info: #6d9dc5;
@@ -146,7 +235,7 @@
   --callout-example: #a68bc9;
   --callout-quote: #a2a2ad;
 
-  --syn-keyword: #9db2cf;
+  --syn-keyword: #5fc9dd;
   --syn-string: #9cb46f;
   --syn-number: #d08b5c;
   --syn-comment: #6b6b76;
@@ -171,6 +260,13 @@
   --accent-soft: rgba(217, 178, 58, 0.15);
   --border: #24304b;
   --danger: #d0655a;
+
+  --selection-bg: rgba(217, 178, 58, 0.24);
+  --focus-ring: #d9b23a;
+
+  --graph-node: #d9b23a;
+  --graph-edge: #515d78;
+  --graph-vignette: rgba(5, 7, 10, 0.4);
 
   --callout-note: #7ba7cf;
   --callout-info: #7ba7cf;
@@ -205,10 +301,17 @@
   --text: #33291a;
   --text-muted: #6e6250;
   --text-faint: #a2947c;
-  --accent: #8a6d1a;
-  --accent-soft: rgba(138, 109, 26, 0.13);
+  --accent: #7a5f14;
+  --accent-soft: rgba(122, 95, 20, 0.13);
   --border: #d8cbae;
   --danger: #a23a2e;
+
+  --selection-bg: rgba(122, 95, 20, 0.2);
+  --focus-ring: #7a5f14;
+
+  --graph-node: #7a5f14;
+  --graph-edge: #b8ac92;
+  --graph-vignette: rgba(98, 80, 34, 0.26);
 
   --banner-tint: 0%;
 
@@ -226,7 +329,7 @@
   --callout-example: #6d5a91;
   --callout-quote: #6e6250;
 
-  --syn-keyword: #8a6d1a;
+  --syn-keyword: #7a5f14;
   --syn-string: #5e7b34;
   --syn-number: #a05a26;
   --syn-comment: #a2947c;
@@ -234,6 +337,559 @@
   --syn-type: #96543f;
   --syn-prop: #6d5a91;
   --syn-operator: #6e6250;
+}
+
+/* "cinnabar" — a graphite room with red lead in it. The ground is neutral
+   near-black (no warm cast at all, unlike iron-gall) so the vermilion accent
+   is the ONLY hue in the chrome; accent and danger are deliberately the same
+   red here, because in a room this monochrome a second red would read as the
+   first one. */
+[data-theme="cinnabar"] {
+  color-scheme: dark;
+
+  --bg: #1a1a1c;
+  --bg-raised: #212124;
+  --bg-hover: #2b2b30;
+  --text: #e8e6e3;
+  --text-muted: #a8a5a2;
+  --text-faint: #6f6d6b;
+  --accent: #e2543c;
+  --accent-soft: rgba(226, 84, 60, 0.14);
+  --border: #33333a;
+  --danger: #e2543c;
+
+  --selection-bg: rgba(226, 84, 60, 0.24);
+  --focus-ring: #e2543c;
+  --banner-tint: 45%;
+
+  --graph-node: #e2543c;
+  --graph-edge: #5c5b5e;
+  --graph-vignette: rgba(7, 7, 8, 0.4);
+
+  --callout-note: #6287c5;
+  --callout-info: #6287c5;
+  --callout-todo: #6287c5;
+  --callout-abstract: #379579;
+  --callout-tip: #379579;
+  --callout-success: #459738;
+  --callout-question: #b07c41;
+  --callout-warning: #b07c41;
+  --callout-failure: #e2543c;
+  --callout-danger: #e2543c;
+  --callout-bug: #e2543c;
+  --callout-example: #b469c7;
+  --callout-quote: #a8a5a2;
+
+  --syn-keyword: #e2543c;
+  --syn-string: #699e35;
+  --syn-number: #c57e51;
+  --syn-comment: #6f6d6b;
+  --syn-func: #6493cb;
+  --syn-type: #d17481;
+  --syn-prop: #b477d2;
+  --syn-operator: #a8a5a2;
+}
+
+/* "basalt" — cooled volcanic stone: a blue-grey ground, one step lighter
+   than void, under a pale daylight-sky accent. The most legible of the dark
+   set at small sizes, and the one that reads as "editor" rather than "room". */
+[data-theme="basalt"] {
+  color-scheme: dark;
+
+  --bg: #15181d;
+  --bg-raised: #1c2027;
+  --bg-hover: #252b34;
+  --text: #dde3ea;
+  --text-muted: #9aa6b4;
+  --text-faint: #66707d;
+  --accent: #7fb6d9;
+  --accent-soft: rgba(127, 182, 217, 0.14);
+  --border: #2b323c;
+  --danger: #e0715f;
+
+  --selection-bg: rgba(127, 182, 217, 0.24);
+  --focus-ring: #7fb6d9;
+  --banner-tint: 45%;
+
+  --graph-node: #7fb6d9;
+  --graph-edge: #525b66;
+  --graph-vignette: rgba(6, 7, 9, 0.4);
+
+  --callout-note: #4b8abd;
+  --callout-info: #4b8abd;
+  --callout-todo: #4b8abd;
+  --callout-abstract: #36928f;
+  --callout-tip: #36928f;
+  --callout-success: #38964b;
+  --callout-question: #968438;
+  --callout-warning: #968438;
+  --callout-failure: #e0715f;
+  --callout-danger: #e0715f;
+  --callout-bug: #e0715f;
+  --callout-example: #9c72cb;
+  --callout-quote: #9aa6b4;
+
+  --syn-keyword: #7fb6d9;
+  --syn-string: #4ea035;
+  --syn-number: #b9833e;
+  --syn-comment: #66707d;
+  --syn-func: #5094c5;
+  --syn-type: #cf7090;
+  --syn-prop: #9f7dd4;
+  --syn-operator: #9aa6b4;
+}
+
+/* "verdigris" — copper left out in the weather: a green-black ground with
+   the patina itself as the accent. */
+[data-theme="verdigris"] {
+  color-scheme: dark;
+
+  --bg: #0f1a18;
+  --bg-raised: #152220;
+  --bg-hover: #1d2d2a;
+  --text: #dfe9e5;
+  --text-muted: #93a8a2;
+  --text-faint: #61736e;
+  --accent: #5fbfa4;
+  --accent-soft: rgba(95, 191, 164, 0.14);
+  --border: #22332f;
+  --danger: #e0715f;
+
+  --selection-bg: rgba(95, 191, 164, 0.24);
+  --focus-ring: #5fbfa4;
+  --banner-tint: 45%;
+
+  --graph-node: #5fbfa4;
+  --graph-edge: #4a5c57;
+  --graph-vignette: rgba(6, 10, 9, 0.4);
+
+  --callout-note: #478cad;
+  --callout-info: #478cad;
+  --callout-todo: #478cad;
+  --callout-abstract: #3d9285;
+  --callout-tip: #3d9285;
+  --callout-success: #3e964d;
+  --callout-question: #96853e;
+  --callout-warning: #96853e;
+  --callout-failure: #e0715f;
+  --callout-danger: #e0715f;
+  --callout-bug: #e0715f;
+  --callout-example: #9a73c5;
+  --callout-quote: #93a8a2;
+
+  --syn-keyword: #5fbfa4;
+  --syn-string: #539f3b;
+  --syn-number: #b68544;
+  --syn-comment: #61736e;
+  --syn-func: #4897ba;
+  --syn-type: #cb757b;
+  --syn-prop: #9f7fcf;
+  --syn-operator: #93a8a2;
+}
+
+/* "porphyry" — imperial purple stone, dusty rose accent. Warm on the red
+   side of neutral, where nocturne is warm on the blue side. */
+[data-theme="porphyry"] {
+  color-scheme: dark;
+
+  --bg: #1b141a;
+  --bg-raised: #231b22;
+  --bg-hover: #2e232d;
+  --text: #ece2e8;
+  --text-muted: #ab9aa6;
+  --text-faint: #75676f;
+  --accent: #d98aa6;
+  --accent-soft: rgba(217, 138, 166, 0.14);
+  --border: #362836;
+  --danger: #e0715f;
+
+  --selection-bg: rgba(217, 138, 166, 0.24);
+  --focus-ring: #d98aa6;
+  --banner-tint: 45%;
+
+  --graph-node: #d98aa6;
+  --graph-edge: #5f505d;
+  --graph-vignette: rgba(9, 7, 8, 0.4);
+
+  --callout-note: #5f84c3;
+  --callout-info: #5f84c3;
+  --callout-todo: #5f84c3;
+  --callout-abstract: #379093;
+  --callout-tip: #379093;
+  --callout-success: #449538;
+  --callout-question: #b27743;
+  --callout-warning: #b27743;
+  --callout-failure: #e0715f;
+  --callout-danger: #e0715f;
+  --callout-bug: #e0715f;
+  --callout-example: #b265c5;
+  --callout-quote: #ab9aa6;
+
+  --syn-keyword: #d98aa6;
+  --syn-string: #679a34;
+  --syn-number: #c67956;
+  --syn-comment: #75676f;
+  --syn-func: #608fc9;
+  --syn-type: #cf6f85;
+  --syn-prop: #b173d0;
+  --syn-operator: #ab9aa6;
+}
+
+/* "nocturne" — blue-black night with a periwinkle accent; the coolest and
+   the softest-contrast of the dark set. */
+[data-theme="nocturne"] {
+  color-scheme: dark;
+
+  --bg: #14151f;
+  --bg-raised: #1b1d29;
+  --bg-hover: #242736;
+  --text: #e2e2f0;
+  --text-muted: #a0a2ba;
+  --text-faint: #6b6d82;
+  --accent: #a99bf0;
+  --accent-soft: rgba(169, 155, 240, 0.14);
+  --border: #2a2d3d;
+  --danger: #e0715f;
+
+  --selection-bg: rgba(169, 155, 240, 0.24);
+  --focus-ring: #a99bf0;
+  --banner-tint: 45%;
+
+  --graph-node: #a99bf0;
+  --graph-edge: #535669;
+  --graph-vignette: rgba(6, 6, 9, 0.4);
+
+  --callout-note: #5c85c3;
+  --callout-info: #5c85c3;
+  --callout-todo: #5c85c3;
+  --callout-abstract: #369093;
+  --callout-tip: #369093;
+  --callout-success: #37944a;
+  --callout-question: #b27642;
+  --callout-warning: #b27642;
+  --callout-failure: #e0715f;
+  --callout-danger: #e0715f;
+  --callout-bug: #e0715f;
+  --callout-example: #a06ec9;
+  --callout-quote: #a0a2ba;
+
+  --syn-keyword: #a99bf0;
+  --syn-string: #4d9e35;
+  --syn-number: #c77756;
+  --syn-comment: #6b6d82;
+  --syn-func: #5c8fc9;
+  --syn-type: #ce6d8e;
+  --syn-prop: #a479d2;
+  --syn-operator: #a0a2ba;
+}
+
+/* "tallow" — candle wax and brown paper. It shipped as iron-gall with the
+   lamp turned up and nothing else: 2.4 ΔE of ground between them and two
+   amber-golds 16.7 ΔE apart, sitting in the picker directly against the
+   product default. So the lamp is genuinely up now — the ground climbs to a
+   real brown paper (6.3 ΔE from iron-gall's near-black) and the amber warms
+   and lightens into candle-flame territory, 21.6 ΔE off gold leaf. Lifting
+   the ground cost every mid-tone callout ~0.35:1, so the six that sat at
+   4.8 were re-solved against the new #241b14 rather than left to slide
+   under the gate. */
+[data-theme="tallow"] {
+  color-scheme: dark;
+
+  --bg: #241b14;
+  --bg-raised: #2d231c;
+  --bg-hover: #392d24;
+  --text: #ece0d4;
+  --text-muted: #b5a595;
+  --text-faint: #807365;
+  --accent: #f2b062;
+  --accent-soft: rgba(242, 176, 98, 0.14);
+  --border: #40332a;
+  --danger: #df735c;
+
+  --selection-bg: rgba(242, 176, 98, 0.24);
+  --focus-ring: #f2b062;
+  --banner-tint: 45%;
+
+  --graph-node: #f2b062;
+  --graph-edge: #6b5d51;
+  --graph-vignette: rgba(9, 7, 6, 0.4);
+
+  --callout-note: #4b94b2;
+  --callout-info: #4b94b2;
+  --callout-todo: #4b94b2;
+  --callout-abstract: #4a9d85;
+  --callout-tip: #4a9d85;
+  --callout-success: #569f4b;
+  --callout-question: #aa8549;
+  --callout-warning: #aa8549;
+  --callout-failure: #df735c;
+  --callout-danger: #df735c;
+  --callout-bug: #df735c;
+  --callout-example: #ba74cc;
+  --callout-quote: #b5a595;
+
+  --syn-keyword: #f2b062;
+  --syn-string: #74a83f;
+  --syn-number: #c5844f;
+  --syn-comment: #807365;
+  --syn-func: #4ba1c2;
+  --syn-type: #d27980;
+  --syn-prop: #ba7fd6;
+  --syn-operator: #b5a595;
+}
+
+/* "sumi" — ink stick and indigo: an ink-grey ground under an aizome blue.
+   It shipped with NO accent channel at all. `--text: #e4e4e6` and
+   `--accent: #f5efe3` are 8.5 ΔE apart — the next-closest theme is 23.9 —
+   so tag pills, the `#` glyph, the active-row bar, wikilinks, the publish
+   star and the graph nodes all collapsed into body text, and the lit READING
+   pill (an `--accent` fill carrying `--bg` letters) read as a text selection
+   rather than an alarm. The whole mode-pill premise rests on that pair being
+   loud; a hueless room cannot carry it. Vermilion is the traditional
+   companion to sumi ink, but cinnabar already owns that red (7 ΔE), so this
+   takes the other half of the Japanese pairing — indigo — which no other
+   theme is near. `scripts/check-contrast.mjs` now asserts the accent-vs-text
+   delta, so a sixteenth theme cannot repeat this. */
+[data-theme="sumi"] {
+  color-scheme: dark;
+
+  --bg: #161617;
+  --bg-raised: #1d1d1f;
+  --bg-hover: #262628;
+  --text: #e4e4e6;
+  --text-muted: #a2a2a6;
+  --text-faint: #6c6c70;
+  --accent: #6b7fe8;
+  --accent-soft: rgba(107, 127, 232, 0.18);
+  --border: #2f2f33;
+  --danger: #d9705c;
+
+  --selection-bg: rgba(107, 127, 232, 0.26);
+  --focus-ring: #6b7fe8;
+  --banner-tint: 45%;
+
+  --graph-node: #6b7fe8;
+  --graph-edge: #57575b;
+  --graph-vignette: rgba(7, 7, 8, 0.4);
+
+  --callout-note: #6486b3;
+  --callout-info: #6486b3;
+  --callout-todo: #6486b3;
+  --callout-abstract: #478e91;
+  --callout-tip: #478e91;
+  --callout-success: #489357;
+  --callout-question: #a87a53;
+  --callout-warning: #a87a53;
+  --callout-failure: #d9705c;
+  --callout-danger: #d9705c;
+  --callout-bug: #d9705c;
+  --callout-example: #9874bb;
+  --callout-quote: #a2a2a6;
+
+  --syn-keyword: #8b9bf2;
+  --syn-string: #5a9b46;
+  --syn-number: #ba7e65;
+  --syn-comment: #6c6c70;
+  --syn-func: #6790ba;
+  --syn-type: #c2768f;
+  --syn-prop: #9f7ec5;
+  --syn-operator: #a2a2a6;
+}
+
+/* "moss" — forest floor: an olive-black ground under a lichen accent. */
+[data-theme="moss"] {
+  color-scheme: dark;
+
+  --bg: #151a13;
+  --bg-raised: #1c2219;
+  --bg-hover: #252d21;
+  --text: #e0e6da;
+  --text-muted: #9aa895;
+  --text-faint: #677263;
+  --accent: #9dc46a;
+  --accent-soft: rgba(157, 196, 106, 0.14);
+  --border: #28311f;
+  --danger: #e0715f;
+
+  --selection-bg: rgba(157, 196, 106, 0.24);
+  --focus-ring: #9dc46a;
+  --banner-tint: 45%;
+
+  --graph-node: #9dc46a;
+  --graph-edge: #505b48;
+  --graph-vignette: rgba(7, 9, 6, 0.4);
+
+  --callout-note: #478dac;
+  --callout-info: #478dac;
+  --callout-todo: #478dac;
+  --callout-abstract: #3d9379;
+  --callout-tip: #3d9379;
+  --callout-success: #46973e;
+  --callout-question: #97843e;
+  --callout-warning: #97843e;
+  --callout-failure: #e0715f;
+  --callout-danger: #e0715f;
+  --callout-bug: #e0715f;
+  --callout-example: #b06ac2;
+  --callout-quote: #9aa895;
+
+  --syn-keyword: #9dc46a;
+  --syn-string: #629e3b;
+  --syn-number: #b68444;
+  --syn-comment: #677263;
+  --syn-func: #4598b8;
+  --syn-type: #cc757b;
+  --syn-prop: #b178cd;
+  --syn-operator: #9aa895;
+}
+
+/* "sandstone" — warm desert paper with a burnt-orange accent; parchment's
+   drier, less golden twin. */
+[data-theme="sandstone"] {
+  color-scheme: light;
+
+  --bg: #f5efe4;
+  --bg-raised: #faf6ee;
+  --bg-hover: #ece3d3;
+  --text: #2e2823;
+  --text-muted: #5f564c;
+  --text-faint: #8b8177;
+  --accent: #9c4b27;
+  --accent-soft: rgba(156, 75, 39, 0.13);
+  --border: #ded3c0;
+  --danger: #b03a2c;
+
+  --selection-bg: rgba(156, 75, 39, 0.2);
+  --focus-ring: #9c4b27;
+  --banner-tint: 0%;
+
+  --graph-node: #9c4b27;
+  --graph-edge: #b8ae9d;
+  --graph-vignette: rgba(97, 75, 36, 0.26);
+
+  --callout-note: #3c67b0;
+  --callout-info: #3c67b0;
+  --callout-todo: #3c67b0;
+  --callout-abstract: #28745d;
+  --callout-tip: #28745d;
+  --callout-success: #327528;
+  --callout-question: #87612e;
+  --callout-warning: #87612e;
+  --callout-failure: #b03a2c;
+  --callout-danger: #b03a2c;
+  --callout-bug: #b03a2c;
+  --callout-example: #9d3db4;
+  --callout-quote: #5f564c;
+
+  --syn-keyword: #9c4b27;
+  --syn-string: #476b22;
+  --syn-number: #8c532c;
+  --syn-comment: #8b8177;
+  --syn-func: #32629e;
+  --syn-type: #ae3645;
+  --syn-prop: #8d39b7;
+  --syn-operator: #5f564c;
+}
+
+/* "linen" — cool neutral daylight and an ink-blue accent: the one light
+   theme with no warmth in it, for screens that already run warm. */
+[data-theme="linen"] {
+  color-scheme: light;
+
+  --bg: #f4f5f7;
+  --bg-raised: #fafbfc;
+  --bg-hover: #e7eaee;
+  --text: #232830;
+  --text-muted: #535c68;
+  --text-faint: #828b96;
+  --accent: #3a6ea5;
+  --accent-soft: rgba(58, 110, 165, 0.13);
+  --border: #d5dae1;
+  --danger: #b03a2c;
+
+  --selection-bg: rgba(58, 110, 165, 0.2);
+  --focus-ring: #3a6ea5;
+  --banner-tint: 0%;
+
+  --graph-node: #3a6ea5;
+  --graph-edge: #aeb4bd;
+  --graph-vignette: rgba(52, 61, 81, 0.26);
+
+  --callout-note: #3b6e9d;
+  --callout-info: #3b6e9d;
+  --callout-todo: #3b6e9d;
+  --callout-abstract: #2c7675;
+  --callout-tip: #2c7675;
+  --callout-success: #2d793d;
+  --callout-question: #7a6b2d;
+  --callout-warning: #7a6b2d;
+  --callout-failure: #b03a2c;
+  --callout-danger: #b03a2c;
+  --callout-bug: #b03a2c;
+  --callout-example: #8452be;
+  --callout-quote: #535c68;
+
+  --syn-keyword: #3a6ea5;
+  --syn-string: #387127;
+  --syn-number: #975234;
+  --syn-comment: #828b96;
+  --syn-func: #326892;
+  --syn-type: #ac3c61;
+  --syn-prop: #7a4ac0;
+  --syn-operator: #535c68;
+}
+
+/* "solar" — noon light on white paper. It shipped as #fdf9f2 under a
+   #a94b16 rust, which is sandstone's #f5efe4 under #9c4b27 with the hexes
+   nudged: 4.1 ΔE of ground and 11.7 ΔE of accent, i.e. two of only FOUR
+   light themes were the same room. The ground goes to the brightest, least
+   creamy paper in the set and the accent turns from rust toward a yellower
+   burnt gold — 20.4 ΔE off sandstone and 23.6 off parchment, so all four
+   light themes are now separable at a glance rather than only by hex. */
+[data-theme="solar"] {
+  color-scheme: light;
+
+  --bg: #fffdf4;
+  --bg-raised: #ffffff;
+  --bg-hover: #f6efdd;
+  --text: #2b2620;
+  --text-muted: #5c5347;
+  --text-faint: #8a8073;
+  --accent: #a35c00;
+  --accent-soft: rgba(163, 92, 0, 0.13);
+  --border: #e3d9c8;
+  --danger: #b03a2c;
+
+  --selection-bg: rgba(163, 92, 0, 0.2);
+  --focus-ring: #a35c00;
+  --banner-tint: 0%;
+
+  --graph-node: #a35c00;
+  --graph-edge: #bbb1a1;
+  --graph-vignette: rgba(115, 80, 18, 0.26);
+
+  --callout-note: #3c6cbf;
+  --callout-info: #3c6cbf;
+  --callout-todo: #3c6cbf;
+  --callout-abstract: #277a61;
+  --callout-tip: #277a61;
+  --callout-success: #337d27;
+  --callout-question: #8e652d;
+  --callout-warning: #8e652d;
+  --callout-failure: #b03a2c;
+  --callout-danger: #b03a2c;
+  --callout-bug: #b03a2c;
+  --callout-example: #a73dc1;
+  --callout-quote: #5c5347;
+
+  --syn-keyword: #a35c00;
+  --syn-string: #497221;
+  --syn-number: #94582b;
+  --syn-comment: #8a8073;
+  --syn-func: #3269ab;
+  --syn-type: #ba3645;
+  --syn-prop: #9739c5;
+  --syn-operator: #5c5347;
 }
 
 /* ── Arabic type compensation (settings.language = "ar") ───────────────────
