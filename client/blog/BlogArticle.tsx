@@ -3,11 +3,12 @@
 // prev/next links by date, related posts (wikilinked from/to this one), and
 // Marginalia (reader comments) at the end.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { stripBidiControls } from "../../shared/bidi.ts";
-import type { GraphData, PostMeta } from "../../shared/types.ts";
-import { getGraph, getNote } from "../api.ts";
+import type { PostMeta } from "../../shared/types.ts";
+import { getNote } from "../api.ts";
 import { bannerSrc, generatedBannerCss } from "../banner.ts";
+import { useNoteNeighborhood } from "../graphCache.ts";
 import { countPhrase, t, tf } from "../i18n.ts";
 import { MetaSep } from "../metaSep.tsx";
 import Marginalia from "../components/Marginalia.tsx";
@@ -77,7 +78,6 @@ export default function BlogArticle({
   // dependency of the body render below: the rendered markdown carries t()
   // chrome (properties card, transclusion cards) built as imperative DOM.
   const language = useStore((s) => s.language);
-  const [graph, setGraph] = useState<GraphData | null>(null);
 
   // Bidi controls out: the H1 is the note's own filename, and an RLO in it
   // reorders the headline. Same normalization the server applies to the title
@@ -165,20 +165,11 @@ export default function BlogArticle({
 
   // Related: published notes wikilinked from/to this one (the blog's stand-in
   // for the app's local graph). The visitor graph contains published notes
-  // only, so every neighbor is linkable.
-  useEffect(() => {
-    let disposed = false;
-    getGraph()
-      .then((g) => {
-        if (!disposed) setGraph(g);
-      })
-      .catch(() => {
-        // Related is garnish — skip it quietly.
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [path]);
+  // only, so every neighbor is linkable. It asks the server for this note's
+  // neighborhood rather than the whole graph, and the answer is cached per
+  // path — a reader walking six articles used to refetch the entire link
+  // graph six times.
+  const graph = useNoteNeighborhood(path);
 
   const related = useMemo(() => {
     if (!graph) return [];
@@ -200,7 +191,9 @@ export default function BlogArticle({
   const older = index >= 0 && index < posts!.length - 1 ? posts![index + 1] : null;
 
   return (
-    <div className="s-blog-page s-blog-article">
+    // <article>, not <div>: the piece is the page's one self-contained thing,
+    // and the element is what lets a screen reader jump straight to it.
+    <article className="s-blog-page s-blog-article">
       <header
         className={`s-blog-article__head${isRtlText(title) ? " s-blog-article__head--rtl" : ""}`}
       >
@@ -344,6 +337,6 @@ export default function BlogArticle({
 
         <Marginalia path={path} />
       </footer>
-    </div>
+    </article>
   );
 }

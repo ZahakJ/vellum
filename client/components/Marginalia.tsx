@@ -286,6 +286,8 @@ export default function Marginalia({ path }: { path: string }) {
           type="text"
           className="s-marginalia__name"
           placeholder={t("marginaliaName")}
+          // Placeholders are not labels — these two fields were nameless.
+          aria-label={t("marginaliaName")}
           maxLength={40}
           value={author}
           onChange={(e) => setAuthor(e.target.value)}
@@ -305,6 +307,7 @@ export default function Marginalia({ path }: { path: string }) {
         <textarea
           className="s-marginalia__text"
           placeholder={t("marginaliaBody")}
+          aria-label={t("marginaliaBody")}
           rows={3}
           maxLength={2000}
           value={body}

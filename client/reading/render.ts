@@ -11,6 +11,7 @@
 // ![[Note]] transclusions fetch + render at depth 1, cycle-safe.
 
 import type { TreeNode } from "../../shared/types.ts";
+import { activateOnKey, scrollBehavior } from "../a11y.ts";
 import { getNote } from "../api.ts";
 import { getKatex, loadKatex } from "../katex.ts";
 import { t, tf } from "../i18n.ts";
@@ -216,7 +217,10 @@ function renderInline(raw: string, ctx: Ctx, multiline = false): string {
     const cls = broken ? "s-rv-wikilink s-rv-wikilink--broken" : "s-rv-wikilink";
     const headingAttr = heading ? ` data-heading="${esc(heading)}"` : "";
     return keep(
-      `<a class="${cls}" data-target="${esc(target)}"${headingAttr}>${esc(label)}</a>`,
+      // See the footnote-ref note: an <a> with no href is inert to a keyboard.
+      // A broken link keeps the same treatment — it still DOES something
+      // (creates the note for an admin, explains itself to a visitor).
+      `<a class="${cls}" data-target="${esc(target)}"${headingAttr} role="link" tabindex="0">${esc(label)}</a>`,
     );
   });
 
@@ -253,7 +257,10 @@ function renderInline(raw: string, ctx: Ctx, multiline = false): string {
   // Footnote refs [^label] (definitions are consumed at block level).
   s = s.replace(/\[\^([^\]\s]+)\]/g, (_m, label: string) =>
     keep(
-      `<sup class="s-rv-fnref"><a data-fn="${esc(label)}" id="fnref-${esc(label)}">${esc(label)}</a></sup>`,
+      // role+tabindex, not bare <a>: an anchor WITHOUT href is not a link to
+      // the browser — no focus, no Enter, nothing. The delegated keydown on
+      // the root turns Enter/Space back into the click these already handle.
+      `<sup class="s-rv-fnref"><a data-fn="${esc(label)}" id="fnref-${esc(label)}" role="link" tabindex="0">${esc(label)}</a></sup>`,
     ),
   );
 
@@ -1001,7 +1008,7 @@ function renderNote(md: string, ctx: Ctx, root: HTMLElement): void {
     for (const f of ctx.footnotes) {
       const li = document.createElement("li");
       li.id = `fn-${f.label}`;
-      li.innerHTML = `${renderInline(f.text, ctx)} <a class="s-rv-fnback" data-fnback="${esc(f.label)}" title="${esc(t("backToReference"))}">↩</a>`;
+      li.innerHTML = `${renderInline(f.text, ctx)} <a class="s-rv-fnback" data-fnback="${esc(f.label)}" role="link" tabindex="0" title="${esc(t("backToReference"))}" aria-label="${esc(t("backToReference"))}">↩</a>`;
       ol.appendChild(li);
     }
     sec.appendChild(ol);
@@ -1081,7 +1088,7 @@ export function onRootClick(ev: MouseEvent): void {
     ev.preventDefault();
     scope
       .querySelector(`#fn-${CSS.escape(ref.dataset.fn)}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      ?.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
     return;
   }
   const back = target.closest<HTMLElement>("[data-fnback]");
@@ -1089,7 +1096,7 @@ export function onRootClick(ev: MouseEvent): void {
     ev.preventDefault();
     scope
       .querySelector(`#fnref-${CSS.escape(back.dataset.fnback)}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      ?.scrollIntoView({ behavior: scrollBehavior(), block: "center" });
   }
 }
 
@@ -1109,5 +1116,11 @@ export function renderMarkdown(md: string, opts: RenderOptions): HTMLElement {
   root.className = "s-rv";
   renderNote(md, ctx, root);
   root.addEventListener("click", onRootClick);
+  // Keyboard twin of the click delegation: the wikilinks, footnote refs and
+  // back-refs above are href-less anchors, so nothing but this makes Enter
+  // and Space do what a pointer does.
+  root.addEventListener("keydown", (ev) => {
+    activateOnKey(ev, ".s-rv-wikilink, [data-fn], [data-fnback]");
+  });
   return root;
 }

@@ -2,29 +2,28 @@
 // global keyboard shortcuts, and the single SSE subscription that keeps the
 // tree, backlinks, and externally-changed open notes fresh.
 
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { VaultEvent } from "../shared/types.ts";
 import { subscribeEvents } from "./api.ts";
+import { coalesce } from "./coalesce.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import { collectNotes } from "./editor/links.ts";
-import BlogShell from "./blog/BlogShell.tsx";
-import DesignStatus from "./design/DesignStatus.tsx";
-import DesignedSite from "./design/DesignedSite.tsx";
-import BacklinksPanel from "./components/BacklinksPanel.tsx";
-import BannerModal from "./components/BannerModal.tsx";
-import CommandPalette from "./components/CommandPalette.tsx";
+import { invalidateVaultGraph } from "./graphCache.ts";
 import ConfirmHost from "./components/Confirm.tsx";
-import GraphView from "./components/GraphView.tsx";
 import LoginModal from "./components/LoginModal.tsx";
-import ModerationPanel from "./components/ModerationPanel.tsx";
-import TrashModal from "./components/TrashModal.tsx";
 import PreviewBanner from "./components/PreviewBanner.tsx";
-import ReadingView from "./reading/ReadingView.tsx";
-import SettingsModal from "./components/SettingsModal.tsx";
-import ShortcutsHelp from "./components/ShortcutsHelp.tsx";
-import Sidebar from "./components/Sidebar.tsx";
-import StatusBar, { vimSubCopy } from "./components/StatusBar.tsx";
-import Tabs from "./components/Tabs.tsx";
+// The vim sub-mode copy table lives in its own module rather than in
+// StatusBar, which is now lazy: a named import from a lazy component's file is
+// a STATIC import of that file, and StatusBar reaches the designer, the theme
+// picker and the sync badge. One named import would have dragged all of it
+// back into the first paint and quietly undone the split below.
+import { vimSubCopy } from "./vimCopy.ts";
+// Always-mounted hosts stay STATIC. All four render (or stand ready to
+// render) on every path through this component, so lazy() would buy no
+// deferral — the import fires the moment they mount — while costing each of
+// them a boundary and a round trip. Only a surface that is CONDITIONALLY
+// mounted is worth splitting.
+import DesignStatus from "./design/DesignStatus.tsx";
 import TemplatePicker from "./components/TemplatePicker.tsx";
 import { openDailyNote } from "./daily.ts";
 import { t, tf } from "./i18n.ts";
@@ -41,6 +40,11 @@ const SELF_SAVE_WINDOW_MS = 1500;
 /** How long zen's ✕ lingers before fading out (any mouse move brings it back). */
 const ZEN_HINT_MS = 2000;
 
+/** Trailing window for whole-vault refreshes driven by the SSE stream. Above
+ *  the watcher's own 100ms debounce, so a burst arrives as one wave, and far
+ *  below the threshold at which a tree feels stale. */
+const SSE_COALESCE_MS = 250;
+
 // macOS binds Ctrl+B to emacs-style "char left" inside CodeMirror, and this
 // file used to carry an IS_MAC test so the editor could keep it. The test is
 // gone with the shortcut: Ctrl/Cmd+B is now the EDITOR's (bold), so the
@@ -48,10 +52,65 @@ const ZEN_HINT_MS = 2000;
 // CodeMirror's own precedence decides, and plain Ctrl+B on macOS still reaches
 // the emacs binding underneath `formatKeymap`'s Mod-b.
 
-// The CodeMirror editor is the heaviest part of the client and anonymous
-// visitors (reading view only) never need it — load it on demand so the
-// first-paint bundle stays lean.
+// Everything below this line is a SURFACE, not a shell: exactly one of the
+// two shells is ever mounted, and most of the app shell's modals never open
+// at all. Reaching them through lazy() is what gives rollup a boundary to
+// split on — build/chunks.ts then regroups them so each surface arrives as
+// one request rather than a waterfall of per-component chunks.
+//
+// ConfirmHost, LoginModal and PreviewBanner deliberately stay static above:
+// all three render in the BLOG branch as well, so making them lazy would
+// drag the app-shell chunk back into an anonymous reader's first paint —
+// the exact cost this split exists to remove.
+//
+// The CodeMirror editor keeps its own chunk (its dependencies dwarf every
+// other surface). That boundary is ASSERTED, not assumed:
+// `node scripts/check-bundle.mjs` fails the build if CodeMirror, the vim
+// keymap, KaTeX or the graph engine ever reappear in what a first paint
+// downloads.
+//
+// EVERY ONE OF THESE GETS ITS OWN <Suspense>, and that is a correctness rule,
+// not a taste one. A boundary is not a loading indicator: React unmounts the
+// WHOLE subtree under the boundary that suspends and replaces it with the
+// fallback. One boundary around the shell therefore meant that opening
+// Settings — a modal — tore down the sidebar, the tabs, the editor and the
+// status bar with it; on a throttled connection the open note went to zero
+// characters while the reader watched, and CodeMirror was remounted from
+// scratch when the chunk landed. It also broke focus: the dialogs capture
+// `document.activeElement` as the opener to restore on Escape, and the
+// element they were opened FROM had just been unmounted, so the first Escape
+// of every session dropped focus to <body>. Per-surface boundaries fix both,
+// because nothing that is already on screen is inside the boundary that
+// suspends.
 const Editor = lazy(() => import("./components/Editor.tsx"));
+const BlogShell = lazy(() => import("./blog/BlogShell.tsx"));
+const DesignedSite = lazy(() => import("./design/DesignedSite.tsx"));
+const ReadingView = lazy(() => import("./reading/ReadingView.tsx"));
+const GraphView = lazy(() => import("./components/GraphView.tsx"));
+const Sidebar = lazy(() => import("./components/Sidebar.tsx"));
+const Tabs = lazy(() => import("./components/Tabs.tsx"));
+const StatusBar = lazy(() => import("./components/StatusBar.tsx"));
+const BacklinksPanel = lazy(() => import("./components/BacklinksPanel.tsx"));
+const CommandPalette = lazy(() => import("./components/CommandPalette.tsx"));
+const BannerModal = lazy(() => import("./components/BannerModal.tsx"));
+const ModerationPanel = lazy(() => import("./components/ModerationPanel.tsx"));
+const TrashModal = lazy(() => import("./components/TrashModal.tsx"));
+const SettingsModal = lazy(() => import("./components/SettingsModal.tsx"));
+// The keyboard-shortcut sheet is lazy AND mount-gated on `shortcutsOpen` —
+// which is why it is worth splitting when the other always-mounted hosts are
+// not. It renders in the BLOG branch too, so a static copy put its 389 lines,
+// and the theme picker it reaches, into an anonymous article reader's first
+// request in order to describe keys that reader has not pressed. The store
+// already holds the open flag, so the mount can simply wait for it.
+const ShortcutsHelp = lazy(() => import("./components/ShortcutsHelp.tsx"));
+
+/** One lazy surface, one boundary. `fallback` defaults to nothing for the
+ *  modals — a dialog that arrives a frame late is invisible, whereas a
+ *  SKELETON that flashes where a dialog is about to be is not. The panes pass
+ *  a real placeholder so the grid keeps its shape while the chunk lands. */
+function Surface({ fallback = null, children }: { fallback?: ReactNode; children: ReactNode }) {
+  return <Suspense fallback={fallback}>{children}</Suspense>;
+}
 
 // ── Recently opened notes ──────────────────────────────────────────────────
 // The empty state on a phone cannot be a keymap, and "here are four buttons"
@@ -117,6 +176,10 @@ export default function App() {
   const moderationOpen = useStore((s) => s.moderationOpen);
   const trashOpen = useStore((s) => s.trashOpen);
   const settingsOpen = useStore((s) => s.settingsOpen);
+  // Subscribed here (not only inside the sheet) because App now decides
+  // whether the sheet is MOUNTED at all — that is what keeps its chunk out of
+  // the first paint on both shells.
+  const shortcutsOpen = useStore((s) => s.shortcutsOpen);
   const previewVisitor = useStore((s) => s.previewVisitor);
   const reloadTick = useStore((s) => s.reloadTick);
   const admin = useStore((s) => s.admin);
@@ -242,9 +305,27 @@ export default function App() {
   // announcing edits to notes their new language hides, and silent about the
   // ones it reveals. Cheap: one reconnect per deliberate language change.
   useEffect(() => {
-    const onEvent = (ev: VaultEvent) => {
+    // Whole-vault refreshes are COALESCED; per-event bookkeeping below is not.
+    // One changed file and sixty changed files leave the tree, the backlinks,
+    // the tag list and the publish marks in the same place, so a burst pays
+    // for one round of each instead of sixty (client/coalesce.ts spells out
+    // the numbers this replaced).
+    const refreshVault = coalesce(() => {
       const store = useStore.getState();
       void store.loadTree();
+      void store.refreshBacklinks();
+      // Keep publish marks + "N published" fresh (external edits can flip
+      // frontmatter flags too).
+      if (store.admin) void store.loadPublished();
+    }, SSE_COALESCE_MS);
+
+    const onEvent = (ev: VaultEvent) => {
+      const store = useStore.getState();
+      refreshVault();
+      // The link graph is the most expensive of the lot and has its own
+      // debounce and its own shared cache, so it is invalidated rather than
+      // refetched here.
+      invalidateVaultGraph();
 
       // New/renamed files may satisfy embeds that 404'd earlier.
       if (ev.kind === "created" || ev.kind === "renamed") clearBrokenEmbeds();
@@ -273,11 +354,6 @@ export default function App() {
           }
         }
       }
-
-      void store.refreshBacklinks();
-      // Keep publish marks + "N published" fresh (external edits can flip
-      // frontmatter flags too).
-      if (store.admin) void store.loadPublished();
     };
     return subscribeEvents(onEvent);
   }, [admin, language]);
@@ -551,11 +627,23 @@ export default function App() {
         {/* THE one line where the design engine meets the stock blog. The
             server only sends "designed" when a design is actually renderable,
             and DesignedSite falls back to this very component — unmodified,
-            no props — for every failure it can see that the server cannot. */}
-        {publicLayout === "designed" ? <DesignedSite /> : <BlogShell />}
+            no props — for every failure it can see that the server cannot.
+
+            The fallback is the empty shell, not a spinner: the blog chunk is
+            one request behind the entry and a flash of chrome-then-content
+            reads worse than a beat of the page background. Both arms share the
+            one boundary because only one of them is ever mounted, and the
+            fallback they would each want is the same page-shaped blank. */}
+        <Surface fallback={<div className="s-blog" />}>
+          {publicLayout === "designed" ? <DesignedSite /> : <BlogShell />}
+        </Surface>
         {/* The sheet knows which shell it is in and drops the rows this one
             does not have — six of them named controls the blog never mounts. */}
-        <ShortcutsHelp shell="blog" />
+        {shortcutsOpen && (
+          <Surface>
+            <ShortcutsHelp shell="blog" />
+          </Surface>
+        )}
         <ConfirmHost />
       </>
     );
@@ -599,9 +687,19 @@ export default function App() {
 
   return (
     <div className={shellClass}>
+      {/* First tab stop in the document: past the sidebar tree (which can be
+          a thousand rows) and straight into the note. Hidden until focused. */}
+      <a className="s-skip" href="#s-main">
+        {t("skipToContent")}
+      </a>
       {/* Grid row above every pane (grid-area: notice) — never an overlay. */}
       <PreviewBanner />
-      <Sidebar />
+      {/* The sidebar's own boundary. Its fallback holds the grid column open
+          at the width the pane will occupy, so the shell does not reflow
+          sideways when the chunk lands. */}
+      <Surface fallback={<aside className="s-sidebar" aria-hidden="true" />}>
+        <Sidebar />
+      </Surface>
       {/* Mobile drawer chrome: backdrop dismisses; the toggle floats over the
           main column. Both are display:none above the narrow breakpoint. */}
       <div
@@ -625,7 +723,10 @@ export default function App() {
           </svg>
         </button>
       )}
-      <main className="s-main">
+      {/* tabIndex -1 so the skip link can actually land focus here: an <a
+          href="#…"> moves the caret to the target only if the target is
+          focusable, otherwise the next Tab starts from the top again. */}
+      <main className="s-main" id="s-main" tabIndex={-1} aria-label={t("mainContent")}>
         <button
           type="button"
           className="s-drawer-btn"
@@ -637,7 +738,9 @@ export default function App() {
             <path d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <Tabs />
+        <Surface fallback={<div className="s-tabs" aria-hidden="true" />}>
+          <Tabs />
+        </Surface>
         {/* One line, part of the layout (it pushes the note down, it does not
             float over it), saying what the mode is and how to leave it. The
             accent rule down the column's inline-start edge is its companion:
@@ -670,15 +773,22 @@ export default function App() {
         )}
         <section className="s-view">
           {view === "graph" ? (
-            <GraphView />
+            <Surface fallback={<div className="s-graph" />}>
+              <GraphView />
+            </Surface>
           ) : openPath ? (
-            // Visitors read; only admins may mount the editor.
+            // Visitors read; only admins may mount the editor. One boundary
+            // per arm, INSIDE the ternary: a boundary around the ternary would
+            // make switching from the editor to the reading view suspend the
+            // arm that is already on screen.
             readingMode || !admin ? (
-              <ReadingView key={`${openPath}#${reloadTick}`} path={openPath} />
+              <Surface fallback={<div className="s-reading" />}>
+                <ReadingView key={`${openPath}#${reloadTick}`} path={openPath} />
+              </Surface>
             ) : (
-              <Suspense fallback={<div className="s-editor" />}>
+              <Surface fallback={<div className="s-editor" />}>
                 <Editor key={`${openPath}#${reloadTick}`} path={openPath} />
-              </Suspense>
+              </Surface>
             )
           ) : locked ? (
             <div className="s-empty">
@@ -784,8 +894,12 @@ export default function App() {
           )}
         </section>
       </main>
-      <BacklinksPanel />
-      <StatusBar />
+      <Surface fallback={<aside className="s-panel" aria-hidden="true" />}>
+        <BacklinksPanel />
+      </Surface>
+      <Surface fallback={<footer className="s-statusbar" aria-hidden="true" />}>
+        <StatusBar />
+      </Surface>
       {zen && (
         <div className={`s-zen-exit-wrap${zenIdle ? " s-zen-exit-wrap--idle" : ""}`}>
           {/* The keystroke, spelled out. Esc is the route that always works,
@@ -810,17 +924,45 @@ export default function App() {
           designed site fell back to stock. One line, the reason, one click
           back — the app-side twin of the notice on the designed page itself. */}
       <DesignStatus />
-      <ShortcutsHelp />
-      {paletteOpen && <CommandPalette />}
-      {loginOpen && <LoginModal />}
-      {bannerModalOpen && admin && <BannerModal />}
-      {moderationOpen && admin && <ModerationPanel />}
-      {trashOpen && admin && <TrashModal />}
-      {settingsOpen && admin && <SettingsModal />}
+      {shortcutsOpen && (
+        <Surface>
+          <ShortcutsHelp />
+        </Surface>
+      )}
+      {/* A boundary EACH, with no fallback. These are the surfaces that proved
+          the rule: they were the ones being opened when the shell vanished,
+          and they are the ones whose opener has to stay mounted underneath so
+          Escape has somewhere to put focus back. */}
+      {paletteOpen && (
+        <Surface>
+          <CommandPalette />
+        </Surface>
+      )}
+      {bannerModalOpen && admin && (
+        <Surface>
+          <BannerModal />
+        </Surface>
+      )}
+      {moderationOpen && admin && (
+        <Surface>
+          <ModerationPanel />
+        </Surface>
+      )}
+      {trashOpen && admin && (
+        <Surface>
+          <TrashModal />
+        </Surface>
+      )}
+      {settingsOpen && admin && (
+        <Surface>
+          <SettingsModal />
+        </Surface>
+      )}
       {/* Always mounted (like ConfirmHost): the two template commands await a
           promise from it, and a host that only exists once something has
           already opened it cannot be the thing that opens. */}
       {admin && <TemplatePicker />}
+      {loginOpen && <LoginModal />}
       <ConfirmHost />
     </div>
   );

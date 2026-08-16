@@ -15,6 +15,7 @@ import { WidgetType, type EditorView } from "@codemirror/view";
 import { getNote } from "../api.ts";
 import { noteTitleOf } from "../../shared/noteFormat.ts";
 import { getLang, t, tf } from "../i18n.ts";
+import { Lru } from "../lru.ts";
 import { useStore } from "../state.ts";
 import { markTransclusionOverflow } from "../reading/render.ts";
 import { renderNoteSlice } from "../reading/renderNote.ts";
@@ -149,8 +150,12 @@ export class FileCardWidget extends WidgetType {
 
 // ── Note transclusion card ──────────────────────────────────────────────────
 
-const noteCache = new Map<string, { content: string; at: number }>();
-const NOTE_CACHE_MS = 15_000;
+/** Transcluded note bodies. Bounded as well as expiring — see client/lru.ts:
+ *  a TTL keeps the text fresh, it does not keep the Map small, and a note with
+ *  many `![[embeds]]` walked over a session used to retain every target
+ *  forever. A note holding more than 40 distinct live transclusions at once is
+ *  not a case worth caching for. */
+const noteCache = new Lru<string>({ max: 40, ttlMs: 15_000 });
 
 export class TransclusionWidget extends WidgetType {
   constructor(
@@ -248,13 +253,13 @@ export class TransclusionWidget extends WidgetType {
       view.requestMeasure();
     };
     const cached = noteCache.get(path);
-    if (cached && Date.now() - cached.at < NOTE_CACHE_MS) {
-      render(cached.content);
+    if (cached !== undefined) {
+      render(cached);
     } else {
       body.textContent = "…";
       getNote(path)
         .then((note) => {
-          noteCache.set(path, { content: note.content, at: Date.now() });
+          noteCache.set(path, note.content);
           if (card.isConnected) render(note.content);
         })
         .catch(() => {

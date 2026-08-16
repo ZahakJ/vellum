@@ -8,6 +8,11 @@ import type { Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import {
+  ATTACHMENT_TYPES,
+  extensionOf,
+  normalizeFolder,
+} from "../shared/attachments.ts";
 import { stripBidiControls } from "../shared/bidi.ts";
 import { isNotePath, isTexPath, stripNoteExt } from "../shared/noteFormat.ts";
 import { UPLOAD_MAX_BYTES } from "../shared/limits.ts";
@@ -48,10 +53,10 @@ import {
 import type { FilterLang } from "./indexer.ts";
 import {
   backlinks,
-  graph,
   indexFile,
   indexUnder,
   isAllowedAttachment,
+  noteTitle,
   isNotePublished,
   isNoteVisibleToVisitor,
   listImageAttachments,
@@ -73,6 +78,9 @@ import {
   whenIndexed,
   wikilinkRegex,
 } from "./indexer.ts";
+import { sendEncoded } from "./compress.ts";
+import { graphBody, invalidateGraph, localGraphJson } from "./graphCache.ts";
+import { invalidateTree, treeBody } from "./treeCache.ts";
 import { designRoutes } from "./designRoutes.ts";
 import { staticPagesActive } from "./pages.ts";
 import { gitStatus, initRepo, syncNow } from "./gitSync.ts";
@@ -110,10 +118,15 @@ import { fontSlots, patchSettings, settingsAssetPaths, settingsResponse } from "
 // Localised tag labels: display names for canonical tags, plus the query
 // rewrite that makes search answer to both spellings.
 import { expandTagQuery, visibleTagLabels } from "./tagLabels.ts";
-import { attachmentsDir, customCssPath, fontsDir, LANGUAGE_FILTER_MODES } from "./site.ts";
+import {
+  attachmentsDir,
+  customCssPath,
+  fontsDir,
+  LANGUAGE_FILTER_MODES,
+  uploadDirFor,
+} from "./site.ts";
 import {
   VaultError,
-  buildTree,
   createFolder,
   createNote,
   deleteAttachment,
@@ -410,6 +423,26 @@ api.get("/fonts/:file", async (c) => {
 
 api.use("*", authGuard);
 
+// Any write can reshape the vault, and the watcher that would notice is
+// debounced 100 ms — long enough for the client's own "create note, then
+// refetch the tree" round trip to be answered from a stale memo. Dropping it
+// up front costs one directory walk on the next read and removes the race
+// entirely. See server/treeCache.ts for the full invalidation contract.
+api.use("*", async (c, next) => {
+  const writes = c.req.method !== "GET" && c.req.method !== "HEAD";
+  if (writes) {
+    invalidateTree();
+    invalidateGraph();
+  }
+  await next();
+  // Again on the way out: a concurrent read that arrived mid-write could have
+  // re-memoized the pre-write state between those two points.
+  if (writes) {
+    invalidateTree();
+    invalidateGraph();
+  }
+});
+
 api.onError((err, c) => {
   if (err instanceof VaultError) {
     // `code` rides beside `error` when the thrower named one: the prose is for
@@ -465,8 +498,15 @@ function publishedTree(lang: FilterLang): TreeNode {
 // allowlist check either way.
 api.get("/tree", async (c) => {
   const limited = isPublishLimited(c);
+  // The visitor tree is NOT memoized here: it is language-scoped, so it varies
+  // per reader (the cache would need the lang in its key, and this arm is a
+  // filter over an in-memory set rather than a disk walk).
   if (limited) return c.json(publishedTree(languageScope(c, limited).lang));
-  return c.json(await buildTree());
+  // The ADMIN tree is memoized (server/treeCache.ts): the walk, its JSON and
+  // its compressed forms are rebuilt only after something could have changed
+  // the vault's shape. Was a full recursive readdir per request — ~29 ms and
+  // 171 kB on the 1,388-note fixture, asked for on every vault event.
+  return sendEncoded(c, await treeBody());
 });
 
 api.get("/note", async (c) => {
@@ -1027,19 +1067,59 @@ api.get("/file", async (c) => {
 
 // ------------------------------------------------------- attachment uploads
 
-/** Sniff the actual image type from file bytes — extension and Content-Type
- *  are attacker-controlled and ignored. Returns the canonical extension. */
-function sniffImageType(buf: Buffer): string | null {
-  if (buf.length >= 8 && buf[0] === 0x89 && buf.toString("latin1", 1, 4) === "PNG") return "png";
-  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "jpg";
-  if (buf.length >= 6 && /^GIF8[79]a/.test(buf.toString("latin1", 0, 6))) return "gif";
-  if (
-    buf.length >= 12 &&
-    buf.toString("latin1", 0, 4) === "RIFF" &&
-    buf.toString("latin1", 8, 12) === "WEBP"
-  ) {
-    return "webp";
+/** ISO-BMFF brand → canonical extension (the `ftyp` box at offset 4 is what
+ *  separates an .avif from an .m4a from a .mov — they share one container). */
+function brandExt(brand: string): string {
+  if (brand === "avif" || brand === "avis") return "avif";
+  if (brand.startsWith("heic") || brand.startsWith("heix") || brand === "mif1" || brand === "hevc") {
+    return "heic";
   }
+  if (brand === "M4A ") return "m4a";
+  if (brand === "qt  ") return "mov";
+  return "mp4";
+}
+
+/** Sniff the actual attachment type from file bytes — extension and
+ *  Content-Type are attacker-controlled and ignored. Returns the canonical
+ *  extension, or null when the bytes are not a type we accept.
+ *
+ *  `hint` is the uploader's own extension, consulted ONLY to pick between
+ *  aliases the bytes cannot distinguish (jpg/jpeg, ogg/oga/opus, mp4/m4v);
+ *  the family is always decided by the magic number. */
+function sniffAttachmentType(buf: Buffer, hint = ""): string | null {
+  const alias = (canonical: string, others: string[]): string =>
+    others.includes(hint) ? hint : canonical;
+  const latin = (from: number, to: number): string =>
+    buf.length >= to ? buf.toString("latin1", from, to) : "";
+
+  // ── images ──
+  if (buf.length >= 8 && buf[0] === 0x89 && latin(1, 4) === "PNG") return "png";
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return alias("jpg", ["jpeg"]);
+  }
+  if (buf.length >= 6 && /^GIF8[79]a/.test(latin(0, 6))) return "gif";
+  if (latin(0, 4) === "RIFF" && latin(8, 12) === "WEBP") return "webp";
+  if (latin(0, 2) === "BM" && buf.length >= 14) return "bmp";
+  // ── documents ──
+  if (latin(0, 5) === "%PDF-") return "pdf";
+  // ── audio ──
+  if (latin(0, 3) === "ID3") return "mp3";
+  if (latin(0, 4) === "RIFF" && latin(8, 12) === "WAVE") return "wav";
+  if (latin(0, 4) === "OggS") return alias("ogg", ["oga", "opus"]);
+  if (latin(0, 4) === "fLaC") return "flac";
+  // ── ISO base media: mp4 / m4a / mov / avif / heic ──
+  if (latin(4, 8) === "ftyp") {
+    const ext = brandExt(latin(8, 12));
+    return ext === "mp4" ? alias("mp4", ["m4v"]) : ext;
+  }
+  // ── Matroska / WebM ──
+  if (buf.length >= 4 && buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) {
+    return "webm";
+  }
+  // An mp3 with no ID3 tag opens on a raw MPEG audio frame sync. Checked LAST
+  // of the binary formats: 0xFF 0xEx is two bytes, weak enough that anything
+  // with a real magic number must get its say first.
+  if (buf.length >= 4 && buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0) return "mp3";
   // SVG has no magic bytes: accept text that opens with an <svg …> root
   // (optionally after a BOM, an XML declaration, comments, or a DOCTYPE).
   const head = buf.toString("utf8", 0, Math.min(buf.length, 2048)).replace(/^\uFEFF/, "");
@@ -1084,8 +1164,12 @@ function sanitizeBaseName(name: string): string {
 }
 
 // Admin-only via the auth guard (POST on a non-exempt path). Multipart field
-// "file"; bytes sniffed for a real image type; stored under ATTACHMENTS_DIR
-// (vault-relative, created on demand) with a collision-free sanitized name.
+// "file"; bytes sniffed for a type we accept; stored in the folder the
+// attachment-location setting resolves to (vault-relative, created on demand)
+// with a collision-free sanitized name. The optional field "dir" names the
+// vault folder the upload happened IN — the open note's folder, or the tree
+// row it was dropped on — which is what the "same folder" and "subfolder"
+// modes are relative to; the other two modes ignore it.
 api.post("/upload", async (c) => {
   let form: Record<string, unknown>;
   try {
@@ -1095,36 +1179,35 @@ api.post("/upload", async (c) => {
   }
   const file = form.file;
   if (!(file instanceof File)) {
-    throw new VaultError(400, 'Multipart field "file" (the image) is required');
+    throw new VaultError(400, 'Multipart field "file" (the attachment) is required');
   }
   if (file.size > UPLOAD_MAX_BYTES) {
-    throw new VaultError(413, `Image too large (${UPLOAD_MAX_BYTES} bytes max)`);
+    throw new VaultError(413, `File too large (${UPLOAD_MAX_BYTES} bytes max)`);
   }
   let buf = Buffer.from(await file.arrayBuffer());
-  const ext = sniffImageType(buf);
+  const ext = sniffAttachmentType(buf, extensionOf(typeof file.name === "string" ? file.name : ""));
   if (!ext) {
-    // Named, so the client can say it in the reader's language (see the API
-    // section of CONTRACTS: the prose here is for a log and for curl).
-    throw new VaultError(400, "Not a recognized image (png, jpeg, webp, gif, svg)", "upload_not_image");
+    // CODED, so the client can say it in the reader's language (see the API
+    // section of CONTRACTS: the prose here is for a log and for curl). The
+    // code kept its name through the widening from images to every accepted
+    // attachment — it is a wire contract, and what it means ("the bytes are
+    // not a kind this vault takes") did not change.
+    throw new VaultError(
+      400,
+      `Not a recognized attachment (${[...new Set(Object.keys(ATTACHMENT_TYPES))].join(", ")})`,
+      "upload_not_image",
+    );
   }
   if (ext === "svg") buf = Buffer.from(sanitizeSvg(buf.toString("utf8")), "utf8");
-  // Optional destination FOLDER — the sidebar's "drop a file from the desktop
-  // onto a folder row" route. Every pre-existing caller (paste in the editor,
-  // the banner picker) omits it and keeps the configured attachments dir, byte
-  // for byte. The name still goes through sanitizeBaseName + safeAbs below;
-  // this only decides which folder the loop looks for a free name in, and a
-  // path that is not an existing directory is refused here rather than turning
-  // into a stray mkdir -p somewhere the caller named.
-  const asked = typeof form.dir === "string" ? normalizeRel(form.dir) : "";
-  let dir = attachmentsDir();
-  if (asked) {
-    const dirAbs = safeAbs(asked); // 400/404: traversal, dotfiles, escaping links
-    const dirStat = await fsp.lstat(dirAbs).catch(() => null);
-    if (!dirStat?.isDirectory()) {
-      throw new VaultError(400, `Not a folder: ${asked}`, "upload_bad_dir");
-    }
-    dir = asked;
-  }
+  // `dir` is the folder the upload happened IN — CONTEXT, not a destination.
+  // The attachment-LOCATION setting decides what that means: "same folder" and
+  // "subfolder" are relative to it, "vault root" and "specified" ignore it.
+  // It is advisory and untrusted either way: normalizeFolder tidies it, and
+  // safeAbs in the loop below is what actually refuses anything outside the
+  // vault. There is deliberately no "must already exist" check — "subfolder"
+  // mode creates its folder on first upload, which is the whole point of it.
+  const context = typeof form.dir === "string" ? normalizeFolder(form.dir) : "";
+  const dir = uploadDirFor(context);
   const base = sanitizeBaseName(file.name ?? "");
   // First free filename: name.ext, name-2.ext, name-3.ext, …
   let rel = "";
@@ -1303,9 +1386,24 @@ api.get("/search", (c) => {
   );
 });
 
+// `?around=<path>` answers with just that note's neighborhood — the shape the
+// backlinks panel's local graph draws. Without it the panel pulled the ENTIRE
+// vault graph (534 kB on the 1,388-note fixture, ~4 MB on a 10k-note vault)
+// on every app open in order to render a dozen nodes. Both forms are memoized
+// per audience AND per language; see server/graphCache.ts.
 api.get("/graph", (c) => {
-  const limited = isPublishLimited(c);
-  return c.json(graph(limited, languageScope(c, limited).lang));
+  const publishedOnly = isPublishLimited(c);
+  const lang = languageScope(c, publishedOnly).lang;
+  const around = c.req.query("around");
+  if (around === undefined || around === "") {
+    return sendEncoded(c, graphBody(publishedOnly, lang));
+  }
+  // Slices are small and there are as many as there are notes, so they are
+  // built per request and compressed by the ordinary middleware rather than
+  // memoized per path.
+  return c.body(localGraphJson(normalizeRel(around), publishedOnly, lang), 200, {
+    "Content-Type": "application/json",
+  });
 });
 
 api.get("/backlinks", (c) => {

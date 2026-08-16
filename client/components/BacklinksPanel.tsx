@@ -100,7 +100,10 @@ export default function BacklinksPanel() {
       <aside
         className={`s-panel${collapsed ? " s-panel--collapsed" : ""}`}
         // Named by what it holds, not by the edge it happens to sit on — the
-        // same rule the toggles and the palette follow.
+        // same rule the toggles and the palette follow. (The a11y round reached
+        // for a "backlinksPanelAria" key here; main had already given the panel
+        // a truer name, since it now carries the outline and the local graph
+        // above the backlinks list.)
         aria-label={t("paneOutline")}
         aria-hidden={collapsed || zen}
       >

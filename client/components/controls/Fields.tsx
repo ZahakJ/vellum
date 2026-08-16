@@ -12,9 +12,25 @@
 
 import type { ChangeEvent } from "react";
 
+// ------------------------------------------------------------- identity ---
+//
+// The settings panel's `Row` owns the <label> and the hint/error text, and
+// clones an `id` + `aria-describedby` (+ `aria-invalid`) onto its single
+// control child so no call site has to remember to. A control that DROPS
+// those props silently breaks that wiring: the label's `htmlFor` points at
+// nothing, and the hint under the field is never announced. So every control
+// here accepts them and forwards them to the element that actually takes
+// focus. `label` stays as the fallback accessible name for the controls used
+// outside a Row.
+export interface ControlIdentity {
+  id?: string;
+  "aria-describedby"?: string;
+  "aria-invalid"?: boolean;
+}
+
 // ---------------------------------------------------------------- Toggle
 
-interface ToggleProps {
+interface ToggleProps extends ControlIdentity {
   /** Two-state only. A control with an "inherit" third state is a
    *  SegmentedControl — a switch that can be neither on nor off is a lie. */
   value: boolean;
@@ -27,13 +43,24 @@ interface ToggleProps {
   offLabel: string;
 }
 
-export function Toggle({ value, onChange, disabled, label, onLabel, offLabel }: ToggleProps) {
+export function Toggle({
+  value,
+  onChange,
+  disabled,
+  label,
+  onLabel,
+  offLabel,
+  id,
+  "aria-describedby": describedBy,
+}: ToggleProps) {
   return (
     <button
       type="button"
       role="switch"
+      id={id}
       aria-checked={value}
       aria-label={label}
+      aria-describedby={describedBy}
       disabled={disabled}
       className={`s-ctl s-ctl-toggle${value ? " s-ctl-toggle--on" : ""}`}
       onClick={() => onChange(!value)}
@@ -55,7 +82,7 @@ export interface Segment {
   note?: string;
 }
 
-interface SegmentedProps {
+interface SegmentedProps extends ControlIdentity {
   value: string;
   onChange: (value: string) => void;
   segments: Segment[];
@@ -66,9 +93,26 @@ interface SegmentedProps {
 /** Two or three mutually exclusive choices, all worth showing at once. This is
  *  what carries the panel's inherit/on/off rows: a list you must open to learn
  *  it holds three items is the wrong shape for three words. */
-export function SegmentedControl({ value, onChange, segments, disabled, label }: SegmentedProps) {
+export function SegmentedControl({
+  value,
+  onChange,
+  segments,
+  disabled,
+  label,
+  id,
+  "aria-describedby": describedBy,
+}: SegmentedProps) {
   return (
-    <div className="s-ctl-seg" role="radiogroup" aria-label={label}>
+    // The GROUP takes the id and the description: a radiogroup is the thing
+    // being labelled, and pointing a <label> at one of its buttons would name
+    // a single option rather than the choice.
+    <div
+      className="s-ctl-seg"
+      role="radiogroup"
+      id={id}
+      aria-label={label}
+      aria-describedby={describedBy}
+    >
       {segments.map((segment) => {
         const on = segment.value === value;
         return (
@@ -116,7 +160,7 @@ export function SegmentedControl({ value, onChange, segments, disabled, label }:
 
 // -------------------------------------------------------------- TextInput
 
-interface TextInputProps {
+interface TextInputProps extends ControlIdentity {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -148,6 +192,8 @@ export function TextInput({
   maxLength,
   autoComplete,
   spellCheck = false,
+  id,
+  "aria-describedby": describedBy,
 }: TextInputProps) {
   return (
     <input
@@ -156,7 +202,11 @@ export function TextInput({
       value={value}
       placeholder={placeholder}
       disabled={disabled}
-      aria-label={label}
+      id={id}
+      // The Row's <label> is the name when there is one; `label` stays as the
+      // fallback for the call sites that use this control outside a Row.
+      aria-label={id ? undefined : label}
+      aria-describedby={describedBy}
       aria-invalid={invalid || undefined}
       dir={dir}
       maxLength={maxLength}
@@ -169,7 +219,7 @@ export function TextInput({
 
 // ------------------------------------------------------------ NumberInput
 
-interface NumberInputProps {
+interface NumberInputProps extends ControlIdentity {
   /** Empty string = the field is cleared, which is a different thing from
    *  zero and the caller decides what it means. */
   value: string;
@@ -203,6 +253,8 @@ export function NumberInput({
   invalid,
   label,
   placeholder,
+  id,
+  "aria-describedby": describedBy,
 }: NumberInputProps) {
   const clamp = (n: number): number =>
     Math.max(min ?? Number.NEGATIVE_INFINITY, Math.min(max ?? Number.POSITIVE_INFINITY, n));
@@ -239,7 +291,12 @@ export function NumberInput({
           value={value}
           placeholder={placeholder}
           disabled={disabled}
-          aria-label={label}
+          // The id lands on the FIELD, not the wrapper: the row's <label> has
+          // to point at the thing that takes focus, and the steppers beside it
+          // carry their own names.
+          id={id}
+          aria-label={id ? undefined : label}
+          aria-describedby={describedBy}
           aria-invalid={invalid || undefined}
           onChange={(e) => onChange(e.target.value.replace(/[^\d-]/g, ""))}
           onKeyDown={(e) => {

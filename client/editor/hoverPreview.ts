@@ -43,6 +43,7 @@ import {
 } from "@codemirror/view";
 import { getNote } from "../api.ts";
 import { t } from "../i18n.ts";
+import { Lru } from "../lru.ts";
 import { useStore } from "../state.ts";
 import { renderMarkdown } from "../reading/render.ts";
 import { renderNoteContent } from "../reading/renderNote.ts";
@@ -55,15 +56,23 @@ import { posFromEvent, posFromPoint } from "./pointer.ts";
 
 const FOOTNOTE_RE = /\[\^([^\]\s]+)\]/g;
 
-const cache = new Map<string, { content: string; at: number }>();
-const CACHE_MS = 15_000;
+/** Read-through cache of note SOURCE for the hover card.
+ *
+ *  The TTL is what stops it serving text the author has since edited; the
+ *  `max` is what stops it retaining the whole vault. It previously had only
+ *  the former — a Map that expired entries but never removed them, so an
+ *  evening of skimming wikilinks on a 1,388-note vault ended with every note
+ *  hovered still held in full, and a 10k-note vault would have held ten
+ *  thousand. Thirty is well past the working set of "notes glanced at while
+ *  writing one note", which is all a hover card is for. */
+const cache = new Lru<string>({ max: 30, ttlMs: 15_000 });
 
 async function noteContent(path: string): Promise<string | null> {
   const cached = cache.get(path);
-  if (cached && Date.now() - cached.at < CACHE_MS) return cached.content;
+  if (cached !== undefined) return cached;
   try {
     const note = await getNote(path);
-    cache.set(path, { content: note.content, at: Date.now() });
+    cache.set(path, note.content);
     return note.content;
   } catch {
     return null;
