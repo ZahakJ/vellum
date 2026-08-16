@@ -34,6 +34,13 @@ import { renderMarkdown } from "../reading/render.ts";
 import { notePathToUrl } from "../router.ts";
 import { useStore } from "../state.ts";
 import { SectionError } from "./DesignBoundary.tsx";
+// THE PREVIEW SEAM. Two renderers below reach outside the design for their
+// content — `note` fetches a note, `postGrid` asks the store whether a missing
+// banner should be generated — and a preview must be able to answer for both
+// without a second copy of either component. `usePreviewContent()` is null on
+// the live site, which is every path this file had before; see
+// client/design/previewContent.tsx for why it is a context and not a fork.
+import { usePreviewContent, usePreviewNote } from "./previewContent.tsx";
 
 export interface SectionProps {
   posts: PostMeta[] | null;
@@ -172,21 +179,35 @@ function NoteBlock({ section }: { section: NoteSection }) {
   const language = useStore((s) => s.language);
   const [failure, setFailure] = useState<SectionError | null>(null);
   const [markdown, setMarkdown] = useState<string | null>(null);
+  // Non-null inside a preview that supplies this note's prose (or that has
+  // declared no note may be fetched at all). The live site always gets null,
+  // and everything below is exactly what it was.
+  const supplied = usePreviewNote(section.note);
 
   // The throw is at the BOTTOM of this component, never here. A `throw` between
   // two hook calls leaves React with a shorter hook list than the previous
   // render, and while React unwinds to the boundary before it can complain,
   // "it happens to work" is not a thing to build a rescue path on. Both fatal
   // conditions are computed here and raised once, after every hook has run.
+  //
+  // A preview that SUPPLIED the prose is never fatal: it did not fetch, so it
+  // cannot have 404'd, and a blanked path inside a preview means "there is no
+  // vault here to read from" rather than "this session may not read it".
   const fatal =
-    section.note === ""
-      ? new SectionError(
-          `design section "${section.id}" names a note this session cannot read`,
-          "dsnNoteUnavailable",
-        )
-      : failure;
+    supplied !== null
+      ? null
+      : section.note === ""
+        ? new SectionError(
+            `design section "${section.id}" names a note this session cannot read`,
+            "dsnNoteUnavailable",
+          )
+        : failure;
 
   useEffect(() => {
+    if (supplied !== null) {
+      setMarkdown(supplied);
+      return;
+    }
     if (section.note === "") return;
     let disposed = false;
     setMarkdown(null);
@@ -208,7 +229,7 @@ function NoteBlock({ section }: { section: NoteSection }) {
     return () => {
       disposed = true;
     };
-  }, [section.note, section.excerpt, section.id]);
+  }, [section.note, section.excerpt, section.id, supplied]);
 
   useEffect(() => {
     const el = host.current;
@@ -270,7 +291,13 @@ function PostMeta_({ post, locale, showDate }: { post: PostMeta; locale: string;
 }
 
 function PostGrid({ section, posts, locale }: { section: PostGridSection } & SectionProps) {
-  const bannerFallback = useStore((s) => s.bannerFallback);
+  const stored = useStore((s) => s.bannerFallback);
+  // A PREVIEW ALWAYS GENERATES. An author who turned generated banners off for
+  // their live site still has to see what a banner grid does before choosing
+  // one, and a fresh install with no banners anywhere would otherwise judge
+  // every image-forward preset by a column of empty rectangles.
+  const preview = usePreviewContent();
+  const bannerFallback = preview?.forceGeneratedBanners ? "generated" : stored;
   const chosen = pick(posts, section.tag, section.limit);
   return (
     <section className="s-dsn-block">

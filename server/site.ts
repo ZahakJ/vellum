@@ -10,6 +10,7 @@
 
 import { existsSync } from "node:fs";
 import path from "node:path";
+import type { LanguageFilterMode } from "../shared/types.ts";
 import { numeralSystem, toNumerals } from "../shared/numerals.ts";
 import { isTheme, THEMES as THEME_IDS } from "../shared/themes.ts";
 import { isCustomThemeId } from "../shared/customTheme.ts";
@@ -25,7 +26,7 @@ interface SiteConfig {
   footer: string | null; // raw SITE_FOOTER (may contain {year}/{siteName}); null → default
   blogLocale: string | null; // BLOG_LOCALE as given; null → derive (language-aware) in the getter
   language: "en" | "ar"; // SITE_LANG — chrome language + RTL mirroring when "ar"
-  languageFilter: boolean; // LANGUAGE_FILTER — public blog lists show only site-language notes
+  languageFilter: EnvLanguageFilter; // LANGUAGE_FILTER — see readEnvLanguageFilter
   siteUrl: string | null; // canonical origin for absolute links (RSS, canonical); null → derive from request
   attachmentsDir: string; // vault-relative dir uploads land in (ATTACHMENTS_DIR)
   bannerFallback: "generated" | "none"; // BANNER_FALLBACK — hero for banner-less blog posts
@@ -41,7 +42,7 @@ let config: SiteConfig = {
   footer: null,
   blogLocale: null,
   language: "en",
-  languageFilter: false,
+  languageFilter: "off",
   siteUrl: null,
   attachmentsDir: "attachments",
   bannerFallback: "generated",
@@ -79,6 +80,35 @@ function readEnvLayout(raw: string | undefined): "app" | "blog" | "designed" {
   return "app";
 }
 
+/** Every value the shared LanguageFilterMode enum admits — the one list both
+ *  the env reader and the PATCH validator check against. */
+export const LANGUAGE_FILTER_MODES: readonly LanguageFilterMode[] = ["off", "follow", "ar", "en"];
+const MODE_SET = new Set<string>(LANGUAGE_FILTER_MODES);
+
+/** The env form of the filter. `"site"` is the LEGACY BOOLEAN: `true` never
+ *  named a language, it meant "the site's own language, whatever that is", so
+ *  it stays a sentinel resolved at read time (languageFilterMode) rather than
+ *  being frozen into "ar" or "en" here. Everything else is the enum. */
+type EnvLanguageFilter = LanguageFilterMode | "site";
+
+/** LANGUAGE_FILTER, validated. The enum values win; the boolean spellings this
+ *  variable used to take (`true/1/on/yes`, `false/0/no`) still work and mean
+ *  what they always meant; anything else is IGNORED AND SAID SO, once, at
+ *  startup — the same treatment DEFAULT_THEME gets, and for a sharper reason:
+ *  a typo here silently decides how much of the site is public. */
+function readEnvLanguageFilter(raw: string | undefined): EnvLanguageFilter {
+  const value = raw?.trim().toLowerCase() ?? "";
+  if (value === "") return "off";
+  if (MODE_SET.has(value)) return value as LanguageFilterMode;
+  if (/^(true|1|on|yes)$/.test(value)) return "site"; // legacy: pin to the site language
+  if (/^(false|0|no)$/.test(value)) return "off";
+  console.error(
+    `vellum: LANGUAGE_FILTER="${value}" is not a language-filter mode — ignoring (filter off). ` +
+      `One of: ${LANGUAGE_FILTER_MODES.join(", ")}`,
+  );
+  return "off";
+}
+
 /** Read site settings from the environment. Call once at startup. */
 export function initSite(env: NodeJS.ProcessEnv = process.env): void {
   config = {
@@ -108,8 +138,8 @@ export function initSite(env: NodeJS.ProcessEnv = process.env): void {
     // Chrome language: "ar" localizes every chrome string and mirrors the UI
     // right-to-left. Anything but exactly "ar" (case-insensitive) is English.
     language: env.SITE_LANG?.trim().toLowerCase() === "ar" ? "ar" : "en",
-    // Public-surface language filter (works with `language`; see indexer).
-    languageFilter: /^(true|1|on|yes)$/i.test(env.LANGUAGE_FILTER?.trim() ?? ""),
+    // Public-surface language filter (see indexer + LanguageFilterMode).
+    languageFilter: readEnvLanguageFilter(env.LANGUAGE_FILTER),
     siteUrl: env.SITE_URL?.trim().replace(/\/+$/, "") || null,
     // Vault-relative directory uploaded images land in (created on demand).
     // Slashes trimmed; the API layer path-safety-checks the joined result.
@@ -192,11 +222,41 @@ export function siteLanguage(): "en" | "ar" {
   return getSettings().language ?? config.language;
 }
 
-/** True when public blog surfaces should list only notes written
- *  predominantly in the site language's script (settings.languageFilter,
- *  else LANGUAGE_FILTER; default false). */
-export function languageFilterEnabled(): boolean {
-  return getSettings().languageFilter ?? config.languageFilter;
+/** SITE_LANG alone — the env default, with settings.json deliberately NOT
+ *  consulted. It exists for exactly one caller: settings.ts, resolving what a
+ *  legacy `languageFilter: true` means. That resolution happens INSIDE
+ *  getSettings(), so reaching back through siteLanguage() (which calls
+ *  getSettings()) was infinite recursion — the server died at boot with
+ *  "Maximum call stack size exceeded" the first time it met a real pre-enum
+ *  settings file. settings.ts pairs this with the raw file's own `language`
+ *  key, which is the same merge siteLanguage() does, one layer down. */
+export function envSiteLanguage(): "en" | "ar" {
+  return config.language;
+}
+
+/** How public discovery surfaces curate by note language: settings.languageFilter
+ *  when stored, else LANGUAGE_FILTER, else "off".
+ *
+ *  The env "site" sentinel (a legacy boolean `LANGUAGE_FILTER=true`) resolves
+ *  HERE rather than at startup, because that is what it has always meant —
+ *  "whichever language the site is in right now" — and resolving it in
+ *  initSite() would freeze it against a `settings.language` that had not been
+ *  read yet. The STORED boolean is a different case and is migrated on disk
+ *  (settings.ts): a live site's behaviour must not follow its chrome language
+ *  around after an upgrade. */
+export function languageFilterMode(): LanguageFilterMode {
+  const stored = getSettings().languageFilter;
+  if (stored !== undefined) return stored;
+  return config.languageFilter === "site" ? siteLanguage() : config.languageFilter;
+}
+
+/** settings.languageToggle — the public shell offers visitors an EN/ع switch.
+ *  No env counterpart (a visitor-facing switch is a runtime editorial choice),
+ *  and it is the GATE on the reader-language header: a site that does not
+ *  offer readers a language cannot be told by one which language it is
+ *  reading in. */
+export function languageToggleEnabled(): boolean {
+  return getSettings().languageToggle ?? false;
 }
 
 /** Configured canonical origin (SITE_URL, no trailing slash) or null —

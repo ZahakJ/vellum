@@ -17,6 +17,7 @@ import ConfirmHost from "./components/Confirm.tsx";
 import GraphView from "./components/GraphView.tsx";
 import LoginModal from "./components/LoginModal.tsx";
 import ModerationPanel from "./components/ModerationPanel.tsx";
+import TrashModal from "./components/TrashModal.tsx";
 import PreviewBanner from "./components/PreviewBanner.tsx";
 import ReadingView from "./reading/ReadingView.tsx";
 import SettingsModal from "./components/SettingsModal.tsx";
@@ -114,10 +115,14 @@ export default function App() {
   const loginOpen = useStore((s) => s.loginOpen);
   const bannerModalOpen = useStore((s) => s.bannerModalOpen);
   const moderationOpen = useStore((s) => s.moderationOpen);
+  const trashOpen = useStore((s) => s.trashOpen);
   const settingsOpen = useStore((s) => s.settingsOpen);
   const previewVisitor = useStore((s) => s.previewVisitor);
   const reloadTick = useStore((s) => s.reloadTick);
   const admin = useStore((s) => s.admin);
+  // Only the SSE effect below reads this, and only to reconnect the stream
+  // when the reader's language changes (see the comment there).
+  const language = useStore((s) => s.language);
   const authReady = useStore((s) => s.authReady);
   const publicLayout = useStore((s) => s.publicLayout);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
@@ -228,6 +233,14 @@ export default function App() {
   // visitor filtering (publish toggles would arrive as bogus "deleted" events)
   // and a stream opened as admin would keep leaking unpublished paths after
   // logout. A fresh EventSource carries the current cookie.
+  //
+  // `language` is in the dependency list for exactly the same reason, one
+  // dimension over: under `settings.languageFilter: "follow"` the stream is
+  // scoped to the reader's language at connection time (EventSource cannot
+  // send a header, so it went out as ?lang=), and a reader who flips the EN/ع
+  // switch would otherwise keep a stream describing the collection they left —
+  // announcing edits to notes their new language hides, and silent about the
+  // ones it reveals. Cheap: one reconnect per deliberate language change.
   useEffect(() => {
     const onEvent = (ev: VaultEvent) => {
       const store = useStore.getState();
@@ -267,7 +280,7 @@ export default function App() {
       if (store.admin) void store.loadPublished();
     };
     return subscribeEvents(onEvent);
-  }, [admin]);
+  }, [admin, language]);
 
   // Zen's only visible chrome is a faint ✕. It shows on entry (so the way out
   // is never a secret), fades after a beat, and any mouse movement brings it
@@ -316,6 +329,7 @@ export default function App() {
       store.loginOpen ||
       store.bannerModalOpen ||
       store.moderationOpen ||
+      store.trashOpen ||
       store.settingsOpen ||
       document.querySelector(".s-confirm-overlay, .s-tpick-overlay, .s-att-view") !== null;
 
@@ -801,6 +815,7 @@ export default function App() {
       {loginOpen && <LoginModal />}
       {bannerModalOpen && admin && <BannerModal />}
       {moderationOpen && admin && <ModerationPanel />}
+      {trashOpen && admin && <TrashModal />}
       {settingsOpen && admin && <SettingsModal />}
       {/* Always mounted (like ConfirmHost): the two template commands await a
           promise from it, and a host that only exists once something has

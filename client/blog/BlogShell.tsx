@@ -134,6 +134,9 @@ export default function BlogShell() {
   const authProtected = useStore((s) => s.authProtected);
   const loginOpen = useStore((s) => s.loginOpen);
   const locked = useStore((s) => !s.admin && !s.publicReads);
+  // Set when the server served every language because the one this reader is
+  // reading in has nothing published in it (shared/types.ts::MeData).
+  const languageFallback = useStore((s) => s.languageFallback);
   const tree = useStore((s) => s.tree);
   const homeMode = useStore((s) => s.home?.mode ?? "note");
   const logo = useStore((s) => s.logo);
@@ -414,6 +417,17 @@ export default function BlogShell() {
       </nav>
 
       <main className="s-blog-main">
+        {/* The quiet note. Under `languageFilter: "follow"` (or a pinned mode)
+            the server stands the filter down when the language in force
+            matches no published note, and serves the whole collection rather
+            than an empty site — this is the one line that says why the reader
+            is seeing both languages. Quiet on purpose: it explains a mercy,
+            not an error, and the LOUD version of the same fact belongs to the
+            admin (status bar + settings panel), who is the only person who can
+            do anything about it. */}
+        {!locked && languageFallback && (
+          <p className="s-blog-langnote">{t("langFallbackNote")}</p>
+        )}
         {locked ? (
           <div className="s-blog-page s-blog-locked">
             <div className="s-blog-locked__glyph" aria-hidden="true">

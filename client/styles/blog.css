@@ -174,6 +174,36 @@
   background: var(--bg-hover);
 }
 
+/* The language filter stood down (nothing published in the language this
+   reader is reading in), so the site is showing everything. One quiet line at
+   the top of the page, in the muted voice: it explains why both languages are
+   here, and it is emphatically not an error — the alternative was a site that
+   looked empty. The loud version of the same fact goes to the admin. */
+.s-blog-langnote {
+  /* The SAME measure and gutters `.s-blog-page` sets below it, so the note's
+     reading edge lines up with the post titles rather than floating in its own
+     narrower box — it is a caption on the list, not a banner over it. */
+  box-sizing: border-box;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 28px 24px 0;
+  color: var(--text-faint);
+  font-size: 0.821rem;
+  line-height: 1.5;
+}
+
+/* A short rule leading into it, the same gesture the section eyebrows use —
+   enough to read as chrome rather than as the first line of a post, without
+   the box that would make an explanation look like an error. */
+.s-blog-langnote::before {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  margin-inline-end: 8px;
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+
 /* Visitor language switch (settings.languageToggle) — sits with the theme
    toggle at the nav's inline-end edge, sized like an icon button but carrying
    two letters instead of a glyph. Off by default: most instances never render

@@ -15,11 +15,14 @@
     "hash-password": "node scripts/hash-password.ts",
     "typecheck": "tsc --noEmit",
     "check-i18n": "node scripts/check-i18n.mjs",
+    "check-presets": "node scripts/check-presets.mjs",
     "check-contrast": "node scripts/check-contrast.mjs",
     "check-caret": "node scripts/check-caret.mjs",
     "check-sections": "node scripts/check-sections.mjs",
     "check-excerpt": "node scripts/check-excerpt.mjs",
-    "check-design": "node scripts/shoot-design.mjs"
+    "check-design": "node scripts/shoot-design.mjs",
+    "check-board": "node scripts/check-board.mjs",
+    "check-preview": "node scripts/check-preview.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",

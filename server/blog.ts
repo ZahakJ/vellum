@@ -7,9 +7,11 @@
 
 import type { Context } from "hono";
 import type { PostMeta } from "../shared/types.ts";
+import type { FilterLang } from "./indexer.ts";
 import { posts, publishedBanner } from "./indexer.ts";
 import { staticPagesActive } from "./pages.ts";
 import { faviconPath } from "./settings.ts";
+import { siteScope, type LanguageScope } from "./language.ts";
 import { blogLocale, siteLanguage, siteName, siteUrl, tagline } from "./site.ts";
 import { noteCandidates, stripNoteExt } from "../shared/noteFormat.ts";
 
@@ -55,7 +57,7 @@ export function requestOrigin(c: Context): string {
  *  function below correctly hid it — the loudest possible discovery surface
  *  contradicting the quiet one. The permalink itself keeps working: the client
  *  fetches /api/note directly, and /api/note is deliberately never filtered. */
-function matchPublished(pathname: string): PostMeta | null {
+function matchPublished(pathname: string, lang: FilterLang): PostMeta | null {
   let decoded: string;
   try {
     decoded = pathname.split("/").map(decodeURIComponent).join("/");
@@ -69,7 +71,7 @@ function matchPublished(pathname: string): PostMeta | null {
   // a `.md` one is — and a crawler that follows the feed's link lands on the
   // post's own <title> and og: tags rather than on the generic site meta.
   const wants = noteCandidates(rel).map((c) => c.toLowerCase());
-  for (const post of posts(true)) {
+  for (const post of posts(true, lang)) {
     if (wants.includes(post.path.toLowerCase())) return post;
   }
   return null;
@@ -84,13 +86,15 @@ function rfc822(iso: string): string {
   return new Date(iso).toUTCString();
 }
 
-export function renderFeed(origin: string): string {
-  // The feed is a public discovery surface: the languageFilter applies
-  // (posts(true)), exactly like the visitor post list.
+export function renderFeed(origin: string, scope: LanguageScope): string {
+  // The feed is a public discovery surface: the language filter applies
+  // (posts(true, …)), exactly like the visitor post list. A feed reader cannot
+  // send a header, so /feed.xml honors ?lang= — one feed URL per language,
+  // which is what a bilingual reader subscribing to "the Arabic side" needs.
   // …and, in designed mode, minus the static pages: an About page is part of
   // the site, not an item in its feed (server/pages.ts). staticPagesActive()
   // is false under the stock blog, so this feed is byte-for-byte what it was.
-  const items = posts(true, staticPagesActive())
+  const items = posts(true, scope.lang, staticPagesActive())
     .slice(0, FEED_MAX_ITEMS)
     .map((post) => {
       const link = origin + notePathToUrl(post.path);
@@ -115,6 +119,15 @@ export function renderFeed(origin: string): string {
     `    <description>${xmlEscape(description)}</description>`,
     `    <language>${xmlEscape(blogLocale())}</language>`,
     `    <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>`,
+    // The quiet note, in the one place an XML document has for one: this feed
+    // is wider than the site's own setting asked for, because the language it
+    // asked for matched nothing and an empty feed is not an answer.
+    ...(scope.fallbackFrom
+      ? [
+          `    <!-- language filter "${xmlEscape(scope.fallbackFrom)}" matched no published note; ` +
+            `serving all languages -->`,
+        ]
+      : []),
     ...items,
     "  </channel>",
     "</rss>",
@@ -133,7 +146,10 @@ export const HEAD_PLACEHOLDER = "<!--vellum:head-->";
  *  unknown — gets the generic site meta (no existence leak). Callers that must
  *  not reveal reads (PUBLIC=false without a session) pass "/" as pathname. */
 export function injectHead(html: string, origin: string, pathname: string): string {
-  const post = matchPublished(pathname);
+  // Crawler-facing and session-less: it speaks for the SITE, so it takes the
+  // site scope rather than a reader's. Under "follow" that is the site
+  // language — the honest default for a request with no reader behind it.
+  const post = matchPublished(pathname, siteScope().lang);
   const name = siteName();
   const title = post ? `${post.title} — ${name}` : name;
   const description = post ? post.excerpt : (tagline() ?? "");

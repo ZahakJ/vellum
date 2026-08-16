@@ -17,11 +17,14 @@ import type { Context, MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { MeData } from "../shared/types.ts";
+import type { FilterLang } from "./indexer.ts";
 import { isNoteVisibleToVisitor, publishedCounts, resolveLink } from "./indexer.ts";
+import { languageScope } from "./language.ts";
+import { currentVisibility, isReducingReach } from "./visibility.ts";
 import { commentsEnabled } from "./comments.ts";
 import { fontsSignature, slotsAreSystem } from "./fonts.ts";
 import { dateCalendar, fontSlots, getSettings, textAlign, textDirection } from "./settings.ts";
-import { bannerFallback, blogLocale, customCssPath, dataDir, defaultTheme, footerLine, languageFilterEnabled, publicLayout, siteLanguage, siteName, tagline } from "./site.ts";
+import { bannerFallback, blogLocale, customCssPath, dataDir, defaultTheme, footerLine, publicLayout, siteLanguage, siteName, tagline } from "./site.ts";
 import { activeDesign, customThemesSig, hasThemeChoice } from "./designs.ts";
 import { normalizeRel } from "./vault.ts";
 
@@ -571,6 +574,14 @@ export function envHomeNote(): string | null {
   return config.homeNote;
 }
 
+/** PUBLIC: reads are open without a session. Env-only and unchangeable from
+ *  the panel — which is exactly why the panel has to be able to READ it: with
+ *  it off, every count the visibility preview prints is moot, and saying so is
+ *  the difference between "your site shows 20 posts" and the truth. */
+export function publicReads(): boolean {
+  return config.publicReads;
+}
+
 /** True when a home-note ref points at a note VISIBLE TO VISITORS: resolvable
  *  as a wikilink-style name within the visitor collection, or an exact path
  *  that is published AND not curated away by the languageFilter.
@@ -581,8 +592,13 @@ export function envHomeNote(): string | null {
  *  anonymous /api/me payload (`homeNote` + `home.note`) — the one name every
  *  other visitor surface, tree and posts and search and RSS and the injected
  *  <head> included, was hiding — and then rendered it as the public homepage.
- *  resolveLink(ref, true) already filtered; this line is what leaked. */
-function homeNoteVisible(ref: string): boolean {
+ *  resolveLink(ref, true) already filtered; this line is what leaked.
+ *
+ *  `lang` is the caller's resolved scope, not a global read: under
+ *  `languageFilter: "follow"` a home note written in English is a real home
+ *  page for an English reader and a non-existent one for an Arabic reader, and
+ *  /api/me has to answer each of them truthfully. */
+function homeNoteVisible(ref: string, lang: FilterLang): boolean {
   // ONE CLAUSE SHORT of the leak this function exists to close: on a
   // PUBLIC=false instance nothing is readable without a session — every other
   // read route 401s — yet `me.homeNote` (and `home.note`) still travelled to
@@ -590,10 +606,10 @@ function homeNoteVisible(ref: string): boolean {
   // its names are private. The client cannot use the value in that state
   // anyway: it is about to render the login modal.
   if (!config.publicReads) return false;
-  if (resolveLink(ref, true) !== null) return true;
+  if (resolveLink(ref, true, lang) !== null) return true;
   try {
     const asPath = isNotePath(ref) ? ref : `${ref}.md`;
-    return isNoteVisibleToVisitor(normalizeRel(asPath));
+    return isNoteVisibleToVisitor(normalizeRel(asPath), lang);
   } catch {
     return false;
   }
@@ -623,6 +639,10 @@ authRoutes.get("/me", (c) => {
   // home note) plus `preview: true` so the client can show the exit banner.
   const preview = isPreviewingVisitor(c);
   const admin = isAdmin(c) && !preview;
+  // One scope for this whole payload, resolved exactly as every other visitor
+  // surface resolves it — so an admin previewing as a visitor is told what a
+  // visitor is told, home note included, with no separate preview code path.
+  const scope = languageScope(c, isPublishLimited(c));
   const me: MeData = {
     admin,
     public: config.publicReads,
@@ -639,7 +659,7 @@ authRoutes.get("/me", (c) => {
   // only 404 anyway. Both name-style ("Welcome") and path-style
   // ("guides/Welcome.md") values are honored, mirroring the client.
   const homeRef = settings.home?.note ?? config.homeNote;
-  if (homeRef && (admin || homeNoteVisible(homeRef))) {
+  if (homeRef && (admin || homeNoteVisible(homeRef, scope.lang))) {
     me.homeNote = homeRef;
   }
   // Instance customization (settings.json over SITE_NAME / DEFAULT_THEME env,
@@ -652,9 +672,24 @@ authRoutes.get("/me", (c) => {
   // describes the public shell) and sent to every session so an admin
   // previewing as a visitor sees exactly what a visitor sees.
   if (settings.languageToggle === true) me.languageToggle = true;
-  // The language FILTER, so an empty public list can say why it is empty.
-  // A boolean, not a count: see MeData.
-  if (languageFilterEnabled()) me.languageFilter = true;
+  // How this site curates by note language, for every session. The client
+  // needs it, not just to render copy: under "follow" a visitor flipping the
+  // EN/ع switch changes WHICH NOTES EXIST for them, so the shell must refetch
+  // the vault rather than merely re-skin the chrome. Visitor-safe on the same
+  // grounds as languageToggle — it describes the public shell.
+  if (scope.mode !== "off") me.languageFilter = scope.mode;
+  // The filter stood down because the language in force qualified nothing.
+  // Said out loud rather than swallowed: the visitor gets a quiet line
+  // explaining why they are seeing both languages, and the admin gets the
+  // number below.
+  if (scope.fallbackFrom) me.languageFallback = scope.fallbackFrom;
+  // ADMIN ONLY, and only while something is actually costing reach: the
+  // ongoing indicator that this whole round exists for. A site does not
+  // silently shrink twice.
+  if (admin) {
+    const impact = currentVisibility();
+    if (isReducingReach(impact)) me.visibility = impact;
+  }
   // Marginalia, for every session. The reading view used to find this out by
   // asking /api/comments per note and reading the 404 — one bad response per
   // note open on every instance with comments off. It is one instance-wide
@@ -737,7 +772,7 @@ authRoutes.get("/me", (c) => {
           if (section.kind !== "note" || section.hidden) return false;
           if (section.note === "") return true;
           try {
-            return !isNoteVisibleToVisitor(normalizeRel(section.note));
+            return !isNoteVisibleToVisitor(normalizeRel(section.note), scope.lang);
           } catch {
             return true;
           }
@@ -764,7 +799,7 @@ authRoutes.get("/me", (c) => {
     // definition — it describes the public homepage.
     if (settings.home) {
       const { note, ...rest } = settings.home;
-      const shaped = note && (admin || homeNoteVisible(note)) ? { ...rest, note } : rest;
+      const shaped = note && (admin || homeNoteVisible(note, scope.lang)) ? { ...rest, note } : rest;
       if (Object.keys(shaped).length > 0) me.home = shaped;
     }
   }

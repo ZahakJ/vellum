@@ -16,12 +16,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // Aliased: the panel also installs a window keydown listener, and React's
 // KeyboardEvent would shadow the DOM one that listener is typed with.
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
-import type { AboutInfo, CustomFontInfo, FontCatalogEntry } from "../../shared/types.ts";
+import type { AboutInfo, CustomFontInfo, FontCatalogEntry, VisibilityImpact } from "../../shared/types.ts";
 import type { SettingsPatch, SettingsResponse } from "../../shared/types.ts";
 import {
   ApiError,
   deleteCustomFont,
   getSettings,
+  getVisibility,
   listAttachments,
   listCustomFonts,
   patchSettings,
@@ -73,7 +74,11 @@ interface Form {
   publicLayout: string; // "" | "app" | "blog" | "designed"
   blogLocale: string;
   language: string;       // "" | "en" | "ar"
-  languageFilter: string; // "" | "on" | "off"
+  /** "" (inherit LANGUAGE_FILTER) | "off" | "follow" | "ar" | "en". Four
+   *  values where there used to be two, because the two could not express the
+   *  thing the visitor switch needed ("follow") without also being the thing
+   *  that silently hid a live site. */
+  languageFilter: string;
   languageToggle: string; // "" | "on" | "off" (public EN/ع switch; default off)
   excludeTags: string;  // comma-separated
   comments: string;     // "" | "on" | "off"
@@ -168,7 +173,7 @@ function formFrom(s: SettingsResponse): Form {
     publicLayout: s.publicLayout ?? "",
     blogLocale: s.blogLocale ?? "",
     language: s.language ?? "",
-    languageFilter: s.languageFilter === undefined ? "" : s.languageFilter ? "on" : "off",
+    languageFilter: s.languageFilter ?? "",
     languageToggle: s.languageToggle === undefined ? "" : s.languageToggle ? "on" : "off",
     excludeTags: (s.excludeTags ?? []).join(", "),
     comments: s.commentsEnabled === undefined ? "" : s.commentsEnabled ? "on" : "off",
@@ -492,7 +497,12 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
     patch.language = f.language === "en" || f.language === "ar" ? f.language : null;
   }
   if (f.languageFilter !== initial.languageFilter) {
-    patch.languageFilter = f.languageFilter === "" ? null : f.languageFilter === "on";
+    // "" clears the key back to LANGUAGE_FILTER; the four enum values are sent
+    // verbatim. "off" is a stored value, not a cleared key — "this site
+    // filters nothing" and "this site takes the env default" are different
+    // statements and the panel can now make either.
+    patch.languageFilter =
+      f.languageFilter === "" ? null : (f.languageFilter as NonNullable<SettingsPatch["languageFilter"]>);
   }
   if (f.languageToggle !== initial.languageToggle) {
     patch.languageToggle = f.languageToggle === "" ? null : f.languageToggle === "on";
@@ -581,6 +591,200 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
     patch.tagLabels = Object.keys(nextLabels).length > 0 ? nextLabels : null;
   }
   return patch;
+}
+
+// ---------------------------------------------------------------------------
+// Consequence lines: what a visitor-facing setting will actually cost, in
+// notes from THIS vault, before the save.
+//
+// Four controls on this panel can shrink the public site — the language
+// filter, excluded tags, the blog front door, and (env-only, but it belongs in
+// the same sentence) PUBLIC. Every one of them used to be a switch with a name
+// and no stated consequence, and the language one took a real site from twenty
+// published posts to two on a single click, silently. The server holds the
+// only numbers that can answer "what will this do"; this asks it, live, as the
+// controls move.
+// ---------------------------------------------------------------------------
+
+/** How loud a consequence line is. `warn` is amber (most of the site would go
+ *  dark), `stop` is the danger colour (NOTHING would qualify). */
+type Loudness = "plain" | "warn" | "stop";
+
+function Consequence({ level = "plain", children }: { level?: Loudness; children: ReactNode }) {
+  return <p className={`s-smodal__conseq s-smodal__conseq--${level}`}>{children}</p>;
+}
+
+/** The site as the current FORM would leave it, refetched as the operator
+ *  moves the controls.
+ *
+ *  Debounced and abortable because it re-runs on every keystroke in the
+ *  excluded-tags field; keyed on the exact five values the server's answer
+ *  depends on, so moving an unrelated control costs nothing. It deliberately
+ *  keeps the LAST good answer while a new one is in flight — a preview that
+ *  blinked out between keystrokes would be a worse companion than one that is
+ *  briefly a beat behind. */
+function useVisibility(form: Form | null): VisibilityImpact | null {
+  const [impact, setImpact] = useState<VisibilityImpact | null>(null);
+  // The exact inputs the answer depends on. Not the whole form: this fires an
+  // HTTP request, and the typography tab must not.
+  const key = form
+    ? JSON.stringify([
+        form.languageFilter,
+        form.excludeTags.trim(),
+        form.publicLayout,
+        form.homeMode,
+        form.homeNote.trim(),
+      ])
+    : "";
+  useEffect(() => {
+    if (form === null) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      getVisibility(
+        {
+          // "" means "inherit the env default" — and the server's own default
+          // is what an absent param already asks for, so it is simply omitted.
+          languageFilter: form.languageFilter || undefined,
+          excludeTags: splitTags(form.excludeTags),
+          publicLayout: form.publicLayout || undefined,
+          home: form.homeMode || undefined,
+          homeNote: form.homeNote.trim(),
+        },
+        controller.signal,
+      )
+        .then(setImpact)
+        .catch(() => {
+          // Aborted, offline, or a visitor-preview session (404). A missing
+          // preview is a missing preview — never a wrong number.
+        });
+    }, 180);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return impact;
+}
+
+/** The language-filter consequence, in the operator's language, with this
+ *  vault's numbers. The mode being described is the PENDING one — the segment
+ *  the operator has clicked but not yet saved. */
+function LanguageConsequence({
+  mode,
+  impact,
+  toggleOn,
+  siteLang,
+}: {
+  mode: string;
+  impact: VisibilityImpact;
+  /** settings.languageToggle as the form would leave it. */
+  toggleOn: boolean;
+  /** The site language as the form would leave it — what "follow" collapses
+   *  to for every reader when there is no switch to state a preference with. */
+  siteLang: string;
+}) {
+  const { published, census } = impact;
+  const total = localeNum(published);
+  if (published === 0) return <Consequence>{t("visibilityNothingPublished")}</Consequence>;
+  if (mode === "off") return <Consequence>{t("langFilterOffWhy")}</Consequence>;
+  if (mode === "follow") {
+    // One number cannot describe a per-reader setting, so this prints both
+    // reader populations rather than pretending there is a single answer.
+    return (
+      <>
+        <Consequence>{t("langFilterFollowWhy")}</Consequence>
+        {!toggleOn && (
+          <Consequence level="warn">
+            {tf("langFilterFollowNeedsToggle", {
+              lang: t(siteLang === "ar" ? "langAr" : "langEn"),
+            })}
+          </Consequence>
+        )}
+        <Consequence level={census.arabic === 0 || census.latin === 0 ? "warn" : "plain"}>
+          {tf("langFilterFollowSplit", {
+            ar: localeNum(census.arabic + census.neutral),
+            en: localeNum(census.latin + census.neutral),
+            total,
+          })}
+        </Consequence>
+      </>
+    );
+  }
+  const langName = t(mode === "ar" ? "langAr" : "langEn");
+  const qualify = (mode === "ar" ? census.arabic : census.latin) + census.neutral;
+  const hidden = published - qualify;
+  if (qualify === 0) {
+    return (
+      <Consequence level="stop">{tf("langFilterEmptyWarn", { lang: langName, total })}</Consequence>
+    );
+  }
+  // "Most of the site" is the threshold that matters: the real incident was 18
+  // of 20 hidden, which is 90%. Half is where a reasonable person wants to be
+  // asked twice.
+  const heavy = hidden > published / 2;
+  return (
+    <>
+      <Consequence level={heavy ? "warn" : "plain"}>
+        {tf("langFilterPinnedWhy", {
+          lang: langName,
+          visible: localeNum(qualify),
+          total,
+          hidden: localeNum(hidden),
+        })}
+      </Consequence>
+      {heavy && (
+        <Consequence level="warn">
+          {tf("langFilterMostHiddenWarn", { hidden: localeNum(hidden), total })}
+        </Consequence>
+      )}
+      <Consequence>{t("langFilterPinnedIgnoresReader")}</Consequence>
+    </>
+  );
+}
+
+/** The tab-level standing summary. Not a warning — a statement of fact that
+ *  happens to become a warning when the fact is bad. It is the thing whose
+ *  absence made the original incident invisible: there was nowhere in this
+ *  product that said how many published notes the public could actually find. */
+function VisibilityBanner({ impact }: { impact: VisibilityImpact | null }) {
+  if (!impact) return null;
+  const { published, visible, publicReads, fallback } = impact;
+  const total = localeNum(published);
+  const lines: { level: Loudness; text: string }[] = [];
+  // PUBLIC first: while it is off, every other number on the tab is
+  // hypothetical, and saying so is more honest than printing counts that
+  // describe a site nobody can reach.
+  if (!publicReads) lines.push({ level: "warn", text: t("publicReadsOffWarn") });
+  if (published === 0) {
+    lines.push({ level: "plain", text: t("visibilityNothingPublished") });
+  } else if (fallback) {
+    // The filter stood down. The visitor sees everything; the admin sees why.
+    lines.push({
+      level: "stop",
+      text: tf("langFilterEmptyWarn", {
+        lang: t(impact.languageFilter === "ar" ? "langAr" : "langEn"),
+        total,
+      }),
+    });
+  } else if (visible === published) {
+    lines.push({ level: "plain", text: tf("visibilityAll", { total }) });
+  } else {
+    lines.push({
+      level: visible * 2 < published ? "warn" : "plain",
+      text: tf("visibilityNow", { visible: localeNum(visible), total }),
+    });
+  }
+  return (
+    <div className="s-smodal__reach">
+      <div className="s-smodal__sub">{t("visibilityHead")}</div>
+      {lines.map((line) => (
+        <Consequence key={line.text} level={line.level}>
+          {line.text}
+        </Consequence>
+      ))}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1680,6 +1884,16 @@ export default function SettingsModal() {
     onChange: (value: string) => setForm((f) => (f ? { ...f, [key]: value } : f)),
   });
 
+  /** The mode a segment's "inherit" note prints. Not enumLabel(): these four
+   *  values have names in the panel's own language, and "follow" in particular
+   *  is meaningless as a raw id to the person reading it. */
+  const langFilterLabel = (mode: string): string => {
+    if (mode === "follow") return t("langFilterFollow");
+    if (mode === "ar") return t("langFilterAr");
+    if (mode === "en") return t("langFilterEn");
+    return t("langFilterOff");
+  };
+
   /** A three-way row: inherit the env default, or force on / off. The middle
    *  state is the ROW BEING EMPTY, which is why it is a segment rather than a
    *  checkbox — a checkbox cannot be "not set". */
@@ -1743,6 +1957,10 @@ export default function SettingsModal() {
   }, [saving]);
 
   const eff = loaded?.effective;
+  // The live consequence preview, shared by every row that can shrink the
+  // public site (language filter, excluded tags, home note) and by both tabs'
+  // standing summary. One request per settled edit, for all of them.
+  const impact = useVisibility(form);
   /** The master switch is off: every control below it in Backup & sync is
    *  inert, and says so. */
   const syncOff = form?.syncEnabled !== "on";
@@ -1942,6 +2160,12 @@ export default function SettingsModal() {
 
                 {tab === "language" && (
                 <section data-section="language">
+                  {/* The standing answer to "how much of my site is public",
+                      at the top of both tabs that can change it. It describes
+                      the site AS THE FORM WOULD LEAVE IT, so it moves as the
+                      controls move — the operator never has to save to find
+                      out. */}
+                  <VisibilityBanner impact={impact} />
                   <div className="s-smodal__sub">{t("groupTheme")}</div>
                   <Row
                     label={t("rowDefaultTheme")}
@@ -2078,17 +2302,53 @@ export default function SettingsModal() {
                       {...field("blogLocale")}
                     />
                   </Row>
+                  {/* Four states, not two. The boolean this replaces could
+                      only say "on", and "on" meant "pin to the site language"
+                      — which is why turning it on took a real site from twenty
+                      published posts to two with nothing said. Each segment
+                      now names WHO decides, and the block under it prints, in
+                      this vault's own numbers, exactly what the pending choice
+                      would do. */}
                   <Row
                     label={t("rowLanguageFilter")}
                     hint={t("hintLanguageFilter")}
                     inherited={form.languageFilter === ""}
                     env="LANGUAGE_FILTER"
+                    wide
                   >
                     <SegmentedControl
                       label={t("rowLanguageFilter")}
-                      segments={onOffSegments(eff.languageFilter)}
+                      segments={[
+                        { value: "", label: t("inheritSegment"), note: langFilterLabel(eff.languageFilter) },
+                        { value: "off", label: t("langFilterOff"), note: t("langFilterOffNote") },
+                        {
+                          value: "follow",
+                          label: t("langFilterFollow"),
+                          note: t("langFilterFollowNote"),
+                        },
+                        { value: "ar", label: t("langFilterAr") },
+                        { value: "en", label: t("langFilterEn") },
+                      ]}
                       {...field("languageFilter")}
                     />
+                    {impact && (
+                      <LanguageConsequence
+                        mode={form.languageFilter === "" ? eff.languageFilter : form.languageFilter}
+                        impact={impact}
+                        toggleOn={
+                          form.languageToggle === "" ? eff.languageToggle : form.languageToggle === "on"
+                        }
+                        siteLang={form.language === "" ? eff.language : form.language}
+                      />
+                    )}
+                    {impact && impact.topics.visible < impact.topics.total && (
+                      <Consequence>
+                        {tf("langFilterTopicsCut", {
+                          visible: localeNum(impact.topics.visible),
+                          total: localeNum(impact.topics.total),
+                        })}
+                      </Consequence>
+                    )}
                   </Row>
                   {/* The visitor switch, spelled out. It EXISTS — it has since
                       the language round — but it lived as a two-word row in a
@@ -2233,6 +2493,12 @@ export default function SettingsModal() {
 
                 {tab === "publishing" && (
                 <section data-section="publishing">
+                  {/* The standing answer to "how much of my site is public",
+                      at the top of both tabs that can change it. It describes
+                      the site AS THE FORM WOULD LEAVE IT, so it moves as the
+                      controls move — the operator never has to save to find
+                      out. */}
+                  <VisibilityBanner impact={impact} />
                   {/* Which shell a visitor lands in is a publishing decision,
                       not a colour one — it moved here from Appearance. */}
                   <Row
@@ -2257,6 +2523,10 @@ export default function SettingsModal() {
                       {...field("publicLayout")}
                     />
                   </Row>
+                  {/* Same treatment as the language filter, one control over:
+                      this removes topic pills — and with them whole topic
+                      pages — and it used to do it in silence, including when
+                      the tag it names matches nothing at all. */}
                   <Row
                     label={t("rowExcludeTags")}
                     hint={t("hintExcludeTags")}
@@ -2270,6 +2540,22 @@ export default function SettingsModal() {
                       invalid={errors.excludeTags !== undefined}
                       {...field("excludeTags")}
                     />
+                    {impact &&
+                      (impact.topics.suppressed.length > 0 ? (
+                        <Consequence>
+                          {tf("excludeTagsEffect", {
+                            hidden: localeNum(impact.topics.suppressed.length),
+                            total: localeNum(impact.topics.total),
+                            tags: impact.topics.suppressed.join("، "),
+                          })}
+                        </Consequence>
+                      ) : splitTags(form.excludeTags).length > 0 ? (
+                        <Consequence>{t("excludeTagsNoop")}</Consequence>
+                      ) : (
+                        <Consequence>
+                          {tf("excludeTagsNone", { total: localeNum(impact.topics.total) })}
+                        </Consequence>
+                      ))}
                   </Row>
                   <Row
                     label={t("rowComments")}
@@ -2294,6 +2580,7 @@ export default function SettingsModal() {
                   <p className="s-smodal__note">{t("homeNote")}</p>
                   {homeOff && <p className="s-smodal__offnote">{t("homeBlogOnlyNotice")}</p>}
                   <Row label={t("rowMode")} hint={t("hintMode")} off={homeOff}>
+                    {homeOff && <Consequence>{t("homeModeAppNote")}</Consequence>}
                     <SegmentedControl
                       label={t("rowMode")}
                       disabled={homeOff}
@@ -2319,6 +2606,19 @@ export default function SettingsModal() {
                       invalid={errors.homeNote !== undefined}
                       {...field("homeNote")}
                     />
+                    {/* A front door pointing at a note visitors cannot see
+                        renders a blank homepage and says nothing about it.
+                        Now it says something — and it can only be answered by
+                        the server, which knows the publish flag AND the
+                        language filter this note is about to meet. */}
+                    {impact &&
+                      (impact.home.note === null ? (
+                        <Consequence>{t("homeNoteUnset")}</Consequence>
+                      ) : impact.home.noteVisible ? (
+                        <Consequence>{t("homeNoteOk")}</Consequence>
+                      ) : (
+                        <Consequence level="warn">{t("homeNoteHidden")}</Consequence>
+                      ))}
                   </Row>
                   <Row
                     label={t("rowHomeBanner")}

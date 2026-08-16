@@ -68,43 +68,132 @@ const DICT = {
   // A note deletes at the same two speeds as a folder — the first dialog
   // promises .trash, the second is the erase — so these read as the folder's
   // pair does, one line apart in the same menu.
-  deleteNoteTitle: { en: "Move “{name}” to .trash?", ar: "نقل “{name}” إلى ‎.trash‎؟" },
-  deleteNoteBody: {
+  // ── The delete story ─────────────────────────────────────────────────────
+  // Three objects delete (a note, an attachment, a folder), each at two
+  // speeds (move to .trash / erase), and all six dialogs must tell the reader
+  // the same truth — so the two TITLES are shared and only the consequence
+  // sentence changes. They used to be six near-identical strings free to
+  // drift apart one edit at a time, which is how a palette hint ended up
+  // promising "irreversible" over a recoverable act.
+  moveToTrashTitle: { en: "Move “{name}” to .trash?", ar: "نقل “{name}” إلى ‎.trash‎؟" },
+  permDeleteTitle: { en: "Permanently delete “{name}”?", ar: "حذف “{name}” نهائيًا؟" },
+  // A note and an attachment are both ONE file: same sentence, and the path
+  // inside it is what tells them apart.
+  deleteFileTrashBody: {
     en: "“{path}” will move to the vault’s .trash folder — recoverable from disk.",
     ar: "سيُنقل “{path}” إلى مجلد ‎.trash‎ داخل الخزانة — يمكن استرجاعه من القرص.",
   },
-  deleteNotePermTitle: { en: "Permanently delete “{name}”?", ar: "حذف “{name}” نهائيًا؟" },
-  deleteNotePermBody: {
+  deleteFilePermBody: {
     en: "“{path}” will be erased from disk. This cannot be undone.",
     ar: "سيُمحى “{path}” من القرص. لا يمكن التراجع عن هذا.",
   },
   noteTrashedToast: {
-    en: "Moved “{name}” to .trash — recover it from the vault folder",
-    ar: "نُقلت “{name}” إلى ‎.trash‎ — يمكن استرجاعها من مجلد الخزانة",
+    en: "Moved “{name}” to .trash — restore it from the trash browser",
+    ar: "نُقلت “{name}” إلى ‎.trash‎ — يمكن استرجاعها من متصفح المهملات",
   },
   noteDeletedToast: { en: "Deleted “{name}” permanently", ar: "حُذفت “{name}” نهائيًا" },
   creatingFolderFailed: { en: "Creating folder failed", ar: "فشل إنشاء المجلد" },
   deleteFolder: { en: "Delete folder", ar: "حذف المجلد" },
-  // Folder deletion is a MOVE by default (the vault's .trash/), so the first
-  // dialog promises recovery and the permanent erase is a second, quieter
-  // step with its own confirmation.
-  deleteFolderTitle: { en: "Move “{name}” to .trash?", ar: "نقل “{name}” إلى ‎.trash‎؟" },
-  deleteFolderBody: {
-    en: "{count} will move to the vault’s .trash folder — recoverable from disk.",
-    ar: "ستُنقل {count} إلى مجلد ‎.trash‎ داخل الخزانة — يمكن استرجاعها من القرص.",
+  // The folder dialogs name what is really in there. A markdown-only count was
+  // the lie that cost a published essay its images: a folder holding four
+  // attachments and no notes reported "0 notes will move" and took all four
+  // with it. `{contents}` carries BOTH counts (see deleteContents).
+  deleteFolderTrashBody: {
+    en: "The folder and its contents — {contents} — move to the vault’s .trash folder, recoverable from disk.",
+    ar: "سيُنقل المجلد ومحتواه — {contents} — إلى مجلد ‎.trash‎ داخل الخزانة، ويمكن استرجاعه من القرص.",
   },
   moveToTrash: { en: "Move to .trash", ar: "نقل إلى ‎.trash‎" },
   deletePermanently: { en: "Delete permanently", ar: "حذف نهائي" },
-  deleteFolderPermTitle: { en: "Permanently delete “{name}”?", ar: "حذف “{name}” نهائيًا؟" },
   deleteFolderPermBody: {
-    en: "{count} will be erased from disk. This cannot be undone.",
-    ar: "ستُمحى {count} من القرص. لا يمكن التراجع عن هذا.",
+    en: "The folder and its contents — {contents} — will be erased from disk. This cannot be undone.",
+    ar: "سيُمحى المجلد ومحتواه — {contents} — من القرص. لا يمكن التراجع عن هذا.",
+  },
+  // "0 notes and 4 files". Both halves come from countPhrase(), so the Arabic
+  // agrees (ملاحظة / ملاحظتان / ملاحظات) instead of gluing a numeral to a
+  // singular.
+  deleteContents: { en: "{notes} and {attachments}", ar: "{notes} و{attachments}" },
+  // The collateral — the sentences the delete dialogs never said, and the
+  // point of this whole section. The indexer has always known which notes
+  // embed which attachment; no destructive verb was asking it. `{notes}` is
+  // the referring notes BY NAME when there are few, and a count once naming
+  // them would be a wall rather than information.
+  //
+  // The English is deliberately PASSIVE ("embedded by …", not "… embed this
+  // file"). `{notes}` is a count phrase as often as it is a name, so an
+  // active verb has to agree with a number the string cannot see: the first
+  // draft printed "“The Moved Essay” still embed this file" whenever exactly
+  // one note was named, which is a typo in the one sentence whose whole job
+  // is to be believed. Arabic keeps its verb-first form, where a non-human
+  // plural takes the feminine singular and both counts already agree.
+  folderRefsWarn: {
+    en: "{count} in here — embedded by {notes}. Those embeds break.",
+    ar: "{count} هنا — مضمَّنة في {notes}. ستنكسر هذه التضمينات.",
+  },
+  attachmentRefsWarn: {
+    en: "Embedded by {notes} — those embeds break.",
+    ar: "مضمَّن في {notes} — ستنكسر هذه التضمينات.",
+  },
+  noteRefsWarn: {
+    en: "Linked from {notes} — those links go broken.",
+    ar: "مرتبط بها من {notes} — ستصبح تلك الروابط مكسورة.",
   },
   folderTrashedToast: {
-    en: "Moved “{name}” to .trash — recover it from the vault folder",
-    ar: "نُقل “{name}” إلى ‎.trash‎ — يمكن استرجاعه من مجلد الخزانة",
+    en: "Moved “{name}” to .trash — restore it from the trash browser",
+    ar: "نُقل “{name}” إلى ‎.trash‎ — يمكن استرجاعه من متصفح المهملات",
   },
   folderDeletedToast: { en: "Deleted “{name}” permanently", ar: "حُذف “{name}” نهائيًا" },
+  // Attachments delete too, now. Their own toasts because Arabic agrees with
+  // the noun: a ملف is masculine where a ملاحظة is feminine, so reusing the
+  // note's line would print "نُقلت" over a file.
+  deleteAttachment: { en: "Delete file", ar: "حذف الملف" },
+  fileTrashedToast: {
+    en: "Moved “{name}” to .trash — restore it from the trash browser",
+    ar: "نُقل “{name}” إلى ‎.trash‎ — يمكن استرجاعه من متصفح المهملات",
+  },
+  fileDeletedToast: { en: "Deleted “{name}” permanently", ar: "حُذف “{name}” نهائيًا" },
+  couldNotDeleteFile: { en: "Could not delete that file", ar: "تعذر حذف هذا الملف" },
+  couldNotDeleteFolder: { en: "Could not delete that folder", ar: "تعذر حذف هذا المجلد" },
+  // ── Trash browser ────────────────────────────────────────────────────────
+  // Every delete dialog above promises ".trash — recoverable from disk". This
+  // is the surface that makes the promise keepable without a terminal.
+  trashBrowser: { en: "Trash", ar: "المهملات" },
+  cmdOpenTrash: { en: "Open trash", ar: "فتح المهملات" },
+  cmdOpenTrashHint: { en: "restore or erase what was deleted", ar: "استرجاع المحذوف أو محوه" },
+  closeTrash: { en: "Close trash", ar: "إغلاق المهملات" },
+  trashLoading: { en: "Opening .trash…", ar: "جارٍ فتح ‎.trash‎…" },
+  trashLoadFailed: { en: "Could not read .trash", ar: "تعذرت قراءة ‎.trash‎" },
+  trashEmpty: {
+    en: "The trash is empty — nothing deleted is waiting here.",
+    ar: "سلة المهملات فارغة — لا شيء محذوف ينتظر هنا.",
+  },
+  trashFrom: { en: "from {path}", ar: "من {path}" },
+  trashOriginUnknown: {
+    en: "origin unknown — restores to the vault root",
+    ar: "المصدر غير معروف — سيُسترجع إلى جذر الخزانة",
+  },
+  trashOriginTaken: { en: "{path} is taken — restores beside it", ar: "{path} مشغول — سيُسترجع بجانبه" },
+  restore: { en: "Restore", ar: "استرجاع" },
+  restoredToast: { en: "Restored “{name}” to {path}", ar: "استُرجع “{name}” إلى {path}" },
+  restoredRenamedToast: {
+    en: "Restored “{name}” as {path} — its old place was taken",
+    ar: "استُرجع “{name}” باسم {path} — مكانه القديم كان مشغولًا",
+  },
+  restoreFailed: { en: "Could not restore that", ar: "تعذر الاسترجاع" },
+  // The trash's own permanent delete — the one delete in the product with
+  // nothing behind it, which is what the body says.
+  purgeBody: {
+    en: "“{name}” will be erased from .trash. Nothing is behind this one.",
+    ar: "سيُمحى “{name}” من ‎.trash‎. لا شيء بعد هذه الخطوة.",
+  },
+  purgedToast: { en: "Erased “{name}” from .trash", ar: "مُحي “{name}” من ‎.trash‎" },
+  purgeFailed: { en: "Could not erase that", ar: "تعذر المحو" },
+  emptyTrash: { en: "Empty trash", ar: "إفراغ المهملات" },
+  emptyTrashTitle: { en: "Empty the trash?", ar: "إفراغ سلة المهملات؟" },
+  emptyTrashBody: {
+    en: "Everything in .trash — {contents} — will be erased from disk. This cannot be undone.",
+    ar: "سيُمحى كل ما في ‎.trash‎ — {contents} — من القرص. لا يمكن التراجع عن هذا.",
+  },
+  emptiedTrashToast: { en: "Emptied .trash", ar: "أُفرغت ‎.trash‎" },
   // The wordmark ENTERS visitor preview — a mode that takes the editor away.
   // A tooltip reading "View public site" did not say that, and the click was
   // the commonest accidental way into a shell with no editing in it.
@@ -577,9 +666,63 @@ const DICT = {
   sideRight: { en: "Right", ar: "يمين" },
   rowLanguageFilter: { en: "Language filter", ar: "تصفية حسب اللغة" },
   hintLanguageFilter: {
-    en: "public blog shows only notes in the site language",
-    ar: "تعرض المدونة العامة ملاحظات بلغة الموقع فقط",
+    en: "which notes the public site shows, by the language they are written in",
+    ar: "أي الملاحظات يعرضها الموقع العام، بحسب اللغة المكتوبة بها",
   },
+  // The four modes. Their labels are the whole difference between a switch
+  // whose consequence is guessable and the boolean that cost a real site
+  // eighteen of its twenty posts — so each one names WHO decides, not just
+  // what is on.
+  langFilterOff: { en: "Everything", ar: "كل شيء" },
+  langFilterOffNote: { en: "no filtering", ar: "بلا تصفية" },
+  langFilterFollow: { en: "Reader's language", ar: "لغة القارئ" },
+  langFilterFollowNote: { en: "each reader, their own", ar: "لكل قارئ لغته" },
+  langFilterAr: { en: "Arabic only", ar: "العربية فقط" },
+  langFilterEn: { en: "English only", ar: "الإنجليزية فقط" },
+  // Consequence lines. Every one of them prints REAL counts from this vault,
+  // before the save.
+  langFilterOffWhy: {
+    en: "Every published note is public. Nothing is hidden from anyone.",
+    ar: "كل ملاحظة منشورة عامة. لا يُخفى شيء عن أحد.",
+  },
+  langFilterFollowWhy: {
+    en: "Each reader sees only notes written in the language they are reading in — the EN/ع switch below moves the writing too, not just the buttons. Readers who never touch it get the site language.",
+    ar: "يرى كل قارئ الملاحظات المكتوبة باللغة التي يقرأ بها فقط — فمبدّل ‎EN/ع‎ أدناه ينقل المكتوب أيضًا، لا الأزرار وحدها. ومن لم يمسّه يرى لغة الموقع.",
+  },
+  langFilterFollowSplit: {
+    en: "Right now: {ar} of your {total} published notes reach an Arabic reader, {en} reach an English one.",
+    ar: "الآن: {ar} من ملاحظاتك المنشورة البالغة {total} تصل قارئًا بالعربية، و{en} تصل قارئًا بالإنجليزية.",
+  },
+  langFilterPinnedWhy: {
+    en: "Pinned to {lang}: {visible} of your {total} published notes qualify; {hidden} would be hidden from every visitor.",
+    ar: "مثبَّت على {lang}: {visible} من ملاحظاتك المنشورة البالغة {total} مؤهلة، و{hidden} ستُخفى عن كل زائر.",
+  },
+  langFilterPinnedIgnoresReader: {
+    en: "A reader's own EN/ع choice does not change this — that is what pinning means.",
+    ar: "اختيار القارئ لـ‎EN/ع‎ لا يغيّر هذا — فهذا معنى التثبيت.",
+  },
+  // The hard warnings. Same numbers, louder frame.
+  langFilterEmptyWarn: {
+    en: "Nothing qualifies. No published note is written in {lang}, so the site would have nothing on it — Vellum will keep showing all {total} instead, and go on saying so here until you change this.",
+    ar: "لا شيء مؤهل. لا توجد ملاحظة منشورة مكتوبة بـ{lang}، فيغدو الموقع خاليًا — سيواصل ڤيلَّم عرض الـ{total} كلها بدلًا من ذلك، وسيظل يقول ذلك هنا حتى تغيّر هذا.",
+  },
+  langFilterMostHiddenWarn: {
+    en: "This hides {hidden} of your {total} published notes — most of your site.",
+    ar: "هذا يخفي {hidden} من ملاحظاتك المنشورة البالغة {total} — أي معظم موقعك.",
+  },
+  langFilterTopicsCut: {
+    en: "Topics on the public site: {visible} of {total}.",
+    ar: "الموضوعات على الموقع العام: {visible} من {total}.",
+  },
+  // "Reader's language" with no way for a reader to state one is a setting
+  // that silently means something else — the exact species of bug this whole
+  // round is about, one control lower down the same tab.
+  langFilterFollowNeedsToggle: {
+    en: "The visitor switch below is off, so no reader can state a language: every one of them gets {lang}, and this behaves exactly like pinning to it. Turn the switch on to make this mode mean what it says.",
+    ar: "مبدّل الزائر أدناه مُطفأ، فلا يستطيع قارئ أن يعلن لغة: يحصل كلٌّ منهم على {lang}، ويتصرف هذا تمامًا كالتثبيت عليها. فعّل المبدّل ليعني هذا الوضع ما يقول.",
+  },
+  langAr: { en: "Arabic", ar: "العربية" },
+  langEn: { en: "English", ar: "الإنجليزية" },
   rowLanguageToggle: { en: "Visitor switch", ar: "مبدّل الزائر" },
   hintLanguageToggle: {
     en: "adds a public EN/ع switch readers can flip for themselves",
@@ -589,8 +732,81 @@ const DICT = {
   hintDateLocale: { en: "BCP47 — post dates, RSS", ar: "‏‎BCP47‎ — تواريخ المقالات و‎RSS‎" },
   rowExcludeTags: { en: "Excluded tags", ar: "وسوم مستبعدة" },
   hintExcludeTags: { en: "hidden from visitors, comma-separated", ar: "تخفى عن الزوار، مفصولة بفواصل" },
+  // Same treatment as the language filter, for the same reason: this removes
+  // topic pills — and with them whole topic pages — and used to do it in
+  // silence.
+  excludeTagsEffect: {
+    en: "Hides {hidden} of {total} topics from the public site: {tags}",
+    ar: "يخفي {hidden} من {total} موضوعًا عن الموقع العام: {tags}",
+  },
+  excludeTagsNoop: {
+    en: "No published note carries any of these — nothing is being hidden.",
+    ar: "لا تحمل أي ملاحظة منشورة أيًّا منها — لا يُخفى شيء.",
+  },
+  excludeTagsNone: {
+    en: "All {total} topics on your published notes are public.",
+    ar: "كل الموضوعات على ملاحظاتك المنشورة، وعددها {total}، عامة.",
+  },
   rowComments: { en: "Comments", ar: "التعليقات" },
   hintComments: { en: "Marginalia under published notes", ar: "الحواشي أسفل الملاحظات المنشورة" },
+  // The home note is the front door of a blog-mode site, and it can point at
+  // a note visitors cannot see — which renders a blank homepage and says
+  // nothing. Now it says something.
+  homeNoteHidden: {
+    en: "Visitors cannot see this note, so your homepage would be blank for them. Publish it, or pick another.",
+    ar: "لا يستطيع الزوار رؤية هذه الملاحظة، فتغدو صفحتك الرئيسة خالية عندهم. انشرها أو اختر غيرها.",
+  },
+  homeNoteOk: {
+    en: "Visitors can see this note.",
+    ar: "يستطيع الزوار رؤية هذه الملاحظة.",
+  },
+  homeNoteUnset: {
+    en: "No home note set — visitors land on the writings list.",
+    ar: "لم تُحدَّد ملاحظة رئيسة — يصل الزوار إلى قائمة الكتابات.",
+  },
+  homeModeAppNote: {
+    en: "Visitors land in the app shell, so this front door is never rendered — the Public layout row above decides that.",
+    ar: "يصل الزوار إلى واجهة التطبيق، فلا تُعرض هذه الواجهة أصلًا — صف «تخطيط العام» أعلاه هو ما يقرر ذلك.",
+  },
+  // PUBLIC=false is env-only: the panel cannot change it, but it can and must
+  // say that every count on this tab is moot while it is set.
+  publicReadsOffWarn: {
+    en: "PUBLIC=false: this whole site is behind the login, so no visitor sees any of it. Every count on this page describes what would be public if you opened it.",
+    ar: "‏‎PUBLIC=false‎: الموقع كله خلف تسجيل الدخول، فلا يرى الزوار شيئًا منه. كل عدد في هذه الصفحة يصف ما سيكون عامًا لو فتحته.",
+  },
+  // The tab-level standing summary — "as it stands", not "as it would be".
+  visibilityHead: { en: "What visitors see", ar: "ما يراه الزوار" },
+  visibilityNow: {
+    en: "{visible} of your {total} published notes are discoverable right now.",
+    ar: "{visible} من ملاحظاتك المنشورة البالغة {total} قابلة للاكتشاف الآن.",
+  },
+  visibilityAll: {
+    en: "All {total} of your published notes are discoverable.",
+    ar: "كل ملاحظاتك المنشورة البالغة {total} قابلة للاكتشاف.",
+  },
+  visibilityNothingPublished: {
+    en: "Nothing is published yet, so visitors see an empty site whatever these settings say.",
+    ar: "لم يُنشر شيء بعد، فيرى الزوار موقعًا خاليًا مهما قالت هذه الإعدادات.",
+  },
+  // The status bar's standing indicator + its tooltip.
+  reachPill: { en: "{visible}/{total} public", ar: "{visible}/{total} عام" },
+  reachTitle: {
+    en: "{hidden} published notes are hidden from visitors by your settings — click to open Settings.",
+    ar: "‏{hidden} ملاحظة منشورة مخفية عن الزوار بسبب إعداداتك — انقر لفتح الإعدادات.",
+  },
+  reachFallbackTitle: {
+    en: "Your language filter matches no published note, so the site is showing everything — click to open Settings.",
+    ar: "لا تطابق تصفية اللغة أي ملاحظة منشورة، فيعرض الموقع كل شيء — انقر لفتح الإعدادات.",
+  },
+  reachClosedTitle: {
+    en: "PUBLIC=false — the whole site is behind the login.",
+    ar: "‏‎PUBLIC=false‎ — الموقع كله خلف تسجيل الدخول.",
+  },
+  // The visitor-facing quiet note (public shell), when the filter stood down.
+  langFallbackNote: {
+    en: "Showing every language — nothing is published in the language you are reading in.",
+    ar: "تُعرض كل اللغات — لا شيء منشور باللغة التي تقرأ بها.",
+  },
   rowShareButtons: { en: "Share buttons", ar: "أزرار المشاركة" },
   hintShareButtons: { en: "Social share row under blog articles", ar: "صف المشاركة أسفل المقالات" },
   phVaultImageOrUrl: {
@@ -1727,6 +1943,19 @@ const DICT = {
   designSaveFailed: { en: "Could not save the design", ar: "تعذّر حفظ التصميم" },
   designPreview: { en: "Live preview", ar: "معاينة حيّة" },
   designUnsaved: { en: "Unsaved changes", ar: "تغييرات غير محفوظة" },
+  designUnsavedN: { en: "{n} not saved yet", ar: "{n} لم تُحفظ بعد" },
+  // The rail's three rooms, plus the file. The words are the author's own
+  // question, not our file layout.
+  designGroupLibrary: { en: "Your designs", ar: "تصاميمك" },
+  designGroupPage: { en: "The page", ar: "الصفحة" },
+  designGroupLook: { en: "The look", ar: "المظهر" },
+  designGroupFile: { en: "Keeping", ar: "الحفظ" },
+  designEmptyTitle: { en: "Nothing designed yet", ar: "لا تصميم بعد" },
+  designEmptyBody: {
+    en: "Start from one of the finished designs and edit it, or from a blank page. Either way your posts fill it in immediately.",
+    ar: "ابدأ من أحد التصاميم الجاهزة وحرّره، أو من صفحة فارغة. في الحالتين تملؤه مقالاتك فورًا.",
+  },
+  designBrowsePresets: { en: "Browse the presets", ar: "تصفّح القوالب" },
   designAllSaved: { en: "Everything saved", ar: "كل شيء محفوظ" },
   designDiscard: { en: "Discard", ar: "تجاهل" },
   designSave: { en: "Save design", ar: "حفظ التصميم" },
@@ -1916,7 +2145,6 @@ const DICT = {
     ar: "يُحفظ التصميم حتى بينما يعمل الموقع العام بالمدونة الأصلية، فالتبديل بينهما لا يفقد شيئًا.",
   },
 
-  designSampleTopic: { en: "Topics", ar: "موضوعات" },
   designSpecimenTitle: { en: "A page of your site", ar: "صفحة من موقعك" },
   designSpecimenLead: {
     en: "This is how your prose will read: the size, the measure, the line height and the rhythm between blocks, all at once.",
@@ -1945,15 +2173,41 @@ const DICT = {
   dsnHidden: { en: "Hidden", ar: "مخفي" },
   dsnAlwaysShown: { en: "always shown", ar: "يظهر دائمًا" },
 
+  // The board's grip: a drag with a keyboard on it. The help line is
+  // `aria-describedby` on every grip AND visible under the list — a gesture
+  // nobody is told about is a gesture nobody uses.
+  dsnGrabOf: { en: "Reorder {name}", ar: "إعادة ترتيب {name}" },
+  dsnDragHelp: {
+    en: "Drag a row by its grip — or focus one and press Space, move with the arrows, Space again to set it down.",
+    ar: "اسحب الصف من مقبضه — أو ركّز عليه واضغط المسافة، وحرّكه بالأسهم، ثم المسافة مرة أخرى لإنزاله.",
+  },
+  dsnLifted: { en: "{name} lifted — arrows move it", ar: "رُفع {name} — الأسهم تحرّكه" },
+  dsnMovedTo: { en: "{name} is now {n} of {total}", ar: "{name} صار {n} من {total}" },
+  dsnEmptyTitle: { en: "An empty page, waiting", ar: "صفحة فارغة تنتظر" },
+  dsnEmptyBody: {
+    en: "A home page is a stack of sections: an opening panel, a grid of posts, a river of writing, the topics you keep returning to. Add the first one.",
+    ar: "الصفحة الرئيسية طبقات من الأقسام: لوحة افتتاحية، وشبكة مقالات، ونهر من الكتابة، والموضوعات التي تعود إليها. أضف أولها.",
+  },
+  dsnPickerLead: {
+    en: "Each one lands at the bottom of the page, where you can move it.",
+    ar: "كل قسم يحطّ في أسفل الصفحة، حيث يمكنك تحريكه.",
+  },
+  dsnFull: {
+    en: "That is every section a design may hold — remove one to add another.",
+    ar: "هذا أقصى ما يحمله التصميم من أقسام — احذف واحدًا لتضيف آخر.",
+  },
+
   designTabDesigns: { en: "Designs", ar: "التصاميم" },
   designTabDesignsIntro: {
     en: "Every design this instance holds. One is active; switching between them changes nothing on disk, so a design you turn off is a design you can turn back on unchanged.",
     ar: "كل التصاميم في هذه النسخة. واحد منها نشط، والتبديل بينها لا يغيّر شيئًا على القرص — فالتصميم الذي توقفه يمكنك إعادته كما كان تمامًا.",
   },
   designTabSections: { en: "Sections", ar: "الأقسام" },
+  // The REORDERING instructions live under the list, on `dsnDragHelp`, beside
+  // the grips they describe — so this line says what the tab is and stops.
   designTabSectionsIntro: {
-    en: "What the home page is made of, top to bottom. Drag a row, or move it with the arrows; open one to edit what it shows.",
-    ar: "مما تتكوّن الصفحة الرئيسية، من أعلاها إلى أسفلها. اسحب صفًا أو حرّكه بالأسهم، وافتح أحدها لتحرير ما يعرضه.",
+    en: "What the home page is made of, top to bottom. Open a row to edit what it shows.",
+    ar: "مما تتكوّن الصفحة الرئيسية، من أعلاها إلى أسفلها. افتح صفًا لتحرير ما يعرضه.",
   },
   designNew: { en: "New design", ar: "تصميم جديد" },
   designNewTitle: { en: "New design", ar: "تصميم جديد" },
@@ -2058,6 +2312,89 @@ const DICT = {
   dsoArtTags: { en: "Tags", ar: "الوسوم" },
   dsoArtRelated: { en: "Related posts", ar: "مقالات ذات صلة" },
   dsoArtBack: { en: "Back link", ar: "رابط العودة" },
+
+  // ── Presets: the gallery chrome ──────────────────────────────────────────
+  // A preset's own NAME and BLURB are not here and must not be: they travel
+  // inside the preset as { en, ar } data (shared/presets.ts). Fifty of them
+  // would be a hundred dictionary rows this gate could only see as dead keys,
+  // and adding a preset would mean editing three files instead of one.
+  designTabPresets: { en: "Presets", ar: "القوالب" },
+  designTabPresetsIntro: {
+    en: "Finished designs. Pick one and it becomes an editable copy of your own.",
+    ar: "تصاميم جاهزة. اختر واحدًا ليصير نسخة خاصة بك قابلة للتحرير.",
+  },
+  presetSearch: { en: "Search presets…", ar: "بحث في القوالب…" },
+  presetCount: { en: "{n} designs", ar: "{n} تصميمًا" },
+  presetFamilies: { en: "Preset families", ar: "عائلات القوالب" },
+  presetFamAll: { en: "All", ar: "الكل" },
+  presetFamEditorial: { en: "Editorial", ar: "تحريري" },
+  presetFamMinimal: { en: "Minimal", ar: "مقتضب" },
+  presetFamJournal: { en: "Journal", ar: "يوميات" },
+  presetFamPortfolio: { en: "Portfolio", ar: "أعمال" },
+  presetFamReference: { en: "Reference", ar: "مرجعي" },
+  presetFamLanding: { en: "Landing", ar: "صفحة هبوط" },
+  presetFamGallery: { en: "Gallery", ar: "معرض" },
+  presetFamLetter: { en: "Letter", ar: "نشرة" },
+  presetBlank: { en: "Start from blank", ar: "ابدأ من صفحة فارغة" },
+  presetBlankHint: { en: "The stock defaults, and nothing else.", ar: "الإعدادات الأصلية، ولا شيء غيرها." },
+  presetNoMatch: { en: "No preset matches that.", ar: "لا يوجد قالب مطابق لذلك." },
+  presetSampleNote: {
+    en: "Some rows are samples — your own posts fill them in as you publish.",
+    ar: "بعض الصفوف نماذج — وستحلّ مقالاتك محلّها كلما نشرت.",
+  },
+  presetApply: { en: "Use this design", ar: "استخدم هذا التصميم" },
+  presetFillIn: {
+    en: "A preset ships the shape; the words stay yours. Fill in the opening panel and any button after you apply it.",
+    ar: "القالب يقدّم الشكل، وتبقى الكلمات لك. املأ اللوحة الافتتاحية وأي زر بعد تطبيقه.",
+  },
+  presetForkNote: {
+    en: "Applying makes an editable copy. The preset never changes, and editing your copy never touches it.",
+    ar: "التطبيق ينشئ نسخة قابلة للتحرير. القالب لا يتغيّر، وتحرير نسختك لا يمسّه.",
+  },
+  presetApplied: { en: "Preset applied — your copy is open", ar: "طُبِّق القالب — نسختك مفتوحة" },
+
+  // ── Preview content: the sample rows a fresh vault is padded with ────────
+  // Copy, so it is here; DATA, so it is deliberately generic. These stand in
+  // for the author's own posts only until there are enough of them.
+  designCanvasLabel: { en: "A preview of the composed site", ar: "معاينة للموقع المركّب" },
+  designPreviewHome: { en: "Front page", ar: "الصفحة الأولى" },
+  designPreviewArticle: { en: "Article page", ar: "صفحة المقالة" },
+
+  // ── The preview stage: the device bar over the frame ─────────────────────
+  designDevice: { en: "Preview width", ar: "عرض المعاينة" },
+  designDeviceDesktop: { en: "Desktop", ar: "سطح المكتب" },
+  designDeviceTablet: { en: "Tablet", ar: "لوح" },
+  designDevicePhone: { en: "Phone", ar: "هاتف" },
+  designPreviewWidth: { en: "{w} px wide", ar: "بعرض {w} بكسل" },
+  designZoomFit: { en: "Fit to pane", ar: "ملء اللوحة" },
+  designZoomActual: { en: "Actual size", ar: "الحجم الفعلي" },
+  designPreviewFrame: { en: "Live preview of {name}", ar: "معاينة حيّة لـ{name}" },
+  pvTitle1: { en: "On keeping a notebook", ar: "في مداومة تدوين الدفاتر" },
+  pvTitle2: { en: "The long walk home", ar: "الطريق الطويل إلى البيت" },
+  pvTitle3: { en: "Notes on a quiet winter", ar: "ملاحظات عن شتاء هادئ" },
+  pvTitle4: { en: "What the archive remembers", ar: "ما يتذكّره الأرشيف" },
+  pvTitle5: { en: "A short history of margins", ar: "تاريخ موجز للهوامش" },
+  pvTitle6: { en: "Reading at the speed of light", ar: "القراءة بسرعة الضوء" },
+  pvExcerpt1: {
+    en: "A sample paragraph, standing in for one of your own posts until you have published a few.",
+    ar: "فقرة نموذجية تنوب عن إحدى مقالاتك إلى أن تنشر بعضها.",
+  },
+  pvExcerpt2: {
+    en: "Enough words to show what an excerpt looks like in this design, at this measure, in this type.",
+    ar: "كلمات تكفي لتُظهر شكل المقتطف في هذا التصميم، بهذا العرض وبهذا الخط.",
+  },
+  pvExcerpt3: {
+    en: "Your own writing replaces this the moment there is enough of it to fill the page.",
+    ar: "ستحلّ كتابتك محلّ هذا حالما يتوفّر منها ما يملأ الصفحة.",
+  },
+  pvTag1: { en: "essays", ar: "مقالات" },
+  pvTag2: { en: "notes", ar: "ملاحظات" },
+  pvTag3: { en: "reading", ar: "قراءة" },
+  pvTag4: { en: "archive", ar: "أرشيف" },
+  pvNoteBody: {
+    en: "A sample note, rendered where this section will render one of your own.",
+    ar: "ملاحظة نموذجية تُعرض حيث ستُعرض ملاحظة من ملاحظاتك.",
+  },
 } satisfies Record<string, Entry>;
 
 export type I18nKey = keyof typeof DICT;
@@ -2137,6 +2474,7 @@ export function tf(key: I18nKey, vars: Record<string, string | number>): string 
 type CountUnit =
   | "notes"
   | "files"
+  | "trashItems"
   | "publishedNotes"
   | "links"
   | "words"
@@ -2144,13 +2482,22 @@ type CountUnit =
   | "comments"
   | "marginNotes"
   | "foldedLines"
-  | "readMinutes";
+  | "readMinutes"
+  | "changes";
 
 const UNITS: Record<CountUnit, { en: [string, string]; ar: { one: string; two: string; few: string; many: string } }> = {
   notes: { en: ["note", "notes"], ar: { one: "ملاحظة واحدة", two: "ملاحظتان", few: "ملاحظات", many: "ملاحظة" } },
   // The sidebar footer counts the vault's ATTACHMENTS beside its notes — the
   // images, PDFs and recordings that are not notes but are certainly files.
   files: { en: ["file", "files"], ar: { one: "ملف واحد", two: "ملفان", few: "ملفات", many: "ملفًا" } },
+  // The trash holds folders, notes and attachments side by side, so its header
+  // cannot count "files": one of the three rows in the fixture is a folder of
+  // four notes, and calling that a file is the same small dishonesty this
+  // whole round is about, one surface later.
+  trashItems: {
+    en: ["item", "items"],
+    ar: { one: "عنصر واحد", two: "عنصران", few: "عناصر", many: "عنصرًا" },
+  },
   // The visitor graph HUD counts published notes specifically.
   publishedNotes: {
     en: ["published note", "published notes"],
@@ -2174,6 +2521,13 @@ const UNITS: Record<CountUnit, { en: [string, string]; ar: { one: string; two: s
   readMinutes: {
     en: ["min read", "min read"],
     ar: { one: "دقيقة قراءة", two: "دقيقتا قراءة", few: "دقائق قراءة", many: "دقيقة قراءة" },
+  },
+  // The designer's save bar counts the decisions waiting to be written. A
+  // number is what makes "unsaved" actionable, and a number in a sentence
+  // needs the same agreement every other count in the product gets.
+  changes: {
+    en: ["change", "changes"],
+    ar: { one: "تغيير واحد", two: "تغييران", few: "تغييرات", many: "تغييرًا" },
   },
 };
 

@@ -217,8 +217,31 @@ A third visitor shell, composed from a design config, beside the two that exist.
 - **Counts go through `localeNum()`.** A topic chip's count sits beside an Arabic-Indic date on
   every card in the same column; one numbering system per instance is not negotiable for a new
   surface either.
+- **The designer panel is a DESIGN TOOL.** Three columns — a grouped, drawn rail; a controls
+  column that cross-fades when the rail moves; and a preview that keeps the largest share of the
+  width, all three still on screen on a 1280×800 laptop. The ONE exception is the preset gallery,
+  which is itself a preview surface at three magnifications and therefore takes the preview's
+  column (two columns, five cards across at 1440) with the stage UNMOUNTED behind it — a pane
+  drawing the draft is the wrong answer to "which of these fifty-nine". The page is a BOARD of section cards, each
+  with its position, a wireframe glyph of its kind and its own controls; a card is dragged by its
+  grip (pointer events, so a finger works), the rows open a real slot for it and a dashed accent
+  socket is drawn in that slot, and the order only changes when the reader lets go. Every drag has
+  a keyboard equal — Space lifts, arrows move, Space drops, and a live region says where the row
+  landed — and the ↑/↓ buttons never go away. Adding a section is a picker of ILLUSTRATED options,
+  not a menu of nouns. Empty states invite (three glyphs, a sentence, the two doors) rather than
+  reporting an empty list. The save bar lights, pulses and COUNTS what is waiting, because nothing
+  in the panel reaches the public site until it is pressed. Motion is 150–200ms, purposeful, and
+  gone under `prefers-reduced-motion`.
 - Separators between two runs of text are hairlines, never `·`, for the reason the status bar and
   the sync lines give: the Eastern Arabic zero is itself a raised dot.
+- **The designer's preview is the SITE, in a viewport of its own** — the real renderers, the real
+  theme, the author's own posts and their pictures, inside an `about:blank` iframe carrying the
+  app's own stylesheets, at 1280 / 834 / 390. A preview in a narrow DIV answers every media query
+  with the panel's width, so its "phone" is the desktop design squeezed: the one picture of a
+  phone that is guaranteed wrong. It is hoverable and it scrolls (`.s-dsn` is the scrollport in
+  there, as it is on the live site), it settles 120ms after the last edit with a lit dot while it
+  is behind, and a vault with nothing published still draws a furnished page rather than a column
+  of empty rectangles.
 
 ## Custom themes
 

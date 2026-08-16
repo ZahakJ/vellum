@@ -41,6 +41,15 @@ export interface ConfirmOptions {
    *  .trash"). Rendered as plain text at the dialog's inline start, so it
    *  never competes with the two real buttons; picking it resolves "extra". */
   extraLabel?: string;
+  /** The consequence the reader would otherwise only find out afterwards,
+   *  rendered as its own danger-tinted line under the body: "4 attachments in
+   *  here are embedded by “essay.md”". It is separate from `body` because it
+   *  is a different KIND of sentence — `body` describes the action, this
+   *  describes the collateral — and because it has to be able to look
+   *  different from the calm line above it. Omitted when there is no
+   *  collateral: a warning that is always there is furniture, not a warning.
+   *  See CONTRACTS.md, "Delete previews". */
+  warn?: string;
   /** The step past recoverable: an irreversible act (erasing a subtree from
    *  disk). It changes two things, and both are safety rather than styling —
    *  the danger button is filled red AT REST instead of wearing the brand
@@ -345,7 +354,15 @@ export default function ConfirmHost() {
         onMouseDown={(e) => e.stopPropagation()}
       >
         <h2 className="s-confirm__title">{opts.title}</h2>
-        {opts.body && <p className="s-confirm__body">{opts.body}</p>}
+        {/* dir="auto" for the same reason the prompt's body carries it: these
+            sentences are built around vault paths and note names, whose
+            direction is the note's, not the interface's. */}
+        {opts.body && <p className="s-confirm__body" dir="auto">{opts.body}</p>}
+        {opts.warn && (
+          <p className="s-confirm__warn" dir="auto" role="note">
+            {opts.warn}
+          </p>
+        )}
         <div className="s-confirm__actions">
           {opts.extraLabel && (
             <button

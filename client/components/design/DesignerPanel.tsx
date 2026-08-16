@@ -35,7 +35,7 @@ import {
 import type { PageMeta } from "../../../shared/types.ts";
 import { getTags, patchSettings } from "../../api.ts";
 import { collectNotes } from "../../editor/links.ts";
-import { localeNum, t, tf, type I18nKey } from "../../i18n.ts";
+import { countPhrase, localeNum, t, tf, type I18nKey } from "../../i18n.ts";
 import { notePathToUrl } from "../../router.ts";
 import { useStore } from "../../state.ts";
 import { toast } from "../../toast.ts";
@@ -65,18 +65,39 @@ import {
 } from "../../../shared/design.ts";
 import { sectionKindLabel } from "../../design/Sections.tsx";
 import SectionList from "./SectionList.tsx";
+import SectionPicker, { isSectionPickerOpen } from "./SectionPicker.tsx";
+import SectionGlyph from "./SectionGlyph.tsx";
+import { TabGlyph } from "./PanelGlyphs.tsx";
 import { SectionOptions, sectionKindHint, type SectionContext } from "./SectionOptions.tsx";
 import { designId } from "../../../shared/designChrome.ts";
 import { NumberInput } from "../controls/Fields.tsx";
 import { Select } from "../controls/Select.tsx";
 import { promptModal } from "../Confirm.tsx";
 import "../../styles/composer.css";
-import DesignPreview from "./DesignPreview.tsx";
 import FooterBuilder from "./FooterBuilder.tsx";
 import NavBuilder from "./NavBuilder.tsx";
 import "../../styles/designer.css";
+// THE PREVIEW IS THE COMPOSED PAGE NOW, IN A VIEWPORT OF ITS OWN. It used to
+// be the chrome around a typography specimen, so the six controls that shape
+// the page — every section, the column width, the density, the grid columns,
+// the banners — changed nothing on screen. `PreviewStage` puts the real
+// renderers in a real nested document at a real device width; the specimen is
+// still one click away, because an article page IS the specimen and is also a
+// real page of the design.
+import PreviewStage from "./PreviewStage.tsx";
+import { usePreviewBuild } from "../../design/previewContent.tsx";
+import PresetGallery, { loadPresets } from "./PresetGallery.tsx";
+import { presetExport, type Preset } from "../../../shared/presets.ts";
+import { getPosts } from "../../api.ts";
+import type { PostMeta } from "../../../shared/types.ts";
 
-type Tab = "designs" | "sections" | "nav" | "pages" | "type" | "chrome" | "file";
+type Tab = "designs" | "presets" | "sections" | "nav" | "pages" | "type" | "chrome" | "file";
+
+/** The rail's groups. Eight tabs in one column is a menu; three named runs of
+ *  two or three is a place with rooms in it — and the names are the author's
+ *  own question ("which design am I editing", "what is on the page", "what
+ *  does it look like"), not our file layout. */
+type RailGroup = { label: I18nKey; tabs: Tab[] };
 
 /** Slider → its label key. A LITERAL table rather than a computed key: a
  *  `t(\`designType_${name}\`)` reads fine and is invisible to check-i18n,
@@ -100,6 +121,7 @@ const COPYRIGHT_TEMPLATE = "© {year} {siteName}";
 
 const TABS: { id: Tab; label: I18nKey; intro: I18nKey }[] = [
   { id: "designs", label: "designTabDesigns", intro: "designTabDesignsIntro" },
+  { id: "presets", label: "designTabPresets", intro: "designTabPresetsIntro" },
   { id: "sections", label: "designTabSections", intro: "designTabSectionsIntro" },
   { id: "nav", label: "designTabNav", intro: "designTabNavIntro" },
   { id: "pages", label: "designTabPages", intro: "designTabPagesIntro" },
@@ -107,6 +129,79 @@ const TABS: { id: Tab; label: I18nKey; intro: I18nKey }[] = [
   { id: "chrome", label: "designTabChrome", intro: "designTabChromeIntro" },
   { id: "file", label: "designTabFile", intro: "designTabFileIntro" },
 ];
+
+const RAIL: RailGroup[] = [
+  { label: "designGroupLibrary", tabs: ["designs", "presets"] },
+  { label: "designGroupPage", tabs: ["sections", "nav", "pages"] },
+  { label: "designGroupLook", tabs: ["type", "chrome"] },
+  { label: "designGroupFile", tabs: ["file"] },
+];
+
+/**
+ * HOW MANY DECISIONS ARE WAITING TO BE SAVED.
+ *
+ * "Unsaved changes" is true and says nothing; "4 changes not saved yet" is the
+ * difference between a footer an author reads once and a footer they can act
+ * on. The count has to be COUNTED THE WAY AN AUTHOR COUNTS, though, which is
+ * why this is not a leaf-wise diff of two JSON blobs: moving one section in a
+ * list of seven rewrites six array slots, and a bar reading "31 changes"
+ * after one drag is worse than no number at all.
+ *
+ * So sections are compared BY ID — one change for an edited section, one for
+ * each added or removed, one for the order — and everything else (the chrome,
+ * the page, the article page, the name, the theme) is compared leaf by leaf,
+ * where a leaf really is one decision an author made with one control.
+ */
+export function countChanges(before: DesignDoc | null, after: DesignDoc | null): number {
+  if (!before || !after) return 0;
+  let n = 0;
+  const byId = (list: Section[]): Map<string, string> =>
+    new Map(list.map((section) => [section.id, JSON.stringify(section)]));
+  const was = byId(before.sections);
+  const now = byId(after.sections);
+  for (const [id, json] of now) {
+    const previous = was.get(id);
+    if (previous === undefined || previous !== json) n++;
+  }
+  for (const id of was.keys()) if (!now.has(id)) n++;
+  // The ORDER counts once, and only over the sections BOTH documents have: an
+  // added or removed section already counted itself (charging it twice makes
+  // one act read as two), while a move made in the same sitting as an add is
+  // a second decision and has to show up as one.
+  const order = (list: Section[], keep: Map<string, string>): string =>
+    list
+      .map((section) => section.id)
+      .filter((id) => keep.has(id))
+      .join(",");
+  if (order(before.sections, now) !== order(after.sections, was)) n++;
+  n += leafChanges(
+    { name: before.name, theme: before.theme, site: before.site, article: before.article, chrome: before.chrome },
+    { name: after.name, theme: after.theme, site: after.site, article: after.article, chrome: after.chrome },
+  );
+  return n;
+}
+
+/** Leaf-by-leaf, where a leaf is one control. Arrays are one leaf: a nav item
+ *  list is edited by its own builder, and "the menu changed" is the fact. */
+function leafChanges(before: unknown, after: unknown): number {
+  if (before === after) return 0;
+  const both =
+    typeof before === "object" && before !== null && !Array.isArray(before) &&
+    typeof after === "object" && after !== null && !Array.isArray(after);
+  if (!both) return JSON.stringify(before) === JSON.stringify(after) ? 0 : 1;
+  const keys = new Set([
+    ...Object.keys(before as Record<string, unknown>),
+    ...Object.keys(after as Record<string, unknown>),
+  ]);
+  let n = 0;
+  for (const key of keys) {
+    n += leafChanges(
+      (before as Record<string, unknown>)[key],
+      (after as Record<string, unknown>)[key],
+    );
+  }
+  return n;
+}
 
 
 /**
@@ -129,6 +224,7 @@ function DesignsTab({
   onOpen,
   onRefresh,
   setDoc,
+  onBrowsePresets,
 }: {
   admin: DesignOverview | null;
   draft: DesignDoc | null;
@@ -139,6 +235,10 @@ function DesignsTab({
   onOpen: (doc: DesignDoc) => void;
   onRefresh: () => void;
   setDoc: (patch: Partial<DesignDoc>) => void;
+  /** Send the author to the gallery. The panel owns the rail, so the tab is
+   *  the panel's to change — this list only knows that "look at the finished
+   *  ones" is the other answer to an empty store. */
+  onBrowsePresets: () => void;
 }) {
   if (!admin) return <p className="s-dsgr-empty">{t("designLoading")}</p>;
 
@@ -246,12 +346,39 @@ function DesignsTab({
           );
         })}
       </ul>
-      {admin.designs.length === 0 && <p className="s-dsgr-empty">{t("designNoneYet")}</p>}
-      <div className="s-dsgr-add">
-        <button type="button" className="s-btn s-btn--accent" onClick={create} disabled={busy}>
-          {t("designNew")}
-        </button>
-      </div>
+      {/* AN EMPTY STORE IS THE FIRST SCREEN OF A FRESH INSTANCE — the panel
+          opens on this tab — so it is the invitation with both doors on it,
+          not a line reporting that a list is empty. */}
+      {admin.designs.length === 0 ? (
+        <div className="s-dsgr-invite">
+          <span className="s-dsgr-invite__art" aria-hidden="true">
+            <SectionGlyph kind="hero" size="card" />
+            <SectionGlyph kind="postGrid" size="card" />
+            <SectionGlyph kind="postList" size="card" />
+          </span>
+          <h2 className="s-dsgr-invite__title">{t("designEmptyTitle")}</h2>
+          <p className="s-dsgr-invite__body">{t("designEmptyBody")}</p>
+          <div className="s-dsgr-invite__acts">
+            <button
+              type="button"
+              className="s-btn s-btn--accent"
+              disabled={busy}
+              onClick={onBrowsePresets}
+            >
+              {t("designBrowsePresets")}
+            </button>
+            <button type="button" className="s-btn" onClick={create} disabled={busy}>
+              {t("designNew")}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="s-dsgr-add">
+          <button type="button" className="s-btn s-btn--accent" onClick={create} disabled={busy}>
+            {t("designNew")}
+          </button>
+        </div>
+      )}
       {draft && (
         <>
           <h2 className="s-dsgr__section">{t("designOpenSection")}</h2>
@@ -353,9 +480,20 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
   const [saved, setSaved] = useState<string>(""); // JSON of the last saved doc
   const [tags, setTags] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  /** The add-a-section menu, open or shut. */
-  const [adding, setAdding] = useState(false);
+  // (The add-a-section sheet keeps its own open state — `SectionPicker` owns
+  // the button, the sheet, the outside-click and the focus return together,
+  // because a popover whose open flag lives in another component is a popover
+  // that eventually opens with nothing to close it.)
   const fileRef = useRef<HTMLInputElement | null>(null);
+  /** The shipped catalog, once. `null` while the chunk is in flight — the
+   *  gallery has no loading state of its own, so the tab shows the panel's. */
+  const [presets, setPresets] = useState<readonly Preset[] | null>(null);
+  /** The instance's own published posts. The preview draws from these before
+   *  it invents anything, which is what makes a preset look like YOUR site
+   *  rather than like a screenshot of somebody else's. */
+  const [posts, setPosts] = useState<PostMeta[] | null>(null);
+  /** Which page of the design the preview pane is showing. */
+  const [previewRoute, setPreviewRoute] = useState<"home" | "article">("home");
 
   // Load the stored design + the two pickers' vocabularies.
   useEffect(() => {
@@ -383,16 +521,34 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
         if (!disposed) setTags(list.map((entry) => entry.tag));
       })
       .catch(() => undefined);
+    getPosts()
+      .then((list) => {
+        if (!disposed) setPosts(list);
+      })
+      .catch(() => undefined);
+    // The catalog is a dynamic import: fifty layouts are a chunk the admin
+    // fetches when they open the designer, never bytes on a visitor's first
+    // paint. A failure is not fatal — every other tab still works, and the
+    // gallery simply shows its empty state.
+    loadPresets()
+      .then((list) => {
+        if (!disposed) setPresets(list);
+      })
+      .catch((err: unknown) => console.error("vellum: loading the presets failed", err));
     return () => {
       disposed = true;
     };
   }, []);
 
-  // Esc closes — unless a Select popover owns it, which is the same
-  // precedence the settings panel and the theme picker already keep.
+  // Esc closes — unless an inner layer owns it (a Select popover, the
+  // add-a-section sheet), which is the same precedence the settings panel and
+  // the theme picker already keep. Both listeners are capture-phase on
+  // `window` and this one is registered first, so asking is the ONLY way the
+  // inner surface can win: one Esc used to close the whole designer out from
+  // under an open picker.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== "Escape" || isSelectOpen()) return;
+      if (e.key !== "Escape" || isSelectOpen() || isSectionPickerOpen()) return;
       e.preventDefault();
       onClose();
     };
@@ -401,8 +557,18 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   const dirty = draft !== null && JSON.stringify(draft) !== saved;
+  /** How many decisions the bar is holding. Recomputed only when the draft or
+   *  the stored document actually moves — a diff per keystroke of a heading
+   *  field is a diff per keystroke. */
+  const changes = useMemo(
+    () => (dirty && saved ? countChanges(JSON.parse(saved) as DesignDoc, draft) : 0),
+    [dirty, saved, draft],
+  );
   const notes = useMemo(() => collectNotes(tree), [tree]);
-  const pages: PageMeta[] = admin?.pages ?? [];
+  // Memoized on `admin` rather than `admin?.pages`: a bare `?? []` is a NEW
+  // array every render, which is a new preview-content object every render,
+  // which is the whole canvas remounting while somebody drags a slider.
+  const pages: PageMeta[] = useMemo(() => admin?.pages ?? [], [admin]);
   // What the PUBLIC site can reach — posts AND pages, as the server scopes
   // them. The builder flags an item pointing anywhere else, because a menu
   // that looks fine while shipping a dead link is the one thing this panel
@@ -475,6 +641,22 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
       .finally(() => setBusy(false));
   };
 
+  // Ctrl/Cmd+S saves the draft. A surface whose whole promise is "nothing
+  // leaves this panel until you say so" has to answer the keystroke everybody
+  // presses to say so — and it must SWALLOW it either way, because the
+  // browser's own Save dialog over a design panel is a jump-scare, not a
+  // feature. Declared after `save` so the dependency array never reads it
+  // before it exists.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key.toLowerCase() !== "s" || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      if (dirty && !busy) save();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [dirty, busy, save]);
+
   const setLayout = (next: string): void => {
     setBusy(true);
     patchSettings({ publicLayout: next as "app" | "blog" | "designed" })
@@ -545,8 +727,68 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
     });
   };
 
+  /**
+   * APPLYING A PRESET IS AN IMPORT, and that is the whole implementation.
+   *
+   * `presetExport()` produces the exact `vellum.design` envelope
+   * `POST /api/design/docs/import` already takes, and that route gives us
+   * every property the word "fork" is supposed to buy: a fresh id, fresh
+   * timestamps, strict validation, custom themes under fresh slugs, and
+   * nothing the instance already has overwritten. The shipped preset is never
+   * referenced again by anything — there is no id stored, no link kept, and
+   * nothing an author edits afterwards can reach back into the catalog.
+   */
+  const applyPreset = async (preset: Preset): Promise<void> => {
+    setBusy(true);
+    try {
+      const doc = await importDesignDoc(presetExport(preset, language));
+      setDraft(doc);
+      setName(doc.name);
+      setSaved(JSON.stringify(doc));
+      void getDesignOverview().then(setAdmin).catch(() => undefined);
+      // Straight into the sections tab: an author who just chose a shape is
+      // about to change it, and the gallery has nothing left to tell them.
+      setTab("sections");
+      toast(t("presetApplied"));
+    } catch (err) {
+      console.error("vellum: applying the preset failed", err);
+      toast(t("designSaveFailed"), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startBlank = async (): Promise<void> => {
+    const value = await promptModal({
+      title: t("designNewTitle"),
+      placeholder: t("designName"),
+      confirmLabel: t("designCreate"),
+    });
+    const wanted = (value ?? "").trim();
+    if (!wanted) return;
+    setBusy(true);
+    try {
+      const doc = await createDesignDoc(wanted);
+      setDraft(doc);
+      setName(doc.name);
+      setSaved(JSON.stringify(doc));
+      void getDesignOverview().then(setAdmin).catch(() => undefined);
+      setTab("sections");
+      toast(t("designCreated"));
+    } catch (err) {
+      console.error("vellum: creating the design failed", err);
+      toast(t("designSaveFailed"), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const chrome = draft?.chrome ?? null;
   const typo = chrome?.typography ?? stockChrome().typography;
+  // ONE content object for the preview pane and the gallery both. Real posts
+  // first, sample rows only to make up the numbers, generated artwork wherever
+  // a banner is missing — client/design/previewContent.tsx says why.
+  const previewContent = usePreviewBuild({ posts, pages, noteMode: "fetch" });
 
   return (
     <div className="s-dsgr-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -581,26 +823,46 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
           <p className="s-dsgr__offnote">{t("designCorruptNotice")}</p>
         )}
 
-        <div className="s-dsgr__body">
+        <div className={`s-dsgr__body${tab === "presets" ? " s-dsgr__body--wide" : ""}`}>
           <nav className="s-dsgr__rail" role="tablist" aria-label={t("designSections")}>
-            {TABS.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === entry.id}
-                className={`s-dsgr__tab${tab === entry.id ? " s-dsgr__tab--on" : ""}`}
-                onClick={() => setTab(entry.id)}
-              >
-                {t(entry.label as "designTabNav")}
-              </button>
+            {RAIL.map((group) => (
+              <div key={group.label} className="s-dsgr__railgroup">
+                <span className="s-dsgr__railhead">{t(group.label as "designGroupPage")}</span>
+                {group.tabs.map((id) => {
+                  const entry = TABS.find((x) => x.id === id);
+                  if (!entry) return null;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      data-tab={id}
+                      aria-selected={tab === id}
+                      className={`s-dsgr__tab${tab === id ? " s-dsgr__tab--on" : ""}`}
+                      onClick={() => setTab(id)}
+                    >
+                      <TabGlyph tab={id} />
+                      <span className="s-dsgr__tablabel">{t(entry.label as "designTabNav")}</span>
+                    </button>
+                  );
+                })}
+              </div>
             ))}
           </nav>
 
-          <div className="s-dsgr__controls" data-popbounds>
-            <p className="s-dsgr__intro">
-              {t((TABS.find((x) => x.id === tab)?.intro ?? "designTabNavIntro") as "designTabNavIntro")}
-            </p>
+          {/* `key={tab}` is the cross-fade: the panel's body is REPLACED when
+              the rail moves, so the new controls arrive over 160ms instead of
+              popping into a column the eye has to re-find. */}
+          <div className="s-dsgr__controls" data-popbounds key={tab}>
+            {/* The tab's own sentence — but not over an empty instance: "drag
+                a row, or move it with the arrows" above a panel with no rows
+                in it is instructions for a thing that is not there. The
+                invitation below says the only thing there is to say. */}
+            {(draft !== null || tab === "designs" || tab === "presets") && (
+              <p className="s-dsgr__intro">
+                {t((TABS.find((x) => x.id === tab)?.intro ?? "designTabNavIntro") as "designTabNavIntro")}
+              </p>
+            )}
 
             {tab === "designs" ? (
               <DesignsTab
@@ -617,9 +879,46 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
                 }}
                 onRefresh={() => void getDesignOverview().then(setAdmin).catch(() => undefined)}
                 setDoc={setDoc}
+                onBrowsePresets={() => setTab("presets")}
               />
+            ) : tab === "presets" ? (
+              presets === null ? (
+                <p className="s-dsgr-empty">{t("designLoading")}</p>
+              ) : (
+                <PresetGallery
+                  presets={presets}
+                  content={previewContent}
+                  busy={busy}
+                  onApply={applyPreset}
+                  onBlank={startBlank}
+                />
+              )
             ) : chrome === null || draft === null ? (
-              <p className="s-dsgr-empty">{t("designNoneYet")}</p>
+              // NOTHING TO EDIT YET — and an empty designer is the FIRST thing
+              // a new instance sees, so it is an invitation with the two ways
+              // in on it rather than a sentence explaining what is absent.
+              <div className="s-dsgr-invite">
+                <span className="s-dsgr-invite__art" aria-hidden="true">
+                  <SectionGlyph kind="hero" size="card" />
+                  <SectionGlyph kind="postGrid" size="card" />
+                  <SectionGlyph kind="postList" size="card" />
+                </span>
+                <h2 className="s-dsgr-invite__title">{t("designEmptyTitle")}</h2>
+                <p className="s-dsgr-invite__body">{t("designEmptyBody")}</p>
+                <div className="s-dsgr-invite__acts">
+                  <button
+                    type="button"
+                    className="s-btn s-btn--accent"
+                    disabled={busy}
+                    onClick={() => setTab("presets")}
+                  >
+                    {t("designBrowsePresets")}
+                  </button>
+                  <button type="button" className="s-btn" disabled={busy} onClick={() => void startBlank()}>
+                    {t("presetBlank")}
+                  </button>
+                </div>
+              </div>
             ) : tab === "sections" ? (
               <>
                 <SectionList
@@ -646,39 +945,32 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
                   // which is the same fact the other way up.
                   onToggle={(id, enabled) => patchSection(id, { hidden: !enabled })}
                   onRemove={(id) => setSections(draft.sections.filter((s) => s.id !== id))}
-                />
-                <div className="s-dsnc-addwrap">
-                  <button
-                    type="button"
-                    className="s-btn s-dsnc-addbtn"
-                    aria-expanded={adding}
-                    disabled={draft.sections.length >= MAX_SECTIONS}
-                    onClick={() => setAdding((v) => !v)}
-                  >
-                    <span aria-hidden="true">+</span> {t("dsoAddSection")}
-                  </button>
-                  {adding && (
-                    <div className="s-dsnc-add">
-                      {/* The menu is built from the schema's own list, so a
-                          section kind added to shared/design.ts is reachable
-                          here without a second edit. */}
-                      {(admin?.sectionKinds ?? []).map((kind) => (
-                        <button
-                          key={kind}
-                          type="button"
-                          className="s-dsnc-addcard"
-                          onClick={() => {
-                            addSection(kind);
-                            setAdding(false);
-                          }}
-                        >
-                          <span className="s-dsnc-addcard__name">{sectionKindLabel(kind)}</span>
-                          <span className="s-dsnc-addcard__desc">{sectionKindHint(kind)}</span>
-                        </button>
-                      ))}
+                  // A page with no sections is not an error and must not read
+                  // as one: it is the moment before the first decision, so it
+                  // shows what a section IS and offers the first one.
+                  empty={
+                    <div className="s-dsnc-empty">
+                      <span className="s-dsnc-empty__art" aria-hidden="true">
+                        <SectionGlyph kind="hero" size="card" />
+                        <SectionGlyph kind="postList" size="card" />
+                        <SectionGlyph kind="topics" size="card" />
+                      </span>
+                      <h2 className="s-dsnc-empty__title">{t("dsnEmptyTitle")}</h2>
+                      <p className="s-dsnc-empty__body">{t("dsnEmptyBody")}</p>
                     </div>
-                  )}
-                </div>
+                  }
+                />
+                {/* The menu is built from the schema's own list, so a section
+                    kind added to shared/design.ts is reachable here without a
+                    second edit. */}
+                <SectionPicker
+                  kinds={admin?.sectionKinds ?? []}
+                  label={sectionKindLabel}
+                  hint={sectionKindHint}
+                  onAdd={(kind) => addSection(kind as SectionKind)}
+                  full={draft.sections.length >= MAX_SECTIONS}
+                  disabled={busy}
+                />
                 <h2 className="s-dsgr__section">{t("dsoPageSection")}</h2>
                 <Row label={t("dsoWidth")} hint={t("dsoWidthHint")}>
                   <NumberInput
@@ -1076,14 +1368,68 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
             )}
           </div>
 
-          <div className="s-dsgr__preview">
-            <div className="s-dsgr__previewhead">{t("designPreview")}</div>
-            {chrome && <DesignPreview chrome={chrome} />}
-          </div>
+          {/* THE GALLERY IS ITS OWN PREVIEW, so it takes the pane.
+              Everywhere else the right-hand column is where the author looks —
+              but on the presets tab it was drawing the DRAFT, which is the one
+              document the person browsing fifty-nine alternatives is not
+              thinking about, or the words "no design yet" over two thirds of
+              the panel. Meanwhile the grid it belongs to was folded into a
+              380px form column at two cards across.
+              The gallery already answers every question that pane exists to
+              answer, at three magnifications: a miniature per card, a real
+              `DesignCanvas` under the pointer after a dwell, and a full canvas
+              in the detail sheet. So the tab collapses the panel to TWO columns
+              and the shelf gets the width — five across instead of two, which
+              is the difference between browsing a catalog and scrolling a
+              list. The stage is unmounted rather than hidden: it owns an
+              iframe, a MutationObserver and a clock, and none of them should be
+              running behind a surface that is not showing them. */}
+          {tab !== "presets" && (
+            <div className="s-dsgr__preview">
+              <div className="s-dsgr__previewhead">
+                <span>{t("designPreview")}</span>
+                <SegmentedControl
+                  value={previewRoute}
+                  onChange={(value) => setPreviewRoute(value as "home" | "article")}
+                  label={t("designPreview")}
+                  segments={[
+                    { value: "home", label: t("designPreviewHome") },
+                    { value: "article", label: t("designPreviewArticle") },
+                  ]}
+                />
+              </div>
+              {/* THE STAGE, not a bare canvas: the composed page in a document
+                  of its own, at a device width the author picks, settling on the
+                  trailing edge of their edits. A canvas in a div would answer
+                  every media query with the PANEL's width, which is the one lie
+                  a responsive preview may not tell. */}
+              {draft ? (
+                <PreviewStage design={draft} content={previewContent} route={previewRoute} />
+              ) : (
+                <p className="s-dsgr-empty">{t("designNoneYet")}</p>
+              )}
+            </div>
+          )}
         </div>
 
-        <footer className="s-dsgr__foot">
-          <span className="s-dsgr__state">{dirty ? t("designUnsaved") : t("designAllSaved")}</span>
+        {/* THE SAVE BAR IS A STATE, NOT A ROW OF BUTTONS. Nothing here reaches
+            the public site until it is pressed, so the one thing the bar has to
+            do is make "there are decisions in the air" impossible to miss: it
+            lights (accent hairline, a pulsing dot) the moment the draft leaves
+            the stored document, and it says HOW MANY changes are waiting — a
+            number an author can check against what they remember doing. */}
+        <footer className={`s-dsgr__foot${dirty ? " s-dsgr__foot--dirty" : ""}`}>
+          <span className="s-dsgr__state" role="status" aria-live="polite">
+            <span className="s-dsgr__dot" aria-hidden="true" />
+            {!dirty
+              ? t("designAllSaved")
+              : changes > 0
+                ? tf("designUnsavedN", { n: countPhrase(changes, "changes") })
+                : // The draft differs in something no control produced (an id,
+                  // a stamp): still unsaved, and still true, but there is no
+                  // honest number to print.
+                  t("designUnsaved")}
+          </span>
           <button
             type="button"
             className="s-btn"

@@ -57,8 +57,14 @@
 // chosen position is already inside the element it was read from, so this
 // costs one comparison and changes nothing.
 
-import { EditorSelection, type Extension, type SelectionRange } from "@codemirror/state";
+import { EditorSelection, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import {
+  isWidgetTarget,
+  mapSequenceAnchor,
+  rangeForClick,
+  sequenceAnchor,
+} from "./selection.ts";
 
 /** Document position under a mouse event, or null when nothing answers. */
 export function posFromEvent(event: MouseEvent, view: EditorView): number | null {
@@ -240,23 +246,6 @@ function assocAt(view: EditorView, pos: number, y: number): number {
   return dBefore + 1 < dAfter ? -1 : 1;
 }
 
-/** Single click → caret, double → word, triple → line. Mirrors CodeMirror's
- *  own `rangeForClick`, over a position this file resolved. */
-function rangeForClick(
-  view: EditorView,
-  pos: number,
-  assoc: number,
-  type: number,
-): SelectionRange {
-  if (type === 1) return EditorSelection.cursor(pos, assoc);
-  if (type === 2) {
-    return view.state.wordAt(pos) ?? EditorSelection.cursor(pos, assoc);
-  }
-  const line = view.state.doc.lineAt(pos);
-  const to = line.to < view.state.doc.length ? line.to + 1 : line.to;
-  return EditorSelection.range(line.from, to);
-}
-
 function removeRangeAround(
   sel: ReturnType<EditorView["state"]["selection"]["map"]>,
   pos: number,
@@ -275,19 +264,36 @@ function removeRangeAround(
 
 /** Caret placement and drag-selection resolved through `posFromPoint` instead
  *  of `posAtCoords`. Shift extends, Alt adds a range, double/triple click take
- *  a word / a line — the whole of CodeMirror's `basicMouseSelection` contract,
- *  which this replaces rather than wraps (the facet takes the first style that
- *  answers, and the built-in is only consulted when none does). */
+ *  a rendered unit / a word / a paragraph (selection.ts) — the whole of
+ *  CodeMirror's `basicMouseSelection` contract, which this replaces rather
+ *  than wraps (the facet takes the first style that answers, and the built-in
+ *  is only consulted when none does). */
 export const pointerSelection: Extension = EditorView.mouseSelectionStyle.of(
   (view, startEvent) => {
     if (startEvent.button !== 0) return null;
-    const type = startEvent.detail || 1;
-    let start = posFromPointOrNearest(
-      startEvent.clientX,
-      startEvent.clientY,
-      view,
-      startEvent.target,
+    const type = Math.min(startEvent.detail || 1, 3);
+    // CLICKS 2 AND 3 MUST NOT BE RE-RESOLVED. Live preview reflows between the
+    // clicks of a double-click — click one reveals the cursor line's hidden
+    // markdown and everything below it moves — so re-measuring the second
+    // mousedown selects a word on a different row. selection.ts remembers what
+    // click one resolved; this is where that memory is read and written.
+    const anchor = sequenceAnchor(
+      startEvent,
+      {
+        pos: posFromPointOrNearest(
+          startEvent.clientX,
+          startEvent.clientY,
+          view,
+          startEvent.target,
+        ),
+        // Widget DOM resolves to the widget's START, so a unit match there has
+        // to go by edges rather than containment.
+        widget: isWidgetTarget(startEvent.target, view.contentDOM),
+      },
+      view.state.doc.length,
     );
+    let start = anchor.pos;
+    const startWidget = anchor.widget;
     let startAssoc = assocAt(view, start, startEvent.clientY);
     let startSel = view.state.selection;
 
@@ -296,19 +302,22 @@ export const pointerSelection: Extension = EditorView.mouseSelectionStyle.of(
         if (update.docChanged) {
           start = update.changes.mapPos(start);
           startSel = startSel.map(update.changes);
+          mapSequenceAnchor((pos) => update.changes.mapPos(pos));
         }
       },
       get(event, extend, multiple) {
-        const pos = posFromPointOrNearest(
-          event.clientX,
-          event.clientY,
-          view,
-          event.target,
-        );
-        const assoc = assocAt(view, pos, event.clientY);
-        let range = rangeForClick(view, pos, assoc, type);
+        // The initiating mousedown keeps the anchor above; only a later
+        // move/up re-measures, which is what makes a drag track the pointer.
+        const pos =
+          event === startEvent
+            ? start
+            : posFromPointOrNearest(event.clientX, event.clientY, view, event.target);
+        const assoc = event === startEvent ? startAssoc : assocAt(view, pos, event.clientY);
+        const widget =
+          event === startEvent ? startWidget : isWidgetTarget(event.target, view.contentDOM);
+        let range = rangeForClick(view.state, pos, assoc, type, widget);
         if (start !== pos && !extend) {
-          const from0 = rangeForClick(view, start, startAssoc, type);
+          const from0 = rangeForClick(view.state, start, startAssoc, type, startWidget);
           const from = Math.min(from0.from, range.from);
           const to = Math.max(from0.to, range.to);
           range =

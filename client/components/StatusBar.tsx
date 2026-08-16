@@ -13,7 +13,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { getNote } from "../api.ts";
-import { countPhrase, t, tf } from "../i18n.ts";
+import { countPhrase, localeNum, t, tf } from "../i18n.ts";
 import { MetaSep } from "../metaSep.tsx";
 import { isPublishedContent } from "../publish.ts";
 import { DRAWER_QUERY, useStore } from "../state.ts";
@@ -170,6 +170,12 @@ export default function StatusBar() {
   const publishedFilter = useStore((s) => s.publishedFilter);
   const setPublishedFilter = useStore((s) => s.setPublishedFilter);
   const togglePublish = useStore((s) => s.togglePublish);
+  // What the site's own settings are costing in reach right now. Admin-only
+  // and present only while something MATERIAL is being withheld (the server
+  // decides that — server/visibility.ts::isReducingReach), so this pill is a
+  // fact worth a glance rather than permanent furniture.
+  const visibility = useStore((s) => s.visibility);
+  const setSettingsOpen = useStore((s) => s.setSettingsOpen);
   useStore((s) => s.language); // re-render the chrome strings on language change
 
   const vimSub = vimMode ? vimSubCopy(vimSubMode) : null;
@@ -301,6 +307,45 @@ export default function StatusBar() {
               title={t(publishedFilter ? "showFullVault" : "filterToPublished")}
             >
               {countPhrase(publishedCounts.notes, "publishedNotes")}
+            </button>
+          )}
+          {/* THE ONGOING HALF of "never silently hide a site". The published
+              count beside it answers "how much have I published"; this one
+              answers the question nobody could ask before — "how much of it
+              can anyone actually find". It sits next to its sibling because
+              the two numbers disagreeing is precisely the state worth
+              noticing, and it opens Settings because that is where the
+              disagreement gets resolved. */}
+          {admin && visibility && (
+            <button
+              type="button"
+              className={`s-statusbar__btn s-statusbar__reach${
+                visibility.fallback || !visibility.publicReads || visibility.visible * 2 < visibility.published
+                  ? " s-statusbar__reach--warn"
+                  : ""
+              }`}
+              onClick={() => setSettingsOpen(true)}
+              /* Priority is "what would surprise the reader most", not
+                 field order: reads being closed outranks everything, a filter
+                 that stood down outranks a count, and a homepage pointing at
+                 a note visitors cannot see is the only reason left that can
+                 fire while the count itself reads N/N. */
+              title={
+                !visibility.publicReads
+                  ? t("reachClosedTitle")
+                  : visibility.fallback
+                    ? t("reachFallbackTitle")
+                    : visibility.visible === visibility.published
+                      ? t("homeNoteHidden")
+                      : tf("reachTitle", {
+                          hidden: localeNum(visibility.published - visibility.visible),
+                        })
+              }
+            >
+              {tf("reachPill", {
+                visible: localeNum(visibility.visible),
+                total: localeNum(visibility.published),
+              })}
             </button>
           )}
         </span>

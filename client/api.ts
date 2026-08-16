@@ -5,6 +5,7 @@ import type {
   AnchorsResponse,
   Backlink,
   CustomFontInfo,
+  DeletePreview,
   FrontmatterResult,
   GitSyncStatus,
   GraphData,
@@ -18,10 +19,12 @@ import type {
   SettingsResponse,
   TagCount,
   TagLabelsResponse,
+  TrashEntry,
   TreeNode,
   UploadResult,
   VaultEvent,
   XrefResponse,
+  VisibilityImpact,
 } from "../shared/types.ts";
 
 // ── Visitor preview (admin-only) ────────────────────────────────────────────
@@ -37,12 +40,36 @@ export function setPreviewVisitor(on: boolean): void {
   previewOn = on;
 }
 
-/** Merge the preview header (when on) into a fetch init — for the few
- *  callers outside this module that fetch /api/* directly. */
+// ── Reader language (X-Vellum-Lang) ─────────────────────────────────────────
+// The chrome language this browser is actually reading in. It rides on EVERY
+// API call for one reason: with `settings.languageFilter: "follow"` the server
+// scopes the published collection to the reader's language, so the question
+// "which notes exist" has a different answer per reader and the client has to
+// say who is asking.
+//
+// A claim, not a command — the server honors it only while the instance offers
+// the EN/ع switch, and only for the two values it knows, exactly as it treats
+// X-Vellum-Preview. Sending it always (rather than only under "follow") keeps
+// this one line instead of a mode-dependent branch, and costs a header on
+// requests the server will ignore it on.
+
+const LANG_HEADER = "X-Vellum-Lang";
+let readerLang: string | null = null;
+
+/** Set the language every subsequent API call declares (state.ts drives this,
+ *  from the same value it hands the i18n dictionary — chrome and content are
+ *  told the same thing or the switch is a lie). */
+export function setReaderLang(lang: string | null): void {
+  readerLang = lang;
+}
+
+/** Merge the session headers (preview, reader language) into a fetch init —
+ *  for the few callers outside this module that fetch /api/* directly. */
 export function withPreview(init?: RequestInit): RequestInit | undefined {
-  if (!previewOn) return init;
+  if (!previewOn && readerLang === null) return init;
   const headers = new Headers(init?.headers);
-  headers.set(PREVIEW_HEADER, "visitor");
+  if (previewOn) headers.set(PREVIEW_HEADER, "visitor");
+  if (readerLang !== null) headers.set(LANG_HEADER, readerLang);
   return { ...init, headers };
 }
 
@@ -171,6 +198,58 @@ export function deleteNote(
   );
 }
 
+/** Delete ONE attachment — the images, PDFs and recordings the tree lists
+ *  under a folder's notes. Same two speeds and the same `.trash/`
+ *  destination as a note; the difference is what the DIALOG has to say
+ *  first, which is `deletePreview()` below. */
+export function deleteAttachment(
+  path: string,
+  permanent = false,
+): Promise<{ ok: true; trashPath?: string }> {
+  return request<{ ok: true; trashPath?: string }>(
+    `/api/attachment?path=${encodeURIComponent(path)}${permanent ? "&permanent=true" : ""}`,
+    { method: "DELETE" },
+  );
+}
+
+/** What a delete would actually take: the file counts, and — the number that
+ *  was missing — how many of the attachments in there a note that SURVIVES
+ *  the delete still embeds, with a sample of those notes by name.
+ *
+ *  Every delete dialog asks this before it opens. A folder holding four
+ *  images and no markdown used to say "0 notes will move"; the essay one
+ *  folder over kept embedding all four and broke on the public site in
+ *  silence. */
+export function deletePreview(path: string): Promise<DeletePreview> {
+  return request<DeletePreview>(`/api/delete-preview?path=${encodeURIComponent(path)}`);
+}
+
+// ── Trash (admin) ───────────────────────────────────────────────────────────
+// The bin the delete dialogs have always promised. `.trash/` is invisible to
+// the tree, the indexer and the watcher by design, so these three calls are
+// the only way the product can see or act on it.
+
+export function listTrash(): Promise<TrashEntry[]> {
+  return request<TrashEntry[]>("/api/trash");
+}
+
+/** Move an entry back into the vault. `path` is where it actually LANDED and
+ *  `renamed` says the origin was taken (or unknown) — the toast prints both,
+ *  because a restore that quietly went somewhere else is the same lie the
+ *  delete previews exist to stop telling. */
+export function restoreTrash(name: string): Promise<{ ok: true; path: string; renamed: boolean }> {
+  return request<{ ok: true; path: string; renamed: boolean }>(
+    "/api/trash/restore",
+    json("POST", { name }),
+  );
+}
+
+export function purgeTrash(name: string): Promise<{ ok: true }> {
+  return request<{ ok: true }>(`/api/trash?name=${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+}
+
 export function createFolder(path: string): Promise<{ ok: true }> {
   return request<{ ok: true }>("/api/folder", json("POST", { path }));
 }
@@ -238,6 +317,41 @@ export function getMe(): Promise<MeData> {
 /** Published notes as blog posts, newest first (blog mode's list). */
 export function getPosts(): Promise<PostMeta[]> {
   return request<PostMeta[]>("/api/posts");
+}
+
+/**
+ * What the visitor-facing settings are costing this site, in notes (admin
+ * only; 404 to everyone else). Every argument is a HYPOTHETICAL — pass the
+ * value a control is about to be saved with and the answer describes the site
+ * as it WOULD be; omit one and it describes the site as it is.
+ *
+ * This is the whole point of the settings panel's consequence lines. The
+ * boolean this replaces hid eighteen of a real site's twenty posts on a click,
+ * and no number anywhere said so before or after.
+ */
+export function getVisibility(
+  query: {
+    languageFilter?: string;
+    excludeTags?: string[];
+    publicLayout?: string;
+    home?: string;
+    homeNote?: string;
+  } = {},
+  signal?: AbortSignal,
+): Promise<VisibilityImpact> {
+  const params = new URLSearchParams();
+  if (query.languageFilter) params.set("languageFilter", query.languageFilter);
+  if (query.excludeTags) params.set("excludeTags", query.excludeTags.join(","));
+  if (query.publicLayout) params.set("publicLayout", query.publicLayout);
+  if (query.home) params.set("home", query.home);
+  // Distinct from absent: "" asks what happens with the home note CLEARED.
+  if (query.homeNote !== undefined) params.set("homeNote", query.homeNote);
+  const qs = params.toString();
+  return request<VisibilityImpact>(
+    `/api/visibility${qs ? `?${qs}` : ""}`,
+    signal ? { signal } : undefined,
+    true,
+  );
 }
 
 /** Toggle a note's frontmatter publish flag (admin only). */
@@ -365,7 +479,18 @@ export function logout(): Promise<{ ok: true }> {
  *  query param instead — honored server-side only for /api/events and only
  *  with a valid admin session, the same gating as the header. */
 export function subscribeEvents(cb: (ev: VaultEvent) => void): () => void {
-  const source = new EventSource(previewOn ? "/api/events?preview=visitor" : "/api/events");
+  // EventSource cannot carry custom headers, so BOTH session dimensions ride
+  // on query params here — the preview flag and the reader language, each
+  // honored server-side only on this route and under the same gate its header
+  // gets. The stream resolves its language once, at subscribe time, so a
+  // visitor flipping EN/ع must resubscribe: state.ts tears this down and
+  // rebuilds it, which is why the language is read at call time rather than
+  // captured when the module loaded.
+  const params = new URLSearchParams();
+  if (previewOn) params.set("preview", "visitor");
+  if (readerLang !== null) params.set("lang", readerLang);
+  const query = params.toString();
+  const source = new EventSource(query ? `/api/events?${query}` : "/api/events");
   source.onmessage = (e: MessageEvent<string>) => {
     try {
       cb(JSON.parse(e.data) as VaultEvent);

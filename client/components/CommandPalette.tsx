@@ -24,6 +24,7 @@ import { t, tf, type I18nKey } from "../i18n.ts";
 import { isNotePath, noteLabelOf, stripNoteExt } from "../../shared/noteFormat.ts";
 import { confirmModal, confirmModalEx } from "./Confirm.tsx";
 import { moveViaPicker } from "./MovePicker.tsx";
+import { confirmDeleteNote } from "./deleteFlow.ts";
 import { runSyncNow, syncSnapshot } from "../sync.ts";
 import { toast } from "../toast.ts";
 import type { SearchHit } from "../../shared/types.ts";
@@ -337,6 +338,15 @@ const COMMANDS: Command[] = [
     available: ({ openPath, admin }) => admin && openPath !== null,
   },
   {
+    // The door to the bin every delete dialog promises. It sits next to the
+    // delete command on purpose: the reader who has just read "recoverable
+    // from disk" and wants the file back looks here, not in a terminal.
+    id: "open-trash",
+    label: () => t("cmdOpenTrash"),
+    hint: () => t("cmdOpenTrashHint"),
+    available: ({ admin, preview }) => admin && !preview,
+  },
+  {
     id: "moderate-comments",
     label: () => t("cmdModerateComments"),
     hint: () => t("cmdMarginaliaHint"),
@@ -645,45 +655,13 @@ export default function CommandPalette() {
           }
           break;
         case "delete-current":
-          if (store.openPath) {
-            const path = store.openPath;
-            // The name the TAB and the tree row wear, not the byte on disk:
-            // this command is reached from a palette that just listed the note
-            // as "Welcome" (move.ts `itemLabel`, Sidebar's row label).
-            const name = noteLabelOf(path);
-            const remove = (permanent: boolean) => {
-              useStore
-                .getState()
-                .deleteNote(path, { permanent })
-                .catch((err: unknown) => {
-                  console.error("CommandPalette: delete failed", err);
-                  toast(t("couldNotDeleteNote"));
-                });
-            };
-            // The same two speeds the tree's own delete offers (Sidebar.tsx):
-            // one command must not be the harsher one just because it was
-            // reached from the palette.
-            void confirmModalEx({
-              title: tf("deleteNoteTitle", { name }),
-              body: tf("deleteNoteBody", { path }),
-              confirmLabel: t("moveToTrash"),
-              extraLabel: t("deletePermanently"),
-            }).then((result) => {
-              if (result === "confirm") {
-                remove(false);
-                return;
-              }
-              if (result !== "extra") return;
-              void confirmModal({
-                title: tf("deleteNotePermTitle", { name }),
-                body: tf("deleteNotePermBody", { path }),
-                confirmLabel: t("deletePermanently"),
-                grave: true,
-              }).then((ok) => {
-                if (ok) remove(true);
-              });
-            });
-          }
+          // Literally the same call the tree row makes (components/
+          // deleteFlow.ts). A command must not be the harsher gesture merely
+          // because it was reached from the palette, and the only way to
+          // guarantee that forever is for there to be one implementation of
+          // it — two copies of the same dialog is what let the palette hint
+          // say "irreversible" over a move to .trash.
+          if (store.openPath) void confirmDeleteNote(store.openPath);
           break;
         case "publish-note":
           if (store.openPath) void store.togglePublish(store.openPath, true);
@@ -696,6 +674,9 @@ export default function CommandPalette() {
           break;
         case "remove-banner":
           if (store.openPath) void store.setBanner(store.openPath, null);
+          break;
+        case "open-trash":
+          store.setTrashOpen(true);
           break;
         case "moderate-comments":
           store.setModerationOpen(true);
