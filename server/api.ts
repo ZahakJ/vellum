@@ -14,12 +14,13 @@ import type {
   CommentData,
   FrontmatterResult,
   NoteData,
+  PublishedPaths,
   PublishResult,
   TreeNode,
   UploadResult,
   VaultEvent,
 } from "../shared/types.ts";
-import { authGuard, authRoutes, clientIp, isPublishLimited } from "./auth.ts";
+import { authGuard, authRoutes, clientIp, isProtected, isPublishLimited } from "./auth.ts";
 import {
   AUTHOR_MAX,
   BODY_MAX,
@@ -44,6 +45,7 @@ import {
   listImageAttachments,
   posts,
   publishedNotes,
+  publishedPaths,
   registerAttachment,
   resolveEmbed,
   search,
@@ -144,6 +146,35 @@ api.use("*", async (c, next) => {
         ? FONT_BODY_MAX
         : API_BODY_MAX;
   return bodyLimit({ maxSize: max, onError: tooLarge(max) })(c, next);
+});
+
+// ── Caching discipline: one middleware, above everything ────────────────────
+// EVERY body this API answers varies by session cookie and by the visitor-
+// preview header, and none of them said so. /api/tree, /note, /posts, /search,
+// /graph, /tags, /backlinks and /me carried NO Cache-Control at all, and
+// nothing anywhere carried `Vary`. The README recommends running nginx in
+// front, where a shared cache is entitled to reuse a cacheable-looking 200 for
+// the next caller — and the object at risk is an admin's entire vault tree
+// being handed to an anonymous visitor, or a visitor's published-only tree
+// being served back to the admin.
+//
+// `private, no-store` is the right default for an API whose every answer is
+// scoped to who asked; `Vary` states the two dimensions for any cache that
+// ignores the first. Both are DEFAULTS: a route that set its own
+// Cache-Control keeps it, and the content-addressed font routes (immutable,
+// deliberately shared, containing no session-varying byte) are skipped
+// entirely so a CDN can still hold them.
+const VARY_ON = "Cookie, X-Vellum-Preview";
+
+api.use("*", async (c, next) => {
+  await next();
+  const headers = c.res.headers;
+  const cache = headers.get("Cache-Control");
+  if (cache?.includes("immutable")) return; // content-addressed, session-free
+  const vary = headers.get("Vary");
+  if (!vary) headers.set("Vary", VARY_ON);
+  else if (!/\bcookie\b/i.test(vary)) headers.set("Vary", `${vary}, ${VARY_ON}`);
+  if (!cache) headers.set("Cache-Control", "private, no-store");
 });
 
 // Auth first: /login, /logout, /me are always reachable; the guard runs before
@@ -449,10 +480,16 @@ api.post("/rename", async (c) => {
   return c.json({ ok: true });
 });
 
+// Delete ONE note. Same two-speed contract as DELETE /api/folder, and for the
+// same reason: the default MOVES the file to `.trash/` (recoverable from disk,
+// invisible to tree/index/watcher), `?permanent=true` removes it for good.
+// The parameter is spelled and parsed exactly like the folder route's —
+// `1`/`true`/`yes`/`on` — so one rule covers both delete verbs.
 api.delete("/note", async (c) => {
-  const path = requiredQuery(c.req.query("path"), "path");
-  await deleteNote(path);
-  return c.json({ ok: true });
+  const notePath = requiredQuery(c.req.query("path"), "path");
+  const permanent = TRUTHY_QUERY.has((c.req.query("permanent") ?? "").toLowerCase());
+  const result = await deleteNote(notePath, { permanent });
+  return c.json({ ok: true, ...result });
 });
 
 api.post("/folder", async (c) => {
@@ -777,6 +814,21 @@ api.get("/attachments", (c) => {
   return c.json(listImageAttachments());
 });
 
+// The admin UI's publish state, from an ADMIN source. The client used to read
+// it off /api/tree with `credentials: "omit"` — its own session hidden so the
+// server would answer as if to a stranger — which meant the owner's publish
+// stars and published filter were built out of the VISITOR tree, and so wore
+// the visitor's languageFilter (CONTRACTS.md: "Admin surfaces are never
+// filtered"). It also made the whole feature conditional on a password hash
+// plus open public reads, so an open local vault silently had no publish
+// marks at all. Same 404-not-a-route gate as /attachments: a language-hidden
+// published note's path is exactly what the public surfaces withhold.
+api.get("/published", (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  const body: PublishedPaths = { paths: publishedPaths() };
+  return c.json(body);
+});
+
 // ------------------------------------------------------ comments (marginalia)
 // Live only with COMMENTS=on; otherwise every route 404s like it doesn't exist.
 // Comments hang off published notes: for visitors (and posting, for everyone)
@@ -935,6 +987,13 @@ api.get("/settings", (c) => {
 
 api.patch("/settings", async (c) => {
   const body = await jsonBody(c);
+  // The sync keys are the ones that can send the vault off this machine, so
+  // they need a real credential in every mode — see assertCredentialed().
+  // Everything else in this payload is instance styling, which open local
+  // mode may legitimately let a trusted LAN change.
+  if (["gitSync", "gitToken", "gitUser"].some((k) => Object.prototype.hasOwnProperty.call(body, k))) {
+    assertCredentialed();
+  }
   // Typography is the one setting with a prerequisite on disk: the chosen
   // families must be cached under VELLUM_DATA/fonts/catalog before
   // settings.json names them, or the site would link a stylesheet with no
@@ -1091,14 +1150,45 @@ api.get("/font-faces.css", async (c) => {
 // would. Sync errors reaching the client are the real git line, token-scrubbed
 // by gitSync.scrub() before it ever leaves the module.
 
+// A REAL CREDENTIAL, IN EVERY MODE. In open local mode (no
+// ADMIN_PASSWORD_HASH) the auth guard treats every caller as admin, so these
+// three routes were reachable by anyone who could reach the port — and they
+// are not ordinary admin routes: PATCH the remote, POST /sync/now, and the
+// whole vault is committed and pushed to an address the caller chose. That is
+// exfiltration with the operator's own git. "Everyone is admin" is a
+// defensible answer for editing notes on a trusted LAN; it is not a
+// defensible answer for "send my vault somewhere".
+function assertCredentialed(): void {
+  if (!isProtected()) {
+    throw new VaultError(
+      403,
+      "Backup & sync needs an admin password: set ADMIN_PASSWORD_HASH (npm run hash-password) and restart. " +
+        "Without one, every visitor to this port is an admin and could push your vault to a remote of their choosing.",
+      "sync_needs_password",
+    );
+  }
+}
+
+// The STATUS read stays available in open local mode. It is the one route of
+// the three that cannot move data anywhere, the client polls it on every page
+// load to decide whether to draw the badge at all, and answering 403 there put
+// a red line in the console of the default first-run experience for no gain:
+// on an instance where every caller is already a full admin, the branch name
+// leaks nothing the vault itself does not.
 api.get("/sync/status", async (c) => {
   if (isPublishLimited(c)) throw new VaultError(401, "Admin session required");
   return c.json(await gitStatus());
 });
 
-api.post("/sync/init", async (c) => c.json(await initRepo()));
+api.post("/sync/init", async (c) => {
+  assertCredentialed();
+  return c.json(await initRepo());
+});
 
-api.post("/sync/now", async (c) => c.json(await syncNow("manual")));
+api.post("/sync/now", async (c) => {
+  assertCredentialed();
+  return c.json(await syncNow("manual"));
+});
 
 // ---------------------------------------------------------------- SSE events
 

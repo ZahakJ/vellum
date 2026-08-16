@@ -650,8 +650,14 @@ function jumpToFootnoteDef(view: EditorView, label: string): boolean {
  *  a wikilink would resolve to a neighboring line and the link would never
  *  open. Deriving the position from the DOM node actually under the pointer
  *  (caretPositionFromPoint → posAtDOM) is exact; posAtCoords stays only as
- *  the last-resort fallback. */
-function posFromEvent(event: MouseEvent, view: EditorView): number | null {
+ *  the last-resort fallback.
+ *
+ *  Exported because the hover previews need the SAME resolution: a card that
+ *  opens on the wrong line is the same bug as a click that opens the wrong
+ *  note, and CodeMirror's own `hoverTooltip` resolves the pointer with
+ *  `posAtCoords` — which is why previews were dead on every note carrying a
+ *  frontmatter card or block math (see hoverPreview.ts). */
+export function posFromEvent(event: MouseEvent, view: EditorView): number | null {
   const doc = view.contentDOM.ownerDocument;
   const within = (node: Node | null | undefined): node is Node =>
     node != null && view.contentDOM.contains(node);
@@ -819,6 +825,13 @@ class FrontmatterWidget extends WidgetType {
         pill.type = "button";
         pill.className = "cm-s-props__tag";
         pill.dataset.tag = value;
+        // The chip IS its content (`#` + the tag, no chrome ornament beside
+        // it), so the isolate belongs on the chip itself — and it must be
+        // "auto", never "ltr": tags are note-derived and can be Arabic. Bare
+        // `#${value}` textContent shipped as `matrix#` on every Arabic page,
+        // because `#` is bidi-neutral and an RTL base direction sweeps it to
+        // the display end. See the sidebar's <bdi> tag pill, which was right.
+        pill.dir = "auto";
         pill.textContent = `#${value}`;
         pill.title = tf("searchTag", { tag: value });
         pill.addEventListener("click", (ev) => {

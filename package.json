@@ -4,6 +4,9 @@
   "description": "A self-hosted, clone-and-run Obsidian-style markdown vault: live-preview editor, wikilinks, backlinks, graph view, full-text search.",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "dev": "concurrently -n server,web -c yellow,cyan \"node --env-file-if-exists=.env --watch server/index.ts\" \"vite\"",
     "build": "vite build",

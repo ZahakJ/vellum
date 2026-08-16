@@ -5,12 +5,12 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import type { AttachmentKind, SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
-import { createFolder, getGraph, getTags, search } from "../api.ts";
+import { getGraph, getTags, search } from "../api.ts";
 import { bannerSrc } from "../banner.ts";
 import { collectNotes, resolveLink, type NoteRef } from "../editor/links.ts";
 import { countPhrase, localeNum, t, tf, type Lang } from "../i18n.ts";
+import { promptNewFolder, promptNewNote } from "../prompts.ts";
 import { useStore } from "../state.ts";
-import { toast } from "../toast.ts";
 import AttachmentViewer, { fileUrl, isViewable } from "./AttachmentViewer.tsx";
 import { confirmModal, confirmModalEx } from "./Confirm.tsx";
 import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
@@ -285,11 +285,9 @@ function IconNewFolder() {
 export default function Sidebar() {
   const tree = useStore((s) => s.tree);
   const openNote = useStore((s) => s.openNote);
-  const createNote = useStore((s) => s.createNote);
   const renameNote = useStore((s) => s.renameNote);
   const deleteNote = useStore((s) => s.deleteNote);
   const deleteFolder = useStore((s) => s.deleteFolder);
-  const loadTree = useStore((s) => s.loadTree);
   const admin = useStore((s) => s.admin);
   const homeNote = useStore((s) => s.homeNote);
   const siteName = useStore((s) => s.siteName);
@@ -436,29 +434,31 @@ export default function Sidebar() {
 
   const cancelRename = useCallback(() => setRenaming(null), []);
 
-  const promptNewNote = (dir: string) => {
-    const name = window.prompt(t("newNotePrompt"), "Untitled.md");
-    if (!name || !name.trim()) return;
-    void createNote(joinPath(dir, ensureMd(name.trim())));
-  };
-
-  const promptNewFolder = (dir: string) => {
-    const name = window.prompt(t("newFolderPrompt"));
-    if (!name || !name.trim()) return;
-    createFolder(joinPath(dir, name.trim()))
-      .then(() => loadTree())
-      .catch((err: unknown) => {
-        console.error("vellum: creating folder failed", err);
-        toast(err instanceof Error ? err.message : t("creatingFolderFailed"));
-      });
-  };
-
+  // One note deletes at the same two speeds as a folder, and for the same
+  // reason — the dialog that says "cannot be undone" was telling the truth
+  // about an `fs.rm` while the folder beside it in the same menu promised
+  // .trash. Default: move; the erase is the quiet third route, and it asks a
+  // second time wearing red.
   const confirmDelete = (node: TreeNode) => {
-    void confirmModal({
-      title: t("deleteNoteTitle"),
+    void confirmModalEx({
+      title: tf("deleteNoteTitle", { name: node.name }),
       body: tf("deleteNoteBody", { path: node.path }),
-    }).then((ok) => {
-      if (ok) void deleteNote(node.path);
+      confirmLabel: t("moveToTrash"),
+      extraLabel: t("deletePermanently"),
+    }).then((result) => {
+      if (result === "confirm") {
+        void deleteNote(node.path);
+        return;
+      }
+      if (result !== "extra") return;
+      void confirmModal({
+        title: tf("deleteNotePermTitle", { name: node.name }),
+        body: tf("deleteNotePermBody", { path: node.path }),
+        confirmLabel: t("deletePermanently"),
+        grave: true,
+      }).then((ok) => {
+        if (ok) void deleteNote(node.path, { permanent: true });
+      });
     });
   };
 
@@ -652,7 +652,7 @@ export default function Sidebar() {
               className="s-iconbtn"
               title={t("newNote")}
               aria-label={t("newNote")}
-              onClick={() => promptNewNote("")}
+              onClick={() => void promptNewNote("")}
             >
               <IconNewNote />
             </button>
@@ -661,7 +661,7 @@ export default function Sidebar() {
               className="s-iconbtn"
               title={t("newFolder")}
               aria-label={t("newFolder")}
-              onClick={() => promptNewFolder("")}
+              onClick={() => void promptNewFolder("")}
             >
               <IconNewFolder />
             </button>
@@ -902,7 +902,7 @@ export default function Sidebar() {
                 className="s-menu__item"
                 onClick={() => {
                   setMenu(null);
-                  promptNewNote(menu.node.path);
+                  void promptNewNote(menu.node.path);
                 }}
               >
                 {t("newNoteHere")}
@@ -912,7 +912,7 @@ export default function Sidebar() {
                 className="s-menu__item"
                 onClick={() => {
                   setMenu(null);
-                  promptNewFolder(menu.node.path);
+                  void promptNewFolder(menu.node.path);
                 }}
               >
                 {t("newFolder")}

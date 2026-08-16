@@ -3,7 +3,23 @@
 //   --text        >= 4.5:1  against --bg and --bg-raised   (body text)
 //   --text-muted  >= 3:1    against --bg and --bg-raised   (secondary text)
 //   --accent      >= 4.5:1  against --bg                   (see below)
-// The faint ratio is printed for information. Exits 1 on any failure.
+//   --text-faint  >= 3:1    against --bg and --bg-raised   (UI glyphs)
+// Exits 1 on any failure.
+//
+// --text-faint used to print "(info)" against a minimum of 0 — a number the
+// gate could never enforce, which is worse than not printing it: it reads
+// like coverage. Under that cover parchment sat at 2.50:1 while the token
+// went on collecting load-bearing work — the heading fold chevron, which
+// CONTRACTS itself holds to the 3:1 non-text bar, plus attachment glyphs and
+// the de-emphasized machine rows of the properties card. A gate prints a
+// floor or it prints nothing. Both grounds are checked, because the sidebar
+// and every panel are --bg-raised, and on the light themes that is the
+// harder ground, not the easier one.
+//
+// 3:1 is the NON-TEXT bar, and it is the bar because --text-faint is not for
+// text: anything a reader has to read — a filename, a count, a label naming
+// a thing — belongs at --text-muted (>= 4.5:1 in every theme here) or above.
+// See DESIGN.md, "Contrast".
 //
 // The accent check is not decoration. That one pair is read as TEXT twice over:
 //   · wikilinks and tag pills render in --accent on --bg inside the prose, and
@@ -104,7 +120,8 @@ for (const [name, t] of Object.entries(themes)) {
     ["muted / bg", t["--text-muted"], t["--bg"], 3],
     ["muted / raised", t["--text-muted"], t["--bg-raised"], 3],
     ["accent / bg", t["--accent"], t["--bg"], 4.5],
-    ["faint / bg", t["--text-faint"], t["--bg"], 0],
+    ["faint / bg", t["--text-faint"], t["--bg"], 3],
+    ["faint / raised", t["--text-faint"], t["--bg-raised"], 3],
   ];
   console.log(`\n${name}`);
   // Not a ratio: see the header. An accent that is a shade of the theme's own

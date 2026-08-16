@@ -62,16 +62,27 @@ const DICT = {
   clearTagFilter: { en: "Clear #{tag} filter", ar: "مسح تصفية #{tag}" },
   newNote: { en: "New note", ar: "ملاحظة جديدة" },
   newFolder: { en: "New folder", ar: "مجلد جديد" },
-  newNotePrompt: { en: "New note name:", ar: "اسم الملاحظة الجديدة:" },
-  newFolderPrompt: { en: "New folder name:", ar: "اسم المجلد الجديد:" },
   newNoteHere: { en: "New note here", ar: "ملاحظة جديدة هنا" },
   rename: { en: "Rename", ar: "إعادة تسمية" },
   delete: { en: "Delete", ar: "حذف" },
-  deleteNoteTitle: { en: "Delete note?", ar: "حذف الملاحظة؟" },
+  // A note deletes at the same two speeds as a folder — the first dialog
+  // promises .trash, the second is the erase — so these read as the folder's
+  // pair does, one line apart in the same menu.
+  deleteNoteTitle: { en: "Move “{name}” to .trash?", ar: "نقل “{name}” إلى ‎.trash‎؟" },
   deleteNoteBody: {
-    en: "“{path}” will be deleted. This cannot be undone.",
-    ar: "سيُحذف “{path}” نهائيًا. لا يمكن التراجع عن هذا.",
+    en: "“{path}” will move to the vault’s .trash folder — recoverable from disk.",
+    ar: "سيُنقل “{path}” إلى مجلد ‎.trash‎ داخل الخزانة — يمكن استرجاعه من القرص.",
   },
+  deleteNotePermTitle: { en: "Permanently delete “{name}”?", ar: "حذف “{name}” نهائيًا؟" },
+  deleteNotePermBody: {
+    en: "“{path}” will be erased from disk. This cannot be undone.",
+    ar: "سيُمحى “{path}” من القرص. لا يمكن التراجع عن هذا.",
+  },
+  noteTrashedToast: {
+    en: "Moved “{name}” to .trash — recover it from the vault folder",
+    ar: "نُقلت “{name}” إلى ‎.trash‎ — يمكن استرجاعها من مجلد الخزانة",
+  },
+  noteDeletedToast: { en: "Deleted “{name}” permanently", ar: "حُذفت “{name}” نهائيًا" },
   creatingFolderFailed: { en: "Creating folder failed", ar: "فشل إنشاء المجلد" },
   deleteFolder: { en: "Delete folder", ar: "حذف المجلد" },
   // Folder deletion is a MOVE by default (the vault's .trash/), so the first
@@ -336,8 +347,29 @@ const DICT = {
   couldNotRenameNote: { en: "Could not rename note", ar: "تعذرت إعادة تسمية الملاحظة" },
   couldNotDeleteNote: { en: "Could not delete note", ar: "تعذر حذف الملاحظة" },
 
-  // ── Confirm / login modals ──────────────────────────────────────────────
+  // ── Confirm / prompt / login modals ─────────────────────────────────────
   cancel: { en: "Cancel", ar: "إلغاء" },
+  create: { en: "Create", ar: "إنشاء" },
+  // The creation dialogs (client/prompts.ts). The destination line answers
+  // "where does this land", and — because a path typed into the field nests
+  // just as well as a name — teaches that in the same breath.
+  promptInFolder: { en: "In {folder}", ar: "في {folder}" },
+  promptAtRoot: {
+    en: "At the vault root — type ideas/Name to nest it",
+    ar: "في جذر المخزن — اكتب ideas/Name للتداخل داخل مجلد",
+  },
+  phFolderName: { en: "Folder name", ar: "اسم المجلد" },
+  // What the typed text will actually become, shown BEFORE anything is
+  // created: the ".md" and the folder used to be appended in silence.
+  promptCreates: { en: "Creates {path}", ar: "سيُنشئ {path}" },
+  promptNoTraversal: {
+    en: "A path may not step outside the vault",
+    ar: "لا يمكن للمسار الخروج من المخزن",
+  },
+  promptNoDotName: {
+    en: "Names beginning with a dot are hidden from the vault",
+    ar: "الأسماء التي تبدأ بنقطة مخفية عن المخزن",
+  },
   signInTo: { en: "Sign in to {site}", ar: "تسجيل الدخول إلى {site}" },
   signInHint: { en: "Admin password unlocks editing.", ar: "كلمة مرور المشرف تفتح التحرير." },
   password: { en: "Password", ar: "كلمة المرور" },
@@ -408,6 +440,13 @@ const DICT = {
     ar: "الحقول الفارغة ترث إعدادات الخادم الافتراضية (تظهر باهتة). القيم المحفوظة تتقدم عليها وتسري فورًا.",
   },
   groupHome: { en: "Home page", ar: "الصفحة الرئيسية" },
+  // Named after the switch that turns these two rows on, in the panel's own
+  // off-note idiom: they are read by the blog shell and by nothing else, and
+  // an app-layout instance opens the home note at "/" instead.
+  homeBlogOnlyNotice: {
+    en: "Public layout is app: “/” opens the home note. Mode and the home banner are read by the blog layout only.",
+    ar: "التخطيط العام «تطبيق»: تفتح «/» ملاحظة الرئيسية. الوضع وغلاف الرئيسية يقرأهما تخطيط المدونة وحده.",
+  },
   homeNote: {
     en: "What “/” shows a visitor: an intro note, or a dashboard of the latest posts.",
     ar: "ما تعرضه «/» للزائر: ملاحظة تعريفية، أو لوحة بأحدث المقالات.",
@@ -609,10 +648,6 @@ const DICT = {
   changedOnDisk: {
     en: "{path} changed on disk — your unsaved edits were kept",
     ar: "تغيرت {path} على القرص — احتفظنا بتعديلاتك غير المحفوظة",
-  },
-  newNotePathPrompt: {
-    en: "New note path (e.g. ideas/Untitled.md):",
-    ar: "مسار الملاحظة الجديدة (مثال: ‎ideas/Untitled.md‎):",
   },
   publishedToast: { en: "Published — live for visitors", ar: "نُشرت الملاحظة — أصبحت متاحة للزوار" },
   unpublishedToast: { en: "Unpublished", ar: "أُلغي النشر" },
@@ -1143,6 +1178,7 @@ const DICT = {
   scOpenFile: { en: "Open an image or PDF from the tree", ar: "فتح صورة أو ملف PDF من الشجرة" },
   scWalkFiles: { en: "Next / previous file in the folder", ar: "الملف التالي/السابق في المجلد" },
   scEscape: { en: "Close an overlay, leave zen or preview", ar: "إغلاق طبقة، أو مغادرة التركيز/المعاينة" },
+  scEscapeBlog: { en: "Close an overlay, leave preview", ar: "إغلاق طبقة، أو مغادرة المعاينة" },
   scSave: { en: "Save now", ar: "حفظ فوري" },
   scUndo: { en: "Undo", ar: "تراجع" },
   scRedo: { en: "Redo", ar: "إعادة" },

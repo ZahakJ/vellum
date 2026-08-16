@@ -1,9 +1,15 @@
-// Auth: public view / admin edit. Sessions are stateless HMAC-signed expiry
-// cookies (no server-side store); the password is verified against an argon2id
-// hash from the environment. No hash configured → open local mode.
+// Auth: public view / admin edit. Sessions are stateless HMAC-signed cookies
+// (no per-session server store) bound to two revocation inputs — a session
+// EPOCH kept in VELLUM_DATA and a fingerprint of the password hash — so
+// "sign out" and "change the password" both actually end every live session.
+// The password is verified against an argon2id hash from the environment.
+// No hash configured → open local mode, which is refused outright when the
+// operator has asked for a private instance (PUBLIC=false).
 
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
+import path from "node:path";
 import argon2 from "argon2";
 import { Hono } from "hono";
 import type { Context, MiddlewareHandler } from "hono";
@@ -13,13 +19,32 @@ import type { MeData } from "../shared/types.ts";
 import { isNoteVisibleToVisitor, publishedCounts, resolveLink } from "./indexer.ts";
 import { fontsSignature, slotsAreSystem } from "./fonts.ts";
 import { fontSlots, getSettings } from "./settings.ts";
-import { bannerFallback, blogLocale, customCssPath, defaultTheme, footerLine, publicLayout, siteLanguage, siteName, tagline } from "./site.ts";
+import { bannerFallback, blogLocale, customCssPath, dataDir, defaultTheme, footerLine, publicLayout, siteLanguage, siteName, tagline } from "./site.ts";
 import { normalizeRel } from "./vault.ts";
 
 const COOKIE_NAME = "vellum_session";
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+/** 7 days, not 30, and it slides: every authenticated API request inside the
+ *  last half of a token's life reissues the cookie, so an ACTIVE admin is
+ *  never logged out and a STOLEN cookie stops working a week after the theft
+ *  even if nobody noticed. 30 days of unrevocable bearer token was the cost of
+ *  never having to type the password twice a month. */
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX_ATTEMPTS = 10;
+/** Failed logins per minute across ALL addresses — the backstop for the
+ *  per-IP window, which a botnet (or one forged hop behind a misconfigured
+ *  proxy) simply spreads across keys. Well above any honest instance: this is
+ *  a single-admin product. */
+const GLOBAL_MAX_ATTEMPTS = 40;
+/** Concurrent argon2 verifies. Each is m=65536 (64 MiB) p=4 — what
+ *  scripts/hash-password.ts actually produces — and each occupies libuv's
+ *  threadpool, the same four threads every fs call in the process shares. Two
+ *  in flight is 128 MiB and half the pool; the rest queue, briefly. */
+const VERIFY_MAX_CONCURRENT = 2;
+/** Queue depth beyond which a login is refused outright rather than parked.
+ *  A bounded queue is the difference between "slow" and "the vault stops
+ *  answering". */
+const VERIFY_MAX_QUEUED = 8;
 
 interface AuthConfig {
   passwordHash: string | null; // null → open local mode, everyone is admin
@@ -27,6 +52,7 @@ interface AuthConfig {
   publicReads: boolean;        // PUBLIC=false → reads require admin too
   homeNote: string | null;
   trustedProxies: IpRange[];   // X-Forwarded-For honored only from these peers
+  secureCookies: boolean | null; // SECURE_COOKIES override; null → derive per request
 }
 
 let config: AuthConfig = {
@@ -35,15 +61,61 @@ let config: AuthConfig = {
   publicReads: true,
   homeNote: null,
   trustedProxies: [],
+  secureCookies: null,
 };
+
+/** A boot-time configuration error: printed plainly and the process stops.
+ *  Thrown rather than `process.exit()`ed so the harness and any future test
+ *  can observe it. */
+export class ConfigError extends Error {}
+
+/** Loopback (or a unix-socket-ish empty host): the only bind address where
+ *  "no password" is a private decision rather than a public one. */
+function isLoopbackHost(host: string): boolean {
+  const h = canonicalIp(host.replace(/^\[|\]$/g, ""));
+  return h === "127.0.0.1" || h === "::1" || h === "localhost" || h.startsWith("127.");
+}
 
 /** Read auth settings from the environment. Call once at startup. */
 export function initAuth(env: NodeJS.ProcessEnv = process.env): void {
   const passwordHash = env.ADMIN_PASSWORD_HASH?.trim() || null;
+  const publicSet = (env.PUBLIC ?? "").trim() !== "";
   const publicReads = !/^(false|0|no)$/i.test(env.PUBLIC?.trim() ?? "");
   const homeNote = env.HOME_NOTE?.trim() || null;
   let sessionSecret = env.SESSION_SECRET?.trim() ?? "";
+  // FAIL CLOSED ON THE ONE FLAG THAT MEANS "LOCK THIS DOWN".
+  //
+  // authGuard short-circuits on `if (!config.passwordHash) return next()` and
+  // isAdmin() answers true unconditionally in that mode — both BEFORE the
+  // publicReads check — so PUBLIC=false without a hash was not a private
+  // instance, it was an anonymous, fully writable ADMIN instance that
+  // announced itself as `{"admin":true,"protected":false}` and accepted
+  // anonymous PUT /api/note, GET /api/settings (absolute disk paths) and
+  // PATCH gitSync + POST /api/sync/now (commit the vault, push it anywhere).
+  // The operator who sets this flag has stated their intent in the one place
+  // the product offers; the only honest answer to "I cannot do that" is to
+  // stop, and to name the command that fixes it.
+  if (publicSet && !publicReads && !passwordHash) {
+    throw new ConfigError(
+      "PUBLIC=false asks for a private instance, but ADMIN_PASSWORD_HASH is not set.\n" +
+        "  Without a password there is no session to require: every anonymous request would be a full\n" +
+        "  admin — able to read, write and delete notes, read settings, and configure git sync.\n" +
+        "  Fix it with:  npm run hash-password    (then put the printed hash in .env as ADMIN_PASSWORD_HASH)\n" +
+        "  Or drop PUBLIC=false to run deliberately open on a trusted network.",
+    );
+  }
   if (!passwordHash) {
+    const host = env.HOST?.trim() || "";
+    // Not fatal: binding 0.0.0.0 in open mode is the documented LAN use ("open
+    // your vault from any browser on your network"). But it is the shape of
+    // the accident, so it gets more than one grey line.
+    if (host !== "" && !isLoopbackHost(host)) {
+      console.warn(
+        `vellum: HOST=${host} is not loopback and ADMIN_PASSWORD_HASH is not set —\n` +
+          "        every machine that can reach this port is an ADMIN of this vault (read, write, delete).\n" +
+          "        npm run hash-password to lock it down.",
+      );
+    }
     console.warn("vellum: ADMIN_PASSWORD_HASH not set — open local mode, every visitor is admin (npm run hash-password to lock it down)");
   } else if (!sessionSecret) {
     sessionSecret = randomBytes(32).toString("hex");
@@ -55,13 +127,29 @@ export function initAuth(env: NodeJS.ProcessEnv = process.env): void {
     if (range) trustedProxies.push(range);
     else console.warn(`vellum: TRUSTED_PROXIES entry ${JSON.stringify(entry)} is not a valid IP or CIDR — ignored`);
   }
+  // SECURE_COOKIES: an explicit yes/no for the `Secure` attribute. Unset →
+  // derived per request (X-Forwarded-Proto from a trusted proxy, or the
+  // request's own scheme), which is right behind the documented HTTPS proxy
+  // and right for plain http on a LAN.
+  const secureRaw = env.SECURE_COOKIES?.trim().toLowerCase() ?? "";
+  const secureCookies = secureRaw === "" ? null : /^(1|true|yes|on)$/.test(secureRaw);
   config = {
     passwordHash,
     sessionSecret: sessionSecret || randomBytes(32).toString("hex"),
     publicReads,
     homeNote,
     trustedProxies,
+    secureCookies,
   };
+  sessionEpoch = null; // re-read from VELLUM_DATA on first use
+}
+
+/** True when this instance has a real credential — i.e. when an "admin
+ *  session" means anything at all. Routes that can move the operator's data
+ *  OFF the machine (git sync) refuse in open local mode rather than accepting
+ *  the word of whoever happened to connect. */
+export function isProtected(): boolean {
+  return config.passwordHash !== null;
 }
 
 // ------------------------------------------------------------- IP utilities
@@ -131,27 +219,143 @@ function isTrustedProxy(ip: string): boolean {
 
 // ------------------------------------------------------------------ sessions
 
-function sign(payload: string): string {
-  return createHmac("sha256", config.sessionSecret).update(payload).digest("base64url");
+/** The session epoch: one integer in VELLUM_DATA that every live token
+ *  carries. Bumping it invalidates all of them at once, which is the whole
+ *  revocation story — and the reason it is on DISK rather than in memory is
+ *  that SESSION_SECRET is meant to survive restarts, so a cookie captured
+ *  before a restart used to survive one too.
+ *
+ *  Read lazily: initAuth() runs before initSite(), so dataDir() is not
+ *  trustworthy at that moment. */
+let sessionEpoch: number | null = null;
+
+function epochFile(): string {
+  return path.join(dataDir(), "session-epoch");
 }
 
+function currentEpoch(): number {
+  if (sessionEpoch !== null) return sessionEpoch;
+  let value = 1;
+  try {
+    const raw = Number.parseInt(readFileSync(epochFile(), "utf8").trim(), 10);
+    if (Number.isSafeInteger(raw) && raw > 0) value = raw;
+  } catch {
+    /* first run (or unreadable): epoch 1 */
+  }
+  sessionEpoch = value;
+  return value;
+}
+
+/** Invalidate every session token this instance ever issued. Persisted, so a
+ *  restart cannot resurrect them; still effective in memory if the write
+ *  fails, which is the half that matters right now. */
+function bumpEpoch(): number {
+  const next = currentEpoch() + 1;
+  sessionEpoch = next;
+  try {
+    mkdirSync(dataDir(), { recursive: true });
+    writeFileSync(epochFile(), `${next}\n`, { encoding: "utf8", mode: 0o600 });
+  } catch (err) {
+    console.error("vellum: could not persist the session epoch — sessions are revoked until the next restart:", err);
+  }
+  return next;
+}
+
+/** A short fingerprint of the configured password hash, mixed into every
+ *  signature. CHANGING THE PASSWORD THEREFORE ENDS EVERY SESSION — with the
+ *  old scheme the two were independent, so an admin who changed their password
+ *  because a laptop was stolen left the thief's cookie working for 30 more
+ *  days. Derived through the session secret so the stored hash is never
+ *  recoverable from a cookie. */
+function passwordFingerprint(): string {
+  return createHash("sha256")
+    .update(config.sessionSecret)
+    .update(" pw ")
+    .update(config.passwordHash ?? "")
+    .digest("base64url")
+    .slice(0, 16);
+}
+
+function sign(payload: string): string {
+  return createHmac("sha256", config.sessionSecret)
+    .update(payload)
+    .update(" ")
+    .update(passwordFingerprint())
+    .digest("base64url");
+}
+
+/** `v2.<epoch>.<expiry>.<hmac>` — no nonce, no server-side session store, but
+ *  two revocation inputs baked into the signature. v1 tokens (no epoch) are
+ *  not accepted: upgrading the server signs everyone out once, deliberately. */
 function makeSessionToken(): string {
-  const payload = `v1.${Date.now() + SESSION_TTL_MS}`;
+  const payload = `v2.${currentEpoch()}.${Date.now() + SESSION_TTL_MS}`;
   return `${payload}.${sign(payload)}`;
 }
 
-function isValidSessionToken(token: string | undefined): boolean {
-  if (!token) return false;
+/** The token's remaining life in ms, or null when it is not a valid session
+ *  for THIS instance right now (bad shape, wrong version, stale epoch, past
+ *  expiry, bad signature, or signed under a different password). */
+function sessionRemainingMs(token: string | undefined): number | null {
+  if (!token) return null;
   const dot = token.lastIndexOf(".");
-  if (dot <= 0) return false;
+  if (dot <= 0) return null;
   const payload = token.slice(0, dot);
-  const [version, expiryStr] = payload.split(".");
-  if (version !== "v1") return false;
+  const [version, epochStr, expiryStr] = payload.split(".");
+  if (version !== "v2") return null;
+  if (Number(epochStr) !== currentEpoch()) return null;
   const expiry = Number(expiryStr);
-  if (!Number.isFinite(expiry) || expiry < Date.now()) return false;
+  if (!Number.isFinite(expiry)) return null;
+  const remaining = expiry - Date.now();
+  if (remaining <= 0) return null;
   const given = Buffer.from(token.slice(dot + 1));
   const expected = Buffer.from(sign(payload));
-  return given.length === expected.length && timingSafeEqual(given, expected);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+  return remaining;
+}
+
+function isValidSessionToken(token: string | undefined): boolean {
+  return sessionRemainingMs(token) !== null;
+}
+
+/** Should this response's cookie carry `Secure`? SECURE_COOKIES decides when
+ *  set; otherwise X-Forwarded-Proto — honored ONLY from a configured trusted
+ *  proxy, exactly like X-Forwarded-For — and finally the request's own scheme.
+ *  The documented deployment is "behind an HTTPS reverse proxy", where the
+ *  app's own hop is plain http: without this, the admin cookie was issued
+ *  without Secure and one accidental http:// link leaked it in clear. */
+function cookieSecure(c: Context): boolean {
+  if (config.secureCookies !== null) return config.secureCookies;
+  let peer = "";
+  try {
+    peer = canonicalIp(getConnInfo(c).remote.address ?? "");
+  } catch {
+    /* fall through */
+  }
+  if (peer && isTrustedProxy(peer)) {
+    const proto = c.req.header("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+    if (proto) return proto === "https";
+  }
+  return new URL(c.req.url).protocol === "https:";
+}
+
+function setSessionCookie(c: Context): void {
+  setCookie(c, COOKIE_NAME, makeSessionToken(), {
+    httpOnly: true,
+    sameSite: "Lax",
+    path: "/",
+    secure: cookieSecure(c),
+    maxAge: SESSION_TTL_MS / 1000,
+  });
+}
+
+/** Sliding refresh: an admin session past half its life is reissued on any
+ *  API request. That is what makes a 7-day TTL humane — an active writer never
+ *  meets the login modal — without making the token a month-long bearer. */
+function refreshSessionIfStale(c: Context): void {
+  if (!config.passwordHash) return;
+  const remaining = sessionRemainingMs(getCookie(c, COOKIE_NAME));
+  if (remaining === null || remaining > SESSION_TTL_MS / 2) return;
+  setSessionCookie(c);
 }
 
 function isAdmin(c: Context): boolean {
@@ -218,26 +422,92 @@ export function clientIp(c: Context): string {
   return hops[0] ?? peer; // every hop trusted → leftmost is the client
 }
 
-/** Sliding-window limiter: true when this IP has already burned all
- *  RATE_MAX_ATTEMPTS failed tries this window. Checking never consumes an
- *  attempt — only recordFailedLogin() does — so successful logins and
- *  malformed requests don't eat into the 10 real password tries per minute. */
-function rateLimited(ip: string): boolean {
+const globalAttempts: number[] = [];
+
+function prune(times: number[], now: number): number[] {
+  return times.filter((t) => now - t < RATE_WINDOW_MS);
+}
+
+/** Take one attempt from this IP's window AND from the global window, or
+ *  refuse. It is consumed HERE, before the verify — never after it.
+ *
+ *  The old shape read the window, then `await argon2.verify(...)`, then
+ *  recorded the failure. Every await is a yield point, so the whole window was
+ *  read by every request in a concurrent volley before any of them wrote to
+ *  it: measured, one 200-way parallel burst evaluated 200/200 guesses against
+ *  a limit of 10 per minute. Worse, each in-flight verify is argon2id m=65536
+ *  p=4 — 64 MiB and four threadpool jobs — so the same volley is an
+ *  unauthenticated memory and threadpool amplifier against a process whose
+ *  every fs call shares that pool. POST /api/comments always had this right:
+ *  check and record adjacent, with no await between them. */
+function takeLoginSlot(ip: string): boolean {
   const now = Date.now();
   if (loginAttempts.size > 1000) {
     for (const [key, times] of loginAttempts) {
       if (times.every((t) => now - t >= RATE_WINDOW_MS)) loginAttempts.delete(key);
     }
   }
-  const recent = (loginAttempts.get(ip) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+  const recent = prune(loginAttempts.get(ip) ?? [], now);
+  const global = prune(globalAttempts, now);
+  globalAttempts.length = 0;
+  globalAttempts.push(...global);
+  if (recent.length >= RATE_MAX_ATTEMPTS || global.length >= GLOBAL_MAX_ATTEMPTS) {
+    loginAttempts.set(ip, recent);
+    return false;
+  }
+  recent.push(now);
   loginAttempts.set(ip, recent);
-  return recent.length >= RATE_MAX_ATTEMPTS;
+  globalAttempts.push(now);
+  return true;
 }
 
-function recordFailedLogin(ip: string): void {
-  const attempts = loginAttempts.get(ip) ?? [];
-  attempts.push(Date.now());
-  loginAttempts.set(ip, attempts);
+/** Give the slot back after a CORRECT password: the limiter exists to bound
+ *  guessing, and an admin who signs in on four devices in a minute is not
+ *  guessing. (The intent the old comment stated — "checking never consumes an
+ *  attempt" — is preserved; only the ORDER changed.) */
+function refundLoginSlot(ip: string): void {
+  const times = loginAttempts.get(ip);
+  if (times) times.pop();
+  globalAttempts.pop();
+}
+
+// A bounded semaphore around argon2. Slots are HANDED OVER on release (rather
+// than released-then-reacquired) so the count is exact under any interleaving.
+let verifyActive = 0;
+const verifyQueue: (() => void)[] = [];
+
+async function acquireVerifySlot(): Promise<boolean> {
+  if (verifyActive < VERIFY_MAX_CONCURRENT) {
+    verifyActive++;
+    return true;
+  }
+  if (verifyQueue.length >= VERIFY_MAX_QUEUED) return false;
+  await new Promise<void>((resolve) => verifyQueue.push(resolve));
+  return true; // the slot was handed to us; verifyActive already counts it
+}
+
+function releaseVerifySlot(): void {
+  const next = verifyQueue.shift();
+  if (next) next();
+  else verifyActive--;
+}
+
+/** One-time nag when a proxy header arrives on an instance that was never told
+ *  about a proxy. The header is (correctly) ignored, which means every login in
+ *  the world shares ONE rate-limit bucket keyed on the proxy's address — the
+ *  admin locks themselves out and never learns why. Silence was the bug. */
+let warnedAboutForwardedFor = false;
+
+function warnIfUnconfiguredProxy(c: Context): void {
+  if (warnedAboutForwardedFor || config.trustedProxies.length > 0) return;
+  if (!c.req.header("x-forwarded-for")) return;
+  warnedAboutForwardedFor = true;
+  console.warn(
+    "vellum: a login arrived carrying X-Forwarded-For but TRUSTED_PROXIES is unset — the header is IGNORED\n" +
+      "        (clients can forge it), so the login rate limit is keying off the proxy's own address and\n" +
+      "        every visitor shares one bucket. Set TRUSTED_PROXIES to your proxy's address, e.g.\n" +
+      "        TRUSTED_PROXIES=127.0.0.1,::1",
+  );
 }
 
 // -------------------------------------------------------------------- routes
@@ -245,11 +515,10 @@ function recordFailedLogin(ip: string): void {
 export const authRoutes = new Hono();
 
 authRoutes.post("/login", async (c) => {
+  warnIfUnconfiguredProxy(c);
   const ip = clientIp(c);
-  if (rateLimited(ip)) {
-    return c.json({ error: "Too many login attempts — try again in a minute" }, 429);
-  }
   if (!config.passwordHash) return c.json({ ok: true, admin: true }); // nothing to log into
+  // Parse before spending the attempt: a malformed body is not a guess.
   let password = "";
   try {
     const body: unknown = await c.req.json();
@@ -260,23 +529,37 @@ authRoutes.post("/login", async (c) => {
     // fall through to the 400 below
   }
   if (!password) return c.json({ error: 'Body field "password" required' }, 400);
-  const ok = await argon2.verify(config.passwordHash, password).catch(() => false);
-  if (!ok) {
-    recordFailedLogin(ip);
-    return c.json({ error: "Invalid password" }, 401);
+  if (!takeLoginSlot(ip)) {
+    return c.json({ error: "Too many login attempts — try again in a minute" }, 429);
   }
-  setCookie(c, COOKIE_NAME, makeSessionToken(), {
-    httpOnly: true,
-    sameSite: "Lax",
-    path: "/",
-    maxAge: SESSION_TTL_MS / 1000,
-  });
+  if (!(await acquireVerifySlot())) {
+    // The queue is full: refund, because this guess was never evaluated.
+    refundLoginSlot(ip);
+    return c.json({ error: "Too many login attempts — try again in a minute" }, 429);
+  }
+  let ok = false;
+  try {
+    ok = await argon2.verify(config.passwordHash, password).catch(() => false);
+  } finally {
+    releaseVerifySlot();
+  }
+  if (!ok) return c.json({ error: "Invalid password" }, 401);
+  refundLoginSlot(ip);
+  setSessionCookie(c);
   return c.json({ ok: true, admin: true });
 });
 
+/** Sign out. This ends EVERY session of this instance, on every device, by
+ *  bumping the session epoch — deliberately, and it is the point of the route:
+ *  before, logout only asked the browser to drop its cookie, so a token
+ *  captured anywhere stayed a valid admin credential for its full life and the
+ *  only real revocation was editing SESSION_SECRET in .env and restarting.
+ *  Vellum has exactly one admin; "sign out here" and "sign out everywhere"
+ *  cannot mean different things when there is one credential behind both. */
 authRoutes.post("/logout", (c) => {
   deleteCookie(c, COOKIE_NAME, { path: "/" });
-  return c.json({ ok: true });
+  if (config.passwordHash) bumpEpoch();
+  return c.json({ ok: true, everywhere: true });
 });
 
 /** The HOME_NOTE env value (settings.home.note overrides it when set —
@@ -297,6 +580,13 @@ export function envHomeNote(): string | null {
  *  <head> included, was hiding — and then rendered it as the public homepage.
  *  resolveLink(ref, true) already filtered; this line is what leaked. */
 function homeNoteVisible(ref: string): boolean {
+  // ONE CLAUSE SHORT of the leak this function exists to close: on a
+  // PUBLIC=false instance nothing is readable without a session — every other
+  // read route 401s — yet `me.homeNote` (and `home.note`) still travelled to
+  // anonymous callers, naming a note in a vault whose entire premise is that
+  // its names are private. The client cannot use the value in that state
+  // anyway: it is about to render the login modal.
+  if (!config.publicReads) return false;
   if (resolveLink(ref, true) !== null) return true;
   try {
     const asPath = /\.md$/i.test(ref) ? ref : `${ref}.md`;
@@ -416,6 +706,10 @@ export const authGuard: MiddlewareHandler = async (c, next) => {
   // through to the admin check below like any other.
   const reading = c.req.method === "GET" || c.req.method === "HEAD";
   if (reading && isOpenPath(c.req.path)) return next();
+  // Sliding session refresh happens here, on the one middleware every real API
+  // request passes through, so an admin who is using the app never meets the
+  // login modal even though the token itself is short-lived.
+  refreshSessionIfStale(c);
   // Preview: the admin session walks the visitor branch below — mutations
   // 401 and PUBLIC=false locks reads, exactly as they would for a stranger.
   if (!isPreviewingVisitor(c)) {

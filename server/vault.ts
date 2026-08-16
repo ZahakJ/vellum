@@ -1,7 +1,7 @@
 // Vault: filesystem layer. Root resolution, safe paths, CRUD on notes/folders,
 // and a chokidar watcher that broadcasts debounced VaultEvents.
 
-import { promises as fs } from "node:fs";
+import { promises as fs, lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { watch, type FSWatcher } from "chokidar";
 import type { AttachmentInfo, AttachmentKind, NoteData, TreeNode, VaultEvent } from "../shared/types.ts";
@@ -29,9 +29,19 @@ export class VaultError extends Error {
 }
 
 let vaultRoot = "";
+/** vaultRoot with its own symlinks resolved — the yardstick every containment
+ *  check measures against. Pointing VELLUM_VAULT at a symlink (`~/notes` →
+ *  `/mnt/vault`) is normal, so the ROOT may legitimately be a link; what may
+ *  not happen is a path inside it resolving somewhere else entirely. */
+let vaultRootReal = "";
 
 export function initVault(root: string): void {
   vaultRoot = path.resolve(root);
+  try {
+    vaultRootReal = realpathSync.native(vaultRoot);
+  } catch {
+    vaultRootReal = vaultRoot; // not created yet: lexical root until it is
+  }
 }
 
 export function getVaultRoot(): string {
@@ -56,10 +66,53 @@ export function normalizeRel(rel: string): string {
   return path.posix.normalize(cleaned);
 }
 
+/** True when `abs` is inside the vault AFTER symlinks are resolved.
+ *
+ *  The lexical check in safeAbs() answers "does this STRING stay inside the
+ *  vault", which is a different question from "does this FILE". Every fs call
+ *  below it (`stat`, `readFile`, `writeFile`, `createReadStream`) follows
+ *  links, so a single `ln -s /etc evil` inside the vault turned `/api/file
+ *  ?path=evil/passwd` into a filesystem reader and `note-link.md → /etc/passwd`
+ *  into a readable — and WRITABLE — note. Nothing in the API can create such a
+ *  link, but the vault directory is exactly the directory Obsidian, Syncthing,
+ *  Dropbox and `git pull` all write into: this is the one place in the app
+ *  whose contents are not ours.
+ *
+ *  A path that does not exist yet (a note about to be created) is answered by
+ *  its deepest EXISTING ancestor — the missing segments are plain names, and a
+ *  name that is not on disk cannot be a link. A dangling symlink is refused
+ *  rather than treated as missing: `realpath` reports ENOENT for both, and
+ *  following one on a WRITE would create the file wherever it points. */
+function resolvesInsideVault(abs: string): boolean {
+  let probe = abs;
+  for (;;) {
+    try {
+      const real = realpathSync.native(probe);
+      return real === vaultRootReal || real.startsWith(vaultRootReal + path.sep);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      // ELOOP, EACCES, ENAMETOOLONG…: unresolvable is not containable.
+      if (code !== "ENOENT" && code !== "ENOTDIR") return false;
+      // ENOENT means "absent" OR "a symlink pointing at something absent".
+      try {
+        lstatSync(probe);
+        return false; // the name IS there — it is a dangling link. Refuse.
+      } catch {
+        /* genuinely absent: ask the parent */
+      }
+      const parent = path.dirname(probe);
+      if (parent === probe) return false;
+      probe = parent;
+    }
+  }
+}
+
 /** Map a client-supplied relative path to an absolute path strictly inside the vault.
  *  Traversal (`..` as a whole segment — "Jr..md" is a legal name) is a 400;
  *  ignored paths (.obsidian, .trash, dotfiles…) are a 404 so their existence
- *  is never revealed and they can be neither read nor written through any API. */
+ *  is never revealed and they can be neither read nor written through any API.
+ *  A path that leaves the vault through a SYMLINK is a 404 for the same reason
+ *  — the answer must not tell a caller which of their guesses planted a link. */
 export function safeAbs(rel: string): string {
   const normalized = normalizeRel(rel);
   if (
@@ -76,6 +129,7 @@ export function safeAbs(rel: string): string {
   if (abs !== vaultRoot && !abs.startsWith(vaultRoot + path.sep)) {
     throw new VaultError(400, `Path escapes vault: ${rel}`);
   }
+  if (!resolvesInsideVault(abs)) throw new VaultError(404, `Not found: ${rel}`);
   return abs;
 }
 
@@ -140,7 +194,14 @@ export function attachmentInfo(rel: string, size: number): AttachmentInfo {
  *  so a folder still opens onto its writing, with the files beneath it.
  *
  *  Attachments cost one `stat` each (for the size the viewer prints); notes
- *  cost none, and the stats of one directory run concurrently. */
+ *  cost none, and the stats of one directory run concurrently.
+ *
+ *  SYMLINKS ARE SKIPPED, here and in listVaultFiles() below — stated rather
+ *  than implied, because it is load-bearing: `readdir` reports the LINK's own
+ *  type, so a link is neither `isFile()` nor `isDirectory()` and was already
+ *  falling through both branches. That is what keeps escaping links out of
+ *  the index, and therefore out of the publish allowlist `/api/file` checks
+ *  before it serves a byte to an anonymous visitor. */
 export async function buildTree(): Promise<TreeNode> {
   async function walk(relDir: string): Promise<TreeNode[]> {
     const absDir = relDir === "" ? vaultRoot : path.join(vaultRoot, relDir);
@@ -153,7 +214,7 @@ export async function buildTree(): Promise<TreeNode> {
     const nodes: TreeNode[] = [];
     const attachments: { name: string; path: string }[] = [];
     for (const entry of entries) {
-      if (isIgnoredSegment(entry.name)) continue;
+      if (isIgnoredSegment(entry.name) || entry.isSymbolicLink()) continue;
       const relPath = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
       if (entry.isDirectory()) {
         nodes.push({ name: entry.name, path: relPath, type: "folder", children: await walk(relPath) });
@@ -208,7 +269,7 @@ export async function listVaultFiles(): Promise<{ notes: string[]; attachments: 
       return;
     }
     for (const entry of entries) {
-      if (isIgnoredSegment(entry.name)) continue;
+      if (isIgnoredSegment(entry.name) || entry.isSymbolicLink()) continue;
       const relPath = relDir === "" ? entry.name : `${relDir}/${entry.name}`;
       if (entry.isDirectory()) await walk(relPath);
       else if (entry.isFile()) {
@@ -238,7 +299,12 @@ export async function statAttachment(rel: string): Promise<AttachmentStat> {
   const abs = safeAbs(relPath);
   if (isIgnoredRel(relPath)) throw new VaultError(404, `File not found: ${relPath}`);
   try {
-    const stat = await fs.stat(abs);
+    // lstat, NOT stat — the same rule the two font routes already follow
+    // (api.ts). safeAbs() has already refused anything that resolves outside
+    // the vault, so this is the second lock on the same door: a link is not a
+    // file, and this route hands its bytes to anonymous callers whenever a
+    // published note embeds the name.
+    const stat = await fs.lstat(abs);
     if (!stat.isFile()) throw new VaultError(404, `File not found: ${relPath}`);
     return { rel: relPath, abs, size: stat.size, mtimeMs: stat.mtimeMs };
   } catch (err) {
@@ -300,11 +366,45 @@ export async function renameNote(rel: string, toRel: string): Promise<void> {
   emit({ kind: "renamed", path: fromPath, toPath });
 }
 
-export async function deleteNote(rel: string): Promise<void> {
+export interface DeleteNoteResult {
+  /** Vault-relative path the note now lives at under `.trash/`
+   *  (absent when `permanent` removed it outright). */
+  trashPath?: string;
+}
+
+/** Delete ONE note. Default is the same move to `.trash/` a folder delete
+ *  gets; `permanent: true` removes it outright.
+ *
+ *  The default used to be the opposite way round, and it was the safety
+ *  gradient running backwards: deleting a FOLDER — rare, two dialogs deep,
+ *  1,214 notes at a time — was recoverable, while deleting ONE note — the
+ *  high-frequency, one-click operation on a tree row and in the palette — was
+ *  an unconditional `fs.rm` with no undo anywhere in the product. Obsidian
+ *  itself trashes single files by default. The ceremony now matches the
+ *  consequence in both directions. */
+export async function deleteNote(
+  rel: string,
+  opts?: { permanent?: boolean },
+): Promise<DeleteNoteResult> {
   const relPath = assertMarkdown(rel);
   const abs = safeAbs(relPath);
   if (!(await exists(abs))) throw new VaultError(404, `Note not found: ${relPath}`);
-  await fs.rm(abs);
+  if (opts?.permanent) {
+    await fs.rm(abs);
+    return {};
+  }
+  const base = path.posix.basename(relPath);
+  const destAbs = await trashDestination(base.replace(/\.md$/i, ""), base.slice(base.length - 3));
+  try {
+    await fs.rename(abs, destAbs);
+  } catch (err) {
+    // Same EXDEV fallback deleteFolder() carries: VELLUM_VAULT and its own
+    // `.trash` are normally one filesystem, but a bind-mounted sub-tree is not.
+    if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+    await fs.cp(abs, destAbs);
+    await fs.rm(abs);
+  }
+  return { trashPath: `${TRASH_DIR}/${path.basename(destAbs)}` };
 }
 
 export async function createFolder(rel: string): Promise<void> {
@@ -335,7 +435,7 @@ async function collectFolder(relFolder: string): Promise<{ paths: string[]; note
       return;
     }
     for (const entry of entries) {
-      if (isIgnoredSegment(entry.name)) continue;
+      if (isIgnoredSegment(entry.name) || entry.isSymbolicLink()) continue;
       const relPath = `${relDir}/${entry.name}`;
       if (entry.isDirectory()) {
         await walk(relPath);
@@ -351,12 +451,15 @@ async function collectFolder(relFolder: string): Promise<{ paths: string[]; note
   return { paths, notes };
 }
 
-/** Free name for a folder moved into `.trash/`: "guides", then "guides-2", … */
-async function trashDestination(name: string): Promise<string> {
+/** Free name for something moved into `.trash/`: "guides", then "guides-2", …
+ *  The counter goes BEFORE the extension ("draft.md", "draft-2.md") so a
+ *  trashed note is still a `.md` file the operator can open, sort and restore
+ *  with a `mv`; folders pass `ext = ""` and keep the old shape exactly. */
+async function trashDestination(stem: string, ext = ""): Promise<string> {
   const trashAbs = path.join(vaultRoot, TRASH_DIR);
   await fs.mkdir(trashAbs, { recursive: true });
   for (let n = 1; ; n++) {
-    const candidate = n === 1 ? name : `${name}-${n}`;
+    const candidate = n === 1 ? `${stem}${ext}` : `${stem}-${n}${ext}`;
     const abs = path.join(trashAbs, candidate);
     if (!(await exists(abs))) return abs;
   }
@@ -380,7 +483,9 @@ export async function deleteFolder(
   const abs = safeAbs(relPath);
   let stat;
   try {
-    // lstat, not stat: a symlinked folder is a LINK, and the delete that
+    // lstat, not stat. safeAbs() has already 404'd any link that resolves
+    // outside the vault, so what reaches here is a link pointing back INSIDE
+    // it — and a symlinked folder is still a LINK: the delete that
     // follows unlinks it without touching the target (fs.rename/fs.rm both
     // operate on the link itself). Counting through it would answer with the
     // size of a tree outside the vault — "1,214 notes will be erased from
@@ -501,6 +606,14 @@ export function startWatcher(): void {
   if (watcher) return;
   watcher = watch(vaultRoot, {
     ignoreInitial: true,
+    // The THIRD way a symlink got in. chokidar follows links by default, so a
+    // `ln -s /etc evil` in the vault made it descend into /etc — verified: the
+    // log filled with `EACCES: permission denied, watch '…/evil/gshadow'` —
+    // and every readable file under the target arrived as a `created` event,
+    // which registers it as an attachment and hands it to the publish
+    // allowlist. The tree and index walks skip links; the watcher must agree,
+    // or the two disagree about what the vault contains.
+    followSymlinks: false,
     ignored: (p) => {
       if (p === vaultRoot) return false;
       const rel = path.relative(vaultRoot, p);

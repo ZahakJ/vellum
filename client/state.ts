@@ -231,7 +231,9 @@ export interface State {
   refreshBacklinks(): Promise<void>;
   createNote(path: string): Promise<void>;
   renameNote(path: string, toPath: string): Promise<void>;
-  deleteNote(path: string): Promise<void>;
+  /** Default is the recoverable move to the vault's `.trash/`; `permanent`
+   *  erases the file. Same two speeds as deleteFolder. */
+  deleteNote(path: string, opts?: { permanent?: boolean }): Promise<void>;
   /** Move a folder (and everything under it) to the vault's .trash — or erase
    *  it outright. Closes every open tab inside it, then refreshes the tree. */
   deleteFolder(path: string, opts?: { permanent?: boolean }): Promise<void>;
@@ -776,8 +778,7 @@ export const useStore = create<State>()((set, get) => {
       }),
 
     loadPublished: async () => {
-      const { admin, authProtected, publicReads } = get();
-      if (!admin) return;
+      if (!get().admin) return;
       // Counts always refresh (cheap, drives the "N published" segment).
       try {
         const me = await api.getMe();
@@ -785,9 +786,13 @@ export const useStore = create<State>()((set, get) => {
       } catch {
         // keep last known counts
       }
-      // The path set rides on the visitor view of /api/tree, which only
-      // exists when a hash is configured and public reads are open.
-      if (!authProtected || !publicReads) return;
+      // The path set comes from GET /api/published — an ADMIN route. It used
+      // to ride on the VISITOR view of /api/tree, which made publish state
+      // conditional on `authProtected && publicReads`: on an open local vault
+      // and on every PUBLIC=false instance the stars and the published filter
+      // silently did not exist, and where it did exist it arrived
+      // language-filtered. Both are gone: publish is a fact about a note, and
+      // the owner sees it wherever they are signed in.
       try {
         const publishedPaths = await api.getPublishedPaths();
         set({ publishedPaths });
@@ -969,11 +974,18 @@ export const useStore = create<State>()((set, get) => {
         void get().refreshBacklinks();
       }),
 
-    deleteNote: (path) =>
+    deleteNote: (path, opts) =>
       guarded(`deleting ${path}`, async () => {
-        await api.deleteNote(path);
+        const permanent = opts?.permanent === true;
+        const name = path.split("/").pop() ?? path;
+        await api.deleteNote(path, permanent);
         get().closeTab(path);
         await get().loadTree();
+        void get().refreshBacklinks();
+        // A published note leaving the vault changes the public site — the
+        // "N published" segment and the publish marks have to follow it.
+        void get().loadPublished();
+        toast(tf(permanent ? "noteDeletedToast" : "noteTrashedToast", { name }));
       }),
 
     deleteFolder: (path, opts) =>

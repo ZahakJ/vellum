@@ -61,9 +61,27 @@ let allowedAttachmentsCache: Set<string> | null = null; // null = recompute
 const attachmentPaths = new Set<string>();
 const attachmentsByName = new Map<string, Set<string>>();
 
-/** Markdown larger than this is left out of the search/link index (still
- *  readable via /api/note) so a single giant export can't blow up boot. */
+/** Markdown larger than this gets a MINIMAL record instead of a full one: its
+ *  body is never read, so it is absent from full-text search, the link graph,
+ *  backlinks, tags and excerpts — but it is still a note, with its title,
+ *  publish flag, banner and date, so it appears in the tree, in the post list,
+ *  in RSS and on its own URL like any other.
+ *
+ *  It used to be dropped outright, and that was invisible data loss with the
+ *  worst possible blast radius: `/api/note`'s visitor gate reads publishedSet,
+ *  so a note the owner had marked `publish: true` answered 404 TO VISITORS
+ *  while the admin's own request succeeded — the one failure mode nobody can
+ *  see from inside the product. Nothing was logged, and the comment here
+ *  claimed the opposite ("still readable via /api/note"). */
 const MAX_INDEXED_MD_BYTES = 2 * 1024 * 1024;
+
+/** How much of an oversized note is read for its frontmatter. Frontmatter is
+ *  at the top by definition; 64 KB is a hundred times any real block. */
+const OVERSIZED_HEAD_BYTES = 64 * 1024;
+
+/** Paths currently held as minimal records — the boot summary counts them, and
+ *  the set keeps the warning to one line per file rather than one per save. */
+const oversized = new Set<string>();
 
 /** Bounded concurrency for boot-time indexing: avoids EMFILE on big vaults. */
 const BOOT_CONCURRENCY = 64;
@@ -184,8 +202,12 @@ export async function initIndexer(): Promise<void> {
     Array.from({ length: Math.min(BOOT_CONCURRENCY, noteFiles.length) }, worker),
   );
   onEvent(handleEvent);
+  // The oversized tail is named in the boot line, not just in the per-file
+  // warnings above it: "3 by metadata only" is the number that explains why a
+  // search comes back empty for text the operator can see on screen.
+  const metaOnly = oversized.size > 0 ? `, ${oversized.size} by metadata only (over ${MAX_INDEXED_MD_BYTES / 1024 / 1024} MB)` : "";
   console.log(
-    `  indexed ${notes.size} notes, ${attachmentPaths.size} attachments in ${Math.round(performance.now() - t0)}ms`,
+    `  indexed ${notes.size} notes, ${attachmentPaths.size} attachments in ${Math.round(performance.now() - t0)}ms${metaOnly}`,
   );
 }
 
@@ -230,16 +252,19 @@ function handleEvent(event: VaultEvent): void {
  *  the index synchronously instead of waiting out the watcher debounce —
  *  otherwise a rename issued right after a save misses freshly written links. */
 export async function indexFile(relPath: string): Promise<void> {
-  // Oversized markdown is deliberately not indexed (still served by /api/note).
   let stat;
+  let abs;
   try {
-    stat = await fs.stat(safeAbs(relPath));
-    if (stat.size > MAX_INDEXED_MD_BYTES) {
-      removeFile(relPath);
-      return;
-    }
+    abs = safeAbs(relPath);
+    stat = await fs.stat(abs);
   } catch {
     removeFile(relPath);
+    return;
+  }
+  // Oversized markdown: metadata only, body never read. Search degrades; the
+  // note does not disappear. See MAX_INDEXED_MD_BYTES.
+  if (stat.size > MAX_INDEXED_MD_BYTES) {
+    await indexOversized(relPath, abs, stat);
     return;
   }
   let content: string;
@@ -277,6 +302,7 @@ export async function indexFile(relPath: string): Promise<void> {
     flat: null,
     post: null,
   };
+  oversized.delete(relPath); // it may have just shrunk back under the cap
   notes.set(relPath, record);
   addName(rawTitle, relPath);
   byPathLower.set(relPath.toLowerCase(), relPath);
@@ -286,10 +312,76 @@ export async function indexFile(relPath: string): Promise<void> {
   mini.add({ path: relPath, title, body, tags: record.tags.join(" ") });
 }
 
+/** The first `bytes` of a file as UTF-8, without reading the rest of it. */
+async function readHead(abs: string, bytes: number): Promise<string> {
+  const handle = await fs.open(abs, "r");
+  try {
+    const buf = Buffer.alloc(bytes);
+    const { bytesRead } = await handle.read(buf, 0, bytes, 0);
+    return buf.subarray(0, bytesRead).toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Metadata-only record for a note past MAX_INDEXED_MD_BYTES: title, publish
+ *  flag, banner, date and frontmatter tags, read from the file's HEAD. No
+ *  body, so no minisearch entry, no links, no assets, no excerpt — everything
+ *  else about the note behaves normally, including publication. */
+async function indexOversized(relPath: string, abs: string, stat: { size: number; birthtimeMs: number; mtimeMs: number }): Promise<void> {
+  const known = oversized.has(relPath); // sampled before removeFile() clears it
+  let head: string;
+  try {
+    head = await readHead(abs, OVERSIZED_HEAD_BYTES);
+  } catch {
+    removeFile(relPath);
+    return;
+  }
+  removeFile(relPath);
+  const rawTitle = path.posix.basename(relPath, ".md");
+  const { frontmatter } = splitFrontmatter(head);
+  const fm = readFrontmatter(head);
+  const record: NoteRecord = {
+    path: relPath,
+    title: stripBidiControls(rawTitle),
+    body: "",
+    links: [],
+    assets: [],
+    tags: parseTags("", frontmatter),
+    published: publishFlag(fm),
+    banner: typeof fm.banner === "string" && fm.banner.trim() ? fm.banner.trim() : null,
+    dateMs:
+      parseFmDate(fm.date) ??
+      parseFmDate(fm.created) ??
+      parseFmDate(fm.published) ??
+      (stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs),
+    // No body was read, so there is no prose to judge: "no language", which
+    // languageHidden() leaves alone on both an ar and an en site.
+    arabic: null,
+    flat: null,
+    post: null,
+  };
+  notes.set(relPath, record);
+  addName(rawTitle, relPath);
+  byPathLower.set(relPath.toLowerCase(), relPath);
+  if (record.published) publishedSet.add(relPath);
+  allowedAttachmentsCache = null;
+  // Say it out loud, once per file: a silently unsearchable note is exactly
+  // the kind of state this product must never keep to itself.
+  oversized.add(relPath);
+  if (!known) {
+    console.warn(
+      `vellum: "${relPath}" is ${Math.round(stat.size / 1024 / 1024)} MB (cap ${MAX_INDEXED_MD_BYTES / 1024 / 1024} MB) — ` +
+        "indexed by metadata only: it stays readable, publishable and listed, but its text is not searchable and its links are not in the graph",
+    );
+  }
+}
+
 function removeFile(relPath: string): void {
   const record = notes.get(relPath);
   if (!record) return;
   notes.delete(relPath);
+  oversized.delete(relPath);
   // The resolution key is the RAW basename (record.title is the sanitized
   // display title) — addName registered it, removeName must unregister it.
   removeName(path.posix.basename(relPath, ".md"), relPath);
@@ -640,6 +732,16 @@ export function visibleNotesUnder(relFolder: string): string[] {
     if (notePath.startsWith(prefix) && isNoteVisibleToVisitor(notePath)) out.push(notePath);
   }
   return out.sort();
+}
+
+/** Every published note path — the ADMIN's view of publish state, and the
+ *  only one that is not a visitor surface. `publishedNotes()` above applies
+ *  the languageFilter because it feeds the visitor's sidebar; this one must
+ *  not, or the owner's own publish marks inherit a rule written for strangers
+ *  and a published-but-hidden note reads as unpublished in the editor that
+ *  published it. Sorted, so the answer is stable across reindexes. */
+export function publishedPaths(): string[] {
+  return [...publishedSet].sort();
 }
 
 export function publishedCounts(): { notes: number; total: number } {

@@ -43,7 +43,7 @@ import type {
 } from "../shared/types.ts";
 import { getSettings } from "./settings.ts";
 import { dataDir } from "./site.ts";
-import { getVaultRoot, VaultError } from "./vault.ts";
+import { getVaultRoot, TRASH_DIR, VaultError } from "./vault.ts";
 
 const run = promisify(execFile);
 
@@ -646,6 +646,32 @@ function dataDirInsideVault(): string | null {
 }
 
 const IGNORE_HEADER = "# Vellum instance data (credentials, settings) — never commit this.";
+const TRASH_HEADER = "# Vellum: local trash and editor scratch — never commit these.";
+
+/** Rules that must hold on EVERY synced vault, regardless of where
+ *  VELLUM_DATA lives.
+ *
+ *  `.trash/` is the load-bearing one. The whole justification for the
+ *  folder-delete trash model (CONTRACTS, "recoverable from disk", "invisible
+ *  to tree/indexer/watcher") assumes the trash is LOCAL — a bin you can dig
+ *  through, or empty, without consequence. With sync on and this rule missing,
+ *  `git add -A` committed it: deleting a 1,214-note folder became permanent
+ *  history on the operator's remote, and "move to trash" was a slower spelling
+ *  of "publish my deletions". Obsidian's `workspace*.json` is here for a
+ *  smaller reason — it churns on every pane you open, so it turns an
+ *  unattended hourly sync into a stream of empty commits. */
+const BASE_RULES = [".trash/", ".obsidian/workspace.json", ".obsidian/workspace-mobile.json"];
+
+/** Compare ignore rules the way git roughly does for a plain path: ignore
+ *  surrounding whitespace, a leading `/`, and a trailing `/`. */
+function ruleKey(line: string): string {
+  return line.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+function hasRule(body: string, rule: string): boolean {
+  const want = ruleKey(rule);
+  return body.split("\n").some((line) => ruleKey(line) === want);
+}
 
 /** The vault's own .gitignore. Creates it when the vault has none, and APPENDS
  *  the instance-data rule when one already exists without it.
@@ -663,25 +689,30 @@ function seedGitignore(): void {
   const rel = dataDirInsideVault();
   const dataRule = rel === null ? null : `${rel}/`;
   if (!existsSync(file)) {
-    const lines = ["# Written by Vellum on first sync. Edit freely.", ".trash/", ".DS_Store"];
+    const lines = ["# Written by Vellum on first sync. Edit freely.", ...BASE_RULES, ".DS_Store"];
     if (dataRule !== null) lines.push("", IGNORE_HEADER, dataRule);
     writeFileSync(file, `${lines.join("\n")}\n`, "utf8");
     return;
   }
-  if (rel === null || dataRule === null) return;
   let body: string;
   try {
     body = readFileSync(file, "utf8");
   } catch {
     return; // unreadable .gitignore: syncNow()'s check-ignore gate still refuses
   }
-  const has = body
-    .split("\n")
-    .map((line) => line.trim().replace(/\/+$/, ""))
-    .includes(rel.replace(/\/+$/, ""));
-  if (has) return;
+  // THE APPEND PATH RUNS FOR EVERY VAULT, not only for one whose VELLUM_DATA
+  // sits inside it. It used to bail here — `if (rel === null) return;` — and
+  // rel is null in the DEFAULT arrangement (data/ next to the app), so on the
+  // two commonest real vaults, "already a git repository" and "already has a
+  // .gitignore", `.trash/` was never ignored and every deletion was pushed.
+  const missing = BASE_RULES.filter((rule) => !hasRule(body, rule));
+  const needsData = dataRule !== null && !hasRule(body, dataRule);
+  if (missing.length === 0 && !needsData) return;
+  const parts: string[] = [];
+  if (missing.length > 0) parts.push("", TRASH_HEADER, ...missing);
+  if (needsData) parts.push("", IGNORE_HEADER, dataRule as string);
   const sep = body === "" || body.endsWith("\n") ? "" : "\n";
-  writeFileSync(file, `${body}${sep}\n${IGNORE_HEADER}\n${dataRule}\n`, "utf8");
+  writeFileSync(file, `${body}${sep}${parts.join("\n")}\n`, "utf8");
 }
 
 /** Refuse to stage anything while VELLUM_DATA is inside the vault and not
@@ -692,9 +723,17 @@ function seedGitignore(): void {
  *  against our belief about a file we wrote. `check-ignore` exits 0 when the
  *  path is ignored, non-zero (→ null through gitTry) when it is not. */
 async function protectDataDir(): Promise<void> {
-  const rel = dataDirInsideVault();
-  if (rel === null) return; // VELLUM_DATA lives outside the vault: nothing to do
+  // UNCONDITIONAL, and first: the .gitignore rules below apply to every vault,
+  // and this function is the only thing standing between the working tree and
+  // `git add -A`. Gating the seed on "is VELLUM_DATA inside the vault?" is
+  // what left `.trash/` unignored on the default arrangement.
   seedGitignore();
+  // Un-track a trash that an earlier build already committed — the same
+  // repair, for the same reason, as the data-directory eviction below. Without
+  // it a .gitignore rule changes nothing: git keeps tracking what it tracks.
+  await gitTry(["rm", "-r", "--cached", "--ignore-unmatch", "-q", "--", TRASH_DIR]);
+  const rel = dataDirInsideVault();
+  if (rel === null) return; // VELLUM_DATA lives outside the vault: nothing more to do
   // EVICT FIRST. A file git already tracks stays tracked through every
   // .gitignore in the world, and this is the state a vault reaches when an
   // older build committed the data directory before it was ignored.
@@ -735,7 +774,13 @@ export async function initRepo(): Promise<GitSyncStatus> {
     // committed VELLUM_DATA/git-credentials.json when VELLUM_DATA sits inside
     // the vault. seedGitignore() appends to an existing file and is a no-op
     // once the rule is there.
-    seedGitignore();
+    //
+    // protectDataDir() rather than seedGitignore() alone: "make this a repo"
+    // is exactly when a vault damaged by an older build should be repaired,
+    // and the eviction of an already-tracked `.trash/` (or VELLUM_DATA) only
+    // happens here and in syncNow(). It is idempotent and runs again below
+    // before the initial commit.
+    await protectDataDir();
     if (eff.remote !== null) {
       const existing = await gitTry(["remote", "get-url", "origin"]);
       if (existing === null) await git(["remote", "add", "origin", eff.remote]);
