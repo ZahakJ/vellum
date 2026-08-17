@@ -201,6 +201,33 @@ async function press(page, layout, char, { ctrl = true, shift = false, alt = fal
   await page.waitForTimeout(150);
 }
 
+/** Press a physical key with NO modifier — a reader TYPING. `text` is what
+ *  makes Chromium insert the character, so this is the whole round trip: the
+ *  layout's own output has to reach the field. The commanding half of this
+ *  harness would pass unchanged on a fix that ate every keystroke a reader
+ *  makes, which is the trade this feature explicitly refused (client/keys.ts:
+ *  "breaking typing to fix commands is not a trade") and therefore the half
+ *  that has to be measured rather than argued. Returns the character sent. */
+async function typeKey(page, layout, code, shift = false) {
+  const ev = eventFor(layout, code, shift);
+  const common = {
+    modifiers: shift ? 8 : 0,
+    key: ev.key,
+    code: ev.code,
+    windowsVirtualKeyCode: ev.vk,
+    nativeVirtualKeyCode: ev.vk,
+  };
+  await cdp.send("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    text: ev.key,
+    unmodifiedText: ev.key,
+    ...common,
+  });
+  await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...common });
+  await page.waitForTimeout(60);
+  return ev.key;
+}
+
 const results = [];
 function record(layout, name, ok, detail = "") {
   results.push({ layout, name, ok, detail });
@@ -242,6 +269,7 @@ const seen = () => page.evaluate(() => {
     zen: cls.includes("s-app--zen"),
     reading: document.querySelector(".s-reading") !== null,
     nosidebar: cls.includes("s-app--nosidebar"),
+    nopanel: cls.includes("s-app--nopanel"),
   };
 });
 
@@ -257,6 +285,15 @@ async function reset() {
   if (s.graph) { await press(page, us, "g"); s = await seen(); }
   if (s.reading) { await press(page, us, "e"); s = await seen(); }
   if (s.nosidebar) { await press(page, us, "b", { alt: true }); }
+  if ((await seen()).nopanel) { await press(page, us, "b", { alt: true, shift: true }); }
+  // Ctrl+K parks the caret in the search box and the typing check fills it:
+  // leave neither behind, or the next layout's Ctrl+K finds a field it cannot
+  // tell from its own.
+  await page.evaluate(() => {
+    const el = document.activeElement;
+    if (el && "value" in el) { el.value = ""; el.dispatchEvent(new Event("input", { bubbles: true })); }
+    if (el instanceof HTMLElement) el.blur();
+  });
   await page.waitForTimeout(150);
 }
 
@@ -301,6 +338,38 @@ for (const layout of LAYOUTS) {
   await press(page, layout, "b", { alt: true });
   const after = (await seen()).nosidebar;
   record(layout.id, "Ctrl+Alt+B folds the notes pane", before !== after, `nosidebar ${before} -> ${after}`);
+  await reset();
+
+  // The OUTLINE pane — the other half of the one binding that wears Shift to
+  // pick its second surface. Tested because "the pair kept its shape" is a
+  // claim about both halves and only one of them was ever measured.
+  const panelBefore = (await seen()).nopanel;
+  await press(page, layout, "b", { alt: true, shift: true });
+  const panelAfter = (await seen()).nopanel;
+  record(layout.id, "Ctrl+Alt+Shift+B folds the outline pane", panelBefore !== panelAfter, `nopanel ${panelBefore} -> ${panelAfter}`);
+  await reset();
+
+  // TYPING, which is the other side of every one of the checks above. Ctrl+K
+  // has just parked the caret in the search box on this layout; now press the
+  // same physical keys with no modifier and require the field to hold exactly
+  // what the layout produces — including Arabic's two-code-point lam-alef on
+  // physical B, the character the fallback exists to notice.
+  await press(page, layout, "k");
+  await page.waitForTimeout(200);
+  let typed = "";
+  for (const code of ["KeyQ", "KeyW", "KeyE", "KeyB", "KeyP", "KeyG", "Slash"]) {
+    typed += await typeKey(page, layout, code, false);
+  }
+  const inField = await page.evaluate(() => {
+    const el = document.activeElement;
+    return el && "value" in el ? String(el.value) : "(the caret is not in a field)";
+  });
+  record(
+    layout.id,
+    "plain typing still types the layout's own characters",
+    inField === typed,
+    `typed ${JSON.stringify(inField)}, layout produces ${JSON.stringify(typed)}`,
+  );
   await reset();
 
   // The editor keymap (CodeMirror), not App's listener. A UNIQUE token per
