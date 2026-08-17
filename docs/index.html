@@ -95,8 +95,8 @@
         <div class="pad"><h3>Publish mode</h3><p>Mark any note <em>publish: true</em> and it becomes part of your public site — magazine dashboard, topic navigation, RSS, and reader comments. Everything else stays private.</p></div></div>
       <div class="card"><img src="screenshots/graph.png" alt="Graph view">
         <div class="pad"><h3>Your vault as a constellation</h3><p>A force-directed graph of every wikilink, interactive at thousands of notes, plus a live local graph beside each note.</p></div></div>
-      <div class="card"><img src="screenshots/themes.png" alt="Four themes">
-        <div class="pad"><h3>Four themes &amp; full theming</h3><p>Iron-gall, void, lapis, parchment — then make it yours: site name, logo, favicon, custom CSS and fonts, all from an in-app settings panel.</p></div></div>
+      <div class="card"><img src="screenshots/themes.png" alt="The fifteen themes">
+        <div class="pad"><h3>Fifteen themes &amp; a design engine</h3><p>Eleven dark, four light, every one gated at WCAG AA — then make it yours: a custom theme builder, fifty-nine site presets, your own fonts, custom CSS, all from an in-app panel.</p></div></div>
       <div class="card"><img src="screenshots/blog-article.png" alt="Article with comments">
         <div class="pad"><h3>Marginalia</h3><p>Readers can leave notes in the margins of your published pages. You moderate with one click.</p></div></div>
       <div class="card"><img src="screenshots/palette.png" alt="Command palette">
@@ -111,7 +111,7 @@
   <div class="wrap">
     <h2>Quickstart</h2>
     <div class="rule"></div>
-    <p class="sub">Node ≥ 22, no database, no build step for your notes.</p>
+    <p class="sub">Node ≥ 24, no database, no build step for your notes.</p>
 <pre><span class="c"># run it</span>
 git clone https://github.com/ZahakJ/vellum.git &amp;&amp; cd vellum
 npm install &amp;&amp; npm start
@@ -139,6 +139,10 @@ npm run hash-password   <span class="c"># → ADMIN_PASSWORD_HASH in .env</span>
       <li>argon2 admin auth, rate-limited</li>
       <li>Settings panel — no config files needed</li>
       <li>Deep links, SSE live reload</li>
+      <li>LaTeX (.tex) notes, linked like any other</li>
+      <li>Arabic &amp; RTL throughout, Hijri dates</li>
+      <li>Git-backed backup to a remote you own</li>
+      <li>461 tests, zero CDN requests</li>
       <li>RTL + unicode vaults, tested at 1.4k notes</li>
     </ul>
   </div>
