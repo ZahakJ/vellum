@@ -331,6 +331,26 @@ const DICT = {
   // twice. "Themes" names the thing, which is what a command list is for —
   // and the Arabic is docTheming's own word (السمات).
   browseThemes: { en: "Themes", ar: "السمات" },
+  // ── What the PUBLIC gets, said out loud ──────────────────────────────────
+  // The default theme follows the owner's own editor theme unless they pin
+  // one, so the owner's private pick is a public act — and an owner must never
+  // find that out by accident. Both surfaces that choose a theme (the picker,
+  // the Appearance row) print this sentence and offer the one click that
+  // changes the rule.
+  visitorsFollow: {
+    en: "Visitors see {theme} — following your editor theme",
+    ar: "يرى الزوار {theme} — تتبع سمة محرِّرك",
+  },
+  visitorsPinned: { en: "Visitors see {theme} — pinned", ar: "يرى الزوار {theme} — مثبّتة" },
+  pinForVisitors: { en: "Pin this instead", ar: "ثبّت هذه بدلًا منها" },
+  followMyTheme: { en: "Follow my theme", ar: "اتبع سمتي" },
+  themePinnedNow: { en: "Visitors are pinned to {theme}", ar: "ثُبِّت الزوار على {theme}" },
+  themeFollowingNow: {
+    en: "Visitors follow your editor theme again",
+    ar: "عاد الزوار يتبعون سمة محرِّرك",
+  },
+  themePinFailed: { en: "Could not change the visitors' theme", ar: "تعذّر تغيير سمة الزوار" },
+  themeFollowOption: { en: "Follow my editor theme", ar: "اتبع سمة محرِّري" },
   graph: { en: "graph", ar: "مخطط" },
   graphTitle: { en: "Toggle graph view (Ctrl/Cmd+G)", ar: "تبديل عرض المخطط (Ctrl/Cmd+G)" },
   signIn: { en: "Sign in", ar: "تسجيل الدخول" },

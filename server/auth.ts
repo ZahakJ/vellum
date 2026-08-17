@@ -24,7 +24,8 @@ import { currentVisibility, isReducingReach } from "./visibility.ts";
 import { commentsEnabled } from "./comments.ts";
 import { fontsSignature, slotsAreSystem } from "./fonts.ts";
 import { dateCalendar, fontSlots, getSettings, textAlign, textDirection } from "./settings.ts";
-import { bannerFallback, blogLocale, customCssPath, dataDir, defaultTheme, footerLine, publicLayout, siteLanguage, siteName, tagline } from "./site.ts";
+import { FOLLOW_THEME } from "../shared/themes.ts";
+import { bannerFallback, blogLocale, customCssPath, dataDir, footerLine, publicLayout, siteLanguage, siteName, tagline, themePinnedByEnv, themePref, visitorTheme } from "./site.ts";
 import { activeDesign, customThemesSig, hasThemeChoice } from "./designs.ts";
 import { normalizeRel } from "./vault.ts";
 
@@ -711,8 +712,22 @@ authRoutes.get("/me", (c) => {
   if (noteDir !== "auto") me.textDirection = noteDir;
   const noteAlign = textAlign();
   if (noteAlign !== "start") me.textAlign = noteAlign;
-  const theme = defaultTheme();
+  // The theme a session with no stored pick lands on: a pinned
+  // settings.defaultTheme/DEFAULT_THEME, or — by default — the theme the admin
+  // is editing in, mirrored from their browser. Resolved here so no client
+  // ever has to know the rule.
+  const theme = visitorTheme();
   if (theme) me.defaultTheme = theme;
+  // …and, for the admin only, WHY. An owner must never discover that their
+  // own browsing changed what the public sees; the picker and the settings
+  // row print this back to them.
+  if (admin) {
+    me.publicTheme = {
+      mode: themePref() === FOLLOW_THEME ? "follow" : "pinned",
+      theme,
+      ...(themePinnedByEnv() ? { env: true } : {}),
+    };
+  }
   if (customCssPath()) me.customCss = true;
   // Typography: the four-slot signature, for every session. Its presence is
   // what makes the client link /api/site-fonts.css at all, and its value is
@@ -739,7 +754,13 @@ authRoutes.get("/me", (c) => {
   // A default theme is only named when the instance still HAS it: a custom
   // theme that was deleted while `settings.defaultTheme` named it would
   // otherwise reach every browser as a data-theme nothing answers.
-  if (me.defaultTheme && !hasThemeChoice(me.defaultTheme)) delete me.defaultTheme;
+  if (me.defaultTheme && !hasThemeChoice(me.defaultTheme)) {
+    delete me.defaultTheme;
+    // The admin's explanation names the same theme, so it goes with it —
+    // "Visitors see custom:sepia" about a theme this instance no longer has
+    // is worse than saying nothing about the colour and keeping the mode.
+    if (me.publicTheme) me.publicTheme = { ...me.publicTheme, theme: null };
+  }
   // Blog and designed modes share the whole public-shell payload below —
   // masthead copy, footer, locale, home config — because a designed site is
   // still a site with a name and a footer. What separates them is one field.

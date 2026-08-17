@@ -24,6 +24,7 @@ import type {
   FrontmatterResult,
   LanguageFilterMode,
   NoteData,
+  PublicThemeInfo,
   PublishedPaths,
   PublishResult,
   TagLabelsResponse,
@@ -114,7 +115,7 @@ import {
   saveCustomFont,
   sniffFontFormat,
 } from "./customFonts.ts";
-import { fontSlots, patchSettings, settingsAssetPaths, settingsResponse } from "./settings.ts";
+import { fontSlots, patchSettings, setAdminTheme, settingsAssetPaths, settingsResponse } from "./settings.ts";
 // Localised tag labels: display names for canonical tags, plus the query
 // rewrite that makes search answer to both spellings.
 import { expandTagQuery, visibleTagLabels } from "./tagLabels.ts";
@@ -123,8 +124,12 @@ import {
   customCssPath,
   fontsDir,
   LANGUAGE_FILTER_MODES,
+  themePinnedByEnv,
+  themePref,
   uploadDirFor,
+  visitorTheme,
 } from "./site.ts";
+import { FOLLOW_THEME } from "../shared/themes.ts";
 import {
   VaultError,
   createFolder,
@@ -1542,6 +1547,35 @@ api.patch("/settings", async (c) => {
     }
   }
   return c.json(patchSettings(body));
+});
+
+// ------------------------------------------------------------ editor theme
+// POST /api/theme { theme } — the admin's own theme, mirrored to the server.
+//
+// WHY A ROUTE AT ALL. The public site's default theme follows the admin's
+// editor theme, and that theme has only ever lived in ONE place the server
+// cannot see: `localStorage["vellum.theme"]` in whichever browser the owner
+// happens to be writing in. So the browser tells it — once, after the pick has
+// settled (the client debounces; see client/state.ts).
+//
+// Why not PATCH /api/settings: that answers with the whole settings response,
+// which counts published notes, lists every image attachment and re-reads the
+// font catalog. This fires on a theme click. It writes one key, validates it
+// against the shared theme list, no-ops when unchanged, and answers with the
+// two facts the chrome puts on screen ("Visitors see Cinnabar — following your
+// editor theme"). Admin-gated by the auth guard like any other mutation, so a
+// visitor's browser can never move the site's default; an admin PREVIEWING as
+// a visitor is a visitor here too, and the client stands down while previewing
+// rather than relying on the 401.
+api.post("/theme", async (c) => {
+  const body = await jsonBody(c);
+  setAdminTheme(body.theme); // 400 on anything but a theme id (built-in or custom:)
+  const info: PublicThemeInfo = {
+    mode: themePref() === FOLLOW_THEME ? "follow" : "pinned",
+    theme: visitorTheme(),
+    ...(themePinnedByEnv() ? { env: true } : {}),
+  };
+  return c.json(info);
 });
 
 // The settings panel's live preview: the same generated CSS as

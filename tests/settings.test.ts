@@ -9,7 +9,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, beforeEach, describe, it } from "node:test";
-import { getSettings, patchSettings } from "../server/settings.ts";
+import { effectiveSettings, getSettings, patchSettings, setAdminTheme } from "../server/settings.ts";
 import { initSite } from "../server/site.ts";
 import { initVault, VaultError } from "../server/vault.ts";
 import { makeDir, makeVault, removeVault } from "./helpers/vault.ts";
@@ -98,12 +98,33 @@ describe("the allowlist", () => {
 });
 
 describe("enum keys", () => {
-  it("defaultTheme accepts only the built-in themes", () => {
+  it("defaultTheme accepts the built-in themes and the follow sentinel", () => {
     for (const theme of ["iron-gall", "void", "lapis", "parchment"]) {
       patchSettings({ defaultTheme: theme });
       assert.equal(getSettings().defaultTheme, theme);
     }
-    assert.match(refuse({ defaultTheme: "midnight" }), /must be one of/);
+    // "follow" is not a theme, it is the RULE — visitors get whatever theme
+    // the admin is editing in (settings.adminTheme). It has to be STORABLE
+    // rather than merely absent: an instance whose .env pins DEFAULT_THEME
+    // needs a value that overrides that pin, and clearing the key would only
+    // fall back to it.
+    patchSettings({ defaultTheme: "follow" });
+    assert.equal(getSettings().defaultTheme, "follow");
+    assert.match(refuse({ defaultTheme: "midnight" }), /must be/);
+  });
+
+  it("adminTheme is the mirror of the admin's own editor theme", () => {
+    // Written by POST /api/theme, never by a settings PATCH: it is a fact
+    // about the owner's browser, not a policy. It survives a pin, so
+    // unpinning puts visitors back on the theme the owner is actually using.
+    setAdminTheme("void");
+    patchSettings({ defaultTheme: "solar" });
+    assert.equal(getSettings().adminTheme, "void", "a pin must not clear the mirror");
+    assert.equal(effectiveSettings().visitorTheme, "solar", "the pin is what visitors get");
+    patchSettings({ defaultTheme: "follow" });
+    assert.equal(effectiveSettings().visitorTheme, "void", "following serves the mirror");
+    assert.equal(setAdminTheme("void"), false, "an unchanged mirror must not rewrite the file");
+    assert.throws(() => setAdminTheme("midnight"), /must be one of/);
   });
 
   it("lowercases the theme id, because the env door does too", () => {
@@ -128,7 +149,7 @@ describe("enum keys", () => {
     const sharedSrc = readFileSync(path.join(repo, "shared/themes.ts"), "utf8");
     assert.match(
       serverSrc,
-      /import \{ THEMES as THEME_IDS \} from "\.\.\/shared\/themes\.ts"/,
+      /import \{[^}]*THEMES as THEME_IDS[^}]*\} from "\.\.\/shared\/themes\.ts"/,
       "the server must take its theme list from shared/themes.ts",
     );
     assert.match(

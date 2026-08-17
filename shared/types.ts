@@ -153,7 +153,17 @@ export interface MeData {
   homeNote?: string;   // note opened for fresh visitors (HOME_NOTE)
   published?: PublishedCounts; // publish stats for admin UI copy (admin sessions only)
   siteName?: string;   // instance branding (SITE_NAME; default "Vellum")
-  defaultTheme?: string; // theme applied when the visitor has no stored choice (DEFAULT_THEME)
+  /** The theme applied when this session has no stored choice — already
+   *  RESOLVED by the server: a pinned `settings.defaultTheme`/`DEFAULT_THEME`,
+   *  or (in the default "follow" mode) the theme the admin's own editor is
+   *  wearing, mirrored to `settings.adminTheme`. Absent = the built-in
+   *  default. A visitor who has picked a theme is never touched by it. */
+  defaultTheme?: string;
+  /** ADMIN SESSIONS ONLY: why `defaultTheme` is what it is, so the chrome can
+   *  SAY it ("Visitors see Cinnabar — following your editor theme") instead of
+   *  letting an owner discover that their personal browsing moved the public
+   *  site. Never sent to visitors: it describes the owner, not the site. */
+  publicTheme?: PublicThemeInfo;
   language?: "en" | "ar"; // site chrome language (settings.language / SITE_LANG; default "en"); "ar" flips the whole chrome RTL. Sent to every session.
   languageToggle?: boolean; // settings.languageToggle — the public shell offers visitors an EN/ع chrome switch (default off; absent = off)
   /** settings.languageFilter — how this site curates by note language.
@@ -283,6 +293,22 @@ export interface VisibilityImpact {
   home: { mode: "note" | "dashboard"; note: string | null; noteVisible: boolean };
 }
 
+/** The public default theme, explained (MeData.publicTheme, admin-only, and
+ *  the answer POST /api/theme gives back). */
+export interface PublicThemeInfo {
+  /** "follow" — visitors track the admin's editor theme (the default);
+   *  "pinned" — `settings.defaultTheme` / `DEFAULT_THEME` names a theme and
+   *  the admin's own browsing no longer moves the public site. */
+  mode: "follow" | "pinned";
+  /** The theme a cookieless visitor lands on right now (null = the built-in
+   *  default, i.e. follow mode before the admin's browser has mirrored
+   *  anything). Same value as MeData.defaultTheme. */
+  theme: string | null;
+  /** The pin comes from the DEFAULT_THEME env var rather than settings.json —
+   *  the panel says where a value lives, so it says it here too. */
+  env?: boolean;
+}
+
 // GET /api/posts (visitor-safe): published notes as blog posts, newest first.
 export interface PostMeta {
   path: string;           // vault-relative note path
@@ -338,10 +364,19 @@ export interface SettingsData {
   tagline?: string;
   /** Footer template, {year}/{siteName} substituted (overrides SITE_FOOTER). ≤ 200 chars. */
   footer?: string;
-  /** Theme for visitors without a stored choice (overrides DEFAULT_THEME).
+  /** What visitors without a stored choice get (overrides DEFAULT_THEME).
    *  One of the fifteen ids in `shared/themes.ts` — the list both the client's
-   *  picker and the server's validator read, so they cannot drift. */
+   *  picker and the server's validator read, so they cannot drift — or the
+   *  word "follow" (FOLLOW_THEME), which serves `adminTheme` instead.
+   *  ABSENT = "follow": a fresh instance's blog wears its author's theme. */
   defaultTheme?: string;
+  /** The admin's own editor theme, mirrored here from their browser (their
+   *  pick lives in localStorage; the server has no other way to know it).
+   *  Written by POST /api/theme, debounced client-side so flicking through the
+   *  picker does not write fifteen times. Kept SEPARATE from `defaultTheme` on
+   *  purpose: pinning a theme and going back to following must lose neither
+   *  the pin nor the mirror. Read only while `defaultTheme` is "follow". */
+  adminTheme?: string;
   /** Visitor-facing layout (overrides PUBLIC_LAYOUT). "designed" renders the
    *  active design in VELLUM_DATA/designs.json; the stock blog stays exactly
    *  where it is, so switching back is a rescue rather than a migration. */
@@ -481,7 +516,14 @@ export interface EffectiveSettings {
   siteName: string;
   tagline: string | null;
   footer: string | null;          // raw template (may contain {year}/{siteName})
+  /** The default-theme PREFERENCE in force: a pinned theme id, or "follow"
+   *  (the default). Never null in practice — an unset key resolves to
+   *  "follow" — but the field keeps its nullable type for older clients. */
   defaultTheme: string | null;
+  /** The theme a cookieless visitor actually lands on right now: the pin, or
+   *  the mirrored admin theme, or null for the built-in default. The panel
+   *  prints this ("Visitors see …") so the rule is never invisible. */
+  visitorTheme: string | null;
   publicLayout: "app" | "blog" | "designed";
   blogLocale: string;
   language: "en" | "ar";
@@ -527,6 +569,9 @@ export interface SettingsPatch {
   siteName?: string | null;
   tagline?: string | null;
   footer?: string | null;
+  /** A theme id (pin it) or "follow" (visitors track the admin's editor
+   *  theme). null clears the key back to DEFAULT_THEME, and to "follow" when
+   *  that is unset too. */
   defaultTheme?: string | null;
   publicLayout?: "app" | "blog" | "designed" | null;
   language?: "en" | "ar" | null;

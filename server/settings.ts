@@ -4,7 +4,7 @@
 // an absent key falls back to env (site.ts getters do the merging). Env-only
 // forever — never read from this file: ADMIN_PASSWORD_HASH, SESSION_SECRET,
 // TRUSTED_PROXIES, PORT, HOST, VELLUM_VAULT, VELLUM_DATA, PUBLIC.
-// Keys: siteName, tagline, footer, defaultTheme, publicLayout, blogLocale,
+// Keys: siteName, tagline, footer, defaultTheme, adminTheme, publicLayout, blogLocale,
 // language, languageFilter, languageToggle, excludeTags, commentsEnabled, shareButtons,
 // favicon, logo, home { mode, note, banner }, attachments { mode, folder },
 // templatesFolder, defaultTemplate, dateCalendar, textDirection, textAlign,
@@ -33,7 +33,7 @@ import type {
   SettingsData,
   SettingsResponse,
 } from "../shared/types.ts";
-import { THEMES as THEME_IDS } from "../shared/themes.ts";
+import { FOLLOW_THEME, THEMES as THEME_IDS } from "../shared/themes.ts";
 // Localization: the calendar, the note-layout pair and the tag-label map.
 // Shapes and validators live in shared/, so the client's editor and this
 // file's PATCH handlers cannot drift on what a valid value is.
@@ -78,7 +78,6 @@ import {
   attachmentLocation,
   blogLocale,
   dataDir,
-  defaultTheme,
   excludedTags,
   footerTemplate,
   LANGUAGE_FILTER_MODES,
@@ -88,6 +87,8 @@ import {
   siteLanguage,
   siteName,
   tagline,
+  themePref,
+  visitorTheme,
 } from "./site.ts";
 import { customDir } from "./customFonts.ts";
 import { catalogList, cleanFontSlots, readFontSlots, slotsAreSystem } from "./fonts.ts";
@@ -136,6 +137,14 @@ const THEMES = new Set<string>(THEME_IDS);
  *  deleted built-in would: the client falls back to its own default. */
 function isStoredTheme(value: string): boolean {
   return THEMES.has(value) || isCustomThemeId(value);
+}
+
+/** A default-theme PREFERENCE this file may store: a theme id (pin it), or
+ *  the word "follow" — which is not a theme at all but "serve whatever the
+ *  admin's editor is wearing", read from `adminTheme`. Shape only, same
+ *  contract as isStoredTheme above. */
+function isStoredThemePref(value: string): boolean {
+  return value === FOLLOW_THEME || isStoredTheme(value);
 }
 
 /** Vault-image extensions a favicon/logo may carry (what /api/upload can
@@ -315,8 +324,18 @@ export function getSettings(): SettingsData {
   str("siteName", SITE_NAME_MAX);
   str("tagline", TAGLINE_MAX);
   str("footer", FOOTER_MAX);
-  if (typeof raw.defaultTheme === "string" && isStoredTheme(raw.defaultTheme)) {
+  // "follow" is a legal value here, not a theme id: it means "serve
+  // adminTheme" (shared/themes.ts). Both live in this file and neither
+  // overwrites the other — see the adminTheme note below.
+  if (typeof raw.defaultTheme === "string" && isStoredThemePref(raw.defaultTheme)) {
     out.defaultTheme = raw.defaultTheme;
+  }
+  // The mirrored editor theme. Always a theme id (never "follow"): it is a
+  // FACT about the admin's browser, not a policy, and it is kept even while a
+  // pin is in force so that going back to following restores the right room
+  // instead of the built-in default.
+  if (typeof raw.adminTheme === "string" && isStoredTheme(raw.adminTheme)) {
+    out.adminTheme = raw.adminTheme;
   }
   if (raw.publicLayout === "app" || raw.publicLayout === "blog" || raw.publicLayout === "designed") {
     out.publicLayout = raw.publicLayout;
@@ -441,7 +460,12 @@ export function effectiveSettings(): EffectiveSettings {
     siteName: siteName(),
     tagline: tagline(),
     footer: footerTemplate(),
-    defaultTheme: defaultTheme(),
+    // The PREFERENCE ("follow" or a pinned id) and, beside it, what that
+    // actually serves a cookieless visitor right now — the panel prints the
+    // second one, because "follow" alone tells an owner nothing about what
+    // their readers are looking at.
+    defaultTheme: themePref(),
+    visitorTheme: visitorTheme(),
     publicLayout: publicLayout(),
     blogLocale: blogLocale(),
     language: siteLanguage(),
@@ -678,15 +702,20 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     // closed lowercase enum, so there is one canonical form to coerce to.
     const clean = cleanValue(v, "defaultTheme")?.toLowerCase() ?? null;
     if (clean === null) return null;
+    // "follow" joins the fifteen ids: it is how the panel and the theme
+    // picker say "unpin — visitors go back to my editor theme", and it has to
+    // be storable rather than merely absent, because an instance with
+    // DEFAULT_THEME set in its .env needs a way to override that pin.
+    //
     // A custom theme is selectable everywhere a built-in is, and this is one
     // of those places — but only one that EXISTS. `hasThemeChoice` reads
     // designs.json, so the failure mode a bare shape check would leave (a
     // default theme naming a theme somebody deleted, and a public site quietly
     // painted in the fallback) is a 400 here instead.
-    if (!THEMES.has(clean) && !hasThemeChoice(clean)) {
+    if (clean !== FOLLOW_THEME && !THEMES.has(clean) && !hasThemeChoice(clean)) {
       throw new VaultError(
         400,
-        `Settings key "defaultTheme" must be one of: ${[...THEMES].join(", ")} — or a custom theme this instance has`,
+        `Settings key "defaultTheme" must be "${FOLLOW_THEME}", one of: ${[...THEMES].join(", ")} — or a custom theme this instance has`,
       );
     }
     return clean;
@@ -1073,6 +1102,31 @@ export function patchSettings(patch: Record<string, unknown>): SettingsResponse 
   persist(raw);
   applyStagedGitCredentials();
   return settingsResponse();
+}
+
+/** Mirror the admin's editor theme into settings.json (POST /api/theme).
+ *
+ *  A SEPARATE DOOR FROM patchSettings ON PURPOSE. This is the one settings
+ *  write the owner never asks for — it happens because they changed their own
+ *  theme — so it touches exactly one key, refuses anything but a theme id, and
+ *  cannot be the vehicle for any other change. It also SHORT-CIRCUITS when the
+ *  value is already stored: the client debounces, but a debounce still fires
+ *  once per settled pick, and re-picking the theme you already have should not
+ *  rewrite a file (or bump its mtime, which invalidates the read cache for
+ *  every other reader). Returns true when something actually changed. */
+export function setAdminTheme(theme: unknown): boolean {
+  // A custom theme is a theme: the picker offers them beside the fifteen, so
+  // refusing them here would mean an owner editing in their own palette
+  // silently stops mirroring anything at all. Shape check only — a custom
+  // theme deleted later behaves like any stale id and falls back client-side.
+  if (typeof theme !== "string" || !isStoredTheme(theme)) {
+    throw new VaultError(400, `Theme must be one of: ${[...THEMES].join(", ")} — or a custom theme this instance has`);
+  }
+  const raw = { ...readRaw() };
+  if (raw.adminTheme === theme) return false;
+  raw.adminTheme = theme;
+  persist(raw);
+  return true;
 }
 
 function persist(raw: Record<string, unknown>): void {

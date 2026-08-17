@@ -5,7 +5,7 @@
 // (bumped when the open note changed on disk, so the Editor remounts).
 
 import { create } from "zustand";
-import type { Backlink, HomeSettings, PublishedCounts, TreeNode } from "../shared/types.ts";
+import type { Backlink, HomeSettings, PublicThemeInfo, PublishedCounts, TreeNode } from "../shared/types.ts";
 import * as api from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import { collectNotes, resolveLink } from "./editor/links.ts";
@@ -30,7 +30,7 @@ import {
 } from "../shared/textLayout.ts";
 import type { Lang } from "./i18n.ts";
 import { readVisitorLang, writeVisitorLang } from "./langPref.ts";
-import { isTheme, THEMES } from "./themes.ts";
+import { choiceLabel, isTheme, THEMES } from "./themes.ts";
 import type { ThemeChoice } from "./themes.ts";
 import { isCustomThemeId } from "../shared/customTheme.ts";
 import {
@@ -307,6 +307,16 @@ export interface State {
   closeTab(path: string): void;
   setView(v: View): void;
   setTheme(t: ThemeChoice): void;
+  /** What a cookieless VISITOR lands on, and why — admin sessions only (null
+   *  for everyone else, which is also how the chrome knows not to draw the
+   *  "Visitors see …" line). Refreshed by loadMe, by the debounced mirror of
+   *  the admin's own pick, and by setPublicTheme below. */
+  publicTheme: PublicThemeInfo | null;
+  /** Pin the public default to a theme, or pass null to go back to following
+   *  the admin's editor theme. One click from the theme picker and from the
+   *  Appearance row — the whole point is that an owner can see the rule and
+   *  change it in the same breath. Writes settings.defaultTheme. */
+  setPublicTheme(theme: ThemeChoice | null): Promise<void>;
   toggleVim(): void;
   toggleReading(): void;
   setReadingMode(b: boolean): void;
@@ -347,6 +357,72 @@ function readTheme(): ThemeChoice {
   const stored = localStorage.getItem(THEME_KEY);
   if (isTheme(stored)) return stored;
   return stored !== null && isCustomThemeId(stored) ? stored : THEMES[0];
+}
+
+// ── Mirroring the admin's theme to the server ──────────────────────────────
+// The public site's default follows the admin's editor theme, and that theme
+// lives in this browser's localStorage — nowhere the server can read. So the
+// browser posts it. DEBOUNCED, because the theme picker applies every
+// highlighted row live and a decisive owner can commit three or four of them
+// in a couple of seconds: only a SETTLED choice is worth a file write.
+//
+// The timer is deliberately generous (one second is longer than a keyboard
+// walk through the picker and shorter than any pause a reader would call a
+// decision) and it always sends the CURRENT theme, not the one that armed it —
+// so a burst of picks costs exactly one request, naming the last room.
+const MIRROR_DELAY = 1000;
+let mirrorTimer: ReturnType<typeof setTimeout> | null = null;
+let mirrorPending: ThemeChoice | null = null;
+/** The value the server already has, so an unchanged pick sends nothing. */
+let mirrorSent: string | null = null;
+
+function flushMirror(): void {
+  if (mirrorTimer !== null) {
+    clearTimeout(mirrorTimer);
+    mirrorTimer = null;
+  }
+  const theme = mirrorPending;
+  mirrorPending = null;
+  if (theme === null) return;
+  // A page being unloaded gets a beacon; anything else gets the normal call,
+  // whose answer refreshes the "Visitors see …" line the owner is looking at.
+  if (document.visibilityState === "hidden") {
+    if (api.beaconEditorTheme(theme)) mirrorSent = theme;
+    return;
+  }
+  void api
+    .putEditorTheme(theme)
+    .then((info) => {
+      mirrorSent = theme;
+      useStore.setState({ publicTheme: info });
+    })
+    .catch((err) => {
+      // Never a toast: the owner did not ask for this write, they asked for a
+      // theme — and they got it. A failed mirror only means visitors keep the
+      // previous default until the next pick.
+      console.warn("vellum: mirroring the editor theme failed", err);
+    });
+}
+
+/** Queue the admin's committed theme for the server (no-op for visitors). */
+function mirrorTheme(theme: ThemeChoice): void {
+  const state = useStore.getState();
+  // Only a real admin session mirrors: `admin` is false while previewing as a
+  // visitor, and publicTheme is null for anyone the server did not tell.
+  if (!state.admin || state.publicTheme === null) return;
+  if (theme === mirrorSent) {
+    mirrorPending = null;
+    if (mirrorTimer !== null) {
+      clearTimeout(mirrorTimer);
+      mirrorTimer = null;
+    }
+    return;
+  }
+  mirrorPending = theme;
+  if (mirrorTimer !== null) clearTimeout(mirrorTimer);
+  mirrorTimer = setTimeout(flushMirror, MIRROR_DELAY);
+  // A tab closed inside the debounce window must not swallow the pick.
+  window.addEventListener("pagehide", flushMirror, { once: true });
 }
 
 /** Add (or drop) the instance stylesheet link for VELLUM_DATA/custom.css.
@@ -683,6 +759,8 @@ export const useStore = create<State>()((set, get) => {
     dirty: {},
     view: "editor",
     theme: initialTheme,
+    // Admin-only, and only once /api/me has answered.
+    publicTheme: null,
     vimMode: readVim(),
     vimSubMode: null,
     readingMode: readReading(),
@@ -875,11 +953,15 @@ export const useStore = create<State>()((set, get) => {
           applyTheme(fallback);
           set({ theme: fallback });
         }
-        // DEFAULT_THEME applies only while the user has made no explicit
-        // choice (nothing in localStorage) — and is deliberately NOT
-        // persisted, so a changed server default keeps reaching them. It may
-        // now name a custom theme, which is the whole "selectable everywhere a
-        // built-in is" promise reaching its last surface.
+        // The site's default theme applies only while this reader has made no
+        // explicit choice (nothing in localStorage) — and is deliberately NOT
+        // persisted, so a changed server default keeps reaching them. The
+        // server has already resolved WHICH theme that is (a pinned
+        // defaultTheme, or the admin's own editor theme when the instance is
+        // following it); the client only obeys the precedence: a stored
+        // visitor choice always wins. It may name a custom theme, which is the
+        // whole "selectable everywhere a built-in is" promise reaching its
+        // last surface.
         if (
           !localStorage.getItem(THEME_KEY) &&
           isKnownThemeChoice(me.defaultTheme) &&
@@ -891,6 +973,23 @@ export const useStore = create<State>()((set, get) => {
           // The registry may have arrived AFTER boot painted the base alone —
           // re-apply so a custom theme's overrides land without a reload.
           applyTheme(get().theme);
+        }
+        // Admin sessions also learn WHY, so the chrome can say it out loud.
+        // (Visitors — and an admin previewing as one — get null: there is
+        // nothing to explain to a reader about the owner's own theme.)
+        set({ publicTheme: me.publicTheme ?? null });
+        // The server's copy of this browser's theme, as of this load: it is
+        // what a follow-mode instance is serving, so an unchanged pick later
+        // costs no request at all.
+        mirrorSent = me.publicTheme?.mode === "follow" ? me.defaultTheme ?? null : null;
+        // First run: the instance is following a theme nobody has ever told
+        // it. If this admin has actually PICKED one (it is in their
+        // localStorage, not merely the built-in default), tell it now instead
+        // of leaving the public site on iron-gall until their next pick.
+        // Deliberately narrow — an instance that already has a mirrored value
+        // is not overwritten just because a second browser opened the app.
+        if (me.publicTheme?.mode === "follow" && !me.defaultTheme && localStorage.getItem(THEME_KEY)) {
+          mirrorTheme(get().theme);
         }
         // Fonts before custom.css: ensureSiteFonts inserts itself ahead of the
         // custom.css link, and on first load that link does not exist yet.
@@ -1133,6 +1232,41 @@ export const useStore = create<State>()((set, get) => {
       localStorage.setItem(THEME_KEY, theme);
       applyTheme(theme);
       set({ theme });
+      // An ADMIN's pick is also the public site's default, unless a pin says
+      // otherwise. Queued, not sent: see mirrorTheme's note.
+      mirrorTheme(theme);
+    },
+
+    setPublicTheme: async (theme) => {
+      const previous = get().publicTheme;
+      // Optimistic, because this is a one-click affordance sitting next to the
+      // sentence it changes — the line must not lag behind the button.
+      set({
+        publicTheme: {
+          mode: theme === null ? "follow" : "pinned",
+          theme: theme ?? get().theme,
+        },
+      });
+      try {
+        // "follow" is stored, not cleared: an instance whose .env pins
+        // DEFAULT_THEME needs a value that OVERRIDES that pin, and clearing
+        // the key would only fall back to it.
+        const res = await api.patchSettings({ defaultTheme: theme ?? "follow" });
+        const eff = res.effective;
+        set({
+          publicTheme: {
+            mode: eff.defaultTheme === "follow" ? "follow" : "pinned",
+            theme: eff.visitorTheme,
+          },
+        });
+        // Following again means the server's mirror is now what visitors get;
+        // make sure it holds this browser's actual theme.
+        if (theme === null) mirrorTheme(get().theme);
+        toast(theme === null ? t("themeFollowingNow") : tf("themePinnedNow", { theme: choiceLabel(theme) }));
+      } catch (err) {
+        set({ publicTheme: previous });
+        toast(err instanceof Error ? err.message : t("themePinFailed"), "error");
+      }
     },
 
     toggleVim: () => {
