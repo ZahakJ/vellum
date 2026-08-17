@@ -13,7 +13,7 @@ import path from "node:path";
 import { resolveAttachmentDir, type AttachmentLocation } from "../shared/attachments.ts";
 import type { LanguageFilterMode } from "../shared/types.ts";
 import { numeralSystem, toNumerals } from "../shared/numerals.ts";
-import { isTheme, THEMES as THEME_IDS } from "../shared/themes.ts";
+import { FOLLOW_THEME, isTheme, THEMES as THEME_IDS } from "../shared/themes.ts";
 import { isCustomThemeId } from "../shared/customTheme.ts";
 import { getSettings } from "./settings.ts";
 
@@ -49,10 +49,11 @@ let config: SiteConfig = {
   bannerFallback: "generated",
 };
 
-/** DEFAULT_THEME, checked against the shared theme list. An unknown name is
- *  ignored (the instance keeps the built-in default) and SAID SO once, at
- *  startup — the same list backs `settings.defaultTheme`, whose PATCH answers
- *  400 rather than dropping the value quietly. */
+/** DEFAULT_THEME, checked against the shared theme list (plus the "follow"
+ *  sentinel). An unknown name is ignored (the instance keeps the built-in
+ *  default) and SAID SO once, at startup — the same list backs
+ *  `settings.defaultTheme`, whose PATCH answers 400 rather than dropping the
+ *  value quietly. */
 function readEnvTheme(raw: string | undefined): string | null {
   const value = raw?.trim().toLowerCase() || null;
   // A custom theme id passes the SHAPE check here and nothing more: this runs
@@ -60,9 +61,9 @@ function readEnvTheme(raw: string | undefined): string | null {
   // consulted yet without a startup-order cycle. Existence is checked where it
   // is cheap and where the answer matters — /api/me only names a default theme
   // the instance actually has.
-  if (value === null || isTheme(value) || isCustomThemeId(value)) return value;
+  if (value === null || value === FOLLOW_THEME || isTheme(value) || isCustomThemeId(value)) return value;
   console.error(
-    `vellum: DEFAULT_THEME="${value}" is not a built-in theme (or a custom:<name> one) — ignoring. ` +
+    `vellum: DEFAULT_THEME="${value}" is not a built-in theme (or a custom:<name> one, or "${FOLLOW_THEME}") — ignoring. ` +
       `Built-ins: ${THEME_IDS.join(", ")}`,
   );
   return null;
@@ -160,8 +161,52 @@ export function siteName(): string {
   return getSettings().siteName ?? config.siteName;
 }
 
+/** The raw default-theme PREFERENCE as configured: a theme id, "follow", or
+ *  null when neither settings.json nor DEFAULT_THEME says anything. Callers
+ *  that want a decision want themePref()/visitorTheme() below. */
 export function defaultTheme(): string | null {
   return getSettings().defaultTheme ?? config.defaultTheme;
+}
+
+/** The preference, settled: a pinned theme id or "follow".
+ *
+ *  UNSET IS "follow" — that is the whole migration. An instance that already
+ *  named a theme (settings.defaultTheme or DEFAULT_THEME) keeps it and its
+ *  public site does not change appearance on upgrade; an instance that never
+ *  named one moves to following the admin's editor theme, which is what a
+ *  one-author blog wanted all along. Nothing is rewritten on disk to make
+ *  that true, so a downgrade is just as uneventful. */
+export function themePref(): string {
+  // Anything that is not the sentinel is a PIN — including a `custom:<name>`
+  // theme, which is as pinnable as one of the fifteen. Both sources are
+  // already validated (readEnvTheme here, isStoredThemePref in settings.ts),
+  // so there is nothing left to re-check: unset means follow, and that is all.
+  return defaultTheme() ?? FOLLOW_THEME;
+}
+
+/** True when the pin in force came from the environment rather than
+ *  settings.json (the settings panel says where a value lives). */
+export function themePinnedByEnv(): boolean {
+  const env = config.defaultTheme;
+  return getSettings().defaultTheme === undefined && env !== null && env !== FOLLOW_THEME;
+}
+
+/** The admin's editor theme as last mirrored from their browser, or null.
+ *  Their pick lives in localStorage — this is the server's only copy of it,
+ *  and it is stored apart from the pin so switching modes loses neither. */
+export function adminTheme(): string | null {
+  return getSettings().adminTheme ?? null;
+}
+
+/** THE ANSWER: the theme a visitor with no stored choice lands on — the pin,
+ *  else the mirrored admin theme, else null (the client's built-in default).
+ *  A visitor's own stored pick outranks this and is never touched by it; an
+ *  active design's own theme outranks it too (see CONTRACTS.md § theme
+ *  precedence). */
+export function visitorTheme(): string | null {
+  const pref = themePref();
+  if (pref !== FOLLOW_THEME) return pref;
+  return adminTheme();
 }
 
 /** Lower-cased tags hidden from visitor-facing tag/topic surfaces

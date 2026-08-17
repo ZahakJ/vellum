@@ -49,9 +49,21 @@ opens the same panel, with a dot showing the theme you are in. (It used to carry
 that row plus a `Theme: <id>` command per theme, 15 of 41 entries spent on one preference,
 every one of them a blind jump into a room you had not seen. A parameter with fifteen values
 belongs behind the surface that shows the values.) A
-reader's choice sticks in their own browser; `DEFAULT_THEME=cinnabar` — or Settings → Appearance & language
-→ *Default theme* — sets what first-time visitors see before they choose. An unknown
-`DEFAULT_THEME` is ignored with a line on stderr at startup rather than silently.
+reader's choice sticks in their own browser.
+
+**By default, the public site wears the theme you write in.** You pick a room in the picker, and
+first-time visitors land in the same room — a one-author blog looking like its author, with
+nothing to configure. Your theme lives in your browser, so Vellum mirrors it to the server when
+your choice settles (once, a second after you stop browsing themes — not once per row). Both
+places that choose a theme say so out loud, in the theme's own name: the picker's footer and
+Settings → Appearance & language → *Default theme* read *"Visitors see Cinnabar — following your
+editor theme"*, each with a one-click **Pin this instead**. Pin one and the public site stops
+moving with you (*"Visitors see Parchment — pinned"*, with **Follow my theme** to undo it);
+`DEFAULT_THEME=cinnabar` pins the same way from the environment, and `DEFAULT_THEME=follow` (or
+the setting) puts it back. Your pin and your editor theme are stored separately, so unpinning
+puts visitors back on whatever you are actually using. A reader who has chosen a theme is never
+moved by any of this, and an unknown `DEFAULT_THEME` is ignored with a line on stderr at startup
+rather than silently.
 
 ## Make your own
 

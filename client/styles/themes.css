@@ -373,6 +373,51 @@ body:has(.s-tpick-host) .s-smodal-overlay {
   color: var(--text-muted);
 }
 
+/* ------------------------------------------------- what visitors get -- */
+/* The one line in this panel that is not about the owner's own eyes: on a
+   following instance, the theme picked above is the blog's default a second
+   later. It sits under the list as a footer rather than in the header, so the
+   panel still opens on the rooms — but it is a bordered strip in the panel's
+   own chrome, not a whispered aside: an owner must never learn this by
+   noticing that their blog changed color. Logical properties throughout, so
+   the sentence and its buttons swap ends in Arabic. */
+.s-tpick__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.s-tpick__footnote {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.742rem;
+  color: var(--text-muted);
+}
+
+.s-tpick__footacts {
+  display: flex;
+  gap: 6px;
+}
+
+.s-tpick__pin {
+  font-size: 0.742rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  padding-block: 3px;
+  padding-inline: 9px;
+  white-space: nowrap;
+}
+
+.s-tpick__pin:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
 /* Phones: one column, and the panel takes the width it is given. */
 @media (max-width: 640px) {
   .s-tpick__grid {

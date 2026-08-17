@@ -12,6 +12,7 @@ import type {
   MeData,
   NoteData,
   PostMeta,
+  PublicThemeInfo,
   PublishedPaths,
   PublishResult,
   SearchHit,
@@ -452,6 +453,25 @@ export function getSettings(): Promise<SettingsResponse> {
  *  as the real admin session — the affordance lives inside visitor preview. */
 export function patchSettings(patch: SettingsPatch): Promise<SettingsResponse> {
   return request<SettingsResponse>("/api/settings", json("PATCH", patch), true);
+}
+
+/** Mirror the admin's own editor theme to the server (admin only), so the
+ *  public default can follow it. Debounced by the caller — the pick lives in
+ *  localStorage, and this is the only way the server learns it. Answers what a
+ *  cookieless visitor now lands on, and why. */
+export function putEditorTheme(theme: string): Promise<PublicThemeInfo> {
+  return request<PublicThemeInfo>("/api/theme", json("POST", { theme }), true);
+}
+
+/** The same write, for a page that is going away: `pagehide` gives no time for
+ *  a promise, and a debounced pick that never landed would silently not apply.
+ *  Beacons are POSTs with a JSON body and the session cookie attached, which
+ *  is exactly the shape of the route. Returns false when the browser refused
+ *  to queue it (the caller then still has its normal timer). */
+export function beaconEditorTheme(theme: string): boolean {
+  if (typeof navigator === "undefined" || typeof navigator.sendBeacon !== "function") return false;
+  const blob = new Blob([JSON.stringify({ theme })], { type: "application/json" });
+  return navigator.sendBeacon("/api/theme", blob);
 }
 
 // ── Backup & sync (admin only) ──────────────────────────────────────────────

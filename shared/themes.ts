@@ -39,6 +39,23 @@ export function isTheme(value: unknown): value is Theme {
   return typeof value === "string" && (THEMES as readonly string[]).includes(value);
 }
 
+/** The third state of the site's default theme: not a theme id at all, but
+ *  "whatever the admin is looking at". `settings.defaultTheme` (and
+ *  `DEFAULT_THEME`) take this word alongside the fifteen ids, and it is the
+ *  DEFAULT when neither is set — a blog looks like its author's editor unless
+ *  the author says otherwise. The theme actually served then comes from
+ *  `settings.adminTheme`, mirrored from the admin's browser (which is the only
+ *  place their own pick has ever lived). */
+export const FOLLOW_THEME = "follow";
+
+/** A default-theme PREFERENCE: a pinned theme id, or the follow sentinel.
+ *  Never a theme by itself — resolve it through the server's visitorTheme(). */
+export type ThemePref = Theme | typeof FOLLOW_THEME;
+
+export function isThemePref(value: unknown): value is ThemePref {
+  return value === FOLLOW_THEME || isTheme(value);
+}
+
 export function themeGroup(theme: Theme): ThemeGroup {
   return (LIGHT_THEMES as readonly string[]).includes(theme) ? "light" : "dark";
 }

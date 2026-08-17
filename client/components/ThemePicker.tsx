@@ -28,7 +28,7 @@ import { customThemeChoice, type CustomTheme } from "../../shared/customTheme.ts
 import { applyThemeChoice, getCustomThemes, subscribeCustomThemes } from "../design/customThemes.ts";
 import { t, tf } from "../i18n.ts";
 import { useStore } from "../state.ts";
-import { choiceBase, choiceLabel, THEME_GROUPS, THEME_LABELS, type Theme } from "../themes.ts";
+import { choiceBase, choiceLabel, isTheme, THEME_GROUPS, THEME_LABELS, THEMES, type Theme } from "../themes.ts";
 import { openThemeBuilder } from "./ThemeBuilder.tsx";
 
 /** Two columns. ←/→ move by one across the whole list; ↑/↓ move by a ROW —
@@ -94,6 +94,56 @@ function rowStep(index: number, dir: 1 | -1, sizes: number[]): number {
  *  overrides on, not as the base it was built from. */
 function previewTheme(theme: string): void {
   applyThemeChoice(theme);
+}
+
+/** The footer strip: what a VISITOR lands on, and the one click that changes
+ *  the rule. Admin sessions only — a reader has no public site to explain.
+ *
+ *  It exists because this panel is otherwise a private control with a public
+ *  consequence: on a following instance (the default) the theme committed here
+ *  becomes the default theme of the blog a second later. An owner who is
+ *  browsing rooms at midnight must be able to SEE that, and to say "no, keep
+ *  the site on Parchment" without leaving the panel. */
+function VisitorLine({ theme }: { theme: string }) {
+  const admin = useStore((s) => s.admin);
+  const info = useStore((s) => s.publicTheme);
+  const setPublicTheme = useStore((s) => s.setPublicTheme);
+  useStore((s) => s.language);
+  if (!admin || !info) return null;
+  const following = info.mode === "follow";
+  // Following: the admin's OWN theme is the answer — and it is the answer
+  // immediately, rather than after the mirror's debounce, because the sentence
+  // describes the rule in force and not the last write to land.
+  // Pinned: whatever the pin names, which the admin's picks no longer move.
+  // A pinned CUSTOM theme is named too — choiceLabel answers for both kinds,
+  // so the sentence never falls back to iron-gall for a theme the owner built.
+  const shown = following ? theme : info.theme ?? THEMES[0];
+  const name = choiceLabel(shown);
+  return (
+    <div className="s-tpick__foot">
+      <span className="s-tpick__footnote">
+        {tf(following ? "visitorsFollow" : "visitorsPinned", { theme: name })}
+      </span>
+      <span className="s-tpick__footacts">
+        {following ? (
+          <button type="button" className="s-tpick__pin" onClick={() => void setPublicTheme(theme)}>
+            {t("pinForVisitors")}
+          </button>
+        ) : (
+          <>
+            {shown !== theme && (
+              <button type="button" className="s-tpick__pin" onClick={() => void setPublicTheme(theme)}>
+                {t("pinForVisitors")}
+              </button>
+            )}
+            <button type="button" className="s-tpick__pin" onClick={() => void setPublicTheme(null)}>
+              {t("followMyTheme")}
+            </button>
+          </>
+        )}
+      </span>
+    </div>
+  );
 }
 
 function ThemePicker({ onClose }: { onClose: () => void }) {
@@ -346,6 +396,8 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
             </div>
           ))}
         </div>
+
+        <VisitorLine theme={theme} />
       </div>
     </div>
   );

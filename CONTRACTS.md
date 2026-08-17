@@ -570,6 +570,65 @@ and the graph vignette, the `--sw-*` swatch machinery, the picker panel) and `st
   theme in force when it opened. **Hover never moves the keyboard highlight** — that is the
   palette's Enter-follows-the-mouse bug, and it must not be reproduced here.
 
+## Which theme a reader lands on (precedence)
+
+**THE PUBLIC SITE FOLLOWS THE BLOGGER'S EDITOR THEME BY DEFAULT.** One author writing in cinnabar
+all day used to publish a blog wearing iron-gall, because `settings.defaultTheme` was a separate
+field nobody set. It is now a THREE-state preference, and the third state is the default:
+
+| `settings.defaultTheme` / `DEFAULT_THEME` | meaning |
+| --- | --- |
+| `"follow"` (or unset) | visitors get the theme the ADMIN is editing in — `settings.adminTheme` |
+| a theme id | pinned: visitors get that theme whatever the admin is looking at |
+
+**Precedence, highest first** — every tier only ever sets what a reader lands on with NO stored
+choice of their own:
+
+1. **an active design's own theme** (a design that carries one; nothing else may override it);
+2. **the pinned `settings.defaultTheme` / `DEFAULT_THEME`**;
+3. **follow-the-admin** — `settings.adminTheme`, mirrored from the admin's browser;
+4. **the built-in default** (`THEMES[0]`, iron-gall).
+
+And above all four: **a visitor who has explicitly chosen a theme keeps it.** `client/state.ts`
+applies `me.defaultTheme` only when `localStorage["vellum.theme"]` is empty, and never persists
+it — so a changed site default keeps reaching undecided readers, and a decided one is never
+overruled.
+
+- **Resolution lives on the server** (`server/site.ts`): `themePref()` settles the preference
+  (unset → `follow`), `adminTheme()` is the mirror, and `visitorTheme()` is the answer that rides
+  `/api/me` as `defaultTheme`. No client re-implements the rule.
+- **MIGRATION IS A SEMANTIC, NOT A REWRITE.** An instance that already named a theme keeps it and
+  its public site does not change appearance on upgrade; an instance that named none moves to
+  following. Nothing is written to `settings.json` to make that true, so a downgrade is equally
+  uneventful. `FOLLOW_THEME` is a STORABLE value (not merely an absent key) because an instance
+  whose `.env` pins `DEFAULT_THEME` needs a way to override that pin — clearing the key would only
+  fall back to it.
+- **`settings.adminTheme` is stored apart from the pin** so switching modes loses neither: pin
+  `solar`, keep editing in `void`, unpin, and visitors get `void` again — not the built-in default.
+- **The mirror is `POST /api/theme`** (`{ theme }` → `PublicThemeInfo`), admin-gated like any
+  mutation, one key, no-op when unchanged. It exists because the admin's theme has only ever lived
+  in `localStorage["vellum.theme"]`, which no server can read. It is NOT `PATCH /api/settings`:
+  that answers with published counts, every image attachment and the font catalog, and this fires
+  on a theme click. **The client DEBOUNCES it** (`MIRROR_DELAY = 1000ms` in `client/state.ts`) and
+  always sends the CURRENT theme, so walking the fifteen-theme picker costs one request naming the
+  last room, not fifteen; a `pagehide` inside the window flushes it with `sendBeacon`. A visitor
+  session, and an admin PREVIEWING as a visitor, never mirror (the client stands down; the guard
+  401s anyway).
+- **IT IS VISIBLE, NOT MAGIC.** An admin must never discover that their private browsing changed
+  the public site. Both surfaces that choose a theme say what visitors get and why, in the theme's
+  own name — the picker's footer strip (`.s-tpick__foot`, admin sessions only: `me.publicTheme` is
+  not sent to visitors) and the Appearance row's second line (`.s-smodal__visitors`) — each with
+  the one control that changes the rule ("Pin this instead" / "Follow my theme"). The picker's
+  buttons act immediately (`setPublicTheme`); the panel's sets the row's own select, because the
+  panel saves as a whole.
+- **A CUSTOM theme is a theme here too.** `custom:<name>` is pinnable (`settings.defaultTheme`,
+  `DEFAULT_THEME`) and mirrorable (`setAdminTheme` takes the same ids the picker offers), so an
+  owner editing in a theme they built publishes a site wearing it — the "selectable everywhere a
+  built-in is" promise reaching the follow rule. Shape is validated on the mirror path and
+  EXISTENCE on `/api/me`: a `defaultTheme` naming a deleted custom theme is dropped from the
+  payload, and the admin's "Visitors see …" line drops the name with it rather than reciting a
+  theme this instance no longer has.
+
 ## Settings panel (SettingsModal)
 
 SIX TABS, not one scroll: Site identity / Appearance & language / Publishing & comments /
@@ -779,7 +838,8 @@ moved with them, so `DOC_LINKS`' anchor is `#settings`.
 `DEFAULT_THEME` is lowercased by `readEnvTheme()` before validation, so trimming without
 lowercasing meant `DEFAULT_THEME=SOLAR` started the instance on solar while
 `PATCH {"defaultTheme":"SOLAR"}` was a 400 — the same value accepted through one door and refused
-at the other.
+at the other. Both doors also take `follow` (see "Which theme a reader lands on"), on the same
+terms: `DEFAULT_THEME=FOLLOW` and `PATCH {"defaultTheme":"FOLLOW"}` are one value, not two.
 
 `GET /api/settings` carries `about` (`AboutInfo`: version, node, vault path, data path, note /
 published / attachment / tag counts) — admin-only by construction, since the route 404s to

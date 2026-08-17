@@ -69,6 +69,7 @@ import { isSelectOpen, Select, type SelectGroup } from "./controls/Select.tsx";
 import { choiceBase, choiceLabel, isTheme, THEME_GROUPS, THEME_LABELS, THEMES, type Theme } from "../themes.ts";
 import { customThemeChoice, isCustomThemeId } from "../../shared/customTheme.ts";
 import { getCustomThemes } from "../design/customThemes.ts";
+import { FOLLOW_THEME } from "../../shared/themes.ts";
 import {
   onSyncChange,
   refreshSyncStatus,
@@ -1030,6 +1031,7 @@ function Row({
   off,
   inherited,
   env,
+  after,
   children,
 }: {
   label: string;
@@ -1051,6 +1053,13 @@ function Row({
    *  change it. Rendered only while the row is actually inheriting — a row
    *  holding its own value has no fallback worth naming. */
   env?: string;
+  /** A SECOND LINE under the control, in the control column — not a second
+   *  control. The row owns exactly one control (Children.only wires the label
+   *  onto it), so a row that also has something to SAY about its value says it
+   *  here: the default-theme row's "Visitors see Cinnabar — following your
+   *  editor theme". Passing it as a second child would break the label wiring
+   *  for every row in the panel. */
+  after?: ReactNode;
   children: ReactNode;
 }) {
   const cls = [
@@ -1069,16 +1078,25 @@ function Row({
     .join(" ");
   // The row owns ONE control, so it can wire the name and the descriptions on
   // without every call site remembering to. A row whose child is not a single
-  // element (the wide type specimen) passes through untouched — there is
-  // nothing there for a label to point at.
-  const only = Children.only(children);
-  const control = isValidElement(only)
-    ? cloneElement(only as ReactElement<Record<string, unknown>>, {
-        id,
-        "aria-describedby": described || undefined,
-        "aria-invalid": error ? true : undefined,
-      })
-    : only;
+  // element (the wide type specimen, or a control followed by its consequence
+  // lines) PASSES THROUGH UNTOUCHED — there is nothing there for a label to
+  // point at, and this comment already said so while the code did not: bare
+  // `Children.only(children)` THROWS on an array rather than declining it, and
+  // the language-filter row hands it a control plus two conditional
+  // consequences, so opening Settings → Appearance & language took the whole
+  // panel down with "React.Children.only expected to receive a single React
+  // element child". Rows that want a second line without spending their one
+  // control child use `after` instead.
+  const kids = Children.toArray(children);
+  const only = kids.length === 1 ? kids[0] : null;
+  const control =
+    only !== null && isValidElement(only)
+      ? cloneElement(only as ReactElement<Record<string, unknown>>, {
+          id,
+          "aria-describedby": described || undefined,
+          "aria-invalid": error ? true : undefined,
+        })
+      : children;
   return (
     <div className={cls}>
       <label className="s-smodal__label" htmlFor={id}>
@@ -1095,6 +1113,7 @@ function Row({
       <div className="s-smodal__control">
         {control}
         {inherited && env && <EnvSource env={env} />}
+        {after}
         {/* role="alert" so a validation failure is spoken when it appears,
             not only when the reader happens to tab back onto the field. */}
         {error && (
@@ -1109,10 +1128,60 @@ function Row({
 
 /** A theme's human label, falling back to the product default for an unset or
  *  unrecognised value. The picker, this panel and the palette all read the
- *  same table (`THEME_LABELS`); the raw id stays the stored value. */
+ *  same table (`THEME_LABELS`); the raw id stays the stored value. "follow" is
+ *  not a theme and never has been — it is the RULE, so it answers with the
+ *  rule's own name rather than pretending to be a room. */
 function themeLabel(id: string | null): string {
+  if (id === FOLLOW_THEME) return t("themeFollowOption");
   if (id && isCustomThemeId(id)) return choiceLabel(id);
   return t(THEME_LABELS[isTheme(id ?? "") ? (id as Theme) : THEMES[0]].name);
+}
+
+/** "Visitors see Cinnabar — following your editor theme", under the default-
+ *  theme select, with the one control that changes the rule.
+ *
+ *  THE ROW USED TO BE HONEST AND UNREADABLE: it named a theme (or "inherit")
+ *  and said nothing about who gets it or why. Now that the default FOLLOWS the
+ *  owner's own editor theme unless pinned, silence would be worse than
+ *  unreadable — an owner would change their theme at midnight and change their
+ *  blog with it, having been told nothing. So the rule is printed in the
+ *  theme's own name, and it tracks the select LIVE (before saving), because a
+ *  sentence that only tells the truth after a round-trip teaches nothing while
+ *  the choice is being made. */
+function VisitorThemeLine({
+  pref,
+  effective,
+  onSet,
+}: {
+  /** The preference the panel is showing: a theme id or "follow". */
+  pref: string | null;
+  /** What the server says a visitor gets right now (the fallback for an
+   *  instance whose preference the client cannot resolve on its own). */
+  effective: string | null;
+  onSet: (value: string) => void;
+}) {
+  const theme = useStore((s) => s.theme);
+  const following = pref === null || pref === "" || pref === FOLLOW_THEME;
+  // Following: the owner's own theme is what visitors get (the server mirrors
+  // it within a second of a pick). Pinned: the pin, whoever is editing.
+  // A pin may name a CUSTOM theme as readily as one of the fifteen, so the
+  // value is passed through as-is: themeLabel() below is what knows how to
+  // name either kind (and how to fall back for an id this instance lost).
+  const shown = following ? theme : pref !== null && pref !== "" ? pref : effective ?? THEMES[0];
+  return (
+    <p className="s-smodal__visitors">
+      <span className="s-smodal__visitorsnote">
+        {tf(following ? "visitorsFollow" : "visitorsPinned", { theme: themeLabel(shown) })}
+      </span>
+      <button
+        type="button"
+        className="s-smodal__visitorspin"
+        onClick={() => onSet(following ? theme : FOLLOW_THEME)}
+      >
+        {t(following ? "pinForVisitors" : "followMyTheme")}
+      </button>
+    </p>
+  );
 }
 
 /** A NOTE THAT ONLY REPEATS ITS LABEL IS NOISE.
@@ -1144,7 +1213,15 @@ function themeChoices(effective: string | null): SelectGroup[] {
     {
       id: "inherit",
       label: "",
-      options: [{ value: "", label: tf("inheritOption", { value: themeLabel(effective) }) }],
+      options: [
+        { value: "", label: tf("inheritOption", { value: themeLabel(effective) }) },
+        // The third state, offered as plainly as the fifteen rooms: not a
+        // theme but a rule, and the one this product now defaults to. It is a
+        // STORABLE value rather than merely the absence of one, because an
+        // instance whose .env pins DEFAULT_THEME needs a way to say "no,
+        // follow me" — clearing the key would only fall back to the pin.
+        { value: FOLLOW_THEME, label: t("themeFollowOption") },
+      ],
     },
     ...THEME_GROUPS.map((group) => ({
       id: group.group,
@@ -2317,6 +2394,21 @@ export default function SettingsModal() {
                     hint={t("hintDefaultTheme")}
                     inherited={form.defaultTheme === ""}
                     env="DEFAULT_THEME"
+                    /* THE ROW SAYS WHAT IT DOES, IN A THEME'S NAME.
+                       "Follow my editor theme" is a rule, not an appearance,
+                       and an owner reading it still does not know what their
+                       readers are looking at tonight. This line answers that
+                       in the same breath, and — while the instance is
+                       following — offers the single click that stops it. It
+                       rides `after` rather than being a second child: the row
+                       wires the label onto its ONE control child. */
+                    after={
+                      <VisitorThemeLine
+                        pref={form.defaultTheme === "" ? eff.defaultTheme : form.defaultTheme}
+                        effective={eff.visitorTheme}
+                        onSet={(v) => setForm((f) => (f ? { ...f, defaultTheme: v } : f))}
+                      />
+                    }
                   >
                     {/* Grouped, because fifteen names in one flat list is the
                         same "which of these is dark?" guess the picker exists

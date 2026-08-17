@@ -125,6 +125,42 @@
   margin-top: -4px;
 }
 
+/* The default-theme row's second line: who gets which theme, and why. It sits
+   INSIDE the control column, under the select it explains, and wraps to two
+   lines rather than squeezing the button — the sentence is the point and the
+   button is its consequence. Logical padding/margins throughout so the
+   sentence leads from the right in Arabic. */
+.s-smodal__visitors {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 6px;
+  font-size: 0.714rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.s-smodal__visitorsnote {
+  min-width: 0;
+}
+
+/* A verb, not a button-shaped object: this is a link-weight action in a note,
+   and drawing it as a control would give it more voice than the select above
+   it. It still carries a real hit area and a focus ring. */
+.s-smodal__visitorspin {
+  font-size: 0.714rem;
+  padding-block: 1px;
+  padding-inline: 4px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.s-smodal__visitorspin:hover {
+  background: var(--bg-hover);
+}
+
 /* ── Rows ────────────────────────────────────────────────────────────────── */
 
 /* One measure for the label column and one for the control column, down the
