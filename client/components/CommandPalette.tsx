@@ -273,6 +273,19 @@ const COMMANDS: Command[] = [
       useStore.getState().sidebarSidePref === pref ? t("cmdLayoutCurrentHint") : t("cmdLayoutHint"),
     available: () => true,
   })),
+  // The editor's own chrome language, in the palette for a reason the
+  // settings row cannot cover: this is the affordance you need precisely when
+  // you cannot read the interface. Admin only — a visitor's language lives on
+  // the public EN/ع switch and must never be settable from in here, which is
+  // the whole point of the split (langPref.ts).
+  ...([null, "en", "ar"] as const).map<Command>((pref) => ({
+    id: `editor-lang-${pref ?? "follow"}`,
+    label: () =>
+      t(pref === null ? "cmdEditorLangFollow" : pref === "en" ? "cmdEditorLangEn" : "cmdEditorLangAr"),
+    hint: () =>
+      useStore.getState().editorLangPref === pref ? t("cmdEditorLangCurrentHint") : t("cmdEditorLangHint"),
+    available: ({ admin }) => admin,
+  })),
   {
     id: "shortcuts",
     label: () => t("shortcutsTitle"),
@@ -651,6 +664,15 @@ export default function CommandPalette() {
           break;
         case "sidebar-side-right":
           store.setSidebarSidePref("right");
+          break;
+        case "editor-lang-follow":
+          store.setEditorLang(null);
+          break;
+        case "editor-lang-en":
+          store.setEditorLang("en");
+          break;
+        case "editor-lang-ar":
+          store.setEditorLang("ar");
           break;
         case "move-current":
           if (store.openPath) {

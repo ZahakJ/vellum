@@ -1906,6 +1906,15 @@ export default function SettingsModal() {
    *  instead of the option it sits under. */
   const autoSide = useStore((s) => defaultSide(s.language));
   const setSidebarSidePref = useStore((s) => s.setSidebarSidePref);
+  /** The editor-language row, read the same way and for the same reason: the
+   *  stored PREFERENCE drives the control (a pin to English and a follow of
+   *  an English site are different states that resolve alike), and the site's
+   *  own language names what "Follow site" is currently doing. `siteLanguage`
+   *  is deliberately the store's site value rather than `language`, which for
+   *  this very admin may be the other one. */
+  const editorLangPref = useStore((s) => s.editorLangPref);
+  const setEditorLang = useStore((s) => s.setEditorLang);
+  const siteLanguage = useStore((s) => s.siteLanguage);
   const close = useCallback(() => setOpen(false), [setOpen]);
 
   const [loaded, setLoaded] = useState<SettingsResponse | null>(null);
@@ -2499,13 +2508,42 @@ export default function SettingsModal() {
                       {...field("language")}
                     />
                   </Row>
-                  {/* Directly under Language, because it is the ROW ABOVE
-                      that moves it: "auto" means the reading direction's
-                      leading edge, so switching this instance to Arabic
-                      carries the notes sidebar to the right. Naming the edge
-                      it resolved to is the whole point of the note — a
-                      three-state preference whose default state is invisible
-                      is the trap the palette commands were already fixing.
+                  {/* THE ROW THAT UNWELDS THE TWO. Above: what this site
+                      publishes in, an editorial decision with an env var
+                      behind it. Here: what the person looking at the screen
+                      reads, which was never the same question and for a while
+                      had no answer of its own — settings.language drove both
+                      shells, and the visitor switch was layered over the top
+                      of it for EVERY session, so one tap on the public ع
+                      rewrote the owner's editor too. Three states, not two,
+                      for the same reason the sidebar row below has three: the
+                      default has to stay reachable, and "Follow site" names
+                      the language it landed on rather than being a silent
+                      state. A device preference like the theme row — it
+                      commits on click and is never part of the Save diff. */}
+                  <Row label={t("rowEditorLanguage")} hint={t("hintEditorLanguage")}>
+                    <SegmentedControl
+                      label={t("rowEditorLanguage")}
+                      value={editorLangPref ?? ""}
+                      onChange={(v) => setEditorLang(v === "" ? null : (v as "en" | "ar"))}
+                      segments={[
+                        {
+                          value: "",
+                          label: t("editorLangFollow"),
+                          note: siteLanguage === "ar" ? "العربية" : "English",
+                        },
+                        { value: "en", label: "English" },
+                        { value: "ar", label: "العربية" },
+                      ]}
+                    />
+                  </Row>
+                  {/* Directly under the language rows, because it is the ROW
+                      ABOVE that moves it: "auto" means the reading direction's
+                      leading edge, so an editor set to Arabic carries the
+                      notes sidebar to the right. Naming the edge it resolved
+                      to is the whole point of the note — a three-state
+                      preference whose default state is invisible is the trap
+                      the palette commands were already fixing.
                       A device preference, so it commits on click like the
                       theme row and is never part of the Save diff. */}
                   <Row label={t("rowSidebarSide")} hint={t("hintSidebarSide")}>

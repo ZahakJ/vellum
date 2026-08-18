@@ -280,8 +280,8 @@ stays on `.s-panel--collapsed`, as it always did.
 - **Side is PHYSICAL, direction is LOGICAL — and the preference behind it is THREE-state.**
   `sidebarSidePref` is `"auto"` (the default), `"left"` or `"right"`; `sidebarSide` is the
   resolved edge and is derived, never persisted. `"auto"` means "the reading direction's leading
-  edge" and is re-evaluated on **every** language change — `loadMe()` and `setVisitorLang()` both
-  end with `set({ sidebarSide: effectiveSide(pref, language) })`. A pin names a screen edge in
+  edge" and is re-evaluated on **every** language change — `loadMe()`, `setVisitorLang()` and
+  `setEditorLang()` all end with `set({ sidebarSide: effectiveSide(pref, language) })`. A pin names a screen edge in
   both languages and outranks the direction forever.
   Two-state was a trap: the side followed the language only while NOTHING was stored, so the
   first use of the palette command pinned it for good, a later switch to Arabic no longer moved
@@ -297,9 +297,14 @@ stays on `.s-panel--collapsed`, as it always did.
   the one in force, which is the same shape as publish/unpublish (two rows for two genuine
   states). Collapsing them would trade three direct actions for a modal, a tab and a scroll, the
   opposite of what the theme change bought — and it would put "follow the language" back out of
-  reach, which is the bug the third row exists to fix. The palette carries no per-language
-  commands to audit: language is a Settings row plus the blog's optional visitor switch, and it
-  never had any. The grid areas (`"sidebar main panel"`)
+  reach, which is the bug the third row exists to fix. **The three `editor-lang-*` commands are
+  the same shape and are there for a sharper reason**: they are the affordance you need exactly
+  when you cannot read the interface, so they must not live only behind four words of Settings
+  chrome in a script you are locked out of. Each names its language in that language's OWN
+  script, which is what makes them findable from either side; they are admin-only, because a
+  visitor's language belongs to the public EN/ع switch and nowhere else. The site's own language
+  stays a Settings row: it is an editorial decision with an env var behind it, not a
+  one-keystroke toggle. The grid areas (`"sidebar main panel"`)
   already follow the inline direction, so the stylesheet only needs the *disagreement*:
   `flipped = (lang === "ar") === (side === "left")` — an XOR — swaps the two grid areas and hands
   each pane the other's separator.
@@ -1976,11 +1981,42 @@ the tree has no match, never from the tree alone — the tree is a discovery sur
 filtered, so routing through it would 404 exactly the permalinks the filter is not allowed to
 break. The filter is curation, not access control — but it must not *leak* what it curates away.
 
+**THE SITE'S LANGUAGE AND THE EDITOR'S ARE TWO VALUES, AND `client/langPref.ts::chromeLang()`
+is the ONLY place that decides which one a session reads in.** `settings.language` / `SITE_LANG`
+is an editorial decision about what this instance *publishes* in. It is not, and must not be,
+the language its owner is obliged to *work* in: an Arabic site run from an English editor (or
+the reverse) changes nothing a visitor is served, and demanding a republish to get a readable
+sidebar was the coupling this split ended. Two per-browser preferences sit over the site value,
+each scoped to one kind of session, and neither may reach the other's:
+
+| key | whose | honoured while | null means |
+| --- | --- | --- | --- |
+| `localStorage["vellum.editorLang"]` | a real admin session | always (admin only) | follow the site language |
+| `localStorage["vellum.lang"]` | a visitor | `me.languageToggle` is true | follow the site language |
+
+The split is on `me.admin`, which the **server** answers and which is `false` for an admin
+under `X-Vellum-Preview` — so visitor preview shows the visitor's language, not the owner's, in
+the same way `mirrorTheme()` declines to mirror from a previewing session. The store keeps both
+`language` (this session's chrome) and `siteLanguage` (what the site publishes in); reading
+`language` to answer "what language is this site?" is the mistake that welded them together, and
+`editorLangPref` is held beside them because a pin to English and a follow of an English site
+resolve alike and the three-state control has to tell them apart.
+
+**Before this, `loadMe()` applied the visitor's stored choice over `me.language` for EVERY
+session.** One tap on the public site's ع rewrote the owner's editor, sidebar, tabs, status bar
+and palette — and on an instance whose `publicLayout` is `"app"` the blog shell never renders,
+so `LangSwitch` (its only home outside the design canvas) does not exist anywhere in the
+product: there was no way back short of clearing `localStorage` by hand. The escape hatch is now
+structural rather than a promise — the three `editor-lang-*` palette commands name each language
+in its **own script**, so "English" is findable from an Arabic interface and «العربية» from an
+English one. `tests/langPref.test.ts` holds the whole rule as a table plus the two invariants
+stated over every combination of the inputs.
+
 **`settings.languageToggle` (default false) is a VISITOR override, and it moves two things
 only: the chrome dictionary and `<html dir>`.** `client/langPref.ts` owns the stored value
-(`localStorage["vellum.lang"]`), `state.ts::loadMe()` applies it over `me.language` — and only
-while `me.languageToggle` is true, so turning the setting off restores the site language for
-everyone regardless of what their browser remembers. What it must NOT touch is `blogLocale`:
+(`localStorage["vellum.lang"]`), and `chromeLang()` applies it over `me.language` for visitor
+sessions — and only while `me.languageToggle` is true, so turning the setting off restores the
+site language for everyone regardless of what their browser remembers. What it must NOT touch is `blogLocale`:
 dates and numerals are one system per instance chosen by the date locale (see the numerals note
 above), and letting a visitor's chrome choice re-pick the numbering system would reintroduce
 exactly the two-numeral-systems-on-one-line bug that rule exists to prevent. Note content is

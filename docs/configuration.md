@@ -38,7 +38,7 @@ summary.
 | `DEFAULT_THEME` | Theme for visitors who haven't picked one — any of the fifteen, or `custom:<name>` for one you built (see [Theming](theming.md)), or `follow`, which is also what unset means: visitors get the theme *you* edit in; case-insensitive; unknown names are ignored with one line on stderr |
 | `EXCLUDE_TAGS` | Comma-separated tags hidden from the visitor site's topic sections and tag pills (workflow/status tags like `draft,seedling`); case-insensitive, a leading `#` is fine; admin views unaffected |
 | `PUBLIC_LAYOUT` | `blog` gives visitors a classic blog layout instead of the app shell (see [Blog mode](blog-mode.md)); `designed` composes it from a design you author (see [Designer](designer.md)); anything else → `app` (the default) |
-| `SITE_LANG` | Interface language: `en` (default) or `ar`. `ar` localizes every chrome string and mirrors the whole UI right-to-left (see [Arabic & RTL](arabic-and-rtl.md)) |
+| `SITE_LANG` | Site language: `en` (default) or `ar`. `ar` localizes every chrome string and mirrors the whole UI right-to-left (see [Arabic & RTL](arabic-and-rtl.md)). What *you* edit in is a separate per-browser choice — Settings → *Editor language* |
 | `BLOG_LOCALE` | BCP47 locale for post dates and the RSS channel language (default: follows `SITE_LANG`) |
 | `LANGUAGE_FILTER` | Which published notes the public site shows, by the language they are written in: `off` (default) · `follow` (each reader gets their own) · `ar` · `en`. Legacy `true`/`false` still parse — see [Language filter](arabic-and-rtl.md#language-filter) |
 | `ATTACHMENTS_DIR` | Vault-relative directory in-app uploads write into (default `attachments`), created on demand. The **Attachments** setting can override where uploads go entirely — see [Attachments](#attachments) |
@@ -62,7 +62,9 @@ it decides.
   wordmark in the sidebar and the blog masthead), and a **favicon** (served at `/favicon.ico`
   with its real content type and injected into every page's `<link rel="icon">`).
 - **Appearance & language** — the default theme visitors arrive on, **your own** theme (this
-  browser only, with *Themes*), the **language** (English / العربية), which edge the
+  browser only, with *Themes*), the **site language** (English / العربية — what visitors read
+  it in), your own **editor language** (*Follow site* / English / العربية, this browser only,
+  and never what visitors get), which edge the
   **notes sidebar** sits on (*Auto* follows the language — Arabic carries it to the right — or
   pin it to a screen edge for good), the date locale, the language filter and the optional
   **visitor switch** — plus the three localization rows below it: the **date calendar**

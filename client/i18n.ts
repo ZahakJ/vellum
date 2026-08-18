@@ -439,6 +439,21 @@ const DICT = {
   },
   cmdLayoutHint: { en: "layout", ar: "التخطيط" },
   cmdLayoutCurrentHint: { en: "layout · in force", ar: "التخطيط · الحالي" },
+  // THE WAY OUT, and the reason these are palette commands at all. An editor
+  // in a script you cannot read is a room whose light switch you have to find
+  // by touch: Settings is four words of Arabic and a tab away, while the
+  // palette is one keystroke and answers to the language's OWN name typed in
+  // its OWN script — "English" is Latin in both dictionaries, so it is
+  // findable from an Arabic interface, and «العربية» from an English one.
+  // Three rows for a three-state preference, marked like the sidebar's.
+  cmdEditorLangFollow: {
+    en: "Editor language: follow the site",
+    ar: "لغة المحرّر: تتبع لغة الموقع",
+  },
+  cmdEditorLangEn: { en: "Editor language: English", ar: "لغة المحرّر: الإنجليزية" },
+  cmdEditorLangAr: { en: "Editor language: العربية", ar: "لغة المحرّر: العربية" },
+  cmdEditorLangHint: { en: "this browser", ar: "هذا المتصفح" },
+  cmdEditorLangCurrentHint: { en: "this browser · in force", ar: "هذا المتصفح · الحالي" },
   cmdTogglePaneNotes: { en: "Toggle Notes sidebar", ar: "طي لوحة الملاحظات" },
   cmdTogglePaneOutline: {
     en: "Toggle Outline & backlinks",
@@ -676,8 +691,19 @@ const DICT = {
     en: "Presets, sections, navigation and type — what \"Designed\" above renders from.",
     ar: "قوالب وأقسام وتنقّل وطباعة — وهي ما يرسم منه خيار «مصمَّم» أعلاه.",
   },
-  rowLanguage: { en: "Language", ar: "اللغة" },
-  hintLanguage: { en: "site chrome language & direction", ar: "لغة واجهة الموقع واتجاهها" },
+  // TWO LANGUAGE ROWS, AND THE HINTS ARE WHERE THEY STOP BEING CONFUSABLE.
+  // One value used to do both jobs, so an owner who wanted to edit in English
+  // could only get there by republishing the whole site in English. Each hint
+  // now names WHOSE language it is: the site's row speaks for the readers, the
+  // editor's row for the one person looking at it.
+  rowLanguage: { en: "Site language", ar: "لغة الموقع" },
+  hintLanguage: { en: "what visitors read the site in", ar: "اللغة التي يقرأ بها الزوار الموقع" },
+  rowEditorLanguage: { en: "Editor language", ar: "لغة المحرّر" },
+  hintEditorLanguage: {
+    en: "your own chrome & direction — this browser only, and never what visitors get",
+    ar: "واجهتك أنت واتجاهها — في هذا المتصفح وحده، ولا يراه الزائر أبدًا",
+  },
+  editorLangFollow: { en: "Follow site", ar: "تبعًا للموقع" },
   // The notes sidebar's edge. The segment labels name a PHYSICAL edge in both
   // languages, exactly as the palette commands do — an Arabic reader pinning
   // the pane left means the left of the screen, not "the trailing side".
