@@ -29,7 +29,13 @@ import {
   type TextDirection,
 } from "../shared/textLayout.ts";
 import type { Lang } from "./i18n.ts";
-import { readVisitorLang, writeVisitorLang } from "./langPref.ts";
+import {
+  chromeLang,
+  readEditorLang,
+  readVisitorLang,
+  writeEditorLang,
+  writeVisitorLang,
+} from "./langPref.ts";
 import { choiceLabel, isTheme, THEMES } from "./themes.ts";
 import type { ThemeChoice } from "./themes.ts";
 import { isCustomThemeId } from "../shared/customTheme.ts";
@@ -175,10 +181,24 @@ export interface State {
   homeNote: string | null;
   /** Instance branding from SITE_NAME (wordmark, titles, login modal). */
   siteName: string;
-  /** Site chrome language (settings.language / SITE_LANG). "ar" mirrors the
-   *  whole chrome RTL; every component rendering t() strings subscribes to
-   *  this so a live settings change re-renders the chrome in place. */
+  /** THIS SESSION'S chrome language — not necessarily the site's. "ar"
+   *  mirrors the whole chrome RTL; every component rendering t() strings
+   *  subscribes to this so a live settings change re-renders the chrome in
+   *  place. An admin reads their own `vellum.editorLang` (Settings →
+   *  Appearance & language → Editor language), a visitor their own
+   *  `vellum.lang` when the instance offers the switch, and everyone else
+   *  settings.language / SITE_LANG; `langPref.ts::chromeLang` is the one
+   *  place that rule lives. What the SITE publishes in is a settings value
+   *  (`/api/settings` → `effective.language`), never this field — reading
+   *  this one to answer "what language is the site?" is how the editor and
+   *  the public site got welded together in the first place. */
   language: Lang;
+  /** What the SITE publishes in (settings.language / SITE_LANG), untouched by
+   *  anyone's per-browser preference. It is what `language` falls back to,
+   *  what "Follow site" resolves to, and what a visitor with no stored choice
+   *  reads — so the two values agree for every session except an admin who
+   *  has pinned their editor to the other one. */
+  siteLanguage: Lang;
   /** settings.languageToggle — the instance offers visitors an EN/ع switch.
    *  Off (the default) means no public language chrome exists at all. */
   languageToggle: boolean;
@@ -204,6 +224,19 @@ export interface State {
   /** Store the visitor's own chrome language and apply it live (strings +
    *  direction only). Ignored unless `languageToggle` is on. */
   setVisitorLang(lang: Lang): void;
+  /** The admin's stored editor-language PREFERENCE: null (the default —
+   *  follow the site) or an explicit pin. Persisted as "vellum.editorLang".
+   *  Held here as well as in localStorage for the same reason
+   *  `sidebarSidePref` is: the segmented control has to show which of the
+   *  three states is in force, and "which one did I pick?" is not answerable
+   *  from `language` alone — a pin to English and a follow of an English site
+   *  render identically. */
+  editorLangPref: Lang | null;
+  /** Store the ADMIN's own editor chrome language and apply it live (strings
+   *  + direction only), or follow the site language again with null. A device
+   *  preference — it commits on click, never reaches the server, and changes
+   *  nothing about what visitors are served. */
+  setEditorLang(lang: Lang | null): void;
   loginOpen: boolean;
   /** Admin moderation panel (palette: "Moderate comments"). */
   moderationOpen: boolean;
@@ -786,6 +819,8 @@ export const useStore = create<State>()((set, get) => {
     homeNote: null,
     siteName: "Vellum",
     language: "en",
+    siteLanguage: "en",
+    editorLangPref: readEditorLang(),
     languageToggle: false,
     languageFilter: "off",
     languageFallback: null,
@@ -822,6 +857,34 @@ export const useStore = create<State>()((set, get) => {
           get().bumpReload();
         })();
       }
+    },
+    // The editor's own language, and deliberately the SHORTER of the two
+    // routines beside it. Nothing about the vault changes: not the API
+    // scope (an admin session is never language-limited — server/language.ts
+    // hands it ADMIN_SCOPE without reading the header), not the published
+    // set, not one byte of what a visitor is served. The chrome re-reads
+    // itself and the sidebar picks its edge again; that is the whole blast
+    // radius, which is the point of the setting.
+    setEditorLang: (lang) => {
+      if (!get().admin) return; // admin-only affordance, like previewVisitor
+      // The guard is on the PREFERENCE, not on the language it resolves to:
+      // picking "English" while following an English site is a real change
+      // (it pins), and only re-picking what is already stored is the no-op.
+      if (lang === readEditorLang()) return;
+      writeEditorLang(lang);
+      const next = lang ?? get().siteLanguage;
+      // Same order loadMe and setVisitorLang use: dictionary + <html dir/lang>
+      // first, so components re-rendering off `language` already read the new
+      // strings. blogLocale is untouched for the same reason it is there —
+      // dates and numerals are one system per INSTANCE.
+      applyLanguage(next, get().blogLocale);
+      // An "auto" sidebar side follows the direction LIVE, exactly as it does
+      // for the visitor switch and for a settings-side language change.
+      set({
+        language: next,
+        editorLangPref: lang,
+        sidebarSide: effectiveSide(get().sidebarSidePref, next),
+      });
     },
     loginOpen: false,
     moderationOpen: false,
@@ -876,12 +939,22 @@ export const useStore = create<State>()((set, get) => {
           set({ previewVisitor: false });
         }
         const siteLang: Lang = me.language === "ar" ? "ar" : "en";
-        // A visitor's own choice (langPref.ts) wins over the site language —
-        // but only while the instance actually offers the switch, so turning
-        // settings.languageToggle back off restores the site language for
-        // everyone, stored preference or not.
+        // Whose preference this session reads, resolved in ONE place
+        // (langPref.ts::chromeLang) because the two of them are easy to get
+        // wrong in each other's favour: an admin reads their own editor
+        // language, a visitor their own — and only while the instance offers
+        // the switch, so turning settings.languageToggle back off restores
+        // the site language for everyone, stored preference or not. `me.admin`
+        // is false while previewing as a visitor, which is exactly what makes
+        // the preview honest.
         const languageToggle = me.languageToggle === true;
-        const language: Lang = (languageToggle ? readVisitorLang() : null) ?? siteLang;
+        const language: Lang = chromeLang({
+          admin: me.admin,
+          languageToggle,
+          siteLang,
+          editor: readEditorLang(),
+          visitor: readVisitorLang(),
+        });
         // Declare it on every call from here on. Set even when the filter is
         // off: the server ignores it then, and the alternative is a mode-
         // dependent branch on the client that would be wrong for exactly one
@@ -917,6 +990,7 @@ export const useStore = create<State>()((set, get) => {
           publishedCounts: me.published ?? null,
           siteName: me.siteName?.trim() || "Vellum",
           language,
+          siteLanguage: siteLang,
           publicLayout:
             me.publicLayout === "blog" || me.publicLayout === "designed" ? me.publicLayout : "app",
           designNotice: me.designNotice ?? null,

@@ -6,8 +6,8 @@
 
 ---
 
-Vellum speaks Arabic. `SITE_LANG=ar` (or **Settings → Appearance & language → العربية**, applied
-live without a restart) does two things at once.
+Vellum speaks Arabic. `SITE_LANG=ar` (or **Settings → Appearance & language → Site language →
+العربية**, applied live without a restart) does two things at once.
 
 **It translates the chrome.** Every label, button, placeholder, menu item, toast and confirm
 dialog in both shells — sidebar, tabs, status bar, command palette, backlinks/outline/local-graph
@@ -66,16 +66,44 @@ that letter is Latin and the key's *position* when it is not, so the keys marked
 on your keycaps are your shortcuts. The `Ctrl/Cmd /` sheet prints what each of them actually types
 beside the letter. See [Keymap → Non-Latin keyboards](keymap.md#non-latin-keyboards).
 
+## Your editor's language is yours
+
+`SITE_LANG` is a decision about what you **publish** in. It is not a decision about what you
+have to **work** in, and **Settings → Appearance & language → Editor language** is where those
+two part company: *Follow site* (the default, which names the language it lands on), *English*,
+or *العربية*. It moves the same two things the visitor switch moves — the chrome strings and
+the direction — and it moves them for you alone. It lives in this browser, like your theme and
+your sidebar edge; it is never sent to the server, never appears in the Save diff, and cannot
+change a single byte of what a reader is served. Run an Arabic site from an English editor, or
+an English site from an Arabic one; the site does not notice either way.
+
+There are three palette commands for it too — `Editor language: English`, `Editor language:
+العربية`, `Editor language: follow the site` — and each names its language in that language's
+own script on purpose. **That is the way back if you ever cannot read the interface**:
+`Ctrl/Cmd K`, type `English`, Enter. Nothing else has to be legible for that to work.
+
+> **If you are reading this because you are stuck in Arabic and did not choose it**, this is
+> almost certainly why: before the split, a visitor's EN/ع choice was applied to *every* session
+> in that browser, the owner's editor included — and on an instance whose public site is the app
+> layout, the EN/ع control is never drawn, so there was nothing to click to undo it. Upgrading
+> fixes it on the next reload, with no action from you. On an older build, clear the stored
+> visitor choice by hand: `localStorage.removeItem("vellum.lang")` in the browser console.
+
 ## Visitor language switch
 
-`SITE_LANG` picks the language *you* publish in. **Settings → Appearance & language → Visitor
+`SITE_LANG` picks the language your site publishes in — for readers, and, unless you have said
+otherwise above, for you. **Settings → Appearance & language → Visitor
 switch** (settings key `languageToggle`, **off by default**, no env counterpart) adds a small
 `EN` / `ع` control at the edge of the public nav so a reader can pick the other one for
 themselves. Their choice lives in their own browser's `localStorage` and survives return visits;
 nobody else's site changes.
 
-It moves exactly two things: the **chrome strings** and the **text direction**. Note content is
-untouched — it renders as authored, per block, the way it always does — and so are dates and
+It moves exactly two things: the **chrome strings** and the **text direction** — and it moves
+them for *that reader*. It cannot reach your editor: an admin session reads its own **Editor
+language** and never a visitor's, which is why flipping the public switch to check what a reader
+sees no longer leaves you editing in a language you did not pick. (Visitor *preview* is the
+honest way to check: previewing puts you on the visitor's side of that line deliberately, so you
+see their language, not yours.) Note content is untouched — it renders as authored, per block, the way it always does — and so are dates and
 numerals, which stay on the instance's `BLOG_LOCALE` so a page never shows two numbering systems
 at once. Leave the switch off (the default) and the public site has no language chrome at all.
 

@@ -114,6 +114,12 @@
 - **Notes sidebar on either side** — three states, in the palette and in Settings → Appearance &
   language: *follow the language* (the default — left in English, right in Arabic, re-evaluated
   whenever the language changes) or pin it to the left or right screen edge for good
+- **Your editor's language is yours** — three more states in the same two places: *Editor
+  language: follow the site* (the default), *English* or *العربية*. It is a per-browser choice
+  that changes nothing about what your site publishes, so an Arabic site can be run from an
+  English editor. Each palette row names its language in that language's own script, which is
+  the point: it stays findable when the interface is one you cannot read. See
+  [Arabic & RTL](arabic-and-rtl.md#your-editors-language-is-yours)
 - **Command palette** — fuzzy over notes and commands alike
 - **Live vault watching** — edit a file in any other editor and the app updates within ~100 ms
   (chokidar + SSE)
