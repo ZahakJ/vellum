@@ -1,17 +1,39 @@
-// The note editor. Owns one CodeMirror view per open path: loads the note,
-// autosaves (600ms debounce + Ctrl/Cmd+S), tracks dirty state in the store,
-// follows the vim toggle, and preserves per-note scroll position across
-// tab switches.
+// The note editor: one CodeMirror VIEW per pane showing a note.
+//
+// It no longer owns the document. `client/editor/buffers.ts` does — the note's
+// EditorState, its undo history, its dirty flag, its autosave timer and the
+// `baseMtimeMs` its next write is checked against all live in a refcounted
+// registry keyed by path, so they survive this component being unmounted. Which
+// it is, constantly: `App.tsx` remounts the editor on every `openPath` change,
+// so before the registry a tab switch discarded the document and everything
+// CodeMirror keeps beside it. The undo stack was the visible casualty.
+//
+// What this component still owns is the VIEW: the DOM, the scroll position, the
+// vim toggle, the language effect. Two panes on one note are two views of one
+// buffer — they scroll independently, which is the point of having two, and
+// they share a document, which is the point of it being one note.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
 import { focusIsClaimed } from "../a11y.ts";
-import { getNote, isNotPublishedError, putNote } from "../api.ts";
+import { isNotPublishedError } from "../api.ts";
+import { holdsLease, setLeaseListener, takeOver } from "../windows/lease.ts";
 import { t, tf } from "../i18n.ts";
 import { Lru } from "../lru.ts";
-import { markSelfWrite, useStore } from "../state.ts";
+import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { buildEditorState, setVim } from "../editor/setup.ts";
+import {
+  acquire,
+  attach,
+  detach,
+  dispatchFrom,
+  release,
+  save as saveBuffer,
+  setDirtyListener,
+  setDivergeListener,
+  setSaveErrorListener,
+} from "../editor/buffers.ts";
 import { attachVimStatus, detachVimStatus } from "../editor/vimStatus.ts";
 import { languageChanged } from "../editor/langEffect.ts";
 import { noteLayoutChanged } from "../editor/noteLayout.ts";
@@ -21,8 +43,6 @@ import { isTexPath } from "../../shared/noteFormat.ts";
 import { findTexFrontmatter } from "../../shared/tex.ts";
 import { INSERT_TEMPLATE_EVENT, type InsertTemplateDetail } from "../templateActions.ts";
 import { applyTemplate, splitFrontmatter } from "../templates.ts";
-
-const AUTOSAVE_MS = 600;
 
 /** Offset just past a leading frontmatter block (0 if none). Opening a note
  *  lands the cursor here so frontmatter renders as its properties card instead
@@ -49,8 +69,41 @@ function markDirty(path: string, dirty: boolean): void {
   );
 }
 
+// The registry reports dirtiness and divergence; the store and the toaster are
+// how this app says those things. Wired once at module scope rather than per
+// mount, because the registry outlives every mount.
+setDirtyListener(markDirty);
+setSaveErrorListener((path, err) => {
+  console.error(`Failed to save ${path}`, err);
+  toast(tf("saveFailed", { path }), "error");
+});
+setDivergeListener((path) => {
+  // A save was refused because the file changed underneath. Nothing was lost
+  // and nothing was written; the reader's text is still in the buffer, which
+  // has stopped autosaving so the next keystroke cannot clobber the newer
+  // version. Saying so is the minimum — the side-by-side resolution arrives
+  // with the pane work, which is where there is room to show both.
+  toast(tf("saveConflict", { path }), "error");
+});
+
+/** Paths whose caret has already been placed once. A buffer restored from the
+ *  registry brings its own selection back, so re-running the frontmatter jump
+ *  on every remount would drag the caret out of the reader's sentence and into
+ *  the properties card every time they switched tabs and back. */
+const caretPlaced = new Set<string>();
+
 export default function Editor({ path }: { path: string }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  // Whether THIS window may write this note. Recomputed rather than stored:
+  // the lease is derived from facts both windows share, so asking is always
+  // right and caching would let the two disagree.
+  const [writable, setWritable] = useState(true);
+  useEffect(() => {
+    setWritable(holdsLease(path));
+    return setLeaseListener((changed) => {
+      if (changed === path) setWritable(holdsLease(path));
+    });
+  }, [path]);
   const viewRef = useRef<EditorView | null>(null);
   const vimMode = useStore((s) => s.vimMode);
   // The editor's chrome (properties card, fold chevrons, transclusion cards,
@@ -66,49 +119,38 @@ export default function Editor({ path }: { path: string }) {
 
   useEffect(() => {
     let disposed = false;
-    let dirty = false;
-    let saveTimer: number | undefined;
 
-    const save = async (view: EditorView): Promise<void> => {
-      window.clearTimeout(saveTimer);
-      const content = view.state.doc.toString();
-      try {
-        // Claim the write BEFORE sending it: the server notifies its SSE
-        // subscribers while it is still handling the PUT, so the echo of this
-        // save reaches App's handler before `putNote` resolves and before
-        // `dirty` clears. Without this the reader's own autosave was reported
-        // back to them as "changed on disk" (see markSelfWrite in state.ts).
-        markSelfWrite(path);
-        await putNote(path, content);
-        // Only clear dirty if nothing changed while the request was in flight.
-        if (view.state.doc.toString() === content) {
-          dirty = false;
-          markDirty(path, false);
+    // The registry loads the note once and keeps it. `build` is handed in
+    // rather than imported there, so buffers.ts stays ignorant of the
+    // extension list — which is format-aware and reaches half the client.
+    acquire(path, (doc) =>
+      buildEditorState({
+        doc,
+        path,
+        vimMode: useStore.getState().vimMode,
+        // Dirty tracking and the autosave timer belong to the buffer now: a
+        // save must survive the pane that started it being unmounted, and a
+        // per-view timer cannot. `dispatchFrom` below is where they are driven.
+        onDocChanged: () => {},
+        onSave: () => void saveBuffer(path),
+      }),
+    )
+      .then((buf) => {
+        if (disposed || !hostRef.current) {
+          // Acquired and immediately abandoned (a fast tab switch). Give the
+          // reference back or the buffer is pinned open forever.
+          release(path);
+          return;
         }
-      } catch (err) {
-        console.error(`Failed to save ${path}`, err);
-        toast(tf("saveFailed", { path }));
-      }
-    };
-
-    getNote(path)
-      .then((note) => {
-        if (disposed || !hostRef.current) return;
-        const view = new EditorView({
-          state: buildEditorState({
-            doc: note.content,
-            path,
-            vimMode: useStore.getState().vimMode,
-            onDocChanged: (v) => {
-              dirty = true;
-              markDirty(path, true);
-              window.clearTimeout(saveTimer);
-              saveTimer = window.setTimeout(() => void save(v), AUTOSAVE_MS);
-            },
-            onSave: (v) => void save(v),
-          }),
+        const view: EditorView = new EditorView({
+          state: buf.state,
           parent: hostRef.current,
+          // EVERY transaction goes through the registry: it keeps the canonical
+          // state, mirrors document changes into the other panes showing this
+          // note, and owns dirty + autosave.
+          dispatchTransactions: (trs) => dispatchFrom(path, view, trs),
         });
+        attach(path, view);
         viewRef.current = view;
 
         // Vim loads lazily; patch it into the fresh view once the module is in.
@@ -118,9 +160,16 @@ export default function Editor({ path }: { path: string }) {
         // never runs — the pill would then show VIM with no sub-mode.
         else attachVimStatus(view);
 
-        const anchor = afterFrontmatter(path, note.content);
-        if (anchor > 0 && anchor <= view.state.doc.length) {
-          view.dispatch({ selection: { anchor } });
+        // ONCE per note, not once per mount. A buffer restored from the
+        // registry brings its own selection back with it, so re-running this
+        // would drag the caret out of the reader's sentence and into the
+        // properties card every time they switched tabs and came back.
+        if (!caretPlaced.has(path)) {
+          caretPlaced.add(path);
+          const anchor = afterFrontmatter(path, view.state.doc.toString());
+          if (anchor > 0 && anchor <= view.state.doc.length) {
+            view.dispatch({ selection: { anchor } });
+          }
         }
 
         // [[Note#Heading]] navigation: land on the requested heading.
@@ -129,7 +178,7 @@ export default function Editor({ path }: { path: string }) {
           useStore.getState().setPendingHeading(null);
           // Format-blind: a markdown heading and a LaTeX \label are the same
           // kind of anchor, so one lookup lands on either.
-          const line = anchorLine(path, note.content, pending);
+          const line = anchorLine(path, view.state.doc.toString(), pending);
           if (line !== null && line <= view.state.doc.lines) {
             const pos = view.state.doc.line(line).from;
             view.dispatch({
@@ -171,23 +220,21 @@ export default function Editor({ path }: { path: string }) {
 
     return () => {
       disposed = true;
-      window.clearTimeout(saveTimer);
       const view = viewRef.current;
       viewRef.current = null;
-      if (!view) return;
-      scrollPositions.set(path, view.scrollDOM.scrollTop);
-      if (dirty) {
-        // Flush unsaved changes before the view goes away — claimed like
-        // every other write, so the echo is not read as an external edit.
-        const content = view.state.doc.toString();
-        markSelfWrite(path);
-        putNote(path, content)
-          .then(() => markDirty(path, false))
-          .catch((err) => {
-            console.error(`Failed to save ${path}`, err);
-            toast(tf("saveFailed", { path }), "error");
-          });
+      if (!view) {
+        // The load may still be in flight; the `disposed` branch above hands
+        // the reference back when it lands.
+        return;
       }
+      scrollPositions.set(path, view.scrollDOM.scrollTop);
+      // NO FLUSH HERE, and that is the change. The buffer keeps the document
+      // and its dirty flag, so an unmount is no longer the last chance to save
+      // — `release()` saves only when nothing holds the note any more, and even
+      // then it keeps the buffer until the write lands. Flushing here as well
+      // would race the registry's own timer and send the same text twice.
+      detach(path, view);
+      release(path);
       // The bar must not keep reporting a sub-mode for an editor that is
       // gone (switching to reading mode, closing the last tab).
       detachVimStatus(view);
@@ -279,5 +326,29 @@ export default function Editor({ path }: { path: string }) {
     return () => window.removeEventListener("vellum:goto-heading", onGoto);
   }, []);
 
-  return <div className="s-editor" ref={hostRef} />;
+  return (
+    <div className="s-editor-wrap">
+      {!writable && (
+        // ANOTHER WINDOW HAS THE PEN. Not a lock and not a warning: the text
+        // here is intact and stays intact, autosave is simply off so two
+        // windows cannot race each other into a 409 every few minutes. One
+        // button takes the note back, and the other window becomes the reader.
+        //
+        // The strip reserves its height rather than appearing into the flow —
+        // prose that reflows under a live caret is how a reader loses their
+        // place mid-sentence.
+        <div className="s-editor-strip" role="status">
+          <span className="s-editor-strip__text">{t("leaseElsewhere")}</span>
+          <button
+            type="button"
+            className="s-editor-strip__act"
+            onClick={() => takeOver(path)}
+          >
+            {t("leaseTakeOver")}
+          </button>
+        </div>
+      )}
+      <div className="s-editor" ref={hostRef} />
+    </div>
+  );
 }

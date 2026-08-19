@@ -2,6 +2,8 @@
 // in CONTRACTS.md and returns the shared wire types.
 
 import type {
+  AliasEntry,
+  AliasesResponse,
   AnchorsResponse,
   Backlink,
   CustomFontInfo,
@@ -171,11 +173,47 @@ export function lookupXref(query: { label: string } | { cite: string }): Promise
   return request<XrefResponse>(`/api/xref?${param}`);
 }
 
-export function putNote(path: string, content: string): Promise<NoteData> {
+/** Save a note. `baseMtimeMs` is the mtime the caller was last handed for it;
+ *  when given, the server refuses the write with 409 `code: "stale"` if the
+ *  file changed underneath. Only the buffer registry passes it — see the note
+ *  on `assertUnmodified` in server/api.ts for why it is optional. */
+export function putNote(
+  path: string,
+  content: string,
+  baseMtimeMs?: number,
+): Promise<NoteData> {
   return request<NoteData>(
     `/api/note?path=${encodeURIComponent(path)}`,
-    json("PUT", { content }),
+    json("PUT", baseMtimeMs === undefined ? { content } : { content, baseMtimeMs }),
   );
+}
+
+/** True when a save was refused because the note changed on disk. */
+export function isStaleWriteError(err: unknown): boolean {
+  return err instanceof ApiError && err.code === "stale";
+}
+
+/** The last-gasp save, for a tab that is closing.
+ *
+ *  `fetch` started in `beforeunload` is cancelled along with the document and
+ *  `keepalive` is capped and uneven across browsers; `sendBeacon` is the one
+ *  transport the platform promises to deliver after the page is gone. It is
+ *  fire-and-forget by construction — there is no response to read, because
+ *  there is no longer anywhere to read it — so it returns only whether the
+ *  browser accepted the payload for delivery.
+ *
+ *  It carries the precondition too. A last-gasp save that clobbers a newer
+ *  version is still a clobber, and the reader who caused it is by definition
+ *  not there to be asked about it. */
+export function flushNoteBeacon(path: string, content: string, baseMtimeMs?: number): boolean {
+  if (typeof navigator === "undefined" || typeof navigator.sendBeacon !== "function") {
+    return false;
+  }
+  const body = new Blob(
+    [JSON.stringify(baseMtimeMs === undefined ? { path, content } : { path, content, baseMtimeMs })],
+    { type: "application/json" },
+  );
+  return navigator.sendBeacon("/api/note/flush", body);
 }
 
 export function createNote(path: string): Promise<NoteData> {
@@ -302,6 +340,24 @@ export function getGraph(): Promise<GraphData> {
  *  the whole vault. */
 export function getLocalGraph(path: string): Promise<GraphData> {
   return request<GraphData>(`/api/graph?around=${encodeURIComponent(path)}`);
+}
+
+/** Every alias the vault's notes declare in their frontmatter, with the note
+ *  each one names. The `[[` completion list is built from the tree in the
+ *  store, and a tree carries FILENAMES — an alias is frontmatter the client has
+ *  never read, so without this one fetch a vault's aliases resolved when typed
+ *  in full and could not be completed. */
+export async function getAliases(): Promise<AliasEntry[]> {
+  const res = await request<AliasesResponse>("/api/aliases");
+  return res.aliases;
+}
+
+/** Add one alias to a note's frontmatter (merged, never re-stringified). The
+ *  offer after a rename: the old title keeps working as a name, so nothing in
+ *  the vault — or on the published site — points at a note that no longer
+ *  answers to it. */
+export function addAlias(path: string, alias: string): Promise<{ ok: true; path: string; alias: string }> {
+  return request<{ ok: true; path: string; alias: string }>("/api/alias", json("POST", { path, alias }));
 }
 
 export function getBacklinks(path: string): Promise<Backlink[]> {
