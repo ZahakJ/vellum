@@ -22,7 +22,11 @@
 // breaks without it.
 
 import type * as PdfjsNamespace from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+// Before anything of pdf.js evaluates: the engine may lack Map upsert (see
+// mapUpsert.ts — Electron's V8 vs the browser's). The worker gets its own copy
+// through pdfWorkerEntry.ts, because a worker is its own global scope.
+import "./mapUpsert.ts";
+import workerUrl from "./pdfWorkerEntry.ts?worker&url";
 
 export type Pdfjs = typeof PdfjsNamespace;
 export type PdfDocument = PdfjsNamespace.PDFDocumentProxy;

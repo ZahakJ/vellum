@@ -11,3 +11,11 @@ declare module "*?url" {
   const src: string;
   export default src;
 }
+
+// `?worker&url` builds the file AS A WORKER ENTRY (its imports bundled into
+// one self-contained script) and hands back the URL — what pdfWorkerEntry.ts
+// needs so its polyfill rides inside the emitted worker asset.
+declare module "*?worker&url" {
+  const src: string;
+  export default src;
+}

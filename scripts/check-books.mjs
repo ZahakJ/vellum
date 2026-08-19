@@ -130,8 +130,11 @@ console.log("check-books: the worker is an asset, not a blob\n");
 
 const pdfjsSrc = read("client/books/pdfjs.ts");
 
-if (!/import\s+workerUrl\s+from\s+"pdfjs-dist\/build\/pdf\.worker[^"]*\?url"/.test(pdfjsSrc)) {
-  fail("client/books/pdfjs.ts must import the worker with vite's `?url` suffix, so the build emits it as a real asset");
+// The worker rides through pdfWorkerEntry.ts now (polyfill first, then the
+// worker body — see mapUpsert.ts for the Electron-vs-browser V8 story); the
+// property this gate protects is unchanged: a real emitted asset, never a blob.
+if (!/import\s+workerUrl\s+from\s+"\.\/pdfWorkerEntry\.ts\?worker&url"/.test(pdfjsSrc)) {
+  fail("client/books/pdfjs.ts must import the worker via ./pdfWorkerEntry.ts with vite's `?worker&url`, so the build emits it as a real asset with the upsert polyfill in front");
 } else {
   ok("the worker is imported with ?url");
 }
@@ -313,7 +316,7 @@ if (!existsSync(dist)) {
   fail(`no dist/ at ${dist}\n        run: npm run build`);
 } else {
   const assets = existsSync(path.join(dist, "assets")) ? readdirSync(path.join(dist, "assets")) : [];
-  const worker = assets.find((f) => /^pdf\.worker.*\.(m?js)$/.test(f));
+  const worker = assets.find((f) => /^(pdf\.worker|pdfWorkerEntry).*\.(m?js)$/.test(f));
   if (worker) ok(`worker asset: assets/${worker}`);
   else fail("no pdf.worker asset in dist/assets — the build did not emit the worker as a same-origin file");
 
