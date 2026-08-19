@@ -670,9 +670,15 @@ function applyTheme(theme: ThemeChoice): void {
  *  language in the settings panel re-skins the shell live — no reload. */
 function applyLanguage(lang: Lang, locale: string): void {
   setLang(lang);
-  // The date locale also decides the numerals every COUNT renders in — one
-  // numbering system per instance (shared/numerals.ts).
-  setNumeralLocale(locale);
+  // THE CHROME'S NUMERALS FOLLOW THE CHROME'S LANGUAGE, not the site locale.
+  // They used to follow `locale` (the blog's), and on an instance whose site
+  // is Arabic that put Eastern Arabic digits inside an ENGLISH interface — the
+  // owner met it as "the zoom shows ١٤٠٪ and my editor is in English", which
+  // is mixed-script chrome, the exact thing tf()'s isolates exist to prevent
+  // one level down. The visitor's cards are untouched: their dates go through
+  // siteDate(date, blogLocale), which carries the site locale explicitly, and
+  // a visitor page's chrome language IS the language whose digits it gets.
+  setNumeralLocale(lang === "ar" ? locale || "ar" : "en");
   const root = document.documentElement;
   if (lang === "ar") {
     root.setAttribute("dir", "rtl");

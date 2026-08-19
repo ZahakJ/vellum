@@ -1117,10 +1117,22 @@ export default function BookReader({ path, citation = null, onClose, onLibrary }
 
       switch (key) {
         case "j":
+          // `J` — the shifted pair — is a PAGE, the way zathura reads: j/k for
+          // the eye, J/K for the thumb. Count-aware, so `5J` is five pages on.
+          if (e.shiftKey) {
+            e.preventDefault();
+            goToPage(Math.min(stateRef.current.pages, stateRef.current.page + (count ?? 1)), scrollBehavior());
+            break;
+          }
           e.preventDefault();
           scrollBy(SCROLL_STEP * (count ?? 1));
           break;
         case "k":
+          if (e.shiftKey) {
+            e.preventDefault();
+            goToPage(Math.max(1, stateRef.current.page - (count ?? 1)), scrollBehavior());
+            break;
+          }
           e.preventDefault();
           scrollBy(-SCROLL_STEP * (count ?? 1));
           break;
@@ -1846,6 +1858,7 @@ function AnnotationsPanel({
  *  list that describes them everywhere is a list that lies most of the time. */
 const HELP_ROWS: { keys: string; label: I18nKey }[] = [
   { keys: "j k", label: "bookKeyScroll" },
+  { keys: "J K", label: "bookKeyPageStep" },
   { keys: "Space", label: "bookKeyPage" },
   { keys: "gg G", label: "bookKeyFirstLast" },
   { keys: "12G", label: "bookKeyGoto" },

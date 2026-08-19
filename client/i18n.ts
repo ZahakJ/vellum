@@ -2906,6 +2906,9 @@ const DICT = {
   },
   settingsSearchNone: { en: "Nothing matches", ar: "لا شيء يطابق" },
 
+  // zathura's shifted pair: j/k for the eye, J/K for the thumb.
+  bookKeyPageStep: { en: "Next / previous page", ar: "الصفحة التالية / السابقة" },
+
   // ── The tree, folded and found ───────────────────────────────────────────
   collapseAll: { en: "Collapse all folders", ar: "طي كل المجلدات" },
   expandAll: { en: "Expand all folders", ar: "بسط كل المجلدات" },

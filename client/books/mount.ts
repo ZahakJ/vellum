@@ -66,7 +66,13 @@ export function booksRouteFor(
   // as far as a request.
   if (rel === "" || rel.includes("..")) return null;
   const anchor = parseBookAnchor(hash.replace(/^#/, ""));
-  return { kind: "book", path: rel, anchor };
+  // A hand-typed or shortened URL may omit the extension — note permalinks do
+  // (`/folder/Note`, not `/folder/Note.md`), so a reader will expect `/book/
+  // Spivak` to work, and it 400'd instead: the open route requires a real
+  // `.pdf` path. Appending it here is the same guess `urlToNoteGuess` makes
+  // for notes; a wrong guess still fails on the server, but now for a book
+  // that genuinely is not there.
+  return { kind: "book", path: /\.pdf$/i.test(rel) ? rel : `${rel}.pdf`, anchor };
 }
 
 export function urlForBooksRoute(route: BooksRoute): string {
