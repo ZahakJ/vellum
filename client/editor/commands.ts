@@ -554,8 +554,37 @@ export function format(kind: FormatKind): (view: EditorView) => boolean {
  *  LaTeX has no strikethrough or highlight this reader can render. Declining
  *  is deliberate and is not the same as being unbound: `preventDefault: true`
  *  still keeps Ctrl/Cmd+Shift+H off the browser's history sidebar. */
+/** A COMMENT — text that stays in the note and reaches no reader.
+ *
+ *  Not a `FormatKind`, because the two languages do not merely spell it
+ *  differently, they SHAPE it differently: markdown's `%%…%%` wraps a span,
+ *  LaTeX's `%` prefixes a line. So this is the one command that branches on
+ *  `syntaxOf` itself rather than looking a spelling up in `WRAPS`.
+ *
+ *  It exists because the editor had no way to write either. `defaultKeymap`
+ *  binds `Mod-/` to CodeMirror's `toggleComment`, which reads lang-markdown's
+ *  `commentTokens` and would write `<!-- -->` — HTML that this product's live
+ *  preview does not hide and its reading view renders as nothing, which is a
+ *  different thing from a comment. That binding has never fired: `App.tsx`
+ *  claims `Ctrl/Cmd+/` for the shortcut sheet in the capture phase, so the
+ *  wrong implementation was unreachable rather than wrong-on-screen. The key
+ *  here is `Mod-Alt-/`, following the Alt convention the pane toggles and the
+ *  daily note already moved to. */
+export function toggleComment(view: EditorView): boolean {
+  if (syntaxOf(view.state) === "latex") return toggleLinePrefix(view, "% ");
+  return toggleWrap(view, {
+    open: "%%",
+    close: "%%",
+    // Single-line by construction: `livePreview.ts`'s COMMENT_RE is
+    // `/%%([^%\n]*?)%%/g`, so a comment that spans a newline is not one this
+    // product hides. Matching what the renderer matches is the whole contract.
+    span: /%%[^%\n]*?%%/g,
+  });
+}
+
 export const formatKeymap: Extension = Prec.high(
   keymap.of([
+    { key: "Mod-Alt-/", run: toggleComment, preventDefault: true },
     { key: "Mod-b", run: format("bold"), preventDefault: true },
     { key: "Mod-i", run: format("italic"), preventDefault: true },
     { key: "Mod-u", run: format("underline"), preventDefault: true },

@@ -6,6 +6,7 @@ import { getDateCalendar, siteDate } from "./dates.ts";
 import { collectNotes } from "./editor/links.ts";
 import { t } from "./i18n.ts";
 import { useStore } from "./state.ts";
+import { applyDefaultTemplate } from "./templateActions.ts";
 import { toast } from "./toast.ts";
 
 /** Today's daily note path, in local time. */
@@ -55,6 +56,19 @@ export async function openDailyNote(): Promise<void> {
   if (!exists) {
     try {
       await createNote(path);
+      // THE DEFAULT TEMPLATE, and its absence here was a real hole: the
+      // setting is documented as applying to every note created from inside
+      // Vellum, `store.createNote` has applied it since it shipped
+      // (client/state.ts), and this — the one creation path with a keystroke
+      // of its own — reached past the store to the raw API and skipped it. So
+      // a vault with a configured template got it on every new note except the
+      // one it most obviously wanted it on. Called here rather than by
+      // switching to `store.createNote`, because that one is `guarded()` and
+      // would swallow the 409 this function deliberately falls through on.
+      // Before the note opens, for the reason the store states: the editor
+      // must load the templated content, not an empty buffer it is told about
+      // afterwards.
+      await applyDefaultTemplate(path);
       await store.loadTree();
       // Fresh daily note: land in the editor, not an empty reading pane.
       if (store.readingMode) store.setReadingMode(false);
