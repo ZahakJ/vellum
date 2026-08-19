@@ -356,13 +356,140 @@ export async function readNote(rel: string): Promise<NoteData> {
   }
 }
 
-export async function writeNote(rel: string, content: string): Promise<NoteData> {
+/** fsync the DIRECTORY, so the rename that published the file is itself on the
+ *  disk. Without it a crash can lose the rename while keeping the bytes, which
+ *  is the same lost save by a longer road. Best-effort on purpose: opening a
+ *  directory for reading is a POSIX affordance, and Windows refuses it — a
+ *  platform that cannot promise this must still be able to save a note. */
+async function syncDir(dir: string): Promise<void> {
+  try {
+    const handle = await fs.open(dir, "r");
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    /* not fatal: the bytes are already fsynced and the rename already ran */
+  }
+}
+
+/** Write a file the way a vault deserves: into a temp file beside it, then
+ *  `rename` over the target. A crash, a full disk or a `kill -9` mid-save then
+ *  leaves either the old note or the new one — never the empty file a bare
+ *  `writeFile` produces.
+ *
+ *  That empty file was not hypothetical. `fs.writeFile` opens with `O_TRUNC`:
+ *  the note is zero bytes from that call until the last byte lands, and every
+ *  mutating path in this product comes through here — the 600ms autosave in
+ *  `client/components/Editor.tsx` most of all, plus `createNote`, the publish
+ *  toggle, the frontmatter routes and the rename link-rewrite. The window is
+ *  small and it is opened hundreds of times an hour, on files whose whole
+ *  promise is that they are safe to keep for ten years.
+ *
+ *  Four details are load-bearing, and each one is a bug that a naive
+ *  write-then-rename would have introduced:
+ *
+ *  - **Same directory.** `rename` is only atomic within one filesystem, and a
+ *    vault subfolder can be a mount point. The temp file is always a sibling
+ *    of its target, never in `/tmp`.
+ *  - **Dot-prefixed.** `isIgnoredName` skips every name starting with "." for
+ *    the tree walk, the indexer and the chokidar watcher alike, so a save never
+ *    flickers a ghost note through the sidebar or the search index.
+ *  - **The target is realpath'd first.** `safeAbs` returns a LEXICAL path and
+ *    `fs.writeFile` follows a symlink; renaming over the link itself would
+ *    replace it with a regular file and silently break a vault that keeps a
+ *    note as a link to somewhere else inside the vault. Containment was already
+ *    proven by `safeAbs` → `resolvesInsideVault`, so following it here widens
+ *    nothing.
+ *  - **The mode is carried across.** `writeFile` on an existing file leaves its
+ *    permissions alone; a rename hands over the temp file's. Without the chmod
+ *    a note the owner had set to 0600 would quietly widen to whatever the umask
+ *    says the next time they typed in it.
+ *
+ *  Returns the published file's mtime, which is what `NoteData` carries and
+ *  what a future write precondition will compare against. */
+async function writeFileAtomic(abs: string, content: string): Promise<number> {
+  let target = abs;
+  try {
+    target = await fs.realpath(abs);
+  } catch {
+    /* absent: a new file at the lexical path is exactly right */
+  }
+  const dir = path.dirname(target);
+  const tmp = path.join(dir, `.${path.basename(target)}.${process.pid}.tmp`);
+  let mode: number | undefined;
+  try {
+    mode = (await fs.stat(target)).mode & 0o777;
+  } catch {
+    /* new file: let the umask decide, exactly as writeFile would have */
+  }
+  try {
+    const handle = await fs.open(tmp, "w");
+    try {
+      await handle.writeFile(content, "utf8");
+      // The bytes reach the disk BEFORE the rename publishes them. A rename
+      // over unsynced content is durable metadata pointing at nothing.
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    if (mode !== undefined) await fs.chmod(tmp, mode);
+    await fs.rename(tmp, target);
+  } catch (err) {
+    // Never leave the temp file behind: it is invisible to the app by design,
+    // so nothing else would ever clean it up.
+    await fs.rm(tmp, { force: true }).catch(() => {});
+    throw err;
+  }
+  await syncDir(dir);
+  return (await fs.stat(target)).mtimeMs;
+}
+
+/** Write a note.
+ *
+ *  `baseMtimeMs` is the OPTIONAL write precondition: the mtime the caller was
+ *  last handed for this file. When given and the file's current mtime differs,
+ *  the write is refused with `409 stale` and nothing is touched.
+ *
+ *  `NoteData` has carried `mtimeMs` since the beginning and no writer had ever
+ *  read it back, so saving was unconditional last-write-wins. That was fine
+ *  while exactly one editor existed; it stops being fine the moment a second
+ *  pane, a second window, Obsidian or a `git pull` can reach the same file,
+ *  because the loser's paragraphs went with nothing said — and `.trash/`
+ *  catches deletes, not overwrites.
+ *
+ *  Checked HERE rather than in the route so the gap between reading the mtime
+ *  and replacing the file is as small as this process can make it, and so it is
+ *  testable without standing a server up.
+ *
+ *  STRICT equality: the value compared against is one this server produced from
+ *  its own `stat`, so a tolerance would only serve to accept a real conflict on
+ *  filesystems whose mtime granularity is coarse — which is the wrong direction
+ *  to fail. It remains a net rather than a lock: two writes inside one tick of
+ *  a coarse clock are genuinely indistinguishable, and the contract says so. */
+export async function writeNote(
+  rel: string,
+  content: string,
+  baseMtimeMs?: number,
+): Promise<NoteData> {
   const relPath = assertMarkdown(rel);
   const abs = safeAbs(relPath);
+  if (baseMtimeMs !== undefined) {
+    let current: number | null = null;
+    try {
+      current = (await fs.stat(abs)).mtimeMs;
+    } catch {
+      // Gone since the caller read it. Writing recreates it, which is kinder
+      // than refusing to save work into a file somebody else deleted — and the
+      // caller hears about the deletion from the watcher either way.
+    }
+    if (current !== null && current !== baseMtimeMs) {
+      throw new VaultError(409, `Note changed on disk: ${relPath}`, "stale");
+    }
+  }
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, content, "utf8");
-  const stat = await fs.stat(abs);
-  return { path: relPath, content, mtimeMs: stat.mtimeMs };
+  return { path: relPath, content, mtimeMs: await writeFileAtomic(abs, content) };
 }
 
 /** True when `rel` names an existing note file. Callers that emit their own
@@ -854,10 +981,13 @@ async function readManifest(): Promise<Record<string, TrashRecord>> {
 async function writeManifest(entries: Record<string, TrashRecord>): Promise<void> {
   const dir = path.join(vaultRoot, TRASH_DIR);
   await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(
+  // Same treatment as a note, for a smaller but identical reason: a torn
+  // manifest is how a restore forgets where an entry came from. The reader
+  // above already degrades gracefully on a corrupt file, which is exactly the
+  // outcome this stops the writer from causing.
+  await writeFileAtomic(
     path.join(dir, TRASH_MANIFEST),
     `${JSON.stringify({ version: 1, entries }, null, 2)}\n`,
-    "utf8",
   );
 }
 
