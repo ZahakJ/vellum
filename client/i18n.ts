@@ -581,55 +581,56 @@ const DICT = {
 
   // ── Settings panel ──────────────────────────────────────────────────────
   settingsNote: {
-    en: "Empty fields inherit the server’s env defaults (shown greyed). Saved values win over env and apply live.",
-    ar: "الحقول الفارغة ترث إعدادات الخادم الافتراضية (تظهر باهتة). القيم المحفوظة تتقدم عليها وتسري فورًا.",
+    en: "An empty field inherits the server's default and shows it greyed.",
+    ar: "الحقل الفارغ يرث إعداد الخادم الافتراضي ويعرضه باهتًا.",
   },
   groupHome: { en: "Home page", ar: "الصفحة الرئيسية" },
   // Named after the switch that turns these two rows on, in the panel's own
   // off-note idiom: they are read by the blog shell and by nothing else, and
   // an app-layout instance opens the home note at "/" instead.
   homeBlogOnlyNotice: {
-    en: "Public layout is app: “/” opens the home note. Mode and the home banner are read by the blog layout only.",
-    ar: "التخطيط العام «تطبيق»: تفتح «/» ملاحظة الرئيسية. الوضع وغلاف الرئيسية يقرأهما تخطيط المدونة وحده.",
+    en: "Public layout is app, so “/” opens the home note instead.",
+    ar: "التخطيط العام «تطبيق»، فتفتح «/» ملاحظة الرئيسية بدلًا من ذلك.",
   },
   homeNote: {
-    en: "What “/” shows a visitor: an intro note, or a dashboard of the latest posts.",
-    ar: "ما تعرضه «/» للزائر: ملاحظة تعريفية، أو لوحة بأحدث المقالات.",
+    en: "What a visitor meets at the site root.",
+    ar: "ما يلقاه الزائر عند جذر الموقع.",
   },
 
   // ── Settings tabs ────────────────────────────────────────────────────────
   // One name and one sentence each: a rail of seven category nouns tells a
   // reader where things are, never what they decide.
-  tabIdentity: { en: "Site identity", ar: "هوية الموقع" },
-  tabAppearance: { en: "Appearance & language", ar: "المظهر واللغة" },
+  tabIdentity: {
+    en: "Identity",
+    ar: "الهوية",
+  },
   tabPublishing: { en: "Publishing & comments", ar: "النشر والتعليقات" },
   tabAbout: { en: "About", ar: "حول" },
   introIdentity: {
     en: "What the site is called and the marks it wears — name, tagline, footer, logo, favicon.",
     ar: "ما يُسمّى به الموقع والعلامات التي يحملها: الاسم وسطر التعريف والتذييل والشعار والأيقونة.",
   },
-  introAppearance: {
-    en: "What this instance looks and sounds like: the theme visitors arrive on (yours is separate and stays in this browser), the language the chrome speaks, and how dates and numbers are written.",
-    ar: "كيف تبدو هذه النسخة وبأي لسان تتكلم: السمة التي يصل إليها الزوار (واختيارك أنت منفصل ويبقى في هذا المتصفح)، ولغة الواجهة، وطريقة كتابة التواريخ والأرقام.",
-  },
   introPublishing: {
-    en: "What visitors are allowed to see, what they can say back, and what the front door shows them first.",
-    ar: "ما يُسمح للزوار برؤيته، وما يمكنهم قوله ردًّا، وما تعرضه عليهم الصفحة الأولى.",
+    en: "What visitors may see, and what the front door shows them.",
+    ar: "ما يُسمح للزوار برؤيته، وما تعرضه عليهم الصفحة الأولى.",
   },
   introAbout: {
-    en: "This instance: the version it runs, where it keeps things, and how much is in it.",
-    ar: "هذه النسخة: الإصدار الذي تعمل به، وأين تحفظ ملفاتها، وكم فيها.",
+    en: "The version, where it keeps files, and how much is in it.",
+    ar: "الإصدار، وأين يحفظ ملفاته، وكم فيه.",
   },
 
   // ── Appearance ───────────────────────────────────────────────────────────
   rowYourTheme: { en: "Your theme", ar: "سمتك" },
-  hintYourTheme: { en: "your own pick — this browser only", ar: "اختيارك أنت — في هذا المتصفح فقط" },
+  hintYourTheme: {
+    en: "Only this browser sees it; visitors get the site default.",
+    ar: "لا يراها إلا هذا المتصفح؛ ويصل الزوار إلى سمة الموقع.",
+  },
 
   // ── The visitor language switch, said out loud ───────────────────────────
   visitorSwitchHead: { en: "Visitor language switch", ar: "مبدّل لغة الزائر" },
   visitorSwitchNote: {
-    en: "Turning this on puts a small EN/ع switch in the public chrome. A reader who flips it changes the interface language and reading direction for themselves, and their choice is remembered in their own browser. Note text, dates and numerals never move: those stay in the site's own language and locale.",
-    ar: "تفعيل هذا يضع مبدّل ‎EN/ع‎ صغيرًا في واجهة الموقع العامة. من يبدّله من القراء يغيّر لغة الواجهة واتجاه القراءة لنفسه، ويُحفظ اختياره في متصفحه هو. أما نص الملاحظات والتواريخ والأرقام فلا تتغير: تبقى على لغة الموقع وإعداداته المحلية.",
+    en: "A reader who flips it changes their own interface, never the notes.",
+    ar: "من يقلبه يغيّر واجهته وحده، ولا تتغير الملاحظات.",
   },
   visitorSwitchOn: {
     en: "The switch is on: visitors see EN/ع in the public chrome.",
@@ -647,8 +648,8 @@ const DICT = {
   aboutSettingsFile: { en: "Settings file", ar: "ملف الإعدادات" },
   aboutFontsDir: { en: "Uploaded fonts", ar: "الخطوط المرفوعة" },
   aboutSettingsNote: {
-    en: "Everything in this panel is stored in that one file. Delete it and the instance falls back to the environment defaults it was started with.",
-    ar: "كل ما في هذه اللوحة يُحفظ في ذلك الملف وحده. إن حذفته عادت النسخة إلى الإعدادات البيئية التي بدأت بها.",
+    en: "Delete that file and the instance falls back to its env defaults.",
+    ar: "احذف ذلك الملف لتعود النسخة إلى إعداداتها البيئية الافتراضية.",
   },
   aboutContents: { en: "Contents", ar: "المحتويات" },
   aboutNotes: { en: "notes", ar: "ملاحظات" },
@@ -657,8 +658,8 @@ const DICT = {
   aboutTags: { en: "tags", ar: "وسوم" },
   aboutDocs: { en: "Documentation", ar: "التوثيق" },
   aboutDocsNote: {
-    en: "Every setting in this panel is written up in the project README, in the section named beside it.",
-    ar: "كل إعداد في هذه اللوحة موثّق في ملف ‎README‎ للمشروع، في القسم المذكور بجانبه.",
+    en: "Every setting here is written up in the project README.",
+    ar: "كل إعداد هنا موثّق في ملف ‎README‎ للمشروع.",
   },
   docSiteSettings: { en: "Settings", ar: "الإعدادات" },
   docTheming: { en: "Theming", ar: "السمات" },
@@ -669,27 +670,54 @@ const DICT = {
   docSync: { en: "Backup & sync", ar: "النسخ الاحتياطي والمزامنة" },
   rowSiteName: { en: "Site name", ar: "اسم الموقع" },
   rowTagline: { en: "Tagline", ar: "سطر التعريف" },
-  hintTagline: { en: "masthead subtitle", ar: "العنوان الفرعي في الترويسة" },
+  hintTagline: {
+    en: "Sits under the site name in the masthead.",
+    ar: "يظهر تحت اسم الموقع في الترويسة.",
+  },
   rowFooter: { en: "Footer", ar: "التذييل" },
-  hintFooter: { en: "{year} and {siteName} substituted", ar: "تستبدل {year} و{siteName}" },
+  hintFooter: {
+    en: "Every page prints this; {year} and {siteName} are substituted.",
+    ar: "يُطبع في كل صفحة؛ وتُستبدل {year} و{siteName}.",
+  },
   rowLogo: { en: "Logo", ar: "الشعار" },
-  hintLogo: { en: "replaces the text wordmark", ar: "يحل محل اسم الموقع النصي" },
+  hintLogo: {
+    en: "Replaces the text wordmark in the masthead.",
+    ar: "يحل محل اسم الموقع النصي في الترويسة.",
+  },
   rowFavicon: { en: "Favicon", ar: "أيقونة الموقع" },
-  hintFavicon: { en: "served at /favicon.ico", ar: "تُقدَّم على المسار ‎/favicon.ico‎" },
+  hintFavicon: {
+    en: "Served at /favicon.ico and shown in the browser tab.",
+    ar: "تُقدَّم على ‎/favicon.ico‎ وتظهر في لسان المتصفح.",
+  },
   rowMode: { en: "Mode", ar: "الوضع" },
-  hintMode: { en: "what visitors see at /", ar: "ما يراه الزوار في /" },
+  hintMode: {
+    en: "Show an intro note, or a list of recent posts.",
+    ar: "اعرض ملاحظة تعريفية أو قائمة بأحدث المقالات.",
+  },
   rowHomeNote: { en: "Home note", ar: "ملاحظة الرئيسية" },
-  hintHomeNote: { en: "intro note (note mode)", ar: "ملاحظة المقدمة (وضع «ملاحظة»)" },
+  hintHomeNote: {
+    en: "The note shown at the site root in note mode.",
+    ar: "الملاحظة التي تظهر عند جذر الموقع في وضع «ملاحظة».",
+  },
   rowHomeBanner: { en: "Home banner", ar: "غلاف الرئيسية" },
-  hintHomeBanner: { en: "hero image", ar: "صورة الواجهة" },
+  hintHomeBanner: {
+    en: "A wide image above the front page.",
+    ar: "صورة عريضة أعلى الصفحة الأولى.",
+  },
   rowDefaultTheme: { en: "Default theme", ar: "السمة الافتراضية" },
-  hintDefaultTheme: { en: "visitors without a stored choice", ar: "للزوار بلا اختيار محفوظ" },
+  hintDefaultTheme: {
+    en: "The theme a visitor with no stored choice arrives on.",
+    ar: "السمة التي يصل إليها زائر بلا اختيار محفوظ.",
+  },
   rowPublicLayout: { en: "Public layout", ar: "التخطيط العام" },
-  hintPublicLayout: { en: "visitor-facing shell", ar: "واجهة الزوار" },
+  hintPublicLayout: {
+    en: "Which shell a visitor lands in at the site root.",
+    ar: "الواجهة التي يصل إليها الزائر عند جذر الموقع.",
+  },
   rowOpenDesigner: { en: "Design the site", ar: "صمّم الموقع" },
   hintOpenDesigner: {
-    en: "Presets, sections, navigation and type — what \"Designed\" above renders from.",
-    ar: "قوالب وأقسام وتنقّل وطباعة — وهي ما يرسم منه خيار «مصمَّم» أعلاه.",
+    en: "Presets, sections, navigation and type for the designed layout.",
+    ar: "قوالب وأقسام وتنقّل وطباعة لتخطيط «مصمَّم».",
   },
   // TWO LANGUAGE ROWS, AND THE HINTS ARE WHERE THEY STOP BEING CONFUSABLE.
   // One value used to do both jobs, so an owner who wanted to edit in English
@@ -697,11 +725,14 @@ const DICT = {
   // now names WHOSE language it is: the site's row speaks for the readers, the
   // editor's row for the one person looking at it.
   rowLanguage: { en: "Site language", ar: "لغة الموقع" },
-  hintLanguage: { en: "what visitors read the site in", ar: "اللغة التي يقرأ بها الزوار الموقع" },
+  hintLanguage: {
+    en: "The language visitors read the site and its chrome in.",
+    ar: "اللغة التي يقرأ بها الزوار الموقع وواجهته.",
+  },
   rowEditorLanguage: { en: "Editor language", ar: "لغة المحرّر" },
   hintEditorLanguage: {
-    en: "your own chrome & direction — this browser only, and never what visitors get",
-    ar: "واجهتك أنت واتجاهها — في هذا المتصفح وحده، ولا يراه الزائر أبدًا",
+    en: "Sets your own interface here only, never what visitors read.",
+    ar: "يضبط واجهتك أنت هنا وحدها، لا ما يقرؤه الزوار.",
   },
   editorLangFollow: { en: "Follow site", ar: "تبعًا للموقع" },
   // The notes sidebar's edge. The segment labels name a PHYSICAL edge in both
@@ -709,16 +740,16 @@ const DICT = {
   // the pane left means the left of the screen, not "the trailing side".
   rowSidebarSide: { en: "Notes sidebar", ar: "لوحة الملاحظات" },
   hintSidebarSide: {
-    en: "which edge the tree sits on — Auto follows the language",
-    ar: "الحافة التي تجلس عليها الشجرة — «تلقائي» يتبع اللغة",
+    en: "Auto puts the tree on the reading direction's leading edge.",
+    ar: "«تلقائي» يضع الشجرة على الحافة الأمامية لاتجاه القراءة.",
   },
   sideAuto: { en: "Auto", ar: "تلقائي" },
   sideLeft: { en: "Left", ar: "يسار" },
   sideRight: { en: "Right", ar: "يمين" },
   rowLanguageFilter: { en: "Language filter", ar: "تصفية حسب اللغة" },
   hintLanguageFilter: {
-    en: "which notes the public site shows, by the language they are written in",
-    ar: "أي الملاحظات يعرضها الموقع العام، بحسب اللغة المكتوبة بها",
+    en: "Chooses which notes the public site shows, by their language.",
+    ar: "يحدد أي الملاحظات يعرضها الموقع العام بحسب لغتها.",
   },
   // The four modes. Their labels are the whole difference between a switch
   // whose consequence is guessable and the boolean that cost a real site
@@ -776,13 +807,19 @@ const DICT = {
   langEn: { en: "English", ar: "الإنجليزية" },
   rowLanguageToggle: { en: "Visitor switch", ar: "مبدّل الزائر" },
   hintLanguageToggle: {
-    en: "adds a public EN/ع switch readers can flip for themselves",
-    ar: "يضيف مبدّل ‎EN/ع‎ عامًا يغيّره القارئ لنفسه",
+    en: "Adds a public EN/ع switch each reader can flip.",
+    ar: "يضيف مبدّل ‎EN/ع‎ عامًا يقلبه كل قارئ لنفسه.",
   },
   rowDateLocale: { en: "Date locale", ar: "لغة التواريخ" },
-  hintDateLocale: { en: "BCP47 — post dates, RSS", ar: "‏‎BCP47‎ — تواريخ المقالات و‎RSS‎" },
+  hintDateLocale: {
+    en: "A BCP-47 tag; it formats post dates and RSS.",
+    ar: "وسم ‎BCP-47‎ يضبط صيغة تواريخ المقالات و‎RSS‎.",
+  },
   rowExcludeTags: { en: "Excluded tags", ar: "وسوم مستبعدة" },
-  hintExcludeTags: { en: "hidden from visitors, comma-separated", ar: "تخفى عن الزوار، مفصولة بفواصل" },
+  hintExcludeTags: {
+    en: "Notes carrying these tags are hidden from visitors; comma-separated.",
+    ar: "تُخفى الملاحظات الحاملة لهذه الوسوم عن الزوار، وتُفصل بفواصل.",
+  },
   // Same treatment as the language filter, for the same reason: this removes
   // topic pills — and with them whole topic pages — and used to do it in
   // silence.
@@ -799,7 +836,10 @@ const DICT = {
     ar: "كل الموضوعات على ملاحظاتك المنشورة، وعددها {total}، عامة.",
   },
   rowComments: { en: "Comments", ar: "التعليقات" },
-  hintComments: { en: "Marginalia under published notes", ar: "الحواشي أسفل الملاحظات المنشورة" },
+  hintComments: {
+    en: "Marginalia a reader can leave under a published note.",
+    ar: "حواشٍ يتركها القارئ أسفل الملاحظة المنشورة.",
+  },
   // The home note is the front door of a blog-mode site, and it can point at
   // a note visitors cannot see — which renders a blank homepage and says
   // nothing. Now it says something.
@@ -859,7 +899,10 @@ const DICT = {
     ar: "تُعرض كل اللغات — لا شيء منشور باللغة التي تقرأ بها.",
   },
   rowShareButtons: { en: "Share buttons", ar: "أزرار المشاركة" },
-  hintShareButtons: { en: "Social share row under blog articles", ar: "صف المشاركة أسفل المقالات" },
+  hintShareButtons: {
+    en: "A row of share links under every blog article.",
+    ar: "صف روابط مشاركة أسفل كل مقالة في المدونة.",
+  },
   phVaultImageOrUrl: {
     en: "vault image path or https:// URL",
     ar: "مسار صورة في الخزانة أو رابط ‎https://‎",
@@ -873,7 +916,6 @@ const DICT = {
   // "inherit (en)" was honest about precedence and silent about its source:
   // the owner could read WHICH value was in force and never learn WHERE it
   // came from, or where to change it outside the panel.
-  inheritedFromEnv: { en: "inherited from {env}", ar: "موروث من {env}" },
   on: { en: "on", ar: "مفعل" },
   off: { en: "off", ar: "معطل" },
   // Enum CHOICES a reader picks between, so they are copy — the same way the
@@ -1028,6 +1070,64 @@ const DICT = {
   openNoteArrow: { en: "Open note ↗", ar: "فتح الملاحظة ↗" },
   docTitleGraph: { en: "Graph", ar: "المخطط" },
 
+  // ── The tab context menu ─────────────────────────────────────────────────
+  // Right-click a tab, or Shift+F10 / the Menu key on the focused one. Every
+  // row that closes more than one tab NAMES what it is about to take, and no
+  // row takes a pinned tab — one promise, spelled the same way in all of them,
+  // so a reader never has to remember which rows respect a pin.
+  tabActions: { en: "Tab actions", ar: "إجراءات التبويب" },
+  tmClose: { en: "Close", ar: "إغلاق" },
+  tmCloseOthers: { en: "Close others", ar: "إغلاق الأخرى" },
+  tmCloseAfter: { en: "Close tabs after this one", ar: "إغلاق التبويبات بعد هذا" },
+  tmCloseAll: { en: "Close every note in this window", ar: "إغلاق كل الملاحظات في هذه النافذة" },
+  // "{count}" arrives already spelled by countPhrase(n, "unsaved"), so Arabic
+  // agreement is right for one, two, a few and many — a bare digit dropped
+  // into the sentence would be wrong in three of those four.
+  tmCloseOthersN: { en: "Close others ({count})", ar: "إغلاق الأخرى ({count})" },
+  tmCloseAfterN: { en: "Close tabs after this one ({count})", ar: "إغلاق التبويبات بعد هذا ({count})" },
+  tmCloseAllN: { en: "Close every note in this window ({count})", ar: "إغلاق كل الملاحظات في هذه النافذة ({count})" },
+  tmPin: { en: "Pin", ar: "تثبيت" },
+  tmUnpin: { en: "Unpin", ar: "إلغاء التثبيت" },
+  tmCopyPath: { en: "Copy path", ar: "نسخ المسار" },
+  tmPathCopied: { en: "Path copied", ar: "تم نسخ المسار" },
+  // The pin glyph is decoration; these are the words a screen reader gets.
+  tabPinned: { en: "pinned", ar: "مثبت" },
+  tabPreview: { en: "preview", ar: "معاينة" },
+
+  // ── The editor's own panels, which live inside our dependencies ─────────
+  // CodeMirror renders the find panel, the go-to-line panel, the completion
+  // list and the fold placeholders itself, in English, from string literals in
+  // node_modules — so `check-i18n` cannot see them and never could: its scan
+  // root is `client/`. They rendered as English chrome inside a fully mirrored
+  // Arabic shell, which is the one place in the product where the translation
+  // simply stopped. `EditorState.phrases` is CodeMirror's own hook for this;
+  // `client/editor/searchPhrases.ts` builds the table from these keys, which is
+  // what brings the strings back under the gate.
+  cmFind: { en: "Find", ar: "بحث" },
+  cmReplace: { en: "Replace", ar: "استبدال" },
+  cmNext: { en: "next", ar: "التالي" },
+  cmPrevious: { en: "previous", ar: "السابق" },
+  cmAll: { en: "all", ar: "الكل" },
+  cmMatchCase: { en: "match case", ar: "مطابقة حالة الأحرف" },
+  cmRegexp: { en: "regexp", ar: "تعبير نمطي" },
+  cmByWord: { en: "by word", ar: "كلمة كاملة" },
+  cmReplaceAll: { en: "replace all", ar: "استبدال الكل" },
+  cmClose: { en: "close", ar: "إغلاق" },
+  cmCurrentMatch: { en: "current match", ar: "المطابقة الحالية" },
+  cmGoToLine: { en: "Go to line", ar: "الانتقال إلى سطر" },
+  cmGo: { en: "go", ar: "انتقال" },
+  cmOnLine: { en: "on line", ar: "في السطر" },
+  // `$` is CodeMirror's own placeholder, not tf()'s `{name}` — these strings
+  // are handed to the library, which substitutes into them itself. Both sides
+  // must keep it; check-i18n's placeholder parity only watches `{…}`.
+  cmReplacedMatches: { en: "replaced $ matches", ar: "استُبدلت $ مطابقة" },
+  cmReplacedOnLine: { en: "replaced match on line $", ar: "استُبدلت مطابقة في السطر $" },
+  cmCompletions: { en: "Completions", ar: "اقتراحات" },
+  cmControlChar: { en: "Control character", ar: "محرف تحكم" },
+  cmFoldedCode: { en: "folded code", ar: "شيفرة مطوية" },
+  cmFoldTo: { en: "to", ar: "إلى" },
+  cmUnfold: { en: "unfold", ar: "بسط الطي" },
+
   // ── Editor slash menu ("/" at line start) ───────────────────────────────
   // Row titles only. The match key stays ASCII (see slashMenu.ts) and the
   // syntax previews ("- [ ]", "---") are markdown, not copy.
@@ -1039,6 +1139,25 @@ const DICT = {
   slashTaskList: { en: "Task list", ar: "قائمة مهام" },
   slashMathBlock: { en: "Math block", ar: "كتلة معادلات" },
   slashMathDetail: { en: "$$ display math $$", ar: "$$ معادلة مستقلة $$" },
+  // ── Aliases (a note's other names) ──────────────────────────────────────
+  // Frontmatter `aliases:` makes one note answer to several names. Every
+  // string here exists to say WHICH name was involved: Obsidian resolves an
+  // alias silently, so a search result whose words appear nowhere in the note,
+  // or a completion row for a name the reader has never seen on a file, reads
+  // as a bug rather than as a feature working.
+  aliasCompletionDetail: { en: "alias of {title}", ar: "اسم بديل لـ {title}" },
+  searchMatchedAlias: { en: "matched alias “{alias}”", ar: "طابَق الاسم البديل “{alias}”" },
+  // After a rename, the old title stops naming anything — every [[link]] and
+  // every published URL that used it dangles. The offer is the whole point:
+  // one button, and the note keeps answering to the name it had.
+  renameKeepAliasToast: {
+    en: "Renamed — “{title}” no longer names this note.",
+    ar: "أُعيدت التسمية — لم يعد “{title}” اسمًا لهذه الملاحظة.",
+  },
+  renameKeepAliasAction: { en: "Keep as alias", ar: "الاحتفاظ كاسم بديل" },
+  renameAliasKeptToast: { en: "“{title}” still finds this note.", ar: "لا يزال “{title}” يصل إلى هذه الملاحظة." },
+  renameAliasFailed: { en: "Could not keep “{title}” as an alias.", ar: "تعذّر الاحتفاظ بـ “{title}” كاسم بديل." },
+
   slashDivider: { en: "Divider", ar: "فاصل" },
   slashDate: { en: "Date", ar: "تاريخ" },
   slashDailyLink: { en: "Daily note link", ar: "رابط ملاحظة اليوم" },
@@ -1111,18 +1230,25 @@ const DICT = {
   // stops previewing what it claims to. They live in SettingsModal.tsx.
   groupTypography: { en: "Typography", ar: "الطباعة" },
   // Sub-heads inside the merged Appearance & language tab.
-  groupTheme: { en: "Theme", ar: "السمة" },
-  groupLanguage: { en: "Language & direction", ar: "اللغة والاتجاه" },
   typographyNote: {
-    en: "Catalog faces are fetched once when you save, then served from your own machine — visitors never contact an external font host. A face that is not in the catalog can be uploaded below and is offered in every slot.",
-    ar: "تُجلب خطوط الكتالوج مرة واحدة عند الحفظ، ثم تُقدَّم من جهازك — لا يتصل الزوار بأي مضيف خطوط خارجي. وما ليس في الكتالوج يمكن رفعه أدناه ليُتاح في كل الخانات.",
+    en: "Faces are fetched once when you save, then served from this machine.",
+    ar: "تُجلب الخطوط مرة واحدة عند الحفظ، ثم تُقدَّم من هذا الجهاز.",
   },
   rowFontProse: { en: "Reading text", ar: "نص القراءة" },
-  hintFontProse: { en: "reading column, editor prose", ar: "عمود القراءة ونص المحرر" },
+  hintFontProse: {
+    en: "Sets the reading column and the editor's prose.",
+    ar: "يضبط عمود القراءة ونص المحرر.",
+  },
   rowFontUi: { en: "Interface", ar: "الواجهة" },
-  hintFontUi: { en: "sidebar, tabs, panels", ar: "الشريط الجانبي والألسنة واللوحات" },
+  hintFontUi: {
+    en: "Sets the sidebar, the tabs and every panel.",
+    ar: "يضبط الشريط الجانبي والألسنة وكل اللوحات.",
+  },
   rowFontMono: { en: "Code", ar: "الشيفرة" },
-  hintFontMono: { en: "code blocks, raw markdown", ar: "كتل الشيفرة وماركداون الخام" },
+  hintFontMono: {
+    en: "Sets code blocks and raw markdown.",
+    ar: "يضبط كتل الشيفرة وماركداون الخام.",
+  },
   // The Arabic slot is a different KIND of control from the three above it —
   // one face that answers for Arabic letters inside all of them — so it gets
   // its own sub-heading rather than a fourth row at the same visual rank.
@@ -1133,8 +1259,8 @@ const DICT = {
   },
   rowFontArabic: { en: "Arabic face", ar: "الخط" },
   hintFontArabic: {
-    en: "naskh for reading, kufi for chrome",
-    ar: "النسخ للقراءة، والكوفي للواجهة",
+    en: "One face for the Arabic letters inside all three slots.",
+    ar: "خط واحد للحروف العربية داخل الخانات الثلاث.",
   },
   fontSystem: { en: "system (no webfont)", ar: "خط النظام (بلا تنزيل)" },
   fontGroupSerif: { en: "Serif", ar: "بحرف مذيّل" },
@@ -1166,8 +1292,8 @@ const DICT = {
   // the only possible answer for a licensed Arabic face.
   fontCustomHead: { en: "Your own fonts", ar: "خطوطك الخاصة" },
   fontCustomNote: {
-    en: "Upload a face you own and it appears under “Your fonts” in every slot above — reading text, interface, code and Arabic. Files are kept in your instance data directory (named in About) and served from this machine, like the catalog.",
-    ar: "ارفع خطًا تملكه ليظهر تحت «خطوطك» في كل خانة أعلاه — نص القراءة والواجهة والشيفرة والعربية. تُحفظ الملفات في مجلد بيانات النسخة (المذكور في «حول») وتُقدَّم من هذا الجهاز، كما في الكتالوج.",
+    en: "Upload a face you own and every slot above will offer it.",
+    ar: "ارفع خطًا تملكه لتعرضه كل الخانات أعلاه.",
   },
   dropFont: { en: "Drop a font file, or click to choose", ar: "أفلت ملف خط، أو انقر للاختيار" },
   dropFontHint: {
@@ -1222,8 +1348,8 @@ const DICT = {
   // set against the specimen block two rows above it.
   rowSizeAdjust: { en: "Arabic size match", ar: "مطابقة حجم العربي" },
   hintSizeAdjust: {
-    en: "scales the Arabic face against the Latin one",
-    ar: "يضبط حجم الخط العربي مقابل اللاتيني",
+    en: "Scales the Arabic face against the Latin one beside it.",
+    ar: "يضبط حجم الخط العربي مقابل اللاتيني المجاور له.",
   },
   sizeAdjustAuto: { en: "auto", ar: "تلقائي" },
   errSizeAdjust: {
@@ -1234,11 +1360,14 @@ const DICT = {
   // ── Backup & sync (git) ─────────────────────────────────────────────────
   groupSync: { en: "Backup & sync", ar: "النسخ الاحتياطي والمزامنة" },
   syncNote: {
-    en: "Commit the vault and push it to a private git remote you own. Off until you turn it on.",
-    ar: "يودع الخزانة ويرفعها إلى مستودع git خاص بك. معطّل حتى تُفعّله.",
+    en: "Commits the vault and pushes it to a private git remote.",
+    ar: "يودع الخزانة ويرفعها إلى مستودع git خاص بك.",
   },
   rowSyncEnabled: { en: "Backup", ar: "النسخ الاحتياطي" },
-  hintSyncEnabled: { en: "master switch", ar: "المفتاح الرئيسي" },
+  hintSyncEnabled: {
+    en: "Turns the rows below on and starts backing the vault up.",
+    ar: "يفعّل الصفوف أدناه ويبدأ نسخ الخزانة احتياطيًا.",
+  },
   // Shown in place of the live section while the master switch is off: six
   // fields and two buttons at full contrast, all of them inert, read as a
   // configured-and-running backup at a glance.
@@ -1250,18 +1379,27 @@ const DICT = {
   hintSyncRemote: { en: "https:// or git@host:path", ar: "‎https://‎ أو ‎git@host:path‎" },
   phSyncRemote: { en: "https://host/you/vault.git", ar: "https://المضيف/vault.git" },
   rowSyncBranch: { en: "Branch", ar: "الفرع" },
-  hintSyncBranch: { en: "committed and pushed", ar: "الفرع الذي يُودع ويُرفع" },
+  hintSyncBranch: {
+    en: "The branch this vault is committed and pushed to.",
+    ar: "الفرع الذي تُودع فيه الخزانة وتُرفع.",
+  },
   rowSyncAuth: { en: "Authentication", ar: "المصادقة" },
-  hintSyncAuth: { en: "how this server signs in", ar: "كيف يسجّل الخادم دخوله" },
+  hintSyncAuth: {
+    en: "How this server signs in to the remote.",
+    ar: "كيف يسجّل هذا الخادم دخوله إلى المستودع.",
+  },
   authSsh: { en: "SSH keys (this machine)", ar: "مفاتيح SSH (هذا الجهاز)" },
   authToken: { en: "Access token", ar: "رمز وصول" },
   rowSyncUser: { en: "Username", ar: "اسم المستخدم" },
-  hintSyncUser: { en: "paired with the token", ar: "مقترن بالرمز" },
+  hintSyncUser: {
+    en: "The username the access token belongs to.",
+    ar: "اسم المستخدم الذي يخصّه رمز الوصول.",
+  },
   phSyncUser: { en: "your git username", ar: "اسم مستخدم git الخاص بك" },
   rowSyncToken: { en: "Access token", ar: "رمز الوصول" },
   hintSyncToken: {
-    en: "write-only; stored outside the vault",
-    ar: "للكتابة فقط؛ يُحفظ خارج الخزانة",
+    en: "Write-only; it is stored outside the vault.",
+    ar: "للكتابة فقط؛ ويُحفظ خارج الخزانة.",
   },
   phTokenStored: { en: "replace the stored token", ar: "استبدال الرمز المحفوظ" },
   phTokenNew: { en: "paste a token", ar: "الصق رمزًا" },
@@ -1271,21 +1409,27 @@ const DICT = {
   tokenCleared: { en: "Token cleared", ar: "تم مسح الرمز" },
   rowSyncPull: { en: "Pull first", ar: "السحب أولًا" },
   hintSyncPull: {
-    en: "fast-forward only; never merges",
-    ar: "تقديم سريع فقط؛ لا يدمج أبدًا",
+    en: "Fast-forwards from the remote before pushing; it never merges.",
+    ar: "يقدّم من المستودع قبل الرفع، ولا يدمج أبدًا.",
   },
   // "Every" + a bare "0" + "minutes; 0 = manual only" made the reader decode a
   // magic number to learn the setting was off. The choice is a small closed
   // set, so it is a select whose options are sentences.
   rowSyncInterval: { en: "Automatic sync", ar: "المزامنة التلقائية" },
-  hintSyncInterval: { en: "unattended, in the background", ar: "تلقائيًا في الخلفية" },
+  hintSyncInterval: {
+    en: "How often the vault is backed up unattended.",
+    ar: "كم مرة تُنسخ الخزانة احتياطيًا تلقائيًا.",
+  },
   syncIntervalManual: { en: "Manual only", ar: "يدويًا فقط" },
   syncIntervalMinutes: { en: "Every {count} minutes", ar: "كل {count} دقيقة" },
   syncIntervalHourly: { en: "Every hour", ar: "كل ساعة" },
   syncIntervalHours: { en: "Every {count} hours", ar: "كل {count} ساعات" },
   syncIntervalDaily: { en: "Once a day", ar: "مرة كل يوم" },
   rowSyncStatus: { en: "Status", ar: "الحالة" },
-  hintSyncStatus: { en: "this vault's repository", ar: "مستودع هذه الخزانة" },
+  hintSyncStatus: {
+    en: "What this vault's repository looks like right now.",
+    ar: "حال مستودع هذه الخزانة الآن.",
+  },
   syncNow: { en: "Sync now", ar: "زامن الآن" },
   // Precise, like every other label in this column — and it LEAVES once the
   // vault is a repository rather than sitting there greyed forever.
@@ -1373,7 +1517,6 @@ const DICT = {
   // its own).
   filterPlaceholder: { en: "Filter…", ar: "تصفية…" },
   remove: { en: "Remove", ar: "إزالة" },
-  inheritedBadge: { en: "inherited", ar: "موروث" },
 
   // ── Mode indicators ─────────────────────────────────────────────────────
   // A mode that removes the ability to type must say so where the eye already
@@ -1751,14 +1894,14 @@ const DICT = {
   templatesSection: { en: "Templates", ar: "القوالب" },
   templatesFolderLabel: { en: "Templates folder", ar: "مجلد القوالب" },
   templatesFolderHint: {
-    en: "Vault-relative folder holding your template notes. Its notes never appear in the blog’s post list. Leave it empty and a folder named Templates is found automatically.",
-    ar: "مجلد داخل الخزانة يحوي ملاحظات القوالب. لا تظهر ملاحظاته في قائمة مقالات المدونة. اتركه فارغًا ليُكتشف مجلد باسم Templates تلقائيًا.",
+    en: "Template notes live here and never reach the blog's post list.",
+    ar: "تعيش ملاحظات القوالب هنا ولا تصل إلى قائمة مقالات المدونة.",
   },
   templatesDetectedHint: { en: "Found automatically: {folder}", ar: "اكتُشف تلقائيًا: {folder}" },
   defaultTemplateLabel: { en: "Template for new notes", ar: "قالب الملاحظات الجديدة" },
   defaultTemplateHint: {
-    en: "Applied to every note created from here. Off by default — new notes are born empty.",
-    ar: "يُطبَّق على كل ملاحظة تُنشأ من هنا. معطّل افتراضيًا — تُنشأ الملاحظات فارغة.",
+    en: "Applied to every note made from here; off by default.",
+    ar: "يُطبَّق على كل ملاحظة تُنشأ من هنا، وهو معطّل افتراضيًا.",
   },
   templatePlaceholdersHint: {
     en: "Placeholders: {{date}}, {{time}}, {{title}}, {{Title}}, {{date:FORMAT}}, {{hdate}}. Anything else is left as written.",
@@ -1791,49 +1934,49 @@ const DICT = {
   groupCalendar: { en: "Calendar", ar: "التقويم" },
   rowDateCalendar: { en: "Date calendar", ar: "تقويم التواريخ" },
   hintDateCalendar: {
-    en: "Which calendar every date a reader sees is printed in — post dates, comment timestamps, the backup badge. Hijri dates use Umm al-Qura, the calendar printed on the calendars people own.",
-    ar: "التقويم الذي تُطبع به كل تواريخ الموقع الظاهرة للقارئ: تواريخ المقالات، وأوقات التعليقات، وشارة النسخ الاحتياطي. التواريخ الهجرية بحساب أم القرى، وهو التقويم المطبوع في الرزنامات المتداولة.",
+    en: "The calendar every date on the site is printed in.",
+    ar: "التقويم الذي تُطبع به كل تواريخ الموقع.",
   },
   calGregorian: { en: "Gregorian", ar: "ميلادي" },
   calHijri: { en: "Hijri", ar: "هجري" },
   calBoth: { en: "Both", ar: "كلاهما" },
   calSpecimen: { en: "Today reads", ar: "تاريخ اليوم" },
   calFeedNote: {
-    en: "The RSS feed is unaffected: its XML keeps RFC-822 Gregorian dates, which is what an aggregator parses.",
-    ar: "لا تتأثر خلاصة RSS: يبقى ملف XML بتواريخ ميلادية بصيغة RFC-822، وهي ما يقرأه القارئ الآلي.",
+    en: "RSS keeps Gregorian RFC-822 dates, which is what aggregators parse.",
+    ar: "تبقى تواريخ ‎RSS‎ ميلادية بصيغة ‎RFC-822‎، وهي ما يقرأه القارئ الآلي.",
   },
   calArabicSuggest: {
-    en: "This instance speaks Arabic, and many Arabic sites date their writing by the Hijri calendar. A suggestion, not a default — nothing changes until you pick it.",
-    ar: "لغة هذا الموقع العربية، وكثير من المواقع العربية تؤرّخ كتاباتها بالتقويم الهجري. هذا اقتراح لا إعداد افتراضي: لا يتغيّر شيء حتى تختاره.",
+    en: "Many Arabic sites date their writing by the Hijri calendar.",
+    ar: "كثير من المواقع العربية تؤرّخ كتاباتها بالتقويم الهجري.",
   },
 
   // Settings → Appearance & language: note direction and alignment.
   groupNoteLayout: { en: "Note layout", ar: "تخطيط الملاحظات" },
   rowTextDirection: { en: "Text direction", ar: "اتجاه النص" },
   hintTextDirection: {
-    en: "Base direction for note prose in the editor, the reading view and blog articles. Auto lets every paragraph decide from its own first letter, which is what a mixed vault wants.",
-    ar: "الاتجاه الأساسي لنص الملاحظات في المحرر وعرض القراءة ومقالات المدونة. «تلقائي» يترك كل فقرة تقرر بحسب أول حرف فيها، وهو ما يناسب خزانة تجمع اللغتين.",
+    en: "Base direction for note prose; Auto lets each paragraph decide.",
+    ar: "الاتجاه الأساسي لنص الملاحظات؛ و«تلقائي» يترك القرار لكل فقرة.",
   },
   rowTextAlign: { en: "Text alignment", ar: "محاذاة النص" },
   hintTextAlign: {
-    en: "Where lines sit inside the column. Code blocks, tables and display maths are never centred or justified, whatever this says.",
-    ar: "موضع الأسطر داخل العمود. لا تُوسَّط كتل الشيفرة والجداول والمعادلات المعروضة ولا تُضبط مهما كان هذا الإعداد.",
+    en: "Where lines sit in the column; code and tables never move.",
+    ar: "موضع الأسطر في العمود؛ ولا تتحرك الشيفرة والجداول.",
   },
   noteLayoutOverride: {
-    en: "Any note overrides both from its own frontmatter — dir: rtl, align: justify — and a note that does says so in its properties card and in the status bar.",
-    ar: "تستطيع أي ملاحظة تجاوز الإعدادين من ترويستها — dir: rtl و align: justify — والملاحظة التي تفعل ذلك تعلنه في بطاقة خصائصها وفي شريط الحالة.",
+    en: "A note's own frontmatter — dir, align — overrides both.",
+    ar: "تتجاوزهما ترويسة الملاحظة نفسها — dir و align.",
   },
 
   // Settings → Appearance & language: localised tag labels.
   groupTagLabels: { en: "Tag labels", ar: "تسميات الوسوم" },
   tagLabelsNote: {
-    en: "What a tag is CALLED on the front end. The vault keeps its own tags exactly as written: links, addresses, hidden tags and the language filter all go on matching the real value, search answers to both spellings, and no note is ever rewritten.",
-    ar: "الاسم الذي يظهر به الوسم للقارئ. تبقى وسوم الخزانة كما كُتبت تمامًا: الروابط والعناوين والوسوم المخفية وتصفية اللغة كلها تطابق القيمة الأصلية، والبحث يستجيب للتهجئتين، ولا يُعاد كتابة أي ملاحظة.",
+    en: "Display only: links, search and the vault keep the real tag.",
+    ar: "للعرض فقط: تحتفظ الروابط والبحث والخزانة بالوسم الأصلي.",
   },
   rowTagsFolder: { en: "Tags folder", ar: "مجلد الوسوم" },
   hintTagsFolder: {
-    en: "Where a tag’s own page lives. A note there may carry a labels map in its frontmatter, and it outranks the table below — so the naming travels with the vault.",
-    ar: "المجلد الذي تعيش فيه صفحة الوسم. يمكن لملاحظة فيه أن تحمل خريطة labels في ترويستها، وهي تتقدّم على الجدول أدناه — فتسافر التسمية مع الخزانة نفسها.",
+    en: "Where a tag's own page lives; that page names the tag.",
+    ar: "المجلد الذي تعيش فيه صفحة الوسم، وهي التي تسمّيه.",
   },
   /** The table's own row label. NOT the group heading it sits under — a row
    *  whose label repeats the heading two lines above it says nothing twice. */
@@ -1850,8 +1993,8 @@ const DICT = {
   tagLabelsTagPlaceholder: { en: "canonical tag", ar: "الوسم الأصلي" },
   tagLabelsLabelPlaceholder: { en: "shown instead", ar: "المعروض بدلًا منه" },
   tagLabelsPageWins: {
-    en: "A tag with its own page in the tags folder is named there instead — this table is for the tags that have none.",
-    ar: "الوسم الذي له صفحة في مجلد الوسوم يُسمّى هناك بدلًا من هنا — وهذا الجدول للوسوم التي لا صفحة لها.",
+    en: "A tag with its own page is named there instead.",
+    ar: "الوسم الذي له صفحة خاصة يُسمّى فيها بدلًا من هنا.",
   },
 
   // ── Site design engine (client/design/) ─────────────────────────────────
@@ -2550,8 +2693,8 @@ const DICT = {
   groupAttachments: { en: "Attachments", ar: "المرفقات" },
   rowAttachmentLocation: { en: "New attachments", ar: "المرفقات الجديدة" },
   hintAttachmentLocation: {
-    en: "Where an upload is written. Existing attachments are never moved.",
-    ar: "أين يُكتب الملف المرفوع. لا تُنقل المرفقات الموجودة أبدًا.",
+    en: "Where an upload is written; existing attachments never move.",
+    ar: "أين يُكتب الملف المرفوع؛ ولا تُنقل المرفقات الموجودة.",
   },
   locVaultRoot: { en: "Vault root", ar: "جذر الخزانة" },
   locSameFolder: { en: "Same folder as the note", ar: "نفس مجلد الملاحظة" },
@@ -2559,12 +2702,12 @@ const DICT = {
   locSpecified: { en: "Specified folder", ar: "مجلد محدد" },
   rowAttachmentFolder: { en: "Attachment folder", ar: "مجلد المرفقات" },
   hintAttachmentFolder: {
-    en: "Vault-relative; created on demand",
-    ar: "نسبي إلى الخزانة؛ يُنشأ عند الحاجة",
+    en: "A vault-relative folder, created when it is first needed.",
+    ar: "مجلد نسبي إلى الخزانة يُنشأ عند أول حاجة إليه.",
   },
   hintAttachmentSubfolder: {
-    en: "Name only; sits inside the note’s folder",
-    ar: "الاسم فقط؛ داخل مجلد الملاحظة",
+    en: "A folder name; it sits inside the note's own folder.",
+    ar: "اسم مجلد يقع داخل مجلد الملاحظة نفسها.",
   },
   errFolderTraversal: {
     en: "Must stay inside the vault (no “..”)",
@@ -2582,6 +2725,277 @@ const DICT = {
     en: "Control characters are not allowed",
     ar: "لا يُسمح بمحارف التحكم",
   },
+  // The status bar's live counts. "selected" qualifies the two numbers before
+  // it, so it reads as "412 words · 2,310 characters selected" — the word order
+  // Arabic wants too, which is why it is a suffix in both and not a prefix
+  // hardcoded in JSX.
+  statusSelected: { en: "selected", ar: "محدد" },
+  statusCarets: { en: "{n} carets", ar: "{n} مؤشرات" },
+
+  // ── The sentence: multi-cursor, comments ─────────────────────────────────
+  scComment: { en: "Comment out the selection", ar: "تعليق على التحديد" },
+  scSelectNext: { en: "Select the next occurrence", ar: "تحديد التكرار التالي" },
+  scAddCursor: { en: "Add a cursor", ar: "إضافة مؤشر" },
+  scAddCursorHow: { en: "Ctrl/Cmd-click", ar: "نقر مع Ctrl/Cmd" },
+  scColumnSelect: { en: "Select a column", ar: "تحديد عمود" },
+  scColumnSelectHow: { en: "Alt-drag", ar: "سحب مع Alt" },
+
+  // ── Settings → This device ──────────────────────────────────────────────
+  tabDevice: { en: "This device", ar: "هذا الجهاز" },
+  introDevice: {
+    en: "Preferences kept in this browser; each one saves itself on click.",
+    ar: "تفضيلات تُحفظ في هذا المتصفح، ويُحفظ كل منها فور النقر.",
+  },
+  groupEditing: { en: "Editing", ar: "التحرير" },
+  rowVimKeys: { en: "Vim keys", ar: "مفاتيح Vim" },
+  hintVimKeys: {
+    en: "Modal editing: Normal, Insert and Visual keys in the editor.",
+    ar: "تحرير بالأوضاع: مفاتيح Normal وInsert وVisual في المحرر.",
+  },
+  hintSelToolbar: {
+    en: "Formatting buttons appear over text you select.",
+    ar: "تظهر أزرار التنسيق فوق النص الذي تحدده.",
+  },
+  rowHeadingNumbers: { en: "Numbered headings", ar: "ترقيم العناوين" },
+  hintHeadingNumbers: {
+    en: "Numbers sections in the reading view; a note can override it.",
+    ar: "يرقّم الأقسام في عرض القراءة، وللملاحظة أن تتجاوزه.",
+  },
+
+  // ── Settings → tab names that had none ──────────────────────────────────
+  tabLanguage: { en: "Language & dates", ar: "اللغة والتواريخ" },
+  introLanguage: {
+    en: "What the site speaks, and how it writes dates and tags.",
+    ar: "بأي لسان يتكلم الموقع، وكيف يكتب التواريخ والوسوم.",
+  },
+  tabVault: { en: "Vault", ar: "الخزانة" },
+  introVault: {
+    en: "Which folders this instance writes templates, uploads and tag pages into.",
+    ar: "المجلدات التي يكتب فيها هذا الموقع القوالب والمرفوعات وصفحات الوسوم.",
+  },
+
+  // ── Settings → the ⓘ disclosure (replaces the badge and the env line) ────
+  // `envDecidedBy` and `envOverridden` are SPLIT on {env}, not interpolated by
+  // tf(): the variable name takes the mono face and its own <bdi>, which one
+  // text run cannot do. Keep the placeholder in both languages.
+  envDisclose: { en: "Environment variable", ar: "متغيّر البيئة" },
+  envDecidedBy: {
+    en: "This field is empty, so {env} decides.",
+    ar: "هذا الحقل فارغ، فيقرر {env}.",
+  },
+  envOverridden: {
+    en: "Saved here, so {env} is ignored until you clear it.",
+    ar: "محفوظ هنا، فيُتجاهل {env} حتى تُفرغه.",
+  },
+  envCopyLine: { en: "Copy as .env line", ar: "نسخ كسطر ‎.env‎" },
+
+  // ── Menu titles ──────────────────────────────────────────────────────────
+  menuFile: { en: "File", ar: "ملف" },
+  menuEdit: { en: "Edit", ar: "تحرير" },
+  menuView: { en: "View", ar: "عرض" },
+  menuGo: { en: "Go", ar: "انتقال" },
+  menuWindow: { en: "Window", ar: "نافذة" },
+  menuHelp: { en: "Help", ar: "مساعدة" },
+  // New here.
+  menuNewWindow: { en: "New window", ar: "نافذة جديدة" },
+  menuOpenVault: { en: "Open vault…", ar: "فتح خزانة…" },
+  menuRecentVaults: { en: "Recent vaults", ar: "الخزائن الأخيرة" },
+  menuClearRecent: { en: "Clear the list", ar: "مسح القائمة" },
+  menuNoRecent: { en: "No vaults yet", ar: "لا خزائن بعد" },
+  menuRevealVault: { en: "Show the vault in the file manager", ar: "إظهار الخزانة في مدير الملفات" },
+  menuCloseWindow: { en: "Close window", ar: "إغلاق النافذة" },
+  menuQuit: { en: "Quit Vellum", ar: "إنهاء ڤيلوم" },
+  menuRedo: { en: "Redo", ar: "إعادة" },
+  menuCut: { en: "Cut", ar: "قص" },
+  menuCopy: { en: "Copy", ar: "نسخ" },
+  menuPaste: { en: "Paste", ar: "لصق" },
+  menuPastePlain: { en: "Paste as plain text", ar: "لصق كنص عادي" },
+  menuSelectAll: { en: "Select all", ar: "تحديد الكل" },
+  menuFindInPage: { en: "Find in page…", ar: "بحث في الصفحة…" },
+  menuFindNext: { en: "Find next", ar: "التالي" },
+  menuFindPrevious: { en: "Find previous", ar: "السابق" },
+  menuSpelling: { en: "Spelling", ar: "التدقيق الإملائي" },
+  menuSpellcheckWhileTyping: { en: "Check spelling while typing", ar: "التدقيق الإملائي أثناء الكتابة" },
+
+  // ── The spelling menu Vellum draws itself ────────────────────────────────
+  menuAddToDictionary: { en: "Add to dictionary", ar: "إضافة إلى القاموس" },
+  menuNoSuggestions: { en: "No suggestions", ar: "لا اقتراحات" },
+  menuActualSize: { en: "Actual size", ar: "الحجم الفعلي" },
+  menuFullScreen: { en: "Full screen", ar: "ملء الشاشة" },
+  menuReload: { en: "Reload", ar: "إعادة تحميل" },
+  menuDevTools: { en: "Developer tools", ar: "أدوات المطوّر" },
+  menuCommandPalette: { en: "Command palette…", ar: "لوحة الأوامر…" },
+  menuSearchNotes: { en: "Search notes…", ar: "بحث في الملاحظات…" },
+
+  // ── Window ───────────────────────────────────────────────────────────────
+  menuMinimize: { en: "Minimize", ar: "تصغير النافذة" },
+  menuZoomWindow: { en: "Zoom", ar: "تكبير النافذة" },
+  menuBringAllToFront: { en: "Bring all to front", ar: "إحضار الكل إلى الأمام" },
+  // The reference window: a second, always-on-top window on ONE note, for the
+  // source you are quoting while you write in the window behind it. It is the
+  // clearest thing a desktop app can do that a browser tab cannot.
+  menuReferenceWindow: { en: "Open as reference window", ar: "فتح كنافذة مرجعية" },
+  menuAlwaysOnTop: { en: "Always on top", ar: "دائمًا في المقدمة" },
+
+  // ── Help ─────────────────────────────────────────────────────────────────
+  menuShortcuts: { en: "Keyboard shortcuts", ar: "اختصارات لوحة المفاتيح" },
+  menuAbout: { en: "About Vellum", ar: "عن ڤيلوم" },
+
+  // ── Tray ─────────────────────────────────────────────────────────────────
+  menuShowVellum: { en: "Show Vellum", ar: "إظهار ڤيلوم" },
+
+  // ── Dialogs the main process owns ────────────────────────────────────────
+  // The vault picker. It is the first thing a first launch shows, so it says
+  // what it is asking for rather than "Open".
+  dlgChooseVault: { en: "Choose a vault folder", ar: "اختر مجلد الخزانة" },
+  dlgChooseVaultButton: { en: "Open this vault", ar: "افتح هذه الخزانة" },
+  // The port moved. This is the ONE message in the desktop app that has to
+  // exist: the reader's theme, tabs and folds for this vault are stored per
+  // origin, the origin is the port, and a port that had to move is the reader's
+  // layout silently reverting to defaults with nothing on screen to explain it.
+  dlgPortMovedTitle: { en: "This vault opened on a different port", ar: "فُتحت هذه الخزانة على منفذ مختلف" },
+  dlgPortMovedBody: {
+    en: "Vellum keeps one port per vault ({old}) because your theme, open tabs, folds and pane sizes are stored against it. That port was taken, so this window is on {port} and starts from the defaults. Close whatever is using {old} and reopen the vault to get your layout back.",
+    ar: "يحتفظ ڤيلوم بمنفذ واحد لكل خزانة ({old}) لأن السمة والتبويبات المفتوحة والطيّات وأحجام اللوحات محفوظة بحسبه. كان ذلك المنفذ مشغولًا، لذا فُتحت هذه النافذة على {port} وبدأت من الإعدادات الافتراضية. أغلق ما يشغل {old} ثم أعد فتح الخزانة لاستعادة تخطيطك.",
+  },
+  dlgServerFailedTitle: { en: "Vellum could not start this vault", ar: "تعذّر على ڤيلوم فتح هذه الخزانة" },
+  dlgProbeFailedTitle: { en: "This build of Vellum cannot run its own server", ar: "لا تستطيع هذه النسخة من ڤيلوم تشغيل خادمها" },
+  dlgQuit: { en: "Quit", ar: "إنهاء" },
+  dlgChooseAnother: { en: "Choose another vault…", ar: "اختر خزانة أخرى…" },
+
+  // Annotating: highlights, margin notes, and the six page inks.
+  bookNoSelection: { en: "Select a passage first.", ar: "حدّد مقطعًا أولًا." },
+  bookNoHighlightHere: { en: "No marked passage on this page.", ar: "لا يوجد مقطع مُعلَّم في هذه الصفحة." },
+  bookHighlightFailed: { en: "That passage could not be saved.", ar: "تعذّر حفظ هذا المقطع." },
+  bookHighlightDeleted: { en: "Passage unmarked.", ar: "أُزيل تعليم المقطع." },
+  bookInkSet: { en: "Ink {ink}", ar: "اللون {ink}" },
+  bookAnnotations: { en: "Marked passages", ar: "المقاطع المعلَّمة" },
+  bookNoAnnotations: { en: "Nothing marked in this book yet.", ar: "لم يُعلَّم شيء في هذا الكتاب بعد." },
+  bookMarginNote: { en: "Note in the margin", ar: "تعليق على الهامش" },
+  // Citing into a note.
+  bookCiteTitle: { en: "Quote into a note", ar: "اقتباس إلى ملاحظة" },
+  bookCiteInto: { en: "Into", ar: "إلى" },
+  bookCiteQuoteLabel: { en: "The quotation, as it will be written", ar: "الاقتباس كما سيُكتب" },
+  bookCiteNoTarget: { en: "Open a note to quote into.", ar: "افتح ملاحظة لتقتبس إليها." },
+  bookCited: { en: "Quoted into {note}", ar: "أُضيف الاقتباس إلى {note}" },
+  bookCiteFailed: { en: "The quotation could not be written.", ar: "تعذّرت كتابة الاقتباس." },
+  bookCiteLabel: { en: "{title}, p. {page}", ar: "{title}، ص {page}" },
+  bookPassages: { en: "Marked passages", ar: "المقاطع المعلَّمة" },
+  bookPassagesTruncated: { en: "Searching the most recent passages only.", ar: "يجري البحث في أحدث المقاطع فقط." },
+  // A citation whose book has been renamed or has left the vault.
+  bookCitationMoved: { en: "This book is filed as “{name}” now.", ar: "أصبح هذا الكتاب مُدرجًا باسم «{name}»." },
+  bookCitationRepair: { en: "Repair the link", ar: "إصلاح الرابط" },
+  bookCitationRepaired: { en: "The link now points at “{name}”.", ar: "صار الرابط يشير إلى «{name}»." },
+  bookCitationRepairNothing: { en: "No link to “{name}” in this note.", ar: "لا يوجد رابط إلى «{name}» في هذه الملاحظة." },
+  bookCitationRepairFailed: { en: "The link could not be repaired.", ar: "تعذّر إصلاح الرابط." },
+  bookCitationLost: { en: "“{name}” is not in this vault any more.", ar: "لم يعد «{name}» في هذه الخزانة." },
+  // The reader's own key sheet.
+  bookKeyHighlight: { en: "Mark the selection (Shift to change ink)", ar: "تعليم التحديد (Shift لتغيير اللون)" },
+  bookKeyCite: { en: "Quote it into a note (Shift picks the note)", ar: "اقتباسه إلى ملاحظة (Shift لاختيار الملاحظة)" },
+  bookKeyMarginNote: { en: "Write a note in the margin", ar: "كتابة تعليق على الهامش" },
+  bookKeyUnhighlight: { en: "Unmark a passage", ar: "إزالة تعليم مقطع" },
+  bookKeyAnnotations: { en: "Marked passages", ar: "المقاطع المعلَّمة" },
+
+  // ── Searching the settings panel ─────────────────────────────────────────
+  // The placeholder names what CAN be searched, because the surprising half is
+  // the third one: an operator reading a deployment script types SITE_LANG and
+  // lands on the row it belongs to.
+  settingsSearchPlaceholder: {
+    en: "Search settings — name, help or variable",
+    ar: "بحث في الإعدادات — الاسم أو الشرح أو المتغير",
+  },
+  settingsSearchNone: { en: "Nothing matches", ar: "لا شيء يطابق" },
+
+  // ── Panes ────────────────────────────────────────────────────────────────
+  // The cap said out loud. A split that silently does nothing is indis-
+  // tinguishable from a broken key, and this one has a real reason behind it:
+  // three columns of two is the largest layout that still has a name.
+  paneCapReached: {
+    en: "No room for another pane in this window",
+    ar: "لا مساحة للوحة أخرى في هذه النافذة",
+  },
+  scSplitPane: { en: "Split the pane", ar: "تقسيم اللوحة" },
+  scSplitPaneDown: { en: "Split the pane downwards", ar: "تقسيم اللوحة للأسفل" },
+  scClosePane: { en: "Close the pane", ar: "إغلاق اللوحة" },
+  scFocusPane: { en: "Move to the pane above / below", ar: "الانتقال إلى اللوحة أعلى / أسفل" },
+  // PHYSICAL left and right, in both languages — a reader pressing ← at a grid
+  // is pointing at the screen, not reading a list. See paneInDirection().
+  scFocusPaneSide: { en: "Move to the pane on your left / right", ar: "الانتقال إلى اللوحة على يسارك / يمينك" },
+
+  // ── Several windows, one vault ───────────────────────────────────────────
+  // The wording refuses the word "locked". Nothing is locked: the text in this
+  // window is intact, it is simply not the copy being saved, and the sentence
+  // has to say that before it says anything else.
+  leaseElsewhere: {
+    en: "Another window is editing this note",
+    ar: "نافذة أخرى تحرر هذه الملاحظة",
+  },
+  leaseTakeOver: { en: "Edit here", ar: "التحرير هنا" },
+  cmdPopOut: { en: "Open this note in a new window", ar: "فتح هذه الملاحظة في نافذة جديدة" },
+
+  // ── Buffers: the document outliving the pane that shows it ───────────────
+  // A save refused because the file changed underneath. The wording has one
+  // job, and it is not to describe the mechanism: the reader is mid-sentence
+  // and needs to know, in the first four words, that nothing of theirs is gone.
+  saveConflict: {
+    en: "{path} changed on disk — your edits are safe, and unsaved",
+    ar: "تغيّر {path} على القرص — تعديلاتك سليمة، وغير محفوظة",
+  },
+
+  // ── The book reader ──────────────────────────────────────────────────────
+  // The shelf.
+  bookLibrary: { en: "Library", ar: "المكتبة" },
+  bookCloseLibrary: { en: "Close the library", ar: "إغلاق المكتبة" },
+  bookShelfSearch: { en: "Search the shelf…", ar: "بحث في المكتبة…" },
+  bookShelfEmpty: { en: "No PDFs in this vault yet. Put a book in it and it appears here.", ar: "لا توجد ملفات PDF في هذه الخزانة بعد. ضع كتابًا فيها يظهر هنا." },
+  bookShelfFailed: { en: "The library could not be read.", ar: "تعذّرت قراءة المكتبة." },
+  bookShelfTruncated: { en: "Showing the first {count} books in this vault.", ar: "تُعرض أول {count} كتاب في هذه الخزانة." },
+  bookProgress: { en: "{percent}% read", ar: "قُرئ {percent}٪" },
+  bookPages: { en: "{count} pages", ar: "{count} صفحة" },
+  // The reader.
+  bookLoading: { en: "Opening…", ar: "جارٍ الفتح…" },
+  bookOpenFailed: { en: "This book could not be opened.", ar: "تعذّر فتح هذا الكتاب." },
+  bookReaderLabel: { en: "Reading {title}", ar: "قراءة {title}" },
+  bookClose: { en: "Close the book", ar: "إغلاق الكتاب" },
+  bookPageOf: { en: "Page {page} of {total}", ar: "صفحة {page} من {total}" },
+  bookZoomPct: { en: "{percent}%", ar: "{percent}٪" },
+  bookMatchOf: { en: "{index} of {total}", ar: "{index} من {total}" },
+  bookNoMatches: { en: "No matches in this book.", ar: "لا نتائج في هذا الكتاب." },
+  bookOutline: { en: "Contents", ar: "المحتويات" },
+  bookNoOutline: { en: "This book has no contents page.", ar: "لا يحتوي هذا الكتاب على فهرس." },
+  bookMarkSet: { en: "Mark {name} set at page {page}", ar: "ضُبطت العلامة {name} عند الصفحة {page}" },
+  bookNoMark: { en: "No mark {name} in this book", ar: "لا توجد علامة {name} في هذا الكتاب" },
+  bookForgot: { en: "Reading position forgotten.", ar: "نُسي موضع القراءة." },
+  bookInvertOff: { en: "Night mode off", ar: "الوضع الليلي متوقف" },
+  bookInvertNight: { en: "Night mode — figures kept", ar: "الوضع الليلي — مع الإبقاء على الصور" },
+  bookInvertFlip: { en: "Night mode — everything inverted", ar: "الوضع الليلي — عكس كل شيء" },
+  bookCommandLabel: { en: "Reader command", ar: "أمر القارئ" },
+  bookCommandPlaceholder: { en: "Type a command — help lists them", ar: "اكتب أمرًا — يسرد help قائمتها" },
+  bookSearchLabel: { en: "Search in this book", ar: "بحث في هذا الكتاب" },
+  bookSearchPlaceholder: { en: "Search in this book…", ar: "بحث في هذا الكتاب…" },
+  bookUnknownCommand: { en: "Unknown command: {word}", ar: "أمر غير معروف: {word}" },
+  // The reader's own key sheet (`?`). Deliberately not part of GROUPS in
+  // ShortcutsHelp.tsx: these keys are live only while a book is open, and a
+  // global list that describes them everywhere would be a list that lies most
+  // of the time.
+  bookHelpTitle: { en: "Reader keys", ar: "مفاتيح القارئ" },
+  bookKeyScroll: { en: "Scroll up and down", ar: "التمرير لأعلى ولأسفل" },
+  bookKeyPage: { en: "One screen down (Shift for up)", ar: "شاشة لأسفل (Shift لأعلى)" },
+  bookKeyFirstLast: { en: "First page / last page", ar: "الصفحة الأولى / الأخيرة" },
+  bookKeyGoto: { en: "Go to a page by number", ar: "الانتقال إلى صفحة برقمها" },
+  bookKeySearch: { en: "Search in this book", ar: "بحث في هذا الكتاب" },
+  bookKeyNextMatch: { en: "Next / previous match", ar: "النتيجة التالية / السابقة" },
+  bookKeyOutline: { en: "Contents", ar: "المحتويات" },
+  bookKeyZoom: { en: "Zoom in / out", ar: "تكبير / تصغير" },
+  bookKeyFit: { en: "Fit width / fit whole page", ar: "ملء العرض / ملء الصفحة" },
+  bookKeyDual: { en: "Two pages side by side", ar: "صفحتان جنبًا إلى جنب" },
+  bookKeyInvert: { en: "Night mode", ar: "الوضع الليلي" },
+  bookKeyRotate: { en: "Rotate (Shift to go back)", ar: "تدوير (Shift للعكس)" },
+  bookKeyMarks: { en: "Set a mark / jump to one", ar: "وضع علامة / القفز إليها" },
+  bookKeyCommand: { en: "Command line", ar: "سطر الأوامر" },
+  bookKeyLibrary: { en: "Back to the library", ar: "العودة إلى المكتبة" },
+  bookKeyClose: { en: "Close the book", ar: "إغلاق الكتاب" },
+  bookKeyHelp: { en: "This list", ar: "هذه القائمة" },
 } satisfies Record<string, Entry>;
 
 export type I18nKey = keyof typeof DICT;
@@ -2670,9 +3084,19 @@ type CountUnit =
   | "marginNotes"
   | "foldedLines"
   | "readMinutes"
-  | "changes";
+  | "changes"
+  | "unsaved";
 
 const UNITS: Record<CountUnit, { en: [string, string]; ar: { one: string; two: string; few: string; many: string } }> = {
+  // What a bulk tab-close is about to FLUSH. It is a count with a consequence
+  // attached, which is why the rows carry it at all: "Close others" over a
+  // dozen tabs is a different decision when two of them have unsaved edits,
+  // and the row is the last place it can be said. Same honesty `/api/delete-
+  // preview` already brings to a delete.
+  unsaved: {
+    en: ["unsaved", "unsaved"],
+    ar: { one: "غير محفوظة", two: "غير محفوظتين", few: "غير محفوظة", many: "غير محفوظة" },
+  },
   notes: { en: ["note", "notes"], ar: { one: "ملاحظة واحدة", two: "ملاحظتان", few: "ملاحظات", many: "ملاحظة" } },
   // The sidebar footer counts the vault's ATTACHMENTS beside its notes — the
   // images, PDFs and recordings that are not notes but are certainly files.

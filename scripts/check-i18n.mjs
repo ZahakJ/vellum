@@ -18,7 +18,17 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-const root = new URL("../client/", import.meta.url).pathname;
+// TWO ROOTS, ONE DICTIONARY. `client/` is where the dictionary lives and where
+// almost every call site is; `electron/` is the native application menu, whose
+// copy is user-visible chrome in exactly the way a button label is and which
+// this gate could not see at all — its scan root was `client/`, so the menu
+// could have shipped untranslated past a green build. The dictionary itself
+// stays put: the point is that `electron/` USES it rather than keeping a second
+// one that would drift.
+const ROOTS = ["../client/", "../electron/"].map(
+  (r) => new URL(r, import.meta.url).pathname,
+);
+const root = ROOTS[0];
 const src = readFileSync(join(root, "i18n.ts"), "utf8");
 
 // Parse DICT block
@@ -35,18 +45,31 @@ while ((m = re.exec(dictSrc))) {
   entries.set(key, { en: en && en[1], ar: ar && ar[1] });
 }
 
+// `rel` is recorded alongside the absolute path rather than sliced off one
+// prefix later: with two roots there is no single prefix to slice, and a
+// findings line that printed half a path would be worse than one that printed
+// none.
 const files = [];
-(function walk(d) {
-  for (const f of readdirSync(d)) {
-    const p = join(d, f);
-    if (statSync(p).isDirectory()) walk(p);
-    else if (/\.tsx?$/.test(p)) files.push(p);
+for (const base of ROOTS) {
+  let exists = true;
+  try {
+    statSync(base);
+  } catch {
+    exists = false; // a checkout without the desktop app is not a failure
   }
-})(root);
+  if (!exists) continue;
+  (function walk(d) {
+    for (const f of readdirSync(d)) {
+      const p = join(d, f);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (/\.tsx?$/.test(p)) files.push({ abs: p, rel: p.slice(base.length) });
+    }
+  })(base);
+}
 
 const used = new Set();
 const errs = [];
-for (const f of files) {
+for (const { abs: f } of files) {
   // THE DICTIONARY IS NOT A CALL SITE. This scan used to read i18n.ts along
   // with everything else, and the dead-key check below is a set difference
   // against it — so a key whose own English value happens to be the key name
@@ -84,9 +107,8 @@ const copyWords = (text) =>
     .replace(/\b[\w-]+[./][\w-]+\b/g, " ") // settings.json, ar-u-nu-latn, /favicon.ico
     .match(/[A-Za-z]{2,}/g) ?? []).length;
 const CODEISH = /[={}<>]|&&|\|\||=>|\(\)/;
-for (const f of files) {
+for (const { abs: f, rel } of files) {
   if (!f.endsWith(".tsx")) continue;
-  const rel = f.slice(root.length);
   readFileSync(f, "utf8").split("\n").forEach((line, i) => {
     for (const mm of line.matchAll(/>([^<>{}\n]+)</g)) {
       const text = mm[1].trim();
@@ -119,8 +141,7 @@ const COUNT_UNITS = new Set(
 );
 // A word worth translating: three or more ASCII letters, outside a ${…} hole.
 const hasCopyWord = (text) => /[A-Za-z]{3,}/.test(text.replace(/\$\{[^}]*\}/g, " "));
-for (const f of files) {
-  const rel = f.slice(root.length);
+for (const { abs: f, rel } of files) {
   if (rel === "i18n.ts") continue; // the dictionary itself
   readFileSync(f, "utf8").split("\n").forEach((line, i) => {
     DOM_SINK.lastIndex = 0;

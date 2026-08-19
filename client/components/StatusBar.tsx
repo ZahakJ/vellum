@@ -23,6 +23,12 @@ import { openThemePicker } from "./ThemePicker.tsx";
 import { openDesigner } from "./design/openDesigner.ts";
 import { noteLabelOf, stripNoteExt } from "../../shared/noteFormat.ts";
 import { dailyNoteLabel } from "../daily.ts";
+import {
+  DOC_STATS_EVENT,
+  requestDocStats,
+  type DocStats,
+} from "../editor/bufferBridge.ts";
+import { readingMinutes } from "../../shared/wordCount.ts";
 import { isHardWrapped, layoutBadge, noteLayout, type NoteLayout } from "../textLayout.ts";
 // The pill/tooltip/strip table moved out to its own module when this file
 // became lazy — App renders the zen strip from the same table and must be able
@@ -173,6 +179,26 @@ export default function StatusBar() {
   const vimSub = vimMode ? vimSubCopy(vimSubMode) : null;
 
   const [counts, setCounts] = useState<{ words: number; chars: number } | null>(null);
+  // The LIVE numbers, published by the buffer registry as the reader types
+  // (client/editor/buffers.ts). They win over `counts` above, which is derived
+  // from a fetched copy of the note and is therefore always at least one
+  // autosave behind. `counts` remains the answer for a surface with no buffer —
+  // the reading view — and as the value before the first keystroke lands.
+  const [live, setLive] = useState<DocStats | null>(null);
+  useEffect(() => {
+    setLive(null);
+    if (!openPath) return;
+    const onStats = (e: Event): void => {
+      const detail = (e as CustomEvent<DocStats>).detail;
+      // The registry speaks for every open buffer; this bar draws one note.
+      if (detail.path === openPath) setLive(detail);
+    };
+    window.addEventListener(DOC_STATS_EVENT, onStats);
+    // Ask once on open, so the bar is right BEFORE the first keystroke rather
+    // than after it. A no-op when the editor chunk has not landed yet.
+    requestDocStats(openPath);
+    return () => window.removeEventListener(DOC_STATS_EVENT, onStats);
+  }, [openPath]);
   // The open note's direction/alignment, resolved against the site default.
   // It rides the SAME fetch the word count already makes — a second request
   // per note open to read two frontmatter keys would be a request nobody
@@ -282,13 +308,51 @@ export default function StatusBar() {
           it the only route to the published filter — vanished on an open
           local vault and on every PUBLIC=false instance, while the publish
           TOGGLE stayed, still saying "Published — live for visitors".) */}
-      {(counts || (admin && publishedCounts)) && (
+      {(counts || live || (admin && publishedCounts)) && (
         <span className="s-statusbar__group s-statusbar__ambient">
-          {counts && (
+          {(live || counts) && (
+            // SELECTION-AWARE. The moment something is selected the bar reports
+            // the selection instead of the note, because a writer trimming a
+            // paragraph to length is asking about the paragraph. Reading time
+            // sits here too: it was computed for VISITORS and shown to them,
+            // and hidden from the one person deciding whether the piece is too
+            // long. Both numbers come from one function (shared/wordCount.ts),
+            // so the author and the reader cannot be told different things.
             <span className="s-statusbar__counts">
-              {countPhrase(counts.words, "words")}
-              <MetaSep />
-              {countPhrase(counts.chars, "chars")}
+              {live && live.selWords !== null ? (
+                <>
+                  {countPhrase(live.selWords, "words")}
+                  <MetaSep />
+                  {countPhrase(live.selChars ?? 0, "chars")}
+                  <MetaSep />
+                  <span className="s-statusbar__selected">{t("statusSelected")}</span>
+                </>
+              ) : (
+                <>
+                  {countPhrase(live ? live.words : (counts?.words ?? 0), "words")}
+                  <MetaSep />
+                  {countPhrase(live ? live.chars : (counts?.chars ?? 0), "chars")}
+                  {readingMinutes(live ? live.words : (counts?.words ?? 0)) > 0 && (
+                    <>
+                      <MetaSep />
+                      {countPhrase(
+                        readingMinutes(live ? live.words : (counts?.words ?? 0)),
+                        "readMinutes",
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+              {live && live.ranges > 1 && (
+                // Only past one, where it stops being noise and becomes the
+                // answer to "why is it typing in four places at once".
+                <>
+                  <MetaSep />
+                  <span className="s-statusbar__carets">
+                    {tf("statusCarets", { n: localeNum(live.ranges) })}
+                  </span>
+                </>
+              )}
             </span>
           )}
           {admin && publishedCounts && (

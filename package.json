@@ -25,9 +25,17 @@
     "check-preview": "node scripts/check-preview.mjs",
     "check-a11y": "node scripts/check-a11y.mjs",
     "check-bundle": "node scripts/check-bundle.mjs",
+    "check-books": "node scripts/check-books.mjs",
     "check-hovercache": "node scripts/check-hovercache.mjs",
     "check-designer-nav": "node scripts/check-designer-nav.mjs",
     "check-layouts": "node scripts/check-layouts.mjs",
+    "check-keymap": "node scripts/check-keymap.mjs",
+    "check-desktop": "node scripts/check-desktop.mjs",
+    "check-settings": "node scripts/check-settings.mjs",
+    "desktop": "npm --prefix desktop run start",
+    "desktop:typecheck": "npm --prefix desktop run typecheck",
+    "desktop:probe": "npm --prefix desktop run probe",
+    "desktop:dist": "npm --prefix desktop run dist",
     "test": "node --test \"tests/*.test.ts\""
   },
   "dependencies": {
@@ -50,6 +58,7 @@
     "hono": "^4.12.27",
     "katex": "^0.18.4",
     "minisearch": "^7.2.0",
+    "pdfjs-dist": "^6.2.108",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^5.0.0"
