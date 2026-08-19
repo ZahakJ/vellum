@@ -30,6 +30,8 @@
 /** Where the desktop app's ports live. NOT 6801: that is the web deployment's
  *  default, and the reader running `npm start` in a terminal beside this app is
  *  the normal case, not a conflict to arbitrate. */
+import path from "node:path";
+
 export const PORT_MIN = 6820;
 export const PORT_MAX = 6899;
 
@@ -53,6 +55,18 @@ export interface VaultPref {
   bounds: Bounds | null;
   /** Epoch ms of the last open, for the recent list's order. */
   lastOpened: number;
+  /** An EXISTING Vellum home to use for this vault, instead of the app's own
+   *  per-vault one — the door that lets the desktop and a long-running server
+   *  deployment share one `settings.json`, one comments database and one
+   *  books.json for the same vault. Unset for a vault the desktop discovered
+   *  itself; validated as an absolute path to a directory that exists, and a
+   *  value that stops existing falls back to the app's own home rather than
+   *  failing the open. Two live servers over one data dir is the same
+   *  arrangement as two apps over one vault: sqlite locks across processes,
+   *  and the JSON files are written atomically — a concurrent settings edit
+   *  from both UIs is last-write-wins, exactly as it always was.
+   */
+  data?: string;
 }
 
 export interface Prefs {
@@ -103,6 +117,10 @@ export function parsePrefs(raw: unknown): Prefs {
     if (!vaultPath || seen.has(vaultPath)) continue;
     const port = typeof entry.port === "number" && Number.isInteger(entry.port) ? entry.port : 0;
     seen.add(vaultPath);
+    const data =
+      typeof entry.data === "string" && entry.data !== "" && path.isAbsolute(entry.data)
+        ? entry.data
+        : undefined;
     vaults.push({
       path: vaultPath,
       // A port outside the desktop's range is not honored: it is either a
@@ -110,6 +128,7 @@ export function parsePrefs(raw: unknown): Prefs {
       port: port >= PORT_MIN && port <= PORT_MAX ? port : 0,
       bounds: saneBounds(entry.bounds),
       lastOpened: typeof entry.lastOpened === "number" && Number.isFinite(entry.lastOpened) ? entry.lastOpened : 0,
+      ...(data === undefined ? {} : { data }),
     });
   }
   vaults.sort((a, b) => b.lastOpened - a.lastOpened);
@@ -179,6 +198,12 @@ export function rememberVault(prefs: Prefs, vaultPath: string, port: number, now
     port,
     bounds: existing?.bounds ?? null,
     lastOpened: now,
+    // The data-dir override SURVIVES the rewrite. This function rebuilds the
+    // row on every open, so a field it does not carry forward is a field that
+    // exists until the first launch — and losing this one silently reverts the
+    // vault to an empty per-app home, which reads as "the desktop lost my
+    // settings", the exact complaint that created the field.
+    ...(existing?.data === undefined ? {} : { data: existing.data }),
   };
   const rest = prefs.vaults.filter((v) => v.path !== vaultPath);
   return { ...prefs, vaults: [updated, ...rest].slice(0, MAX_RECENTS) };

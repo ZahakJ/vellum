@@ -249,7 +249,14 @@ async function openVaultUnguarded(vault: string, route: string): Promise<void> {
   try {
     server = await startVaultServer({
       vault,
-      dataDir: dataDirFor(vault),
+      // The prefs row may name an EXISTING Vellum home — the door that lets
+      // the desktop share settings, comments and reading state with a
+      // long-running server deployment on the same vault. Its own per-vault
+      // home is the default, and the fallback when an override has gone away.
+      dataDir: (() => {
+        const override = prefs.vaults.find((v) => v.path === vault)?.data;
+        return override !== undefined && existsSync(override) ? override : dataDirFor(vault);
+      })(),
       prefs,
       credential,
       onLog: (line) => process.stdout.write(line),
