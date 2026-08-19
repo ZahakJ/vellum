@@ -31,6 +31,7 @@ import {
   endDrag,
   itemLabel,
   itemOf,
+  renameTo,
   makeDragGhost,
   moveTo,
   stopAutoScroll,
@@ -39,6 +40,9 @@ import { promptNewFolder, promptNewNote } from "../prompts.ts";
 import { newNoteFromTemplateCommand } from "../templateActions.ts";
 import { useStore } from "../state.ts";
 import AttachmentViewer, { fileUrl, isViewable } from "./AttachmentViewer.tsx";
+// The reader's door only — a tiny module whose heavy half (the shelf, the page
+// renderer, pdf.js) is behind a dynamic import. See client/books/mount.ts.
+import { openBookPath } from "../books/mount.ts";
 import { confirmModal, confirmModalEx } from "./Confirm.tsx";
 import { moveViaPicker } from "./MovePicker.tsx";
 import {
@@ -99,10 +103,6 @@ function loadTagsCollapsed(): boolean {
 function parentOf(path: string): string {
   const i = path.lastIndexOf("/");
   return i === -1 ? "" : path.slice(0, i);
-}
-
-function joinPath(dir: string, name: string): string {
-  return dir ? `${dir}/${name}` : name;
 }
 
 function ensureMd(name: string): string {
@@ -396,7 +396,6 @@ function IconNewFolder() {
 export default function Sidebar() {
   const tree = useStore((s) => s.tree);
   const openNote = useStore((s) => s.openNote);
-  const renameNote = useStore((s) => s.renameNote);
   const admin = useStore((s) => s.admin);
   const homeNote = useStore((s) => s.homeNote);
   const siteName = useStore((s) => s.siteName);
@@ -624,16 +623,18 @@ export default function Sidebar() {
     };
   }, [menu]);
 
-  const commitRename = useCallback(
-    (node: TreeNode, rawName: string) => {
-      setRenaming(null);
-      const name = rawName.trim();
-      if (!name || name === node.name || name.includes("/")) return;
-      const finalName = node.type === "file" ? ensureMd(name) : name;
-      void renameNote(node.path, joinPath(parentOf(node.path), finalName));
-    },
-    [renameNote],
-  );
+  const commitRename = useCallback((node: TreeNode, rawName: string) => {
+    setRenaming(null);
+    const name = rawName.trim();
+    if (!name || name === node.name || name.includes("/")) return;
+    // ONE path for both kinds. `renameTo` dispatches a folder to
+    // /api/folder/move and a note to /api/rename, which is the difference that
+    // kept folders unrenameable — and both now get the collision message, the
+    // remap-before-reload ordering and the undo toast that the drag has had all
+    // along. `ensureMd` still puts the extension back on a note: a reader
+    // typing a new title should not have to remember it.
+    void renameTo(itemOf(node), node.type === "file" ? ensureMd(name) : name);
+  }, []);
 
   const cancelRename = useCallback(() => setRenaming(null), []);
 
@@ -918,12 +919,15 @@ export default function Sidebar() {
     [setAttachmentsShown],
   );
 
-  /** A click on an attachment row. PDFs go to a browser tab, which renders
-   *  them properly; everything else opens in the viewer, carrying its folder
-   *  with it so the arrow keys have somewhere to go. */
+  /** A click on an attachment row. A PDF is a BOOK: it opens in the reader
+   *  (client/books/), which remembers the page, gives it zathura's keys and
+   *  puts it on a shelf with the vault's other books. It used to open a
+   *  browser tab, which renders a PDF perfectly well and cannot do any of
+   *  those three things. Everything else opens in the viewer, carrying its
+   *  folder with it so the arrow keys have somewhere to go. */
   const openAttachment = useCallback((node: TreeNode, siblings: TreeNode[]) => {
     if (node.attachment?.kind === "pdf") {
-      window.open(fileUrl(node.path), "_blank", "noopener,noreferrer");
+      openBookPath(node.path);
       return;
     }
     const items = siblings.filter(isViewable);
@@ -1121,6 +1125,16 @@ export default function Sidebar() {
                   </span>
                 )}
               </span>
+              {/* WHY this row is here, when the title does not say so. An
+                  alias is often a word the note's own text never contains, so
+                  without this line the hit looks like a search bug — and when
+                  two notes claim one alias, this is where the reader can see
+                  which one answered. */}
+              {hit.alias !== undefined && (
+                <span className="s-search-hit__why" dir="auto">
+                  {tf("searchMatchedAlias", { alias: hit.alias })}
+                </span>
+              )}
               {!snippetIsEmpty(hit.snippet) && (
                 <span className="s-search-hit__snippet" dir="auto">
                   {renderSnippet(hit.snippet)}
@@ -1439,11 +1453,15 @@ export default function Sidebar() {
               </button>
             </>
           )}
-          {/* NOTES only: /api/rename and DELETE /api/note are markdown
-              routes ("Not a markdown path" on anything else), so offering
-              either on a folder row — or now on an attachment row — is a menu
-              item whose only outcome is a toast. */}
-          {menu.node.type === "file" && !menu.node.attachment && (
+          {/* Notes AND FOLDERS, never an attachment, never the vault root.
+              This row was notes-only because it called the note rename route,
+              which answers "Not a markdown path" to a folder — while
+              /api/folder/move, which has always been able to do it and rewrites
+              every wikilink across the subtree, sat one menu row below under
+              "Move to…". Renaming a folder cost three operations, one of them
+              semi-destructive. Attachments stay out: their move endpoints are
+              note routes. */}
+          {menu.node.path !== "" && !menu.node.attachment && (
             <button
               type="button"
               className="s-menu__item"

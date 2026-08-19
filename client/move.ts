@@ -336,6 +336,41 @@ function checkName(item: MoveItem, dir: string, raw: string): PromptCheck {
   return { value, note: tf("moveLands", { path: value }) };
 }
 
+/** Rename `item` where it stands.
+ *
+ *  A rename is a MOVE whose destination folder happens to be the one it is
+ *  already in, so it goes through the same `run()` as every other move and
+ *  inherits the whole of it: the folder route for a folder and the note route
+ *  for a note, `remapPath` before `loadTree` so the open tab follows the file
+ *  instead of blinking out, the published-site refresh, and an undo toast.
+ *
+ *  That last one is new for notes and is the point of routing them here too. A
+ *  rename was the one destructive-feeling operation in the tree with no way
+ *  back, while the drag beside it had offered one for months.
+ *
+ *  **Folders could not be renamed at all before this.** `POST /api/folder/move`
+ *  has always taken an arbitrary destination and rewritten every `[[wikilink]]`
+ *  across the subtree, and `commitRename` even had the branch for it
+ *  (`node.type === "file" ? ensureMd(name) : name`) — but the menu row was
+ *  gated to files, because the NOTE rename route it called answers "Not a
+ *  markdown path" to anything else. The room was built and had no door: fixing
+ *  a typo in a folder name cost a new folder, a move and a delete. */
+export async function renameTo(item: MoveItem, finalName: string): Promise<void> {
+  const store = useStore.getState();
+  if (!store.admin) return;
+  const name = finalName.trim();
+  if (!name || name === item.name || name.includes("/")) return;
+  const dir = parentDir(item.path);
+  if (nameTaken(store.tree, dir, name)) {
+    // No dialog here, unlike a drop: the reader is already sitting in a text
+    // field with the name in it, so the affordance for "pick another" is the
+    // one they are looking at. Saying why is all that is missing.
+    toast(tf("moveConflictError", { name }), "error");
+    return;
+  }
+  await run(item, joinPath(dir, name), item.path);
+}
+
 /** Move `item` into `dir`. The single entry point for every surface.
  *
  *  A name collision NEVER overwrites: the reader is asked for another name and
