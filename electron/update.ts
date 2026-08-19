@@ -27,7 +27,8 @@
 
 import { app, shell } from "electron";
 import { createWriteStream, promises as fs } from "node:fs";
-import { get, type IncomingMessage } from "node:https";
+import { get } from "node:https";
+import type { IncomingMessage } from "node:http";
 import path from "node:path";
 
 const REPO = "ZahakJ/vellum";
