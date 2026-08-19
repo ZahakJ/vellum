@@ -1,11 +1,16 @@
 // Right panel: backlinks into the open note (store keeps them fresh via
 // openNote + SSE). Collapses to zero width; a slim handle on the panel's own
-// edge reopens it. Clicking an entry opens that note.
+// edge reopens it. Clicking an entry opens that note AND lands on the mention
+// (client/landing.ts); resting the pointer on a card previews the note.
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { Backlink } from "../../shared/types.ts";
 import { localeNum, t } from "../i18n.ts";
+// client/landing.ts is reached by DYNAMIC import throughout this file: the
+// panel is part of the admin-first-paint budget check-bundle measures, and
+// landing/hovering is interaction-time code. The reading view's static import
+// of the same module keeps it a single instance.
 import TocPanel from "../reading/TocPanel.tsx";
 import { hasPanelPreference, useStore } from "../state.ts";
 import LocalGraph from "./LocalGraph.tsx";
@@ -37,19 +42,28 @@ function renderContext(text: string): ReactNode {
 interface BacklinkGroup {
   path: string;
   title: string;
-  contexts: string[];
+  contexts: { text: string; line: number }[];
 }
 
 /** One card per source note (server sends one entry per mention): keeps the
- *  panel scannable and puts a mention-count badge on multi-link notes. */
+ *  panel scannable and puts a mention-count badge on multi-link notes.
+ *  Mentions are distinct by LINE now, not by context text — two identical
+ *  lines are two places a click can land, and collapsing them would leave one
+ *  of the mentions unreachable. */
 function groupBacklinks(backlinks: Backlink[]): BacklinkGroup[] {
   const groups = new Map<string, BacklinkGroup>();
   for (const bl of backlinks) {
     const group = groups.get(bl.path);
     if (group) {
-      if (!group.contexts.includes(bl.context)) group.contexts.push(bl.context);
+      if (!group.contexts.some((c) => c.line === bl.line)) {
+        group.contexts.push({ text: bl.context, line: bl.line });
+      }
     } else {
-      groups.set(bl.path, { path: bl.path, title: bl.title, contexts: [bl.context] });
+      groups.set(bl.path, {
+        path: bl.path,
+        title: bl.title,
+        contexts: [{ text: bl.context, line: bl.line }],
+      });
     }
   }
   return [...groups.values()];
@@ -71,8 +85,25 @@ const NARROW_QUERY = "(max-width: 1360px)";
 export default function BacklinksPanel() {
   const backlinks = useStore((s) => s.backlinks);
   const openPath = useStore((s) => s.openPath);
-  const openNote = useStore((s) => s.openNote);
-  useStore((s) => s.language); // re-render the chrome strings on language change
+  const language = useStore((s) => s.language); // re-render the chrome strings on language change
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  // Hover previews over the cards: the blog shell's engine, the admin wiring
+  // (client/landing.ts). One delegated install on the list's scroll container;
+  // re-installed when the language flips because a rendered card carries t()
+  // chrome — the same contract the blog install states.
+  useEffect(() => {
+    let dispose: (() => void) | null = null;
+    let dead = false;
+    void import("../landing.ts").then((m) => {
+      if (dead || !bodyRef.current) return;
+      dispose = m.installNotePreviews(bodyRef.current, bodyRef.current);
+    });
+    return () => {
+      dead = true;
+      dispose?.();
+    };
+  }, [language]);
   // Collapse lives in the store now: Ctrl/Cmd+Alt+Shift+B and the palette toggle
   // the same flag this header button does, and it persists across reloads.
   const collapsed = useStore((s) => s.panelCollapsed);
@@ -125,41 +156,57 @@ export default function BacklinksPanel() {
             </svg>
           </button>
         </header>
-        <div className="s-panel-body">
+        <div className="s-panel-body" ref={bodyRef}>
           {!openPath ? (
             <p className="s-panel-empty">{t("noNoteOpenDot")}</p>
           ) : backlinks.length === 0 ? (
             <p className="s-panel-empty">{t("noBacklinks")}</p>
           ) : (
             groupBacklinks(backlinks).map((group) => (
-              <button
-                key={group.path}
-                type="button"
-                className="s-backlink"
-                onClick={() => openNote(group.path)}
-                title={group.path}
-              >
-                {/* Note-derived text inside chrome: direction per note — but
-                    per NOTE, not per card. The title line is a chrome block
-                    (it also carries the mention-count badge), so it keeps the
-                    shell's direction and start-alignment and only the title
-                    itself is isolated; `dir="auto"` on the block would have
-                    left-aligned an English title inside an otherwise
-                    right-aligned Arabic card and moved the badge with it. */}
-                <span className="s-backlink-title">
-                  <bdi>{group.title}</bdi>
-                  {group.contexts.length > 1 && (
-                    <span className="s-backlink-count">
-                      {localeNum(group.contexts.length)}
-                    </span>
-                  )}
-                </span>
-                {group.contexts.map((context, i) => (
-                  <span key={i} className="s-backlink-context" dir="auto">
-                    {renderContext(context)}
+              // A div, not the single <button> it used to be: every context
+              // line is now its own click target (a button may not contain
+              // buttons), and each landing goes to ITS mention's line — the
+              // title row lands on the first mention. `data-preview-path` is
+              // what the hover install above resolves a card through.
+              <div key={group.path} className="s-backlink" data-preview-path={group.path}>
+                <button
+                  type="button"
+                  className="s-backlink-open"
+                  onClick={() =>
+                    void import("../landing.ts").then((m) => m.landOnLine(group.path, group.contexts[0].line))
+                  }
+                  title={group.path}
+                >
+                  {/* Note-derived text inside chrome: direction per note — but
+                      per NOTE, not per card. The title line is a chrome block
+                      (it also carries the mention-count badge), so it keeps the
+                      shell's direction and start-alignment and only the title
+                      itself is isolated; `dir="auto"` on the block would have
+                      left-aligned an English title inside an otherwise
+                      right-aligned Arabic card and moved the badge with it. */}
+                  <span className="s-backlink-title">
+                    <bdi>{group.title}</bdi>
+                    {group.contexts.length > 1 && (
+                      <span className="s-backlink-count">
+                        {localeNum(group.contexts.length)}
+                      </span>
+                    )}
                   </span>
+                </button>
+                {group.contexts.map((context) => (
+                  <button
+                    key={context.line}
+                    type="button"
+                    className="s-backlink-context"
+                    dir="auto"
+                    onClick={() =>
+                      void import("../landing.ts").then((m) => m.landOnLine(group.path, context.line))
+                    }
+                  >
+                    {renderContext(context.text)}
+                  </button>
                 ))}
-              </button>
+              </div>
             ))
           )}
         </div>

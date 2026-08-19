@@ -18,6 +18,7 @@ import type {
   PublishedPaths,
   PublishResult,
   SearchHit,
+  SearchMatch,
   SettingsPatch,
   SettingsResponse,
   TagCount,
@@ -326,6 +327,17 @@ export function moveFolder(
 export function search(q: string, signal?: AbortSignal): Promise<SearchHit[]> {
   return request<SearchHit[]>(
     `/api/search?q=${encodeURIComponent(q)}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+/** Every line of ONE note the query matches — the expansion under a search
+ *  hit. Same visitor scoping as search() by construction: the ordinary
+ *  request() carries the preview/session headers, and the server answers a
+ *  hidden note with `[]`. */
+export function searchMatches(path: string, q: string, signal?: AbortSignal): Promise<SearchMatch[]> {
+  return request<SearchMatch[]>(
+    `/api/search/matches?path=${encodeURIComponent(path)}&q=${encodeURIComponent(q)}`,
     signal ? { signal } : undefined,
   );
 }

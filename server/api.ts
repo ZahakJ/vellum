@@ -76,6 +76,7 @@ import {
   resolveEmbed,
   resolveLabel,
   search,
+  searchMatches,
   tags,
   visibleNotesUnder,
   whenIndexed,
@@ -1476,6 +1477,24 @@ api.get("/search", (c) => {
   const limited = isPublishLimited(c);
   return c.json(
     search(expandTagQuery(c.req.query("q") ?? ""), limited, languageScope(c, limited).lang),
+  );
+});
+
+// The expansion under one hit: every line of ONE note the query matches, so a
+// click can land on the line instead of at the note's top. Same scope ladder
+// as /search itself — including `expandTagQuery`, or an Arabic reader whose
+// label-spelled query FOUND the note would expand it to "no matches". The
+// answer for a hidden note is the answer for a missing one: `[]`, never a 404
+// that confirms the path exists (searchMatches applies the visitor filter).
+api.get("/search/matches", (c) => {
+  const limited = isPublishLimited(c);
+  return c.json(
+    searchMatches(
+      normalizeRel(c.req.query("path") ?? ""),
+      expandTagQuery(c.req.query("q") ?? ""),
+      limited,
+      languageScope(c, limited).lang,
+    ),
   );
 });
 

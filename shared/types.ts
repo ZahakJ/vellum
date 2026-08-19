@@ -61,7 +61,23 @@ export interface GraphNode { id: string; title: string; links: number; tags: str
 export interface GraphEdge { source: string; target: string }
 export interface GraphData { nodes: GraphNode[]; edges: GraphEdge[] }
 
-export interface Backlink { path: string; title: string; context: string } // context = line containing the link
+export interface Backlink {
+  path: string;
+  title: string;
+  context: string; // the line containing the link, cleaned for display
+  /** 1-based line of the mention in the note's FULL source (frontmatter
+   *  included) — the number the editor's own goto machinery counts in, so a
+   *  click can land ON the mention instead of at the note's top. Appended,
+   *  never reordered: the wire shape above it is what older clients read. */
+  line: number;
+}
+
+/** One matched line inside one note — `GET /api/search/matches?path=&q=`.
+ *  `text` arrives like `SearchHit.snippet` does: HTML-escaped with the matched
+ *  terms wrapped in literal `<mark>…</mark>`, so the client renders both
+ *  through the same renderer and they cannot drift apart. `line` counts like
+ *  `Backlink.line`: 1-based, full source, frontmatter included. */
+export interface SearchMatch { line: number; text: string }
 
 export interface TagCount { tag: string; count: number }
 
