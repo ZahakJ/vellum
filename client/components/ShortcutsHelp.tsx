@@ -229,6 +229,9 @@ const GROUPS: Group[] = [
       // is that a row with no key still appears, naming where it lives — and
       // deliberately NO new bindings: the selection menu is the door, and the
       // gate has nothing to collide.
+      // Spelling: the suggestions ride the bare right-click — a selection
+      // means formatting, so the row spells the gesture out.
+      { label: "scSpellMenu", via: "scSpellMenuKey", admin: true },
       { label: "scExtractSelection", via: "scViaSelectionMenu", admin: true },
       { label: "scInsertFootnote", via: "scViaSelectionMenu", admin: true },
       { label: "scCaseTransform", via: "scViaSelectionMenu", admin: true },

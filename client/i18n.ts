@@ -1742,6 +1742,10 @@ const DICT = {
   scSelectionMenuKey: { en: "Right-click, or Shift+F10", ar: "نقر يمين، أو Shift+F10" },
   scTextColor: { en: "Text colour", ar: "لون النص" },
   scViaSelectionMenu: { en: "Selection menu", ar: "قائمة التحديد" },
+  // The spelling menu hides behind a gesture nobody documents anywhere else:
+  // the word must NOT be selected first, or the right-click means formatting.
+  scSpellMenu: { en: "Correct a misspelled word (suggestions + add to dictionary)", ar: "تصحيح كلمة خاطئة (اقتراحات + إضافة إلى القاموس)" },
+  scSpellMenuKey: { en: "Right-click the word itself, nothing selected", ar: "نقرة يمنى على الكلمة نفسها، دون تحديد" },
 
   selMenuTitle: { en: "Formatting", ar: "التنسيق" },
   selMenuBack: { en: "Back", ar: "رجوع" },

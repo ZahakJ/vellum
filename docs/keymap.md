@@ -123,6 +123,7 @@ key, and the keymap gate leaves them alone.
 | `Ctrl/Cmd`-click | Follow a wikilink on the line you're editing |
 | Click | Open an image or PDF from the tree, in the attachment viewer |
 | Right-click, `Shift F10`, or the menu key | Formatting menu for the selection — text style, structure, insert, colour |
+| Right-click a misspelled word (nothing selected) | Spelling suggestions and "Add to dictionary" — with a selection, right-click means formatting instead |
 | Right-click a heading, or the ⋯ beside it | Section menu — the whole subtree, not the line |
 | Drag a row in **Outline** | Reorder a section, and everything under it |
 | `/` at line start | Slash menu (callout, code fence, table, …) |
