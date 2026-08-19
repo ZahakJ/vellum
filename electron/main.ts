@@ -32,7 +32,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { TO_MAIN, TO_RENDERER, type Command, type Hello } from "./ipc.ts";
-import { keepSignedIn, mintCredential, signIn, type Credential } from "./auth.ts";
+import { keepSignedIn, mintCredential, signIn } from "./auth.ts";
+import type { Credential } from "./server.ts";
 import { PROTOCOL, knownVault, parseDeepLink, relativeNote, routeForNote, vaultForFile } from "./deeplink.ts";
 import { applyMenu, trayMenu, type RecentEntry } from "./menu.ts";
 import { m, menuLang, mf, setMenuLang } from "./menuStrings.ts";
@@ -246,6 +247,13 @@ async function openVaultUnguarded(vault: string, route: string): Promise<void> {
   const wantedPort = rememberedPort(vault, prefs);
   if (!credential) throw new Error("vellum: no credential minted");
   let server: VaultServer;
+  // Declared OUTSIDE the try, deliberately: the sign-in and keep-alive
+  // decisions after the catch read it. It lived inside once, and every open
+  // then died with "deployEnv is not defined" — a ReferenceError the sign-in
+  // catch dressed up as a failed vault. Nothing typechecks this file's whole
+  // graph (the root tsconfig excludes electron/), which is why check-desktop
+  // now runs tsc over it.
+  let deployEnv: Record<string, string> | null = null;
   try {
     // The prefs row may name an EXISTING Vellum home — the door that lets the
     // desktop share settings, comments and reading state with a long-running
@@ -257,7 +265,6 @@ async function openVaultUnguarded(vault: string, route: string): Promise<void> {
     // shared data — the owner's password refused, the public layout "private".
     const override = prefs.vaults.find((v) => v.path === vault)?.data;
     const dataDir = override !== undefined && existsSync(override) ? override : dataDirFor(vault);
-    let deployEnv: Record<string, string> | null = null;
     if (dataDir === override) {
       const envFile = path.join(override, "..", ".env");
       if (existsSync(envFile)) {
