@@ -42,6 +42,7 @@ extraMetadata:
   author:
     name: ZahakJ
     email: 77855241+ZahakJ@users.noreply.github.com
+  desktopName: vellum.desktop
 
 # Everything the spawned server can reach, and nothing else. The client's
 # SOURCE is not here — `dist/` is the built client, which is what the server
@@ -100,4 +101,12 @@ win:
 linux:
   icon: icons/icon.png
   category: Office
-  target: [AppImage, deb]
+  # pacman beside the two: the owner's own machine runs Arch, and handing an
+  # Arch user a .deb is handing them an archive to unpack by hand.
+  target: [AppImage, deb, pacman]
+  # WM_CLASS ↔ .desktop association, so a desktop environment links the
+  # running window to its launcher entry (grouping, pinning, Win+A search)
+  # instead of showing a second anonymous window. electron-builder's own
+  # build log asks for exactly this; the name itself sits in extraMetadata,
+  # which is the package.json field the log means.
+  syncDesktopName: true
