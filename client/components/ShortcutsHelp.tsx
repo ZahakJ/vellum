@@ -9,9 +9,11 @@
 // the blog shell, Ctrl/Cmd+/ is the only door — there is no status bar and no
 // palette there).
 //
-// TWO filters, and they are the same rule twice. `admin` drops the rows a
-// read-only session cannot act on; `shell` drops the rows the mounted shell
-// does not have. A blog visitor was being served the APP's sheet: Command
+// THREE filters, and they are the same rule three times. `admin` drops the
+// rows a read-only session cannot act on; `shell` drops the rows the mounted
+// shell does not have; `desktop` drops the rows only the desktop app can be
+// given, and is a no-op in every browser — including this one, until that app
+// exists. A blog visitor was being served the APP's sheet: Command
 // palette, Graph view, Zen mode, Browse themes "via Status bar", and both
 // pane toggles — six rows naming controls that are not on the page, three of
 // them lit as buttons that ran commands into a shell holding no such state.
@@ -41,6 +43,18 @@ interface Binding {
    *  answered by the sidebar's search box in the app and by the blog's own
    *  overlay; Esc, a click on a link and this sheet exist everywhere). */
   shell?: Shell;
+  /** Only meaningful in the DESKTOP runtime — a native menu accelerator or a
+   *  global hotkey no browser tab can be given. Unmarked rows work in both,
+   *  which is the `shell` rule one line up wearing a different noun, and the
+   *  filter below is the same shape for the same reason.
+   *
+   *  It exists before the desktop build does, on purpose. `GROUPS` is the one
+   *  place a binding exists — `npm run check-keymap` reads this table and
+   *  fails the build when two rows claim one keystroke — and a ledger that
+   *  cannot spell "desktop only" cannot be asked whether the desktop's keys
+   *  collide with the browser's. That answer has to exist before the keys do;
+   *  after they ship it is a bug report. */
+  desktop?: boolean;
   /** What the row DOES, when the shell can do it from here. Rows carried a
    *  hover highlight while being plain divs — an affordance lie: the pointer
    *  lit a row that answered to nothing, and a screenshot of the sheet showed
@@ -115,7 +129,10 @@ const GROUPS: Group[] = [
         shell: "app",
         run: () => useStore.getState().setView("graph"),
       },
-      { label: "cmdDailyNote", keys: ["Ctrl/Cmd", "D"], admin: true, run: () => void openDailyNote() },
+      // Alt, because the plain key is the editor's "select next occurrence" —
+      // which had been dead since it shipped, swallowed here in the capture
+      // phase. A once-a-day verb does not outrank a per-minute one.
+      { label: "cmdDailyNote", keys: ["Ctrl/Cmd", "Alt", "D"], admin: true, run: () => void openDailyNote() },
       { label: "newNote", keys: ["Ctrl/Cmd", "N"], admin: true },
       // Templates wear Alt because Ctrl/Cmd+T and +Shift+T belong to the
       // browser (new tab / reopen closed tab) — the sheet has to be able to
@@ -197,6 +214,15 @@ const GROUPS: Group[] = [
       { label: "scUnderline", keys: ["Ctrl/Cmd", "U"], admin: true },
       { label: "scStrikethrough", keys: ["Ctrl/Cmd", "Shift", "X"], admin: true },
       { label: "scHighlight", keys: ["Ctrl/Cmd", "Shift", "H"], admin: true },
+      { label: "scComment", keys: ["Ctrl/Cmd", "Alt", "/"], admin: true },
+      { label: "scSplitPane", keys: ["Ctrl/Cmd", "\\"], admin: true },
+      { label: "scSplitPaneDown", keys: ["Ctrl/Cmd", "Shift", "\\"], admin: true },
+      { label: "scClosePane", keys: ["Ctrl/Cmd", "Alt", "\\"], admin: true },
+      { label: "scFocusPane", keys: ["Ctrl/Cmd", "Alt", "Shift", "↑ / ↓"], admin: true },
+      { label: "scFocusPaneSide", keys: ["Ctrl/Cmd", "Alt", "Shift", "← / →"], admin: true },
+      { label: "scSelectNext", keys: ["Ctrl/Cmd", "D"], admin: true },
+      { label: "scAddCursor", via: "scAddCursorHow", admin: true },
+      { label: "scColumnSelect", via: "scColumnSelectHow", admin: true },
       { label: "scSelectionMenu", via: "scSelectionMenuKey", admin: true },
       { label: "scTextColor", via: "scViaSelectionMenu", admin: true },
     ],
@@ -260,6 +286,14 @@ const GROUPS: Group[] = [
   },
 ];
 
+/** Are we inside the desktop app? Electron stamps `Electron/<version>` into
+ *  the user-agent and nothing else does, so no build flag and no store field
+ *  is needed to answer it — which matters here, because the answer must be
+ *  false in every browser without anyone having to remember to set it. Until
+ *  the desktop ships this is false everywhere and the `desktop` filter below
+ *  is a no-op; the rows it will hide do not exist yet. */
+const DESKTOP = typeof navigator !== "undefined" && /\bElectron\//.test(navigator.userAgent);
+
 export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
   const open = useStore((s) => s.shortcutsOpen);
   const setOpen = useStore((s) => s.setShortcutsOpen);
@@ -295,7 +329,12 @@ export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
     const words = q ? q.split(/\s+/) : [];
     const scored = GROUPS.map((group) => {
       const items = group.items
-        .filter((item) => (!item.admin || admin) && (!item.shell || item.shell === shell))
+        .filter(
+          (item) =>
+            (!item.admin || admin) &&
+            (!item.shell || item.shell === shell) &&
+            (!item.desktop || DESKTOP),
+        )
         .map((item) => ({ item, score: score(item, group, words) }))
         .filter((row) => row.score >= 0)
         // Stable within a score: the authored order is a curriculum.

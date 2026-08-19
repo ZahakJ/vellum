@@ -134,6 +134,32 @@ shortcut sheet and not to that file is a binding untested on every non-Latin key
 `node scripts/shoot-layouts.mjs` is the companion picture: the `Ctrl/Cmd /` sheet with the layout
 map stubbed to Arabic and to Russian, which is how the annotated keycaps are reviewed.
 
+### `npm run check-keymap` — the binding ledger
+
+A colliding shortcut is the quietest bug this product can have. One handler answers the key, the
+other never sees the event, and neither of them knows the other exists — so it surfaces weeks
+later as "Ctrl+B does nothing", on one platform, from one reader, with nothing to grep for, because
+nothing is wrong with either binding. What is wrong is that there are two.
+
+So a binding exists in ONE place: the `GROUPS` table in `client/components/ShortcutsHelp.tsx`, the
+same table `Ctrl/Cmd /` prints. This gate parses it out of the source text (never imports it — the
+rows carry React and store closures, and a gate that needs a browser is a gate nobody runs), turns
+every row's `keys` into a normalized chord, and fails when two rows resolve to the same key,
+modifiers and scope. Scope is the shell (`app` / `blog`) and the runtime (browser / desktop), and
+deliberately **not** `admin`: an admin session sees the visitor's rows plus its own, so `admin`
+never keeps two bindings apart — it names the reader a collision reaches first.
+
+One overlap is real, argued and declared: `Ctrl/Cmd Shift Z` is zen AND CodeMirror's only macOS
+redo binding, and `client/App.tsx` breaks the tie by caret. Declaring one costs a paragraph in
+`RESOLVED` (`client/keymap.ts`) saying where the tie is broken, and a declaration that stops
+colliding fails the build too — a dead exception is a claim the next reader believes.
+
+The second half is `docs/keymap.md`, which is a RENDERING of the ledger rather than a second copy
+of it: the gate diffs the chords in the tables between `<!-- keymap:begin -->` and
+`<!-- keymap:end -->` against `GROUPS`, in both directions. Surfaces that carry no keystroke — a
+click, the slash menu, an outline drag — live below the end marker, where the gate leaves them
+alone. `tests/keymap.test.ts` runs the same code with no files to write.
+
 ### `npm run check-excerpt` — the tag-in-prose gate
 
 `DESIGN.md`'s hard rule is that a snippet outside the editor either STRIPS markdown or RENDERS it;
@@ -203,7 +229,8 @@ Not wired into `package.json` — run by hand, for visual review. All take `CHRO
 3. **Run the gates your change touches** — theme tokens mean `check-contrast`, any user-visible
    string means `check-i18n`, the outline or note-rewriting code means `check-sections`, the editor
    means `check-caret`, the designer means `check-board` / `check-preview` / `check-design`, and
-   **anything that reads a keystroke means `check-layouts` plus `tests/shortcuts.test.ts`**.
+   **anything that reads a keystroke means `check-keymap` and `check-layouts`, plus
+   `tests/shortcuts.test.ts`** — is the binding unique, and can a non-Latin keyboard reach it.
 4. **Both languages, both directions.** Every string comes from `client/i18n.ts`, and every layout
    is built on CSS logical properties. A change that only reads correctly left-to-right is not
    finished — `LANGSET=ar` on any shoot harness is the cheapest way to see it.

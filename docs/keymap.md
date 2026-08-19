@@ -9,6 +9,14 @@
 `Ctrl/Cmd /` opens the in-app shortcut sheet — every binding, grouped and searchable, in whichever
 language the instance is in. This page is the same list on paper.
 
+Literally the same list: the tables between here and *Menus, gestures and the pointer* are a
+RENDERING of the `GROUPS` table in `client/components/ShortcutsHelp.tsx`, and `npm run check-keymap`
+fails the build when they stop agreeing — in either direction. A binding exists in one place, and a
+key documented here that nothing binds is as much a bug as a key nobody documented. The same gate
+is what refuses two rows claiming one keystroke; see [Development](development.md).
+
+<!-- keymap:begin -->
+
 ## Shell
 
 | Keys | Action |
@@ -19,12 +27,18 @@ language the instance is in. This page is the same list on paper.
 | `Ctrl/Cmd E` | Toggle reading view ⇄ editor |
 | `Ctrl/Cmd G` | Toggle graph view |
 | `Ctrl/Cmd N` | New note |
-| `Ctrl/Cmd D` | Open today's daily note (`daily/YYYY-MM-DD.md`) |
+| `Ctrl/Cmd Alt D` | Open today's daily note (`daily/YYYY-MM-DD.md`) |
 | `Ctrl/Cmd Shift P` | Publish / unpublish the open note |
 | `Ctrl/Cmd Alt B` | Collapse / reopen the **Notes sidebar** |
 | `Ctrl/Cmd Alt Shift B` | Collapse / reopen **Outline & backlinks** |
 | `Ctrl/Cmd Shift Z` | Zen mode — all chrome steps aside (`Esc` returns) |
-| `Esc` | Out of the shortcut sheet, out of visitor preview, out of zen, and back to the note from `Ctrl/Cmd K` |
+| `Ctrl/Cmd \` | Split the pane — the new one opens on the same note |
+| `Ctrl/Cmd Shift \` | Split downwards instead of beside |
+| `Ctrl/Cmd Alt \` | Close the pane — its tabs are adopted by a neighbour, never dropped |
+| `Ctrl/Cmd Alt Shift ↑` / `↓` | Move to the pane above / below |
+| `Ctrl/Cmd Alt Shift ←` / `→` | Move to the pane on your left / right — physically, in both languages |
+| `←` / `→` | Previous / next file in the attachment viewer |
+| `Esc` | Out of the shortcut sheet, out of visitor preview, out of zen, out of the attachment viewer, and back to the note from `Ctrl/Cmd K` |
 
 On the public blog shell only `Ctrl/Cmd K` and `Ctrl/Cmd /` are claimed; every other combination
 is handed straight back to the browser.
@@ -38,13 +52,12 @@ is handed straight back to the browser.
 | `Ctrl/Cmd U` | Underline (`<u>`) |
 | `Ctrl/Cmd Shift X` | Strikethrough |
 | `Ctrl/Cmd Shift H` | Highlight |
+| `Ctrl/Cmd Alt /` | Comment out the selection — `%%…%%` in a note, `%` in a `.tex` file |
+| `Ctrl/Cmd D` | Select the next occurrence of the word under the cursor |
 | `Ctrl/Cmd S` | Save now (autosave runs regardless, 600 ms after you stop) |
 | `Ctrl/Cmd ↑` / `↓` | Move the current line up / down |
 | `Ctrl/Cmd Z` / `Ctrl/Cmd Shift Z` | Undo / redo (inside the editor; see the note on zen below) |
 | `Ctrl/Cmd F` | Find within the note |
-| `Right-click` / `Shift F10` / the menu key | Formatting menu for the selection — text style, structure, insert, colour |
-| `/` at line start | Slash menu (callout, code fence, table, …) |
-| `Tab` | Indent |
 
 ## Templates
 
@@ -60,19 +73,48 @@ is handed straight back to the browser.
 
 | Keys | Action |
 | ---- | ------ |
-| `Ctrl Shift [` / `]` *(macOS: `Cmd Alt [` / `]`)* | Fold / unfold the section at the cursor |
+| `Ctrl/Cmd Shift [` / `]` | Fold / unfold the section at the cursor — or the chevron beside the heading |
 | `Ctrl/Cmd Alt [` / `]` | Fold / unfold everything |
 | `Ctrl/Cmd Alt F` | Focus one section — everything else collapses; `Esc` restores it exactly |
 | `Ctrl/Cmd Alt ↑` / `↓` | Jump to the previous / next heading (scrolls, in reading view) |
 
-## Navigation & pointer
+**On macOS both fold rows are spelled differently, and the table above does not say so yet.** Both
+bindings come from CodeMirror's own `foldKeymap`, which overrides the section fold for Mac
+(`Ctrl-Shift-[` becomes `Cmd-Alt-[`) and leaves fold-all on `Ctrl-Alt-[` for every platform. So on a
+Mac the section fold is `Cmd Alt [` / `]` — not `Cmd Shift [`, which binds nothing — and fold-all
+keeps its `Ctrl`. The shortcut sheet prints `Ctrl/Cmd` for both; the keymap gate compares the sheet
+against this page and cannot see past either of them into CodeMirror, so this paragraph is the
+correction until the two rows are given their real Mac spellings.
 
-| Keys | Action |
-| ---- | ------ |
+**`Ctrl/Cmd G` is the graph everywhere, including inside the editor, and that is a decision.**
+CodeMirror's `searchKeymap` binds `Mod-g` to "find again", and the shell claims the key first in the
+capture phase — so that binding has never fired here. It stays that way: find-again already has two
+other ways to run (`F3`, and `Enter` in the find field), while the graph toggle is a documented
+Vellum binding a reader would be surprised to lose halfway through a note. This is the opposite call
+to the one made for `Ctrl/Cmd D` and `Ctrl/Cmd B`, where the editor's meaning is the per-minute one
+and the shell's was the once-a-day one — the rule is which verb the key is worth more to, not who
+asked first. Written down because a keymap gate that compares this page to the shortcut sheet cannot
+see CodeMirror's own keymaps, so the next reader to notice `Mod-g` would otherwise "fix" it.
+
+<!-- keymap:end -->
+
+## Menus, gestures and the pointer
+
+Below the line the ledger stops. These are SURFACES rather than bindings — Vellum claims no
+keystroke of its own for them, so the shortcut sheet names the surface where its other rows name a
+key, and the keymap gate leaves them alone.
+
+| How | Action |
+| --- | ------ |
 | Click | Follow a rendered wikilink (create it if unresolved) |
 | `Ctrl/Cmd`-click | Follow a wikilink on the line you're editing |
+| Click | Open an image or PDF from the tree, in the attachment viewer |
+| Right-click, `Shift F10`, or the menu key | Formatting menu for the selection — text style, structure, insert, colour |
+| Right-click a heading, or the ⋯ beside it | Section menu — the whole subtree, not the line |
+| Drag a row in **Outline** | Reorder a section, and everything under it |
+| `/` at line start | Slash menu (callout, code fence, table, …) |
+| `Tab` | Indent (CodeMirror's `indentWithTab`) |
 | `↑` `↓` `Enter` `Esc` | Navigate / confirm / dismiss the palette (`Enter` always runs the keyboard's row, never whatever the mouse happens to rest on) |
-| `←` `→` `Esc` | Previous / next file in the attachment viewer, and out of it |
 
 Every modal, popover and picker in the product answers the same four keys — `Esc` to leave, arrows
 to move, `Enter` to commit, type-ahead where there is a list — and `Esc` always belongs to the
