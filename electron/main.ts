@@ -28,7 +28,7 @@ import {
   session,
   shell,
 } from "electron";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { TO_MAIN, TO_RENDERER, type Command, type Hello } from "./ipc.ts";
@@ -44,7 +44,7 @@ import {
   rememberedPort,
   type Bounds,
 } from "./prefs.ts";
-import { APP_ROOT, startVaultServer, type VaultServer } from "./server.ts";
+import { APP_ROOT, parseEnvFile, startVaultServer, type VaultServer } from "./server.ts";
 import { enableSpellcheck, replaceMisspelling, spellMenuFor } from "./spellcheck.ts";
 import { dataDirFor, flushPrefs, loadPrefs, partitionFor, savePrefs } from "./store.ts";
 import { applyStagedUpdate, checkForUpdates, installUpdater, onUpdateState } from "./update.ts";
@@ -247,18 +247,38 @@ async function openVaultUnguarded(vault: string, route: string): Promise<void> {
   if (!credential) throw new Error("vellum: no credential minted");
   let server: VaultServer;
   try {
+    // The prefs row may name an EXISTING Vellum home — the door that lets the
+    // desktop share settings, comments and reading state with a long-running
+    // server deployment on the same vault. Its own per-vault home is the
+    // default, and the fallback when an override has gone away. An env-linked
+    // home carries its deployment's `.env` beside it (vellum-prod/.env next to
+    // vellum-prod/data), and THAT is what makes the window the same site:
+    // without it the child got a minted password and PUBLIC=false over the
+    // shared data — the owner's password refused, the public layout "private".
+    const override = prefs.vaults.find((v) => v.path === vault)?.data;
+    const dataDir = override !== undefined && existsSync(override) ? override : dataDirFor(vault);
+    let deployEnv: Record<string, string> | null = null;
+    if (dataDir === override) {
+      const envFile = path.join(override, "..", ".env");
+      if (existsSync(envFile)) {
+        deployEnv = parseEnvFile(readFileSync(envFile, "utf8"));
+      }
+    }
+    // A deployment that names no admin hash cannot authenticate anyone; the
+    // minted credential stays so the window still works.
+    const deployAuth =
+      deployEnv !== null &&
+      typeof deployEnv.ADMIN_PASSWORD_HASH === "string" &&
+      deployEnv.ADMIN_PASSWORD_HASH !== "" &&
+      typeof deployEnv.SESSION_SECRET === "string" &&
+      deployEnv.SESSION_SECRET !== "";
+    if (!deployAuth) deployEnv = null;
     server = await startVaultServer({
       vault,
-      // The prefs row may name an EXISTING Vellum home — the door that lets
-      // the desktop share settings, comments and reading state with a
-      // long-running server deployment on the same vault. Its own per-vault
-      // home is the default, and the fallback when an override has gone away.
-      dataDir: (() => {
-        const override = prefs.vaults.find((v) => v.path === vault)?.data;
-        return override !== undefined && existsSync(override) ? override : dataDirFor(vault);
-      })(),
+      dataDir,
       prefs,
       credential,
+      deployEnv,
       onLog: (line) => process.stdout.write(line),
       onExit: (code, signal) => onServerExit(vault, code, signal),
     });
@@ -270,7 +290,13 @@ async function openVaultUnguarded(vault: string, route: string): Promise<void> {
   const ses = session.fromPartition(partitionFor(vault));
   let lifetime: number;
   try {
-    lifetime = await signIn(ses, server.origin, credential);
+    // AN ENV-LINKED VAULT AUTHENTICATES LIKE ITS DEPLOYMENT. The server is
+    // running under the owner's own ADMIN_PASSWORD_HASH — a password this app
+    // has never seen and must not pretend to know — so the window opens as a
+    // reader and the familiar "Sign in" in the status bar takes the SAME
+    // password the site takes. Auto-admin remains the right answer only for a
+    // vault whose server this launch minted the credential for.
+    lifetime = deployEnv !== null ? 0 : await signIn(ses, server.origin, credential);
   } catch (err) {
     // The app could not sign in to its own server. Left unhandled this is the
     // worst-shaped failure available here: the child keeps running, holding the
@@ -287,9 +313,12 @@ async function openVaultUnguarded(vault: string, route: string): Promise<void> {
     server,
     session: ses,
     credential,
-    stopKeepAlive: keepSignedIn(ses, server.origin, credential, lifetime, (err) =>
-      console.error("vellum: could not refresh the desktop session:", err),
-    ),
+    stopKeepAlive:
+      deployEnv !== null
+        ? () => {}
+        : keepSignedIn(ses, server.origin, credential, lifetime, (err) =>
+            console.error("vellum: could not refresh the desktop session:", err),
+          ),
     windows: new Set(),
     pendingRoute: null,
     spellcheck: prefs.spellcheck,
@@ -297,9 +326,11 @@ async function openVaultUnguarded(vault: string, route: string): Promise<void> {
   };
   instances.set(vault, instance);
 
-  // The chrome's language is the INSTANCE's, not the OS's: a vault configured
-  // in Arabic gets an Arabic menu bar, because the window under it is already
-  // mirrored and translated. Asked once, over the session that just signed in.
+  // The menu opens in the INSTANCE's language as a first guess — the window
+  // under it is about to render in it — and then FOLLOWS THE READER: the
+  // renderer reports its chrome preference (TO_MAIN.chromeLang) the moment it
+  // mounts and again whenever it changes, which is what keeps an English
+  // interface from sitting under an Arabic menu bar on an Arabic site.
   await adoptLanguage(instance);
   instance.spellLanguages =
     process.platform === "darwin" && instance.spellcheck
@@ -525,6 +556,13 @@ function registerBridge(): void {
   });
   ipcMain.handle(TO_MAIN.updateApply, async () => {
     await applyStagedUpdate();
+  });
+  ipcMain.handle(TO_MAIN.chromeLang, (_event, lang: unknown) => {
+    // The menu speaks the reader's chrome language, not the site's — see the
+    // channel's note in ipc.ts. Rebuilt immediately: an application menu is a
+    // tree, and "updating" one is building it again.
+    setMenuLang(lang === "ar" ? "ar" : "en");
+    refreshMenu();
   });
   ipcMain.handle(TO_MAIN.hello, (event): Hello => {
     const instance = instanceOf(event.sender);
