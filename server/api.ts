@@ -17,6 +17,7 @@ import { stripBidiControls } from "../shared/bidi.ts";
 import { isNotePath, isTexPath, stripNoteExt } from "../shared/noteFormat.ts";
 import { UPLOAD_MAX_BYTES } from "../shared/limits.ts";
 import type {
+  AliasesResponse,
   AnchorsResponse,
   BannerResolution,
   CommentData,
@@ -53,6 +54,7 @@ import {
 } from "./comments.ts";
 import type { FilterLang } from "./indexer.ts";
 import {
+  aliasEntries,
   backlinks,
   indexFile,
   indexUnder,
@@ -83,11 +85,12 @@ import { sendEncoded } from "./compress.ts";
 import { graphBody, invalidateGraph, localGraphJson } from "./graphCache.ts";
 import { invalidateTree, treeBody } from "./treeCache.ts";
 import { designRoutes } from "./designRoutes.ts";
+import { bookRoutes } from "./bookRoutes.ts";
 import { staticPagesActive } from "./pages.ts";
 import { gitStatus, initRepo, syncNow } from "./gitSync.ts";
 import { dirOf, rewriteDestinations, rewriteForMove } from "./moveLinks.ts";
 import { yamlQuote } from "./publish.ts";
-import { setNoteFrontmatterLine, setNotePublishFlag } from "./noteFrontmatter.ts";
+import { addNoteAlias, setNoteFrontmatterLine, setNotePublishFlag } from "./noteFrontmatter.ts";
 import {
   buildFaceListCss,
   buildFontCss,
@@ -522,6 +525,20 @@ api.get("/note", async (c) => {
   return c.json(await readNote(notePath));
 });
 
+/** The optional `baseMtimeMs` write precondition off a request body. Validated
+ *  here; enforced by `writeNote`, next to the write it guards. Only the
+ *  editor's buffer registry sends it — the publish toggle, the banner setter,
+ *  the section writer and the rename link-rewrite each derive a whole file from
+ *  the one they are about to replace, and keep today's behaviour. */
+function baseMtime(body: Record<string, unknown>): number | undefined {
+  const base = body.baseMtimeMs;
+  if (base === undefined || base === null) return undefined;
+  if (typeof base !== "number") {
+    throw new VaultError(400, 'Body field "baseMtimeMs" must be a number');
+  }
+  return base;
+}
+
 api.put("/note", async (c) => {
   const path = requiredQuery(c.req.query("path"), "path");
   const body = await jsonBody(c);
@@ -540,10 +557,36 @@ api.put("/note", async (c) => {
   // This is the editor's own save path, i.e. the common case.
   const existed = await noteExists(path);
   suppressWatcherEcho(path);
-  const written = await writeNote(path, body.content);
+  const written = await writeNote(path, body.content, baseMtime(body));
   emitEvent({ kind: existed ? "changed" : "created", path: written.path });
   // Index now rather than after the watcher debounce, so an immediately
   // following rename/search sees this note's links.
+  await indexFile(written.path);
+  return c.json(written);
+});
+
+/** The same write, reachable by `navigator.sendBeacon`.
+ *
+ *  It exists for exactly one moment: the tab is closing with unsaved text in it.
+ *  A `fetch` started in `beforeunload` is cancelled with the document, and
+ *  `keepalive` is capped and unreliable across browsers; `sendBeacon` is the one
+ *  transport the platform promises to deliver after the page is gone — and it
+ *  is POST-only, which is the entire reason this route is a POST of something
+ *  `PUT /note` already does.
+ *
+ *  Everything else about it is identical, including the precondition: a
+ *  last-gasp save that clobbers a newer version is still a clobber, and the
+ *  reader who caused it is by definition not there to be asked. */
+api.post("/note/flush", async (c) => {
+  const body = await jsonBody(c);
+  const path = requiredString(body, "path");
+  if (typeof body.content !== "string") {
+    throw new VaultError(400, 'Body field "content" must be a string');
+  }
+  const existed = await noteExists(path);
+  suppressWatcherEcho(path);
+  const written = await writeNote(path, body.content, baseMtime(body));
+  emitEvent({ kind: existed ? "changed" : "created", path: written.path });
   await indexFile(written.path);
   return c.json(written);
 });
@@ -838,6 +881,51 @@ api.post("/frontmatter", async (c) => {
   await indexFile(note.path);
   const result: FrontmatterResult = { ok: true, path: note.path, key, value };
   return c.json(result);
+});
+
+// Every alias in the vault — the name table the client cannot derive.
+//
+// `[[` autocomplete builds its list from the tree in the store, and a tree
+// carries filenames: an alias lives in frontmatter the client has never read.
+// Without this, a vault's aliases resolved when typed in full and could not be
+// COMPLETED, which is the same feature working in one place and missing in the
+// place the author actually reaches for it.
+//
+// Visitor-scoped exactly as resolution is (`aliasEntries` applies the same
+// filter), so an alias can never name a note a visitor may not discover.
+api.get("/aliases", (c) => {
+  const limited = isPublishLimited(c);
+  const response: AliasesResponse = { aliases: aliasEntries(limited, languageScope(c, limited).lang) };
+  return c.json(response);
+});
+
+/** A name, not a paragraph — the same ceiling a frontmatter value gets. */
+const ALIAS_MAX = 200;
+
+// Add one alias to a note's frontmatter — the write behind "keep the old title
+// as an alias" after a rename. Merging and format (a `.tex` note's aliases live
+// in its comment block) belong to server/noteFrontmatter.ts; this route is the
+// same read-edit-write-reindex shape /api/frontmatter uses, including the
+// watcher-echo suppression that stops the edit arriving twice.
+api.post("/alias", async (c) => {
+  const body = await jsonBody(c);
+  const notePath = requiredString(body, "path");
+  // Same discipline as /api/frontmatter: one line, no control characters — a
+  // frontmatter write must never be able to smuggle extra YAML into the block.
+  const alias = requiredString(body, "alias").replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+  if (!alias) throw new VaultError(400, 'Body field "alias" must not be blank');
+  if (alias.length > ALIAS_MAX) {
+    throw new VaultError(400, `Alias too long (${ALIAS_MAX} characters max)`);
+  }
+  const note = await readNote(notePath);
+  const updated = addNoteAlias(note.path, note.content, alias);
+  if (updated !== note.content) {
+    suppressWatcherEcho(note.path);
+    await writeNote(note.path, updated);
+    emitEvent({ kind: "changed", path: note.path });
+  }
+  await indexFile(note.path);
+  return c.json({ ok: true, path: note.path, alias });
 });
 
 api.get("/resolve", (c) => {
@@ -1469,6 +1557,14 @@ api.get("/posts", (c) => {
 // scrubbed per session) and /api/design/themes.css (styling, like
 // custom.css). See server/designRoutes.ts.
 api.route("/design", designRoutes);
+// --------------------------------------------------------------------- books
+// The reader (VELLUM_DATA/books.json): the vault's PDFs as a shelf, and where
+// each one was left off. Mounted here, below the auth guard, so the writes are
+// already admin-only; both reads add `assertAdminRead` themselves because a
+// shelf is an enumeration of the owner's own directory. The PDF BYTES are not
+// served from here at all — the reader fetches them from /api/file, gated
+// exactly as every embed is. See server/bookRoutes.ts.
+api.route("/books", bookRoutes);
 // ---------------------------------------------------------------- visibility
 // "What will this setting cost me?", answered in notes, from this vault,
 // BEFORE the save. Admin-only (the counts describe exactly what the public
