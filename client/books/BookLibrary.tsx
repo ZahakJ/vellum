@@ -140,6 +140,10 @@ interface Props {
    *  PASSAGE rather than a cover: the reader jumps to its page and pulses it. */
   onOpen(path: string, anchor?: BookAnchor | null): void;
   onClose(): void;
+  /** Whether this shelf's pane holds the keyboard (client/components/Pane.tsx).
+   *  The `/` and Escape listeners are on `window`, so an inactive shelf must
+   *  stand down or a `/` typed toward another pane would steal focus here. */
+  active?: boolean;
 }
 
 /** How many marked passages the shelf shows for one query. A search is a way
@@ -147,7 +151,7 @@ interface Props {
  *  answer is "type another word". */
 const PASSAGE_RESULTS_MAX = 40;
 
-export default function BookLibrary({ onOpen, onClose }: Props) {
+export default function BookLibrary({ onOpen, onClose, active = true }: Props) {
   const [books, setBooks] = useState<BookEntry[] | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -203,6 +207,7 @@ export default function BookLibrary({ onOpen, onClose }: Props) {
   // one gesture, two scopes, which is the whole point of a keyboard product.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!active) return; // another pane holds the keyboard
       const target = e.target;
       const typing =
         target instanceof HTMLElement &&
@@ -225,7 +230,7 @@ export default function BookLibrary({ onOpen, onClose }: Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, active]);
 
   const shown = useMemo(() => {
     if (!books) return [];

@@ -134,6 +134,12 @@ interface Props {
   /** The passage a citation named, when a `[[Book.pdf#page=…]]` is what opened
    *  this reader. The page is jumped to and the rectangle pulsed once. */
   citation?: BookAnchor | null;
+  /** Whether this reader's pane holds the keyboard (client/components/Pane.tsx).
+   *  Every zathura key listens on `window`; a reader whose pane is not focused
+   *  must stand down, or `j` typed toward the note beside it turns the page. */
+  active?: boolean;
+  /** The citation has been landed on — the pane may clear its one-shot target. */
+  onLanded?(): void;
   /** Leave the reader entirely (back to the app). */
   onClose(): void;
   /** Leave the reader for the shelf. */
@@ -155,7 +161,7 @@ interface PendingCite {
   picking: boolean;
 }
 
-export default function BookReader({ path, citation = null, onClose, onLibrary }: Props) {
+export default function BookReader({ path, citation = null, active = true, onLanded, onClose, onLibrary }: Props) {
   const [entry, setEntry] = useState<BookOpenResponse | null>(null);
   const [doc, setDoc] = useState<PdfDocument | null>(null);
   const [failed, setFailed] = useState(false);
@@ -794,7 +800,11 @@ export default function BookReader({ path, citation = null, onClose, onLibrary }
     const stored = citation.id === null ? undefined : highlightsRef.current.find((h) => h.id === citation.id);
     const rects = stored ? stored.rects : citation.rect ? [citation.rect] : [];
     if (rects.length > 0) setPulse({ page: citation.page, rects });
-  }, [citation, doc, spreads.length, goToPage, highlights]);
+    // Landed. The pane clears its one-shot target so the tab does not reopen
+    // on this citation forever; `arrived` keeps the null that follows from
+    // re-triggering anything.
+    onLanded?.();
+  }, [citation, doc, spreads.length, goToPage, highlights, onLanded]);
 
   useEffect(() => {
     if (pulse === null) return;
@@ -1017,6 +1027,7 @@ export default function BookReader({ path, citation = null, onClose, onLibrary }
   // ── The keyboard ──────────────────────────────────────────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!active) return; // another pane holds the keyboard
       const target = e.target;
       const typing =
         target instanceof HTMLElement &&
@@ -1239,6 +1250,7 @@ export default function BookReader({ path, citation = null, onClose, onLibrary }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [
+    active,
     overlay,
     hits.length,
     view.height,

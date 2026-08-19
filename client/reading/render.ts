@@ -1073,7 +1073,7 @@ export function onRootClick(ev: MouseEvent): void {
       const store = useStore.getState();
       if (anchor !== null && store.admin) {
         const from = wl.dataset.citeNote ?? "";
-        void import("../books/mount.ts").then((mod) =>
+        void import("../books/door.ts").then((mod) =>
           mod.openBookCitation(book, anchor, store.tree, from),
         );
       } else if (anchor !== null) {

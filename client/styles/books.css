@@ -21,21 +21,18 @@
 
 /* ── The surface ───────────────────────────────────────────────────────── */
 
-.s-books-host {
-  /* The portal element itself takes no space; the overlay inside it is fixed. */
-  display: contents;
-}
-
-/* z-index 90 puts the surface over the whole app shell and UNDER the things
-   that must still float on top of it: the toast (200) — which the reader
-   itself raises for marks and command errors — the command palette (100), the
-   login modal (120) and the confirm dialog (500). The mobile sidebar drawer
-   (400) is higher still and that is harmless: its only opener is a button this
-   surface covers, so it cannot be raised while a book is open. */
+/* THE SURFACE FILLS ITS PANE, NOT THE SCREEN. A book is a workspace tab
+   (client/components/Pane.tsx) that renders beside notes, so the fixed
+   full-viewport overlay — and the z-index ladder it needed to sit under the
+   palette and the toasts — is gone. `position: relative` stays load-bearing:
+   the reader's own chrome (the search bar, the help sheet, the command line)
+   is absolutely positioned against this box, and against a PANE that is
+   exactly what "over the reader, inside the pane" should mean. */
 .s-books {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg);

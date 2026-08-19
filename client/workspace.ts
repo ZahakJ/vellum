@@ -23,6 +23,7 @@
 // sides. The one place this rule is deliberately broken is `paneInDirection` —
 // see its comment.
 
+import type { BookAnchor } from "../shared/bookAnchor.ts";
 import { isNotePath } from "../shared/noteFormat.ts";
 
 export type PaneId = string;
@@ -38,14 +39,11 @@ export type PaneMode = "edit" | "reading" | "graph" | "library";
  *  harmless no-op on a book instead of a mode the pane cannot honour. */
 export type PaneSurface = "edit" | "reading" | "book" | "graph" | "library" | "empty";
 
-export interface BookTarget {
-  /** 1-based. Absent means "wherever this reader left off". */
-  page?: number;
-  /** Flashed on arrival, never selected — a citation says where it came from,
-   *  it does not re-select the reader's text for them. */
-  rects?: string;
-  annot?: string | null;
-}
+/** Where in a book an open should land. There is ONE spelling of "where in a
+ *  book" in this product — shared/bookAnchor.ts owns it, the citation wikilink
+ *  carries it, and this model holds the same shape rather than a private
+ *  translation of it that every consumer would have to convert. */
+export type BookTarget = BookAnchor;
 
 export interface TabState {
   /** A note (`.md`/`.tex`) or a book (`.pdf`). Nothing else opens as a tab. */
@@ -318,6 +316,7 @@ export function splitPane(
   from: PaneId,
   axis: "inline" | "block",
   carry: TabState | null,
+  before = false,
 ): Workspace | null {
   const col = columnOf(ws, from);
   if (col < 0) return null;
@@ -331,18 +330,23 @@ export function splitPane(
   const columns = ws.layout.columns.map((c) => [...c]);
   let colWeights = [...ws.layout.colWeights];
 
+  // `before` puts the new pane on the START side of `from` (above, or
+  // inline-start). It exists for the drop zones: a tab dropped on a pane's
+  // leading edge means "split, and land me on THAT side" — an insert that only
+  // knew "after" would answer both edges with the same geometry and one of
+  // them would feel mirrored.
   if (axis === "inline") {
     if (columns.length >= MAX_COLUMNS) return null;
-    columns.splice(col + 1, 0, [id]);
+    columns.splice(before ? col : col + 1, 0, [id]);
     // The new column takes half of the one it split off, so the reader's other
     // columns keep the widths they chose.
     const share = colWeights[col] / 2;
     colWeights[col] = share;
-    colWeights.splice(col + 1, 0, share);
+    colWeights.splice(before ? col : col + 1, 0, share);
   } else {
     if (columns[col].length >= MAX_ROWS) return null;
     const at = columns[col].indexOf(from);
-    columns[col].splice(at + 1, 0, id);
+    columns[col].splice(before ? at : at + 1, 0, id);
   }
 
   return settle({
@@ -460,13 +464,19 @@ export function openInPane(ws: Workspace, id: PaneId, path: string, how: OpenHow
   const pane = paneAt(ws, id);
   if (pane === null || pane.follow !== null) return ws;
 
+  // A citation into a book rides the open itself: `how.book` lands on the
+  // pane's one-shot `bookTarget`, whether the book is newly opened or already
+  // sitting in a tab — a citation into an open book must still jump.
+  const aim = (w: Workspace): Workspace =>
+    how.book === undefined ? w : setBookTarget(w, id, how.book);
+
   const at = pane.tabs.findIndex((t) => t.path === path);
   if (at >= 0) {
     // Already here. Re-opening a tab COMMITS it: a second visit is intent, and
     // an ephemeral tab that survives being returned to would be replaced out
     // from under the reader by the next search result.
     const tabs = pane.tabs.map((t, i) => (i === at ? { ...t, ephemeral: false } : t));
-    return focusPane(withTabs(ws, id, tabs, at), id);
+    return aim(focusPane(withTabs(ws, id, tabs, at), id));
   }
 
   const ephemeral = how.ephemeral === true && how.newTab !== true;
@@ -481,7 +491,7 @@ export function openInPane(ws: Workspace, id: PaneId, path: string, how: OpenHow
     index = pane.active >= 0 ? pane.active + 1 : tabs.length;
     tabs.splice(index, 0, tab(path, false, ephemeral));
   }
-  return focusPane(withTabs(ws, id, tabs, index), id);
+  return aim(focusPane(withTabs(ws, id, tabs, index), id));
 }
 
 /** Promote the pane's ephemeral tab for `path` to a real one. Called when the
@@ -591,6 +601,50 @@ export function moveTab(ws: Workspace, from: PaneId, path: string, to: PaneId, i
   const put = Math.min(Math.max(index, 0), tabs.length);
   tabs.splice(put, 0, { ...moved, ephemeral: false });
   return focusPane(withTabs(out, to, tabs, put), to);
+}
+
+/** Which side of a pane a dragged tab was dropped on. Logical, never "left":
+ *  the zones are laid out with logical insets, so the same edge name means the
+ *  same reading-order side in both directions. */
+export type DropEdge = "start-inline" | "end-inline" | "start-block" | "end-block";
+
+/** The drag-a-tab-to-an-edge gesture, whole: take `path` out of `from`, split
+ *  `to` on `edge`, land the tab in the new pane. One reducer rather than a
+ *  sequence in the store, because the halves are not independently meaningful
+ *  — a close whose split then hits the pane cap must refuse ENTIRELY (the tab
+ *  stays where it was; a gesture that half-applies eats a tab) — and because
+ *  living here puts it under the property tests with everything else. */
+export function dropTabSplit(
+  ws: Workspace,
+  from: PaneId,
+  path: string,
+  to: PaneId,
+  edge: DropEdge,
+): Workspace {
+  const src = paneAt(ws, from);
+  const dst = paneAt(ws, to);
+  if (src === null || dst === null || dst.follow !== null) return ws;
+  const moved = src.tabs.find((t) => t.path === path);
+  if (moved === undefined) return ws;
+  // Dragging a pane's only tab onto that pane's own edge would close the pane
+  // and remake it one slot over — a no-op wearing a layout change.
+  if (from === to && src.tabs.length === 1) return ws;
+
+  const emptied = closeTabIn(ws, from, path);
+  const split = splitPane(
+    emptied,
+    to,
+    edge === "start-inline" || edge === "end-inline" ? "inline" : "block",
+    { ...moved },
+    edge === "start-inline" || edge === "start-block",
+  );
+  if (split === null) return ws; // at a cap: the whole gesture refuses
+
+  // The pane the drag emptied closes behind it: its one job left with the
+  // tab, and an empty box the reader has to close by hand is what the gesture
+  // exists to avoid.
+  const rest = paneAt(split, from);
+  return rest !== null && rest.tabs.length === 0 ? closePane(split, from) : split;
 }
 
 // ── queries the rest of the shell asks ──────────────────────────────────────

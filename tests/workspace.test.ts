@@ -26,7 +26,9 @@ import {
   fromStoredTabs,
   holdersOf,
   moveTab,
+  dropTabSplit,
   openInPane,
+  setBookTarget,
   paneAt,
   paneInDirection,
   panesInOrder,
@@ -192,6 +194,76 @@ describe("workspace: panes", () => {
     assert.equal(surfaceOf(paneAt(ws, ws.focus)!), "book");
     assert.equal(ws.noteFocus, noteP, "…and noteFocus still names the note beside it");
   });
+
+  it("OpenHow.book lands on the pane, for a fresh open and for a re-open", () => {
+    const aim = { page: 212, rect: null, id: null };
+    let ws = soloWorkspace(tabs("Note.md"), "Note.md");
+    ws = openInPane(ws, ws.focus, "Ihya.pdf", { book: aim });
+    let pane = paneAt(ws, ws.focus)!;
+    assert.equal(surfaceOf(pane), "book");
+    assert.deepEqual(pane.bookTarget, aim, "a citation rides the open itself");
+
+    // Consumed by the reader…
+    ws = setBookTarget(ws, ws.focus, null);
+    // …and a LATER citation into the already-open book must still jump: the
+    // re-open path sets the target too, or only the first citation ever lands.
+    const again = { page: 7, rect: null, id: null };
+    ws = openInPane(ws, ws.focus, "Ihya.pdf", { book: again });
+    pane = paneAt(ws, ws.focus)!;
+    assert.deepEqual(pane.bookTarget, again, "a re-open aims the pane again");
+
+    // A plain open leaves a pending target alone rather than wiping it.
+    ws = openInPane(ws, ws.focus, "Ihya.pdf");
+    assert.deepEqual(paneAt(ws, ws.focus)!.bookTarget, again);
+  });
+
+  it("dropTabSplit: the drag-to-edge gesture moves the tab into a new pane", () => {
+    let ws = soloWorkspace(tabs("A.md", "B.md"), "A.md");
+    const solo = ws.focus;
+    ws = dropTabSplit(ws, solo, "B.md", solo, "end-inline");
+    assert.equal(panesInOrder(ws).length, 2, "the drop split the solo pane");
+    const [first, second] = panesInOrder(ws);
+    assert.deepEqual(first.tabs.map((t) => t.path), ["A.md"]);
+    assert.deepEqual(second.tabs.map((t) => t.path), ["B.md"], "the tab travelled");
+    assert.equal(ws.focus, second.id, "…and took the keyboard with it");
+
+    // start-inline lands the new pane BEFORE the target in reading order.
+    let ws2 = soloWorkspace(tabs("A.md", "B.md"), "A.md");
+    ws2 = dropTabSplit(ws2, ws2.focus, "B.md", ws2.focus, "start-inline");
+    assert.deepEqual(panesInOrder(ws2)[0].tabs.map((t) => t.path), ["B.md"]);
+  });
+
+  it("dropTabSplit: refuses whole rather than half-applying at a cap", () => {
+    // Fill the columns, then try to drop across — the close must not happen
+    // when the split cannot.
+    let ws = soloWorkspace(tabs("A.md", "B.md"), "A.md");
+    const p0 = ws.focus;
+    ws = splitPane(ws, p0, "inline", null)!;
+    ws = splitPane(ws, ws.focus, "inline", null)!; // MAX_COLUMNS reached
+    const before = ws;
+    ws = dropTabSplit(ws, p0, "B.md", ws.focus, "end-inline");
+    assert.deepEqual(allPaths(ws).sort(), allPaths(before).sort(), "no tab eaten");
+    assert.deepEqual(paneAt(ws, p0)!.tabs.map((t) => t.path), ["A.md", "B.md"]);
+  });
+
+  it("dropTabSplit: an emptied source pane closes behind the drag", () => {
+    let ws = soloWorkspace(tabs("A.md"), "A.md");
+    const p0 = ws.focus;
+    ws = splitPane(ws, p0, "inline", null)!;
+    const p1 = ws.focus;
+    ws = openInPane(ws, p1, "B.md");
+    // Drag B — p1's only tab — onto p0's block edge: p1 must vanish.
+    ws = dropTabSplit(ws, p1, "B.md", p0, "end-block");
+    assert.equal(paneAt(ws, p1), null, "the emptied pane closed behind it");
+    assert.deepEqual(allPaths(ws).sort(), ["A.md", "B.md"]);
+    assert.equal(panesInOrder(ws).length, 2);
+  });
+
+  it("dropTabSplit: a solo pane's only tab dropped on its own edge is a no-op", () => {
+    const ws = soloWorkspace(tabs("A.md"), "A.md");
+    const out = dropTabSplit(ws, ws.focus, "A.md", ws.focus, "end-inline");
+    assert.deepEqual(out, ws);
+  });
 });
 
 describe("workspace: the vault changes underneath", () => {
@@ -316,9 +388,9 @@ describe("workspace: property tests", () => {
         const ids = panesInOrder(ws).map((p) => p.id);
         const id = pick(next, ids);
         const path = pick(next, paths);
-        switch (Math.floor(next() * 10)) {
-          case 0: ws = splitPane(ws, id, "inline", null) ?? ws; break;
-          case 1: ws = splitPane(ws, id, "block", null) ?? ws; break;
+        switch (Math.floor(next() * 12)) {
+          case 0: ws = splitPane(ws, id, "inline", null, next() < 0.5) ?? ws; break;
+          case 1: ws = splitPane(ws, id, "block", null, next() < 0.5) ?? ws; break;
           case 2: ws = closePane(ws, id); break;
           case 3: ws = openInPane(ws, id, path, { ephemeral: next() < 0.5 }); break;
           case 4: ws = closeTabIn(ws, id, path); break;
@@ -326,6 +398,13 @@ describe("workspace: property tests", () => {
           case 6: ws = setPinned(ws, id, path, next() < 0.5); break;
           case 7: ws = moveTab(ws, id, path, pick(next, ids), Math.floor(next() * 4)); break;
           case 8: ws = remapWorkspace(ws, path, pick(next, paths)); break;
+          case 9:
+            ws = dropTabSplit(
+              ws, id, path, pick(next, ids),
+              pick(next, ["start-inline", "end-inline", "start-block", "end-block"] as const),
+            );
+            break;
+          case 10: ws = closeAllIn(ws, id); break;
           default: ws = closeAllIn(ws, id); break;
         }
         assertInvariants(ws, `seed ${seed} step ${step}`);
