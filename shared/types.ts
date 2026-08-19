@@ -1,6 +1,7 @@
 // Shared types — the wire contract between server and client. Do not drift from these.
 
 import type { AttachmentMode } from "./attachments.ts";
+import type { BookHighlight, BookState } from "./bookAnchor.ts";
 
 export interface TreeNode {
   name: string;          // file or folder basename, e.g. "Ideas.md" or "projects"
@@ -41,7 +42,20 @@ export interface SearchHit {
   title: string;         // basename without .md
   snippet: string;       // ~160 chars of matched context, match wrapped in <mark>…</mark>
   score: number;
+  /** The frontmatter alias that earned this hit, when the title did not — the
+   *  row says so, because a result whose words appear nowhere in the note
+   *  otherwise reads as a bug. Absent on an ordinary title/body match. */
+  alias?: string;
 }
+
+/** One frontmatter alias and the note it names — `GET /api/aliases`, which is
+ *  how `[[` autocomplete learns names the vault TREE does not carry. */
+export interface AliasEntry {
+  alias: string;
+  path: string;
+  title: string;
+}
+export interface AliasesResponse { aliases: AliasEntry[] }
 
 export interface GraphNode { id: string; title: string; links: number; tags: string[] }
 export interface GraphEdge { source: string; target: string }
@@ -893,4 +907,98 @@ export interface XrefResponse {
   path: string | null;
   /** The matched anchor (label lookups only; null for a citekey). */
   anchor: NoteAnchorInfo | null;
+}
+
+// ── The library ────────────────────────────────────────────────────────────
+// GET /api/books → BooksResponse. The vault's PDFs as a shelf: one entry per
+// file on disk, each carrying the CONTENT KEY the reading store is filed under
+// (shared/bookAnchor.ts explains why that is a hash of the bytes and not the
+// path) and whatever state that key already has.
+//
+// Admin-only, and deliberately so: a book is a file the owner put in their
+// vault, not something a published note linked to, and enumerating the shelf
+// would answer "what else is in there" for a visitor who was shown one page.
+// The BYTES of a book still travel through /api/file, which is publish-gated
+// exactly as it always was — this route widens nothing.
+
+export interface BookEntry {
+  /** Vault-relative path, e.g. "Books/Muqaddimah.pdf". */
+  path: string;
+  /** Basename, for a shelf that has to print something before any PDF is
+   *  parsed — most PDFs carry no /Title at all. */
+  name: string;
+  size: number;
+  mtimeMs: number;
+  /** sha256 of the byte sample (server/books.ts) — the reading-state key. */
+  key: string;
+  /** The stored reading state, or null when this book has never been opened.
+   *  Null and "page 1" are different facts and the shelf draws them
+   *  differently: nothing at all versus a hairline at the very start. */
+  state: BookState | null;
+}
+
+export interface BooksResponse {
+  books: BookEntry[];
+  /** True when the walk stopped at the cap (BOOKS_MAX in server/books.ts).
+   *  The shelf says so rather than quietly showing a prefix of a vault. */
+  truncated: boolean;
+}
+
+// GET /api/books/one?path= → BookOpenResponse. What the reader asks for when a
+// click on a tree row (or a /book/… URL) names a path: the key those bytes
+// hash to, plus the position to restore. One round trip, before pdf.js is even
+// downloaded, so the first page rendered is the page the reader was on rather
+// than page 1 followed by a jump.
+export interface BookOpenResponse {
+  path: string;
+  name: string;
+  size: number;
+  key: string;
+  state: BookState | null;
+}
+
+// ── Annotations (GET|PUT|DELETE /api/books/highlights) ──────────────────────
+//
+// A highlight is a rectangle on a page and the words under it. It lives in
+// VELLUM_DATA against the book's CONTENT KEY, never in the PDF — the PDF is a
+// file the owner owns, syncs and backs up, and a reader who marks a sentence
+// must not thereby rewrite a 400 MB scan. shared/bookAnchor.ts carries the
+// shape (`BookHighlight`) and the validator; these are the envelopes the
+// routes trade in.
+
+export interface BookHighlightsResponse {
+  key: string;
+  highlights: BookHighlight[];
+}
+
+/** One highlight, plus enough about the book it is in to be listed and opened
+ *  from somewhere that is not that book — the library's passage search. */
+export interface BookHighlightHit {
+  key: string;
+  /** The last path this book was seen at. A LABEL, not an address: the key is
+   *  the address, and this may well be stale by the time anyone reads it. */
+  path: string;
+  title: string;
+  pages: number;
+  highlight: BookHighlight;
+}
+
+export interface BookHighlightSearchResponse {
+  hits: BookHighlightHit[];
+  /** True when the store held more than the route will carry at once. */
+  truncated: boolean;
+}
+
+// GET /api/books/locate?id= → BookLocation. What a citation asks when the
+// filename in its wikilink no longer resolves: the id names a content key, the
+// key names the bytes, and the server says where those bytes are NOW. `path`
+// is null when they are not in this vault any more, which is a real answer and
+// is told to the reader rather than hidden behind a spinner.
+export interface BookLocation {
+  key: string;
+  path: string | null;
+  /** Every name these bytes have been filed under, newest first — what the
+   *  "repair this link?" offer shows. */
+  names: string[];
+  highlight: BookHighlight;
 }

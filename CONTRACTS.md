@@ -55,6 +55,7 @@ that is the pre-existing pattern, and the door is now open.
 - `PUT  /api/note?path=` body `{ content: string }` → `NoteData` (writes file; creates parent dirs)
 - `POST /api/note` body `{ path: string }` → `NoteData` (create empty; 409 if exists)
 - `POST /api/rename` body `{ path, toPath }` → `{ ok: true }` (also rewrites `[[wikilinks]]` in other notes that pointed at the old name)
+- `POST /api/alias` body `{ path, alias }` → `{ ok: true, path, alias }` (admin-only; merges one name into the note's `aliases:`, preserving every other byte — the write behind "keep the old title" after a rename)
 - `DELETE /api/note?path=&permanent=<bool>` → `{ ok: true, trashPath?: string }` (default MOVES to `.trash/`; see "Note deletion")
 - `DELETE /api/attachment?path=&permanent=<bool>` → `{ ok: true, trashPath?: string }` (non-`.md` only; same two speeds — see "Attachment deletion")
 - `GET  /api/delete-preview?path=` → `DeletePreview` (admin-only; what a delete would actually take — see "Delete previews")
@@ -73,6 +74,7 @@ that is the pre-existing pattern, and the door is now open.
   (`server/graphCache.ts`); `/api/tree` is memoized the same way (`server/treeCache.ts`).
 - `GET  /api/backlinks?path=` → `Backlink[]`
 - `GET  /api/tags` → `TagCount[]` (from `#tag` inline + frontmatter `tags:`)
+- `GET  /api/aliases` → `AliasesResponse` (`{ alias, path, title }[]`, sorted by alias) — the name table the client cannot derive, since a tree carries filenames and an alias is frontmatter. Visitor-scoped exactly as resolution is.
 - `GET  /api/events` → SSE stream of `VaultEvent` (chokidar watcher; debounced 100ms; events named `message`, JSON data)
 - `POST /api/upload` (admin) multipart `file` + optional `dir` → `UploadResult` — see "Attachments"
 - `GET  /api/impact?path=&kind=` (admin) → `DeleteImpact` — what a delete would really take
@@ -115,8 +117,10 @@ because `banner:` URLs and raw `<img>` in notes are documented features), `X-Fra
 `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. Without those the admin UI —
 permanent delete, publish, settings PATCH, sync — was framable and clickjackable, and the
 hand-rolled HTML sanitizer in `client/reading/rawHtml.ts` had no backstop behind it. Wikilink resolution: `[[Name]]`
-matches file basename (no `.md`, case-insensitive); shortest-path winner on duplicates;
-`[[Name|alias]]` and `[[Name#heading]]` variants parse (link target is `Name`).
+matches file basename (no `.md`, case-insensitive), then frontmatter `aliases:` — never the
+other way round; shortest-path winner on duplicates in either table; `[[Name|alias]]` and
+`[[Name#heading]]` variants parse (link target is `Name`). See "Aliases — a note answers to
+more than one name".
 
 ## Server modules (server agent owns `server/`)
 
@@ -219,6 +223,320 @@ interface State {
 `client/api.ts` — typed fetchers for every endpoint (`getTree`, `getNote`, `putNote`, `createNote`,
 `renameNote`, `deleteNote`, `createFolder`, `search`, `getGraph`, `getBacklinks`, `getTags`,
 `subscribeEvents(cb): () => void`). Shell agent owns it.
+
+## Several windows, one vault (client/windows/)
+
+**Two windows on one vault is the two-writer case**, and until this round `PUT /api/note` was
+unconditional last-write-wins — so the honest description of "open it in another window" was "lose a
+paragraph and be told nothing". The write precondition is the net; the LEASE is what stops anyone
+landing in it every few minutes.
+
+**Two channels, one division, and it is the reason there is not a second coherence implementation.**
+SSE carries FACTS ABOUT THE VAULT — a file changed, a note was deleted — from the one process that
+knows. The bus carries INTENT between windows: which window is typing, that a preference changed,
+that a window is closing. None of that ever touches the disk, so a server round trip is the wrong
+shape and the watcher would never see it. Anything derivable from a file belongs to SSE, and nothing
+on the bus is allowed to become a second way of learning it.
+
+**The lease has no coordinator and writes nothing to disk.** Every window announces when it opened
+and which notes it holds; both sides then compute the same answer from the same rule — `winsAgainst`:
+the OLDEST window wins, and a same-millisecond tie (which a scripted pop-out produces every time)
+goes to the smaller id, arbitrarily and, crucially, *agreed*. There is no server to ask, no lock file
+to strand, and a window that is killed simply stops answering. `tests/windows.test.ts` proves the two
+properties the design rests on: the relation is ANTISYMMETRIC, so two windows can never both believe
+they hold the pen and manufacture the conflict the precondition exists to catch; and TRANSITIVE, so
+three windows cannot form a cycle in which the note never settles.
+
+- **`windowBornAt` and `windowId` live in `sessionStorage`**, which is per-TAB and survives a reload.
+  `localStorage` would give every window the same id (it is per origin) and a module constant would
+  mint a new one on every refresh — so a reloaded window would look like a stranger to its peers, and
+  its lease would be held by a ghost until the heartbeat aged out. Persisting the birth time also
+  means a refreshed window cannot look *older* than it is and take a note back from whoever
+  legitimately holds it.
+- **The loser is not locked out.** It keeps the note, keeps its text, and stops autosaving — the
+  buffer's `writable` flag, which discards nothing. The pane says so and offers **Edit here**, one
+  button, which takes the lease back and immediately saves whatever was typed meanwhile. Obsidian's
+  answer to the same situation is `note (conflicted copy).md` and silence.
+- **A takeover moves our own clock rather than adding a `force` flag.** The rule stays "oldest wins",
+  one comparison, computed identically on both sides — a flag would have needed its own tie-break the
+  first time two readers pressed the button at once.
+- **Saving announces the new mtime** so a peer holding the same note re-bases its precondition without
+  a round trip. That keeps a 409 meaning "somebody we have NOT heard from" — Obsidian, a `git pull` —
+  which is the only kind worth interrupting a writer for.
+- **The strip reserves its height.** It can arrive while the reader is mid-sentence, and prose that
+  reflows under a live caret is how someone loses their place. It is also not painted in `--danger`:
+  nothing is wrong and nothing is at risk.
+
+**The envelope is versioned, and a mismatch is DROPPED.** Two windows can be running different builds
+— one tab open since this morning, one opened after a deploy — and a message shape that changed
+underneath them would otherwise be parsed as something it is not. A window that cannot understand the
+room degrades to "there are other windows and I cannot talk to them", which is a state it already has
+to handle: `BroadcastChannel` is absent in some browsers, and there the app behaves exactly as it did
+before any of this existed.
+
+**Preferences follow the reader, not the window.** Theme and language are DEVICE preferences and a
+device with two windows open is still one device; a reader who switches to parchment in one window and
+finds iron-gall in the other has two apps rather than one. Broadcast from a store SUBSCRIPTION rather
+than from each setter, so a change made from the palette, the settings panel or the theme picker
+travels without any of them knowing other windows exist — and guarded against the echo, or two windows
+ping-pong one preference forever.
+
+**Signing out is a barrier, not an event.** A window that kept its admin shell after another signed
+out would hold a tree it may no longer read and offer writes the server will refuse.
+
+**What is deliberately NOT mirrored is the document as it is typed.** A full-text broadcast on every
+keystroke is a real cost with no bound. Inside one window a second pane reads the same buffer and is
+character-live for free; across windows the peer updates when the writer SAVES — one autosave behind,
+which is exactly the quality of Obsidian's own linked preview at none of the cost.
+
+## The open document (client/editor/buffers.ts)
+
+**A note's document lives in a refcounted registry keyed by path, not in the component that draws
+it.** `Editor.tsx` owns a VIEW — the DOM, the scroll position, the vim toggle. The BUFFER owns the
+`EditorState`: the text, the undo history, the selection, the folds, the dirty flag, the autosave
+timer, and the `baseMtimeMs` its next write is checked against.
+
+**The bug this fixes was in plain sight.** `App.tsx` remounts the editor on every `openPath` change,
+and the editor fetched on mount and destroyed on unmount — so switching tabs threw the document away
+and everything CodeMirror keeps beside it. The visible casualty was undo: leave a note, come back,
+and `Ctrl+Z` had nothing to undo, in a product whose autosave writes to disk every 600ms and whose
+`.trash/` catches deletes and not overwrites. The structural casualty was larger and had not happened
+yet: two panes on one note would have been two documents typed into independently, and whichever
+unmounted last would have won.
+
+Four things fall out of the one change: undo survives a tab switch, two panes are one document typed
+into twice, the save path finally has somewhere to keep the mtime a precondition needs, and a
+document can outlive the pane that showed it.
+
+- **Views are mirrored by CHANGES, never by selection.** `dispatchFrom()` applies a transaction to
+  the originating view, stores the result as canonical, and forwards only `tr.changes` to the other
+  views of that buffer, annotated so the echo is not forwarded back. Copying the selection across
+  would drag the reader's caret in the pane they are *not* typing in — two panes on one note are one
+  document with two carets, which is the entire point of having two.
+- **An unmount does not flush, and that is the change.** Releasing a reference saves only when
+  nothing holds the note any more, and keeps the buffer until that write lands: an unsaved document
+  is not a cache entry. Flushing on unmount as well would race the registry's own timer and send the
+  same text twice.
+- **The caret is placed once per NOTE, not once per mount.** A buffer restored from the registry
+  brings its own selection back, so re-running the frontmatter jump would drag the caret out of the
+  reader's sentence and into the properties card every time they switched tabs and came back.
+- **A rename carries the buffer** (`remapBuffer`), or the undo history of the note being renamed is
+  dropped at the one moment a reader is most likely to want it back.
+- **An external change is ADOPTED, not remounted.** The shell used to answer the watcher's "changed"
+  event with `bumpReload()`, and with the registry in place that became the wrong mechanism: an
+  unmount releases the buffer and the remount re-fetches it, so the note would come back correct and
+  the reader's undo history would be gone — on an event they did not cause. `adoptExternal()` writes
+  the new text through the document as an ordinary transaction, so the external change is itself
+  undoable. A DIRTY buffer is never adopted: that is a real conflict and belongs to the precondition
+  below. The remount survives as the fallback for the surface that has no buffer — the reading view.
+
+### The write precondition (server/vault.ts, `PUT /api/note`, `POST /api/note/flush`)
+
+`writeNote(rel, content, baseMtimeMs?)` refuses with **409 `code: "stale"`** when the file's current
+mtime is not the one the caller was last handed. Enforced in `writeNote` rather than in the route, so
+the gap between reading the mtime and replacing the file is as small as this process can make it —
+and so it is testable without standing a server up (`tests/durability.test.ts`).
+
+- **Strict equality.** The value compared against is one this server produced from its own `stat`, so
+  a tolerance would only ever serve to accept a genuine conflict on a coarse-mtime filesystem, which
+  is the wrong direction to fail. It stays a net rather than a lock: two writes inside one tick of a
+  coarse clock are genuinely indistinguishable, and this sentence is the contract admitting it.
+- **A refusal is TOTAL.** Nothing is written. A precondition that half-writes is worse than none,
+  because the file it leaves is neither version.
+- **A file that is GONE is written, not refused.** Recreating is kinder than refusing to save work
+  into a note somebody else deleted, and the caller learns of the deletion from the watcher anyway.
+- **Opt-in, deliberately.** Only the buffer registry sends `baseMtimeMs`. The publish toggle, the
+  banner setter, the section writer and the rename link-rewrite each derive a whole file from the one
+  they are about to replace, and keep last-write-wins.
+- **A refused save loses nothing.** The buffer keeps the reader's text, stops autosaving so the next
+  keystroke's timer cannot clobber the newer version, holds the disk version in `diverged`, and says
+  so. `keepMine()` re-bases onto the disk version and saves; `takeDisk()` replaces the document
+  through the history, so the resolution is itself undoable. The side-by-side comparison arrives with
+  the pane work, which is where there is room to show both.
+- **A failed save that is NOT a conflict is still said out loud.** The buffer stays dirty on purpose:
+  the text is here, the tab still shows its dot, and the next edit reschedules the write.
+
+### `POST /api/note/flush`, and closing a tab
+
+There was no `beforeunload` anywhere in the client and `putNote` is a plain fetch, so closing a tab
+mid-sentence warned about nothing and saved nothing. The loss is one sentence at a time, which is
+exactly why it erodes trust rather than getting reported.
+
+`/api/note/flush` is `PUT /api/note` reachable by `navigator.sendBeacon` — POST-only because that is
+what the API requires, and it exists because a `fetch` started in `beforeunload` is cancelled with
+the document while `sendBeacon` is the one transport the platform promises to deliver afterwards. It
+carries the same precondition: a last-gasp save that clobbers a newer version is still a clobber, and
+the reader who caused it is by definition not there to be asked.
+
+The handler **beacons first and prompts second**, and only prompts when something was still unsaved
+after the attempt. A confirmation dialog in front of a reader whose work is already on its way is a
+dialog that teaches them to click through dialogs.
+
+### `client/editor/bufferBridge.ts` — and why it exists
+
+`buffers.ts` imports CodeMirror. `App.tsx` and `state.ts` need four things from it (flush on close,
+ask what is unsaved, adopt an external change, follow a rename) and both are in the FIRST-PAINT
+closure. A direct import would pull CodeMirror into the entry chunk and `npm run check-bundle` would
+fail with a message about CodeMirror in first paint — a message whose stated cause has nothing to do
+with the line that caused it, in a file nobody would think to open. So the registry registers itself
+with a CM-free bridge and the shell calls through that. Written before the registry, on purpose: the
+failure it prevents is one that misreports itself.
+
+## The workspace (client/workspace.ts, client/state.ts)
+
+**`state.workspace` is the truth about what is open; `openPath` and `openTabs` are a DERIVED
+MIRROR of it, written by `commitWorkspace()` and by nothing else.**
+
+That direction is what makes panes affordable. Roughly forty places in the client read `openPath` or
+`openTabs` — the status bar, the router, the palette, the outline, the backlinks panel, every
+publish and banner action — and not one of them has to learn what a pane is: they keep reading a
+path and a list of paths and go on being right, because the mirror answers for the FOCUSED pane.
+Only the dozen places that WRITE the open set changed, and they now say what they mean
+(`closeOthersIn`, `pruneWorkspace`, `remapWorkspace`) instead of each filtering an array its own way.
+
+`client/workspace.ts` is **pure** — no DOM, no store, no fetch, and no import of `state.ts`. Every
+function takes a `Workspace` and returns a new one. That is not tidiness: it is what lets
+`tests/workspace.test.ts` push tens of thousands of random edit sequences through the model and
+assert every invariant after every step, the same shape `check-sections.mjs` uses on the section
+model, before any of it is wired to a component. The property test earned itself on its first run —
+at seed 0 it found that `settle()` repaired columns, weights and focus but never `active`, so a
+rename that collapses two tabs onto one path left a pane pointing past the end of its own tab list.
+
+**Two levels, never a tree.** Columns along the inline axis, at most two panes stacked in each
+(`MAX_COLUMNS` 3, `MAX_ROWS` 2, `MAX_PANES` 6). A recursive split tree buys infinite layouts and no
+way back to one: its drop targets cannot be enumerated by a gate, its serialization needs a version
+and a migration table the first time the shape moves, and a layout space too large to name kills
+presets — which are the reason to have splits at all.
+
+**`columns[0]` is the inline-START column** — the left in English, the right in Arabic — because the
+shell grid already follows the direction that way (`"sidebar main panel"` and its `--flip`
+counterpart). A layout serialized on an English instance therefore opens correctly mirrored on an
+Arabic one with nothing about sides stored. The single deliberate exception is `paneInDirection()`,
+which resolves pane focus GEOMETRICALLY from live rects, so `←` moves to the reader's left in both
+languages: a tab bar is a one-dimensional list where "next" is a fact about reading order, and a
+pane grid is two-dimensional where "left" is a fact about the screen.
+
+**`noteFocus` is not `focus`, and the difference is load-bearing.** `focus` is where the keyboard is;
+`noteFocus` is the last focused pane whose active tab is a NOTE, and `openPath` derives from it. That
+is what will let a book pane hold the keyboard without `StatusBar` firing `getNote()` at a `.pdf`
+(which 400s on every open) and without `router.ts` pushing a PDF into the address bar as a permalink.
+
+**`settle()` owns every invariant, and every reducer ends there.** Columns emptied by a close are
+dropped, weights renormalized, `active` clamped, and `focus`/`noteFocus` re-pointed at panes that
+still exist and are allowed to hold them. The bugs in a layout model are almost never in the edit —
+they are in the fifth thing the edit invalidated, and one function that fixes all five is the only
+version of this that stays correct.
+
+**`parseWorkspace()` is TOTAL, and a damaged layout must never cost the reader their open notes.**
+It reads rather than validates: it takes what it understands and discards the rest. A pane the
+layout forgot to place has its tabs adopted by the first pane instead of vanishing with it; a
+structurally broken layout collapses to a solo workspace holding every path that was still readable.
+Storage is `vellum.workspace`, and **`vellum.tabs` is still written beside it** — a few bytes that
+buy a downgrade nobody loses a session to, since a build without panes still finds a shape it
+understands. On the way up, an instance with no workspace key has its `vellum.tabs` migrated by
+`fromStoredTabs()`, so the upgrade is invisible.
+
+### Panes (client/components/Workspace.tsx, Pane.tsx)
+
+`Ctrl/Cmd+\` splits, `+Shift` stacks instead of sitting beside, `+Alt` closes, and
+`Ctrl/Cmd+Alt+Shift+←→↑↓` moves between them. **The new pane opens on the SAME note**, because that
+is what a split is for — a second view of the thing you are already reading. An empty pane beside a
+note is a pane the reader then has to fill.
+
+**A SOLO WORKSPACE RENDERS NONE OF THE GRID.** `Workspace.tsx` returns the bare `.s-view` the shell
+has always returned, with no wrapper, no `data-pane` and no `.s-panes` around it. That is not an
+optimization, it is what keeps the stylesheet true: every `:has()` rule, every zen selector and every
+`.s-view > .s-editor` in `app.css` goes on matching exactly as it did, and a reader who never splits
+pays nothing for the feature — in bytes or in behaviour. The grid appears only once there is
+something to arrange.
+
+**Each pane carries its own tab bar; the shell's bar belongs to the shell only while there is one
+pane.** A tab bar names what is open HERE, and one strip above two panes cannot say which.
+
+**Every tab action focuses its pane first.** The store's tab actions act on the FOCUSED pane, so
+acting on a particular one means focusing it — which is what a click on it already means. Without
+that rule a second pane's ✕ closes a tab in the first, which is the kind of bug that reads as
+possession by a ghost.
+
+**Focus is GEOMETRIC and the arrows are physical, in both languages.** `paneInDirection()` resolves
+from live rects read at the moment the key is pressed — a resize, a fold and a split all move them,
+so a cache would answer for a layout that is no longer on screen. This is a deliberate exception to
+the logical arrow swap in `Tabs.tsx`, and the two do not conflict: a tab bar is a one-dimensional
+list where "next" is a fact about reading order, and a pane grid is two-dimensional where "left" is
+a fact about the screen. A reader pressing ← at a grid is pointing, not reading.
+
+**Column order is reading order and nothing in the CSS says "left".** `columns[0]` is the
+inline-START column, laid out by the grid in source order, so a layout saved on an English instance
+opens correctly mirrored on an Arabic one with nothing about sides stored — the same way the shell's
+own `"sidebar main panel"` areas already work. The focus mark is an accent rule on the pane's
+**leading** edge (`inset-inline-start`), the same vocabulary reading mode already uses to say "this
+column is in a mode", rather than a ring drawn around the whole pane, which would be on screen at
+all times.
+
+**The gap IS the divider** — one hairline of `--border` showing through `gap: 1px` on a grid whose
+background is the border colour — rather than a border on each pane, which would double between two.
+
+**Below the drawer breakpoint the INLINE axis folds and the layout is not rewritten.** There is no
+room for two measures side by side; the reading column's whole argument is its width. So every column
+but the focused one is `display: none` while the layout stays exactly as the reader arranged it, and
+comes back on a wider viewport. A resize must never rewrite what somebody chose.
+
+**A split that would breach the cap says so by name.** `splitPane` returns null and the shell toasts
+`paneCapReached`; a keystroke that silently does nothing is indistinguishable from a broken key, and
+this cap has a real reason behind it (three columns of two is the largest layout that still has a
+name — see the model above).
+
+**The graph is about the WINDOW, not about a pane.** It replaces the whole working area exactly as it
+did before panes existed. The empty states are the same: a locked vault and an empty one are facts
+about the session, and a pane with no tab hands them straight through rather than drawing its own.
+
+### Tabs: two opposite promises
+
+**A PINNED tab is a promise that nothing will take it.** A link click will not replace it, and **no
+bulk close takes one** — that is the same promise in "close others", "close tabs after this one" and
+"close every note in this window", so a reader never has to remember which rows respect a pin. The
+one closer that ignores pins is the internal `dropTabsUnconditional`, used when the file is *gone* or
+is no longer this session's to see (a delete, a sign-out, a language filter): a pin is a promise
+about the reader's intent, not about the vault's contents.
+
+**An EPHEMERAL tab is the opposite promise.** It is a preview — opened by a single click from search,
+the palette or a wikilink — and the next ephemeral open in that pane REPLACES it. There is one
+preview slot per pane, so forty tabs never accumulate in the first place; that is prevention, where
+"close all tabs" is the cure. It commits — becomes ordinary — when the reader types in it, opens it
+a second time (a revisit is intent), pins it, or opens it explicitly in a new tab. Pinned and
+ephemeral are mutually exclusive by construction, and both are visible in the row rather than only
+in the menu that set them: an italic title for a preview, a gold ◆ for a pin, each with real
+screen-reader text beside it, because a promise the reader cannot see is one they will not rely on.
+
+### The tab context menu (client/components/ContextMenu.tsx, Tabs.tsx)
+
+Right-click a tab, or press Shift+F10 / the Menu key on the focused one — the keyboard's right-click,
+the same door the tree already has, anchored to the tab rather than to a pointer that is not
+involved.
+
+**Every row that closes more than one tab NAMES what it is about to take** — "Close others
+(2 unsaved)" — in the instance's own numerals and Arabic's own plural forms, through a `countPhrase`
+unit written for it. This is the honesty `GET /api/delete-preview` already brings to a delete,
+applied to the one other place in the product where a single click can discard unsaved work. **The
+count is computed by RUNNING the reducer and diffing `allPaths`**, never by re-deriving which tabs a
+pin protects: a number that came from a second reading of the rule would eventually promise something
+the reducer does not do, and the entire reason the rows carry a number is that the number is true. A
+row that would take nothing is DISABLED rather than absent — a menu whose rows move between openings
+is a menu you cannot aim at.
+
+**Rows say "Close tabs after this one", never "Close to the right."** Physical right names a
+different set of tabs in Arabic, exactly as "the left bar" named a different pane before the panes
+were given names.
+
+`ContextMenu.tsx` is the implementation the tree's menu and the outline's should both end up on. The
+two that exist already disagree — only one restores focus, only one dismisses on a `contextmenu`
+elsewhere — and two menus that look alike and behave differently in one app is a bug rather than a
+duplication, because the reader learns one and is then wrong about the other. It owns the placement
+argued out in `Sidebar.tsx` (open toward the reading direction, fold back, fold back again if the
+fold overflows, clamp both axes, measure after mount because a menu's size is its content's), focus
+restoration on **every** close path including activating a row, and dismissal on Escape (capture, and
+stopped, so a menu over a dialog does not close the dialog underneath it), an outside mousedown, a
+`contextmenu` elsewhere, and a resize that invalidates the geometry it just measured.
 
 ## Component contracts
 
@@ -636,22 +954,55 @@ overruled.
 
 ## Settings panel (SettingsModal)
 
-SIX TABS, not one scroll: Site identity / Appearance & language / Publishing & comments /
-Typography / Backup & sync / About. It was seven, and *Appearance* did not earn one: three
-controls in a panel fixed at 740px, measured body 609/609, ~500px of dead space — while *Public
-layout* sat under "looks" when it is a publishing decision. So the two theme rows joined the
-language ones (both answer "what does this instance look and sound like to a reader", and the
-merged tab scrolls at 833/609 rather than standing empty) and Public layout moved to Publishing.
-The FIXED height is not what was wrong and does not change: sizing to content moved the rail
-under the pointer, so a click opened a tab nobody chose. The rail is `role="tablist"` (↑↓/Home/End walk it), each tab
-opens with its name and ONE sentence (`intro` on the `TABS` table), and switching tabs resets the
-body scroll — carrying a long tab's offset into a short one lands the reader past its end.
-**The panel is ONE height for all six** (`height: min(740px, 100vh - 40px)` in `settings.css`),
-not a height per tab. Sizing to the content stood it at 467px on Appearance and 855px on
-Typography, and because it is centred, every click moved the RAIL as well as the body: the row
-under the pointer became a different tab, and the next click opened a section nobody chose. The
-two tall tabs scroll, which they always did; short tabs carry empty space, and a tab strip that
-stays put is worth it.
+**EIGHT TABS, and the first one is not about the site at all:** This device /
+Identity / Language & dates / Publishing / Vault / Typography / Backup /
+About. It was six, and the six were the wrong cut — not because a tab was
+thin (that was the last round's complaint, and merging Appearance away fixed
+it) but because ONE FORM held two kinds of row. Your theme, your editor
+language and the sidebar's edge are `localStorage` preferences that commit on
+click; they sat two rows from thirty-seven server settings under a footer
+reading "Unsaved changes" and a Save button that does not apply to them.
+Nothing on screen distinguished the two kinds, and nothing could: the
+difference is not visible at row scale, which is why the panel's two commonest
+questions were "did that save?" about a row that already had, and "why did
+nothing happen?" about a row that had not. **The boundary is now the tab**,
+because a tab is the one piece of chrome a reader reads before they read a
+row. *This device* opens first and holds six preferences of the PERSON —
+theme, editor language, sidebar edge, vim keys, the floating toolbar and
+reading-view numbering; the last three were previously reachable only from a
+status-bar pill, a palette row and an outline button, so a reader who did not
+already know they existed could not find them. Everything else splits by the
+QUESTION it answers rather than by the machinery behind it: what the site is
+called, what it speaks and how it writes dates, what a visitor may see, which
+folders it writes into, what it is set in, how it is backed up, what it IS.
+"Appearance & language" is gone as a NAME: half of it was this browser's and
+half of it was the site's, which is the confusion the split exists to end.
+The rail stays `role="tablist"` (↑↓/Home/End walk it), each tab opens with its
+name and ONE sentence (`intro` on the `TABS` table), and switching tabs resets
+the body scroll — carrying a long tab's offset into a short one lands the
+reader past its end.
+**The panel is ONE height for all eight** (`height: min(740px, 100vh - 40px)`
+in `settings.css`), not a height per tab. Sizing to the content stood it at
+467px on one tab and 855px on another, and because it is centred, every click
+moved the RAIL as well as the body: the row under the pointer became a
+different tab, and the next click opened a section nobody chose. The tall tabs
+scroll, which they always did; short tabs carry empty space, and a tab strip
+that stays put is worth it.
+
+**A LABEL THAT NEEDS A PARAGRAPH IS THE WRONG LABEL.** Every row is a label of
+five words or fewer that carries its own meaning — "Numbered headings" over a
+toggle, never "Heading numbering: on / off", because the control already draws
+the state and a label that repeats it in words is asking the reader to
+reconcile two sources. Help is exactly ONE SENTENCE of at most fourteen
+English words, and it is a persistent sub-label rather than a tooltip: a
+reader deciding between two options has both of them and both explanations on
+screen at once. This was measured against what was there: the calendar row's
+help ran to 40 words and spent 19 of them on Umm al-Qura; the tag-label note
+ran to 51; the visitor-switch note to 48; the uploaded-fonts note to 40; the
+reading-direction row to 35. Not one of them was wrong — all of them were the
+row's own documentation printed where the row's name belonged, and a settings
+panel that has to be READ is one nobody finishes. What genuinely does not fit
+in a sentence belongs in the README (About names the sections) or under the ⓘ.
 **Every control in the panel is OURS** (`client/components/controls/*`, `styles/controls.css`).
 The panel was built out of native `<select>`/`<input type=checkbox>`, which draw the operating
 system's widget inside a candlelit manuscript room — and, with twenty-seven fonts, opened an
@@ -736,7 +1087,7 @@ instance's language, instead of arriving as an English 400 in a toast.
   direction-free and always mean next/previous. The test is `closest("[dir]")`, not `<html>`, so a
   control inside an explicitly LTR island (`NumberInput`'s field) is read by the direction it is
   actually drawn in.
-- **The notes sidebar's edge is a row in Appearance, directly under Language.** Three segments
+- **The notes sidebar's edge is a row in *This device*, directly under Editor language.** Three segments
   (*Auto* / *Left* / *Right*) on `setSidebarSidePref` — the same action the palette's three
   commands call, which is the whole point of there being one action. It is a DEVICE preference
   like *Your theme*: it commits on click and is never part of the Save diff. The *Auto* segment
@@ -799,12 +1150,36 @@ border, same chevron, carrying the miniature the picker itself draws. What it op
 panel rather than a list, which is the honest difference — fifteen rooms are chosen by looking at
 them.
 
-**A row that is inheriting NAMES its source, and one disabled state wears one face.** Every
-select read `inherit (en)` / `inherit (off)` / `inherit (iron-gall)` — honest about precedence,
-opaque about where the value came from — so `Row` takes an `env` prop and renders
-`inherited from SITE_LANG` under the control while (and only while) the row is empty. The env
-name is a literal to be typed into a shell, so it is a mono `<bdi>` rather than a `tf()`
-interpolation. And with Backup=off the three `<select>`s took the browser's own greying ON TOP
+**THE ENVIRONMENT IS AN OPERATOR'S BUSINESS, AND IT SITS BEHIND A ⓘ.** Every
+row with an env variable used to carry two pieces of standing chrome: an
+`inherited` badge beside its label and an `inherited from SITE_LANG` line
+under its control — one mechanism, said twice, in the first place the eye
+lands, to every owner of this product including the many who will never open a
+shell. Both are deleted. The label now carries a ⓘ where a footnote mark would
+sit, and what it discloses says MORE than the badge did: one sentence naming
+which of the two sources is winning (`envDecidedBy` while the field is empty,
+`envOverridden` once it holds a value), the variable's own line —
+`SITE_LANG=en`, quoted when the value carries whitespace or dotenv syntax,
+because a line that silently truncates at the first space is worse than no
+line — and a **Copy as .env line** button that puts exactly that on the
+clipboard and swaps its own label to "Copied" (SyncBadge's idiom; a toast for
+a two-word action is louder than the action). The variable stays discoverable
+for someone scripting a deployment, in the row that owns it, without being
+the first thing an owner reads.
+**It is a DISCLOSURE, not a popover and not a hover card**, and that is a
+requirement rather than a preference. A hover card is unreachable by touch and
+by keyboard. A positioned popover would be a FOURTH transient surface in an
+Esc chain already three deep — ThemePicker → an open `Select` → `ImagePicker`
+→ the panel — which is precisely how this panel starts closing itself out from
+under a reader who meant to dismiss one list. The ⓘ is a named `<button>`
+carrying `aria-expanded` and `aria-controls`; the region is
+`role="region" aria-labelledby` pointed at that button, is always RENDERED and
+hidden with the `hidden` attribute (so `aria-controls` never points at nothing
+and the copy button is never a tab stop while collapsed), and lives in the
+flow under the control it annotates — costing the Esc chain nothing and
+scrolling with its own row.
+
+**One disabled state wears one face.** With Backup=off the three `<select>`s took the browser's own greying ON TOP
 of `.s-smodal__row--off`'s 0.5 while the Remote URL and Branch `<input>`s took only the row's, so
 `:disabled` inside `.s-smodal__control` now neutralises the UA opacity and sets one
 `--text-muted` on `--bg-raised` treatment for both shapes.
@@ -836,7 +1211,7 @@ command, the gear's `aria-label`, the `Ctrl/Cmd+/` row and the README section �
 and every surface follows. `siteSettingsTitle` is the gear's tooltip and carries the same word.
 The Arabic is the dictionary's own noun (`settingsSaved`, `settingsSections`), not a new
 coinage; likewise `browseThemes`, which is now *Themes* / «السمات» — `docTheming`'s word — on the
-palette row, the `Ctrl/Cmd+/` row and the Settings → Appearance trigger. The README heading
+palette row, the `Ctrl/Cmd+/` row and the Settings → This device trigger. The README heading
 moved with them, so `DOC_LINKS`' anchor is `#settings`.
 
 `settings.defaultTheme` is parsed leniently like `settings.language`: trimmed **and lowercased**.
@@ -907,6 +1282,93 @@ visitors, which is what lets it name absolute paths.
   tabs; the INERT branches (properties header, banner hero) are ungated, because they must swallow
   every click or the second one drops the cursor into raw YAML. `scripts/check-caret.mjs` gates
   all of it, in both shells.
+
+- **A KEYBOARD BINDING EXISTS IN EXACTLY ONE PLACE, AND THAT PLACE IS `GROUPS`.** The table in
+  `client/components/ShortcutsHelp.tsx` — the one `Ctrl/Cmd /` prints, in both languages — is the
+  ledger; `docs/keymap.md` is a RENDERING of it, and `npm run check-keymap` fails the build when
+  they stop agreeing in either direction. A colliding binding is the quietest bug this product can
+  have: one handler answers the key, the other never sees the event, and neither of them knows the
+  other exists, so it surfaces weeks later as "Ctrl+B does nothing", on one platform, from one
+  reader, with nothing to grep for — because nothing is wrong with either binding. What is wrong is
+  that there are two. Two handlers carry bindings today (the capture-phase listener in
+  `client/App.tsx` and CodeMirror's keymap stack) and the desktop runtime makes three, which is why
+  the `Binding` type carries `desktop?: boolean` beside `admin` and `shell`: the ledger has to be
+  able to spell "desktop only" BEFORE the desktop exists, or the first collision between the two
+  runtimes is discovered after it ships. The gate parses `GROUPS` out of the source TEXT and never
+  imports it (the rows carry React and store closures; a gate that needs a browser is a gate nobody
+  runs), the same way `check-i18n.mjs` reads the DICT block. A row resolves to a **chord** —
+  modifiers in one canonical order (`Ctrl/Cmd`, `Alt`, `Shift`), one key token, `↑ / ↓` for a pair —
+  and a **scope**, which is the shell (`app` / `blog`) and the runtime (browser / desktop) and
+  deliberately NOT `admin`: an admin session sees the visitor's rows plus its own, so `admin` never
+  keeps two bindings apart, it only names the reader a collision reaches first. Same chord,
+  overlapping scope, two rows: the build fails. The one escape hatch is `RESOLVED` in
+  `client/keymap.ts`, and it costs a paragraph naming where the tie is broken and by what rule —
+  there is exactly one entry, `Ctrl/Cmd Shift Z`, which is zen AND CodeMirror's only macOS redo
+  binding, broken by caret in `App.tsx` (`if (e.metaKey && inEditor(e.target)) return`). A declared
+  overlap that stops overlapping fails the build too, for the reason a dead dictionary key does: an
+  argued-out paragraph about two rows that no longer meet is a claim the next reader believes. The
+  page and the sheet may still both be wrong about the world — the gate compares them to each other
+  and cannot see past either into CodeMirror's own `foldKeymap`, which is why the macOS fold
+  spelling is a paragraph in `docs/keymap.md` rather than a table row.
+
+## Note writes are durable (server/vault.ts)
+
+**Every note write is atomic: the file on disk is always either the whole old note or the whole
+new one.** `writeNote()` writes into a temp file beside the target, `fsync`s it, and `rename`s it
+over — and since every mutating path in the product funnels through that one function
+(`createNote`, the editor's autosave, `PUT /api/note`, the publish toggle, both frontmatter
+routes, the rename link-rewrite and `POST /api/folder/move`'s rewrites), fixing it once fixes all
+of them.
+
+It replaced a bare `await fs.writeFile(abs, content, "utf8")`, and the bug that call carried is
+worth stating plainly because nothing about it looked wrong: **`fs.writeFile` opens with
+`O_TRUNC`, so the note is zero bytes from that call until the last byte lands.** A crash, a full
+disk, a `kill -9` or a laptop lid closed inside that window left an EMPTY note — not a partial
+one, an empty one — and the window was opened by a 600ms autosave debounce
+(`AUTOSAVE_MS`, `client/components/Editor.tsx`) every few seconds of typing, on files whose entire
+promise to the reader is that they are ordinary and safe to keep for ten years. There was no
+recovery path either: `.trash/` catches deletes, not overwrites.
+
+Four details of the implementation are load-bearing, and each is a bug that the obvious
+write-then-rename would have introduced instead:
+
+- **The temp file is a SIBLING of its target.** `rename` is only atomic within one filesystem and
+  a vault subfolder can be a mount point, so the temp file is never in `/tmp`.
+- **It is DOT-PREFIXED** (`.Note.md.<pid>.tmp`). `isIgnoredName` skips every name beginning with
+  "." for the tree walk, the indexer and the chokidar watcher alike, so a save never flickers a
+  ghost note through the sidebar or leaves one in the search index. `tests/durability.test.ts`
+  asserts the name this function builds is one `isIgnoredSegment` refuses, rather than trusting
+  the two rules to stay in step.
+- **The target is `realpath`'d first.** `safeAbs()` returns a LEXICAL path and `fs.writeFile`
+  followed symlinks; renaming over the link itself would have replaced it with a regular file and
+  silently broken a vault that keeps a note as a link to somewhere else inside the vault — which
+  the containment rules above explicitly still support. Containment was already proven by
+  `safeAbs` → `resolvesInsideVault`, so following the link here widens nothing.
+- **The mode is carried across.** `writeFile` on an existing file leaves its permissions alone; a
+  rename hands the target the TEMP file's. Without the `chmod` a note its owner had narrowed to
+  `0600` would quietly widen to whatever the umask says, the next time they typed in it.
+
+The directory is `fsync`ed after the rename so the rename itself survives the crash it exists to
+survive — best-effort, because opening a directory for reading is a POSIX affordance that Windows
+refuses, and a platform that cannot promise that must still be able to save a note.
+
+**The one accepted regression, stated so it is a decision and not a surprise:** updating an
+existing note now requires WRITE permission on its directory, because a new file has to be created
+there. `fs.writeFile` needed no such thing — opening an existing file for writing never consults
+the directory's mode. A vault folder set to `r-xr-xr-x` could therefore be edited before and
+cannot be now. That is the correct trade: the app already needs to create notes, folders and
+`.trash/` entries in that tree, and a write that fails loudly beats a write that succeeds by
+destroying the previous version first.
+
+The trash manifest (`writeManifest`) goes through the same helper, for a smaller but identical
+reason: a torn manifest is how a restore forgets where an entry came from. Its reader already
+degrades gracefully on a corrupt file, which is exactly the outcome the writer must stop causing.
+
+`tests/durability.test.ts` pins what can be observed from inside the process — the previous note
+survives a failed write, no temp file is left behind, the mode is preserved, a symlinked note is
+followed rather than replaced, and the reported `mtimeMs` describes the file a reader would now
+open. That last one matters beyond this section: it is the value a write precondition compares
+against.
 
 ## Note deletion (server, shipped)
 
@@ -2081,6 +2543,40 @@ faces appended.** Font fallback is per character, and Segoe UI (Windows) and Ari
 carry full Arabic coverage — at the end of the stack the named naskh faces were dead entries on
 both platforms. Same key as the Arabic type-metric compensation at the bottom of `tokens.css`:
 this is a language decision, not a direction one.
+
+### Spellcheck answers the LINE, not the note (client/editor/bidi.ts, shared/script.ts)
+
+The editor is spellchecked, and **each line declares its own language**, so an Arabic paragraph
+inside an English note is checked against an Arabic dictionary instead of arriving as one unbroken
+red underline. Obsidian checks a note as a single language; a bilingual vault is exactly where that
+fails, and it is the case this product exists to get right.
+
+It had never been on at all. `@codemirror/view`'s default content attributes set
+`spellcheck: "false"`, nothing overrode them, and the only appearances of the attribute anywhere in
+`client/` were `spellCheck={false}` on chrome inputs — so the product knew the attribute existed and
+had only ever used it to turn spelling off. The selection-menu contract below already declined to
+put a formatting menu on an empty selection on the grounds that *"the browser's own menu (spelling,
+paste, the dictionary) is the better answer and taking it would be theft"*: a menu which, with this
+off, contained none of those three things.
+
+- `.cm-content` carries `spellcheck="true"` plus the INSTANCE's language, and that is only the
+  floor. `autocorrect` and `autocapitalize` stay **off**: a markdown note is not a message box, and
+  a capitalized `iOS` or a "corrected" `[[wikilink]]` is a silent edit to somebody's file.
+- `client/editor/bidi.ts` — already the one writer of `dir` in the editor, and already deciding
+  each line's direction from its own content — stamps a narrower `lang` on any line whose SCRIPT
+  disagrees with the document. One scan answers both questions; a Latin line gets no attribute at
+  all and inherits, which also keeps the markup off the overwhelming majority of lines.
+- The rule itself is `shared/script.ts`'s `spellcheckLang()`, deliberately a SCRIPT test and not a
+  language detector: script is a property of the codepoints, cheap and total, whereas guessing
+  French from Spanish out of Latin letters is a different problem with a much worse failure mode —
+  and the answer there (inherit the instance's language) is already right. Persian is separated
+  from Arabic on the four letters Arabic does not have (پ چ ژ گ) and the two it spells differently
+  (ک ی); a Persian sentence built only from shared letters reads as Arabic, which
+  `tests/script.test.ts` asserts as an accepted limit rather than leaving as a surprise.
+- **Source lines get `spellcheck="false"`.** A code fence is not written in any language, and
+  underlining every identifier in it in red is how a reader learns to turn spelling off entirely.
+  The same `sourceLines()` set that already refuses those lines an alignment refuses them a
+  dictionary.
 
 ## Blog surface (the public shell's own furniture)
 
@@ -3301,6 +3797,318 @@ as a visitor is refused too; the POSTs are mutations the auth guard already 401s
   lines are separated by a hairline rule, never by a "·": the Eastern Arabic zero is itself a
   raised dot.
 
+## The desktop app (`electron/`, `desktop/`, `client/desktop/`)
+
+Vellum runs in a browser, and for a writer that is the wrong window: no
+application menu, no window that stays where it was left, no system dictionary,
+no file the reader can drag out, nothing over other applications, and a tab that
+closes with twenty others. The desktop app is Electron — chosen over Tauri (whose
+webview is whichever one the reader's OS shipped, and this product's whole
+premise is one rendering of one editor) and over a PWA (which has none of the
+seven capabilities listed below). It is **additive**: `git clone && npm install
+&& npm start` is untouched, `npm run typecheck` still passes on a clone that has
+never seen Electron, and a contributor who never opens `desktop/` never downloads
+a Chromium.
+
+### The server is SPAWNED, not imported — and that is the load-bearing decision
+
+`electron/server.ts` runs `server/index.ts` as a **child process** of the
+Electron binary in pure-Node mode (`ELECTRON_RUN_AS_NODE=1`, so a reader who has
+no Node installed still has one). The obvious alternative — factor
+`server/index.ts` into `createApp()` + `boot()` and call it in-process — was
+considered and **refused**.
+
+`server/index.ts` is a script, and the script is the contract: it parses argv,
+seeds a fresh vault from `vault-seed/` before anything reads it, `process.exit(1)`s
+on a `ConfigError` with the sentence that fixes it and no stack trace,
+top-level-`await`s `initIndexer()`, and runs seven inits in an order
+`migrateSettings()` silently depends on. A second caller of that sequence is a
+second thing to keep true, and the web deployment — the actual product — would
+be the one paying, in drift, for a boot path only the desktop exercises. The
+process boundary costs two additive lines in `server/index.ts` and buys the
+guarantee that both deployments boot identically.
+
+Those two lines, and nothing else:
+
+- `if (process.send) process.on("disconnect", () => process.exit(0))` — quitting
+  the app must not leave a server holding a vault's port and watching its
+  directory for a window that no longer exists.
+- `process.send?.({ type: "vellum:listening", port: info.port })` in `serve()`'s
+  callback — the **bound** port, not the requested one.
+
+Both are inert without a parent: `process.send` exists only when the process was
+given an `"ipc"` stdio.
+
+### THE PORT IS PERSISTED PER VAULT. This is not an optimisation.
+
+Every device preference in this product is `localStorage` — `vellum.theme`,
+`vellum.workspace`, `vellum.tabs`, `vellum.vim`, `vellum.reading`,
+`vellum.sidebarSide`, the folds, the pane sizes — and **`localStorage` is keyed
+by origin**. The desktop's origin is `http://127.0.0.1:<port>`, so the port *is*
+the identity of the reader's settings.
+
+A desktop app that asks the OS for a free port each launch therefore hands the
+reader a brand-new browser profile every morning: theme back to default, tabs
+gone, folds gone, sidebar back on the other side — and **there is nowhere in the
+product that could explain it**, because from the inside nothing went wrong. A
+different origin genuinely has no settings. It is the worst bug available to this
+feature, it is silent, and it is one line of convenience away at all times.
+
+- One port per vault, in **6820–6899**. Not 6801: the reader running `npm start`
+  in a terminal beside the app is the normal case, not a conflict to arbitrate.
+- The first port a vault is offered is **seeded from its path** (`seedFor`, FNV-1a),
+  not counted upward — so a reinstall, or the same vault on a second machine,
+  lands on the same origin and keeps its stored layout even when the preferences
+  file did not survive.
+- The remembered port is tried first; then a linear probe from the seed, skipping
+  ports other vaults own. Binding is the test — `portCandidates()` is pure and
+  proved in `tests/desktop.test.ts`; `isPortFree()` actually binds, and the
+  caller walks the list because the answer is racy by nature.
+- **When the port has to move, the reader is told, in a dialog, in their own
+  language** (`dlgPortMovedBody`). It is the one message this app owes: their
+  layout for that vault has just reverted, and nothing inside the window can say
+  why.
+- `VELLUM_DATA` goes to `<userData>/vaults/<name>-<hash>/data`, **not** into the
+  vault. `isIgnoredSegment` hides exactly three names — `.obsidian`, `.git`,
+  `.trash` — and `.vellum` is not one of them, so a data directory beside the
+  notes would appear in the reader's own tree and travel into their Dropbox.
+
+### The owner never meets a login screen, and the binary is not a bypass
+
+Two requirements that pull against each other: the person who chose the folder
+and double-clicked the icon should not type a password to prove they are holding
+their own computer — and the same binary must not become a way for every other
+account on a shared machine to reach that vault.
+
+**No new auth mode.** `server/auth.ts` already has the shape; the desktop uses it
+as written:
+
+- `HOST=127.0.0.1` — nothing off the machine can reach the port.
+- `PUBLIC=false` — reads require a session too, so an unauthenticated local
+  caller gets 401 on *everything*, not a published subset.
+- `ADMIN_PASSWORD_HASH` — argon2id of **32 random bytes minted at launch**, never
+  written to disk, never shown. Cheap parameters (m=8192, t=2, p=1) deliberately:
+  scripts/hash-password.ts stretches a *human* password because it is short and
+  guessable; there is no dictionary attack on 256 bits, and stretching it would
+  cost ~1.2s of launch time to buy nothing.
+- `SESSION_SECRET` — 32 fresh bytes per launch, so a cookie from a previous run
+  is not a credential for this one.
+
+The app then signs itself in through **`POST /api/login`, the same route the
+browser uses**, and puts the cookie in that vault's Electron session partition.
+There is no desktop special case anywhere in `server/`.
+
+Two consequences worth stating:
+
+- **`isProtected()` is true**, so Backup & sync works on the desktop. In open
+  local mode the server correctly refuses to push a vault anywhere on the word of
+  whoever connected.
+- **The session lifetime is read off the wire, never copied.** `SESSION_TTL_MS`
+  is private to `server/auth.ts`; the login response's `Set-Cookie` carries
+  `Max-Age` written from it, so `electron/cookie.ts` parses that and
+  `keepSignedIn` schedules from what the server said. The cookie's *name* is read
+  the same way for the same reason: a desktop that typed `"vellum_session"` into
+  its own source would work until someone renamed it and then fail by silently
+  never being admin.
+
+**A session partition per vault, and it is not fastidiousness: cookies ignore
+ports.** Two vaults are two origins to `localStorage` and *one* origin to the
+cookie jar — so a shared jar means opening the second vault overwrites the first
+vault's session cookie with a token its server rejects, and the first window
+silently stops being admin.
+
+### `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, `webSecurity: true`
+
+Stated on every window rather than left to default, because a default is a
+decision nobody wrote down and two of these have been the other way inside living
+memory of the framework. A note can contain arbitrary HTML — the reading view
+sanitizes it and the server sends a CSP behind that; these four are the third
+wall. `npm run check-desktop` fails on any of the four written the other way.
+
+`sandbox: true` is why `electron/preload.ts` is the one file under `electron/`
+that is **compiled** (to CommonJS, into `desktop/build/preload.js`) rather than
+run as TypeScript: a sandboxed preload is loaded by Chromium, not by Node — no
+ESM, no type stripping, and `require` limited to `electron` itself. It is also
+why the preload **inlines** its channel names instead of importing
+`electron/ipc.ts`, and why the gate counts them.
+
+**The bridge is 1:1 in both directions.** Every channel is declared once in
+`electron/ipc.ts`; each `TO_MAIN` channel has exactly one `ipcMain.handle` and
+exactly one `ipcRenderer.invoke`, each `TO_RENDERER` channel exactly one `.send`
+and one `ipcRenderer.on`. Two callers is a finding and **zero is a finding** — a
+dead channel is a hole that no longer has a reason, which is the worst kind to
+leave open. Every handler resolves its caller through `instanceOf(event.sender)`
+first: a renderer cannot name a vault, a path or a window, only act on the one it
+is already inside.
+
+### What the desktop does that the browser cannot
+
+This list is the justification for the whole surface; a desktop app that only
+re-hosts the web app is a bigger download of the same thing.
+
+1. **A native application menu, translated.** Menu strings are user-visible copy
+   and are in `electron/menuStrings.ts` in the shape `check-i18n` parses, with
+   `check-desktop` running that gate's four parity assertions over them until the
+   dictionaries merge.
+2. **Real OS windows** — position and size restored per vault, validated against
+   the displays that still exist (`onSomeDisplay`), because a window restored to
+   an unplugged second monitor is an app that "does not start" while running
+   perfectly, off the side of the desk.
+3. **Native find-in-page** (`Ctrl/Cmd+Shift+F`) — the *rendered document*:
+   reading view, outline, backlinks, transclusions. `Ctrl/Cmd+F` remains
+   CodeMirror's find over the open note's text. Two verbs, two keys.
+4. **Native spellcheck with the system dictionary**, drawn in Vellum's own
+   `.s-menu`. `client/editor/bidi.ts` already stamps a `lang` on every line whose
+   script disagrees with the document, and `setSpellCheckerLanguages` is a
+   whitelist — so every language `shared/script.ts::spellcheckLang` can return
+   (`he`, `fa`, `ar`) plus the instance language is enabled, or that per-line work
+   is inert. The reader's choice is committed with
+   `webContents.replaceMisspelling`, which lands as a native
+   `insertReplacementText` — so CodeMirror's own DOM observer applies it, undo
+   history included, and **nothing in `client/editor/` knows this feature
+   exists**.
+5. **OS dark mode, followed.** The web app deliberately does not read
+   `prefers-color-scheme` — a self-hosted vault's theme is a decision its owner
+   stored. On the desktop the machine is the reader's, and the flip moves to
+   `counterpartChoice()` — the same function the ☾/☀ button uses, so a custom
+   theme lands on its base's curated opposite.
+6. **File associations and `vellum://` deep links.** Both are hostile input: a
+   `vellum://` URL can be opened by any page in any browser with no prompt. Two
+   refusals in `electron/deeplink.ts` are the whole trust model — a note
+   reference must survive normalization and stay inside the vault, and **a vault
+   reference is honored only if the reader has already opened that vault**.
+   Without the second, `vellum://open?vault=/` is a link that makes the app index
+   and serve the reader's entire disk.
+7. **Drag a note out as a real `.md`**, a tray/menubar presence, and an
+   **always-on-top reference window** — the source you quote from while you write
+   in the window behind it, which is the one arrangement `client/workspace.ts`
+   structurally cannot express.
+
+### A menu item must not invent a keystroke
+
+`GROUPS` in `client/components/ShortcutsHelp.tsx` is the one place a binding
+exists and `npm run check-keymap` fails the build when two rows claim one chord.
+A native menu is a **third** keyboard handler and the most dangerous of the
+three, because an accelerator is consumed by the OS *before* the page sees the
+key: an accelerator that disagrees with the ledger does not collide loudly, it
+makes the ledger's binding silently stop working, on one platform, for one build.
+
+So every accelerator in `electron/menu.ts` is a chord the ledger already claims,
+and the item forwards the same verb — the menu is a **visible index of the
+keymap**, not a second one. The forward calls the same store action the keyboard
+calls (`client/desktop/index.ts`), which is the pattern the shortcut sheet's
+`run:` handlers already use.
+
+**One exception, and it is the interesting one.** Electron's convention for a new
+window is `Cmd/Ctrl+N`, and this app has claimed `Ctrl/Cmd+N` for **New note**
+since before the desktop existed. Taking it would make the desktop build the one
+place the product's own documented binding does nothing — discovered by a reader
+who pressed it expecting a note and got an empty window. New note keeps
+`Ctrl/Cmd+N` and appears in the menu wearing it; **New window takes
+`Ctrl/Cmd+Shift+N`**. Find next / Find previous carry no accelerator at all for
+the same family of reason: `F3` and `Ctrl/Cmd+G` are both spoken for, and the
+find bar's own `Enter` / `Shift+Enter` already answer.
+
+### The gates
+
+- **`npm run check-desktop`** (`scripts/check-desktop.mjs`) is **pure**: no
+  Electron, no `node_modules`, no browser, no server. It runs in CI on every
+  commit, next to `typecheck`, because `desktop/` is the one part of the repo
+  most contributors never install and unbuilt code rots quietly. It asserts:
+  the server's bare-import closure ⊆ `desktop/package.json` dependencies **at
+  identical version specs**; nothing under `client/` or `server/` imports
+  `electron`; every IPC channel paired 1:1 in the right direction; none of the
+  four `webPreferences` written the unsafe way; and the menu dictionary's
+  translation parity, including that a key shared with `client/i18n.ts` is
+  byte-identical to it.
+- **`electron/probe.ts`**, run under `ELECTRON_RUN_AS_NODE` at every launch,
+  asks the four questions whose answers are only ever discovered as a blank
+  window: is the bundled Node ≥ 24 (`server/index.ts` is run directly and
+  top-level-awaits), does `node:sqlite` exist (marginalia — opt-in, so the
+  failure would otherwise wait months), does the **native** `argon2` load
+  (compiled against an ABI, and Electron's is not stock Node's), and does a real
+  `server/*.ts` type-strip and resolve its bare import. All four fail the same
+  way, so all four are asked before the window opens.
+
+## Aliases — a note answers to more than one name
+
+**The README recruits Obsidian vaults, and in one of those a note is linked by a name that is
+not its filename.** `aliases: [ML, machine-learning]` in the frontmatter, `[[ML]]` in twenty
+other notes. There was no alias table: every one of those links rendered dashed and offered to
+create a DUPLICATE note — in the first hour, to exactly the reader the pitch was aimed at. The
+table is `byAlias` in `server/indexer.ts`, and it is registered and torn down by `addKeys()` /
+`removeKeys()` beside labels and citekeys, so it rides every path that indexes a note —
+including the watcher's incremental `indexFile()`. A stale alias that resolves to a deleted note
+is worse than no aliases at all, and that is why it is not its own call.
+
+**The ladder is exact path, then real basename, then alias.** A file actually named `DL.md`
+must never lose its own name to a `aliases: [DL]` some other note declares, whatever the two
+paths look like. Ties INSIDE a rung — two notes claiming `AI` — break with `pickShortest()`,
+the same rule duplicate basenames have always used: fewest segments, then shortest string, then
+alphabetical. One rule for names, whoever wrote them down; Obsidian picks a winner here
+silently and arbitrarily, which is the behaviour this replaces, not the one it copies.
+
+**A rung the visitor filter empties falls through to the next one** rather than answering null.
+The visitor's collection is a smaller vault: inside it no note is NAMED `Ghost` at all, so the
+published note whose alias is `Ghost` is the honest answer. It leaks nothing either way — both
+branches are computed from notes the caller may already discover — and the alias half of
+resolution is filtered by `isNoteVisibleToVisitor()` exactly as the basename half is, so an
+alias can never make a private note reachable.
+
+**Every surface lands together, because a note reachable by a name in one place and invisible
+by it in three others is more confusing than no aliases at all.**
+
+- **Links.** `resolveLink()`, which is also what backlinks, the graph, `notesLinkingTo()` and
+  `/api/resolve` are built from — so a link made THROUGH an alias is a backlink like any other,
+  with the same context extraction, and nothing else had to learn the word.
+- **The client resolver too, or the feature is a lie in the one place the author works.**
+  `client/editor/links.ts` decides whether a link is drawn dashed and where a click goes. A tree
+  carries filenames, so the client cannot derive an alias: `state.loadTree()` fetches
+  `GET /api/aliases` beside the tree and fills `setAliasTable()`, and the two are stale and
+  fresh together. Without it the server drew the backlink while the editor drew a DASHED link
+  offering to create a duplicate of the note it had just resolved — the disagreement
+  `tests/links.test.ts` exists to catch. The client applies the SERVER's tie rule for aliases
+  (fewest segments, then shortest, then alpha), so both name the same winner. The alias half of
+  that fetch fails softly: it enriches the tree, it is not a condition of it.
+- **Search.** `aliases` is a minisearch field, boosted 4 — under the title (the filename is what
+  the note is called), over tags. It also gets the exact-match short-circuit `byName` has, and
+  needs it more: an alias is routinely a word the note's own text never contains ("ML" on a note
+  that only ever writes "machine learning"), so there is no body match left to rank.
+- **`[[` autocomplete.** Reads the same table (`aliasCompletions()`), so the popup opens at the
+  speed it always did — no fetch on the keystroke. An alias that merely repeats a filename is
+  dropped from the list: it would complete to the same link twice, and the second row would say
+  something different about where it goes.
+- **The reverse: a rename OFFERS to keep the old title.** The link rewrite repairs every
+  `[[wikilink]]` inside this vault. It cannot repair what is outside it — a published permalink,
+  a link in someone else's notes, a bookmark — or the reader's own memory of what the note was
+  called. So a rename that changes the NAME (not a move, which keeps it) raises an
+  `actionToast`: one button, and the old title goes into `aliases:`. This is the half Obsidian
+  leaves to the author.
+
+**Which name matched is SAID, not guessed at.** A search hit carries `SearchHit.alias` when the
+title is not what matched, and the sidebar row prints "matched alias «ML»"; a completion row
+says "alias of {title}". A result whose words appear nowhere in the note, or a completion for a
+name the reader has never seen on a file, reads as a bug rather than as a feature working — and
+when two notes claim one alias, these rows are the only place the difference is visible.
+
+**Reading and writing go through `server/noteFrontmatter.ts`, one operation per format.**
+`parseAliases()` takes ALREADY-PARSED frontmatter, so a `.tex` note's `%--- … %---%` comment
+block — the one that still compiles under `pdflatex` — carries aliases through the existing
+reader with no second frontmatter path. Three spellings arrive from real vaults because YAML
+gives three values for what an author reads as one list: a flow list, a block list, and the
+STRING `ML, machine-learning`. A scalar is split on commas; a list ITEM never is —
+`aliases: ["Smith, John"]` is already one item to YAML, and splitting it too would leave no way
+to spell an alias containing a comma. Obsidian's older singular `alias:` is read as well.
+
+**`addNoteAlias()` adds an ITEM to a block list instead of flattening it.** Flattening
+`aliases:\n  - ML` into one `aliases: [...]` line would leave the `- ML` lines orphaned under a
+key that now holds a value: that is not a note with an odd alias list, it is a note whose YAML
+no longer PARSES — and the first thing lost when frontmatter stops parsing is `publish: true`,
+i.e. the note silently leaves the public site. The new item copies the indentation, and in a
+`.tex` note the `%` comment prefix, of the item already there. Absent or inline, it is one
+`aliases: [...]` line written through the surgical line editor, new name first. Idempotent, so
+the offer can be taken twice without growing the list.
+
 ## Moving notes and folders (drag in the tree, "Move to…", undo)
 
 A vault reorganizes itself constantly, and until this landed the only way to move anything was to
@@ -3545,6 +4353,54 @@ it.
   and images are skipped too: off the cursor line those are BUTTONS, and clicking one navigates
   rather than placing a caret. The matrix runs once in each shell direction. Measured against the
   unfixed build: 15 failures, worst |Δ| **82**.
+
+## Multiple selections (client/editor/setup.ts, pointer.ts)
+
+**Multiple selections are the default, and every formatting rule survives them.** `Ctrl/Cmd+D`
+takes the next occurrence of the current word, `Ctrl/Cmd+Click` drops an extra cursor (and, on a
+cursor that already exists, removes it), `Alt+drag` makes a rectangular selection, and
+`Ctrl/Cmd+B` over five ranges bolds five things — writing `\textbf{…}` five times in a `.tex`
+note, because the vocabulary is resolved from the NOTE and not from the keystroke (see "A FOURTH
+RULE" below).
+
+**The feature was one line, and that is the whole story of it.** `EditorState.allowMultipleSelections`
+appeared nowhere in the client, so `@codemirror/state` funnelled every multi-range selection
+through `asSingle()` — while the machinery to produce and honour those ranges had been written,
+reviewed and shipped:
+
+- `client/editor/pointer.ts`'s `get(event, extend, multiple)` already implemented BOTH halves of
+  Mod+click — `startSel.addRange(range)` to add one, `removeRangeAround()` to take one away.
+- `client/editor/livePreview.ts`'s `activeLines()` already loops `state.selection.ranges` and
+  reveals the raw markdown around EVERY range, so a secondary caret was never going to land inside
+  a hidden marker and type where the reader cannot see. That was the loudest risk raised against
+  this change, and the code had already answered it.
+- The colour commands in `commands.ts` already map over `state.selection.ranges` and carry
+  `mainIndex` through the dispatch.
+
+So the honest description is not "multi-cursor was added" but "multi-cursor was switched on". Two
+of the three keys it needs were also being eaten elsewhere, which is why nobody noticed: `Mod-d`
+(`selectNextOccurrence`) has been in the extension list inside `searchKeymap` since it shipped and
+never once fired, because `client/App.tsx` claimed `Ctrl/Cmd+D` for the daily note in the CAPTURE
+phase. The daily note now wears `Ctrl/Cmd+Alt+D`, on the same reasoning that moved the pane
+toggles to Alt: the unmodified key belongs to the editor, and a once-a-day verb does not outrank a
+per-minute one.
+
+**`preventDefault` in that listener is how a binding dies silently, and it has now happened twice.**
+CodeMirror's keydown pipeline begins `if (event.defaultPrevented) break`, so a capture-phase
+`preventDefault` on `window` does not merely stop the browser — it stops the EDITOR. `Ctrl/Cmd+B`
+learned this when it became bold; `Ctrl/Cmd+D` is the second case and takes the same shape: the
+key is defaulted ONLY when the event's target is outside the editor, where it would otherwise be
+Chrome's and Firefox's "bookmark this page". Inside the editor the event is left entirely alone,
+which is also what lets vim keep `Ctrl-D` as its half-page scroll — the vim compartment sits ahead
+of `searchKeymap`, so it wins simply by nobody taking the key first.
+
+**`rectangularSelection()` sits ABOVE `pointerSelection` in the extension list, and the order is
+the feature.** `EditorView.mouseSelectionStyle` takes the first style that answers, and
+`pointerSelection` answers every primary-button press including one with Alt held; rectangular
+selection's own filter is `altKey`, so putting it first means Alt-drag becomes a column selection
+and every other drag still resolves its caret through pointer.ts's DOM mapping rather than
+`posAtCoords`. `crosshairCursor()` is the affordance: hold Alt and the pointer says what the next
+drag will do.
 
 ## Text formatting (client/editor/commands.ts)
 
@@ -5089,6 +5945,509 @@ Every one of those is 150–200ms of MEANING and none of them is the only carrie
 `prefers-reduced-motion: reduce` drops the animation and keeps the fact. Verified with the panel
 under `reducedMotion: "reduce"`, in RTL, at 1280×800, and on light and dark themes.
 
+## The book reader (`client/books/`, `server/books.ts`)
+
+A `.pdf` in the vault is a **book**, and a click on one opens a reader, not a
+browser tab. The tab rendered the file perfectly well; what it could not do is
+remember the page, take a keystroke, or know that the vault has forty other
+books in it. Scope is PDF and reading only — pdf.js is the engine, and it is
+the only file format this surface knows.
+
+### A book is its BYTES, not its path
+
+Reading state is keyed by `sha256(size ‖ first 64 KiB ‖ last 64 KiB)` of the
+file (`server/books.ts::bookKey`, format validated by
+`shared/bookAnchor.ts::isBookKey`). **Never by the path.**
+
+The vault is the one directory this application does not own. Obsidian writes
+to it, Syncthing and Dropbox write to it, `git pull` writes to it, and the
+owner writes to it with `mv` at two in the morning. A key that only our own
+rename handler maintains goes stale the first time a book is filed by hand, and
+what is lost is not a cache: it is page 612 of a book someone has been reading
+since March. So the identity travels IN the file, and a book that moves, or is
+renamed, or arrives from another machine under a different name, is the same
+book with the same position.
+
+The sample rather than the whole file, because a scanned atlas is 400 MB and
+hashing it whole costs a full read per open and per shelf listing — at 400
+books, a shelf that never paints. The header and first object at one end, the
+cross-reference table and the trailer (including the `/ID` array the spec asks
+writers to make unique) at the other, with the exact length between them: two
+different books would need identical lengths AND identical xref tables. A file
+smaller than both windows is hashed whole.
+
+The honest cost, and it is written down rather than hidden: **re-saving a book
+makes a new book.** An OCR pass, a re-compression, a bookmark added in another
+program — different bytes, fresh position. That is the right trade against a
+path key, which loses the position every time the file merely MOVES, and moving
+is the commoner event by a wide margin.
+
+`shared/bookAnchor.ts` also defines `book:<key>#p212` — the citable reference
+form. The form a NOTE carries is the wikilink at the end of that module —
+`[[Ibn Khaldun.pdf#page=212&rect=…&id=…]]`, the same idea wearing the vault's own syntax, where
+the id resolves to the key and the key is the bytes; `bookRef()`/`parseBookRef()` remain the
+internal spelling.
+
+### The store is in VELLUM_DATA. The vault keeps nothing.
+
+`VELLUM_DATA/books.json`, written with the same write-then-rename shape
+`server/settings.ts::persist()` uses, mode `0600`, mtime-checked read cache.
+Positions are OUR bookkeeping, not the reader's content: a sidecar
+`.vellum-reading.json` beside every PDF would be litter in a folder people
+sync, grep and back up. **The PDF itself is never written to** — nothing in
+`server/books.ts` opens a vault file except with mode `"r"`, and
+`npm run check-books` enumerates every write call in that file (the four in
+`persist()` are the whole list; a fifth fails the build — and that census now covers highlights and margin notes too, which share the file and add no write of their own).
+
+A patch is PARTIAL and is merged (`cleanBookState(patch, prev)`): the
+once-a-second scroll write carries `{ page, offset }` and cannot undo a zoom the
+reader set a moment earlier. `cleanBookState` is total and never throws — a
+corrupt store costs positions, and losing positions must not also mean losing
+the ability to open a book.
+
+The last write of a session goes out with `navigator.sendBeacon` on `pagehide`,
+which is why `/api/books/state` answers POST as well as PUT. The commonest way
+a reading session ends is closing the tab, and by then a `fetch` is cancelled in
+flight.
+
+### The routes are admin-only, and they do not serve bytes
+
+`GET /api/books` (the shelf), `GET /api/books/one?path=`, `GET|PUT|POST|DELETE
+/api/books/state?key=`. Mounted under the auth guard, and both GETs say
+`assertAdminRead(c)` themselves: a shelf is an enumeration of the owner's own
+directory, and a visitor shown one published page must not be able to ask what
+else is in there. The PDF's bytes still come from `/api/file`, publish-gated and
+`Content-Security-Policy: sandbox`'d exactly as before — this surface widens
+nothing.
+
+### pdf.js: one door, one worker, and the worker is a FILE
+
+`client/books/pdfjs.ts` is the only module that names `pdfjs-dist`, and it
+reaches the library through `import()`. The engine is ~1.1 MB and the worker
+another ~1.3 MB, for a surface most sessions never open;
+`scripts/check-bundle.mjs` forbids `node_modules/pdfjs-dist/` and the reader's
+own components in every first-paint closure, and requires
+`books/BooksSurface.tsx` to remain a chunk of its own.
+
+**The worker is imported with vite's `?url` suffix and served from our own
+origin.** The recipe every pdf.js tutorial gives — fetch the worker source, wrap
+it in a `Blob`, hand over the object URL — works perfectly in `npm run dev` and
+is dead in production, because the vite dev server sends no CSP and this origin
+sends `default-src 'self'` with no `blob:` anywhere in it. A feature that works
+for its author and for nobody else is the worst failure available here, so
+`SHELL_CSP` states `worker-src 'self'` out loud and `npm run check-books`
+asserts all of: the `?url` import, `workerSrc` set from it, no `blob:` in the
+policy, and no `createObjectURL` near the worker.
+
+`script-src` carries `'wasm-unsafe-eval'` — the NARROW token, never full
+`'unsafe-eval'`. pdf.js decodes JBIG2 and JPEG 2000 in WebAssembly, and those
+two formats are every scanned book in the world; without the token a scanned
+PDF renders as blank pages.
+
+Four side-data directories (`cmaps`, `standard_fonts`, `wasm`, `iccs`) are
+copied to `/pdfjs/` by the `pdfjsAssets()` plugin in `vite.config.ts`, which
+also serves them from `node_modules` in dev so the two environments agree about
+a URL. Without them: a Japanese book is boxes, a document that references
+Helvetica without embedding it renders with the wrong metrics, and a scanned
+book is blank. `dist/pdfjs/**/*.wasm` is served as `application/wasm` so
+`WebAssembly.instantiateStreaming` takes the fast path instead of warning.
+
+### Page virtualization: the window is ±2 spreads
+
+A 900-page book gets 900 page SLOTS — cheap boxes that keep the scrollbar
+honest and let the browser do layout — and at most **five spreads** hold a
+canvas (`client/books/layout.ts::renderWindow`, radius 2). The number is
+arithmetic, not taste: a fit-width A4 page at `devicePixelRatio` 2 rasterizes to
+~2500 × 3500, which is 35 MB of canvas backing store. Five spreads is 175 MB in
+single mode and 350 MB in dual; rendering all 900 is 31 GB, which is not a slow
+reader but a tab the browser kills. Two spreads of lookahead is what stops a
+fast `j` or a Page-Down from showing an empty box.
+
+Page sizes are measured lazily and unmeasured pages borrow page one's shape, so
+the scrollbar is approximately right from the first frame. `clampCanvasScale`
+caps the device-pixel scale below the ~16-megapixel ceiling browsers put on a
+`<canvas>` — over it a canvas does not throw, it silently paints **nothing**.
+
+### The keyboard is the interface
+
+`j`/`k` scroll, `Space`/`Shift+Space` and `Ctrl+D`/`Ctrl+U` page, `gg`/`G`,
+`<n>G` go to a page, `/` searches with `n`/`N` stepping, `o` the contents, `+`/`-`
+zoom, `a` fit width, `s` fit page, `d` dual page, `i` night mode, `r` rotate
+(`R` back), `m<c>`/`'<c>` marks, `?` the key sheet, `l` the shelf, `q` closes,
+and `:` is a command line with a name for every one of those states.
+
+**Every character key resolves through `client/keys.ts::shortcutKey()`.** A
+bare `e.key === "j"` is false on an Arabic keyboard, on a Russian one and on a
+Greek one — that module exists because five of this product's seven global
+shortcuts were measured dead under a non-Latin layout, and a reader whose
+system keyboard is Arabic is exactly who asked for this feature.
+`npm run check-books` fails the build on any `e.key === "<printable>"` under
+`client/books/`. Named keys (Escape, the arrows, Page keys, Space) are compared
+directly: they are layout-independent already.
+
+Marks are named by what the reader TYPED, not by the physical key — a chapter
+marked with `ب` is recalled with `ب`. Numbers in the `:` line are accepted in
+Latin, Arabic-Indic and Persian digits, because an Arabic instance PRINTS
+`٢١٢` in the status line and refusing it back is a small betrayal.
+
+The reader's keys are deliberately NOT in `GROUPS`/`docs/keymap.md`: they are
+live only while a book is open, and a global sheet that describes them
+everywhere is a sheet that lies most of the time. `?` opens the reader's own.
+
+### Chrome-free by default
+
+No permanent toolbar. The title bar and the status line appear on pointer
+movement or a keystroke and fade after ~2.2s (`[data-chrome="off"]`); under
+`prefers-reduced-motion` the fade is a cut. Everything the pointer can reach is
+reachable from the keyboard, and everything the keyboard does has a name in the
+`:` line — that is what makes "no visible controls" a design rather than an
+omission.
+
+### Two directions on one screen
+
+The CHROME mirrors with the interface language, like the rest of the app. The
+PAGES mirror with the BOOK: `spreadsOf()` reverses the PAIR (not the sequence)
+for a right-to-left binding, so an Arabic volume in dual-page mode shows
+`[3, 2]` and the eye travels right to left across the spread. Direction is
+detected once from a text sample taken from the MIDDLE of the book — front
+matter is where a copyright page and a translator's note live, both in English
+in books that are not — and then stored, so `:rtl`/`:ltr` outranks the guess
+forever. A bilingual owner reading an English monograph in an Arabic interface
+gets an Arabic panel around a left-to-right book, and that case is the reason
+the two questions are answered separately.
+
+### Night mode does not ruin the photographs
+
+`i` cycles `off → night → flip`. `night` is not `filter: invert(1)`: an
+inversion turns black type on white paper into white type on black paper
+(good) and turns the plate on page 212 into a photographic negative — a face in
+cyan, a night sky in white. The documents most worth reading at night are
+exactly the ones a naive inversion ruins.
+
+So the page is rendered once and composited: inverted with
+`invert(1) hue-rotate(180deg)` (the second half keeps a red heading red), the
+resulting black lifted to the theme's own `--bg` with a `screen` blend so a book
+in `sandstone` is dark sandstone rather than a black rectangle in a warm room,
+and then **every raster figure drawn back over the top, unfiltered**. The figure
+rectangles come from the page's operator list before anything is rasterized
+(`client/books/figures.ts`), cached per page in page space so a zoom re-multiplies
+six numbers instead of re-running the pass.
+
+`paintImageMaskXObject` is deliberately NOT exempted. A stencil mask is a 1-bit
+shape painted in the current fill colour, which is how a scanned page of text
+arrives; exempting it would leave a scanned book unreadable in the one mode that
+exists to make it readable at night. That single line of judgement is the
+difference between this working and not. `flip` is the plain negative for the
+reader who actually wants one, and skips both the tint and the figure pass.
+
+### Search folds the way an Arabic reader types
+
+`client/books/search.ts` matches character by character through a fold and
+reports offsets into the ORIGINAL string, so a hit found in extracted text can
+be turned back into a DOM `Range` over the untouched text layer. Harakat, the
+superscript alef, Quranic annotation marks, tatweel, combining diacritics,
+zero-width joiners and soft hyphens are skipped; the alef family, the yeh
+family, teh marbuta and the Persian letters fold together; one typed space
+matches the line break extraction invents. `الْمُقَدِّمَة` is found by typing
+`المقدمة`, which is the whole point — and "résumé" is found by typing
+"resume" for free.
+
+The k-th hit is located twice, once in the extracted page text and once in the
+rendered text layer, by the SAME function on the SAME normalization. That is
+the only reason the two agree. The hit is painted with the CSS Custom Highlight
+API — no node is inserted into the text layer, so the positions pdf.js computed
+stay exact and the text stays selectable. A browser without the API scrolls the
+match into view untinted.
+
+### The shelf paints instantly and fills in
+
+The default state of a library card is a **typographic plate** — the title in
+`--font-serif` on `--bg-raised`, which is what the spine of a book without a
+jacket looks like — never a spinner and never an error. A 400-book shelf cannot
+render 400 covers before it paints, and a grid of spinners tells the reader
+their library is broken. **A shelf whose covers never rendered would still be a
+usable shelf.** That is the bar.
+
+Covers are page 1, rendered small, requested as cards scroll into view and
+cancelled as they leave. At most **three** `getDocument` calls are in flight at
+once and every `PDFDocumentProxy` is destroyed the instant its bitmap exists
+(`client/books/covers.ts`): a document is not a handle, it is a worker-side heap
+of decoded fonts and images, and 400 of them is how a tab reaches four
+gigabytes. Title, author and page count are cached back into the book's state
+by the same one-shot open, so the next visit prints them without parsing
+anything. A book that will not open keeps its plate — reporting "failed" on
+forty cards because a network hiccup ate forty range requests is noise about
+nothing anyone can act on.
+
+The shelf's own search folds identically to the in-book one, so an Arabic title
+typed without its harakat finds the book that carries them.
+
+### Where it is mounted, and where it is going
+
+`/library` is the shelf and `/book/<vault path>` is one book; both are real
+addresses, because a book someone is halfway through is a thing they bookmark
+(the page is already remembered server-side, so the URL only names the volume).
+`client/books/mount.ts` owns a React root on a portal element, the same
+arrangement the attachment viewer uses and for the same reason. While the
+reader is open it owns the address bar — `syncUrl()` and the store subscription
+both stand down, or the first SSE tree refresh would replace `/book/…` with the
+note underneath.
+
+`BooksSurface` takes a route and two callbacks and touches no global state.
+When panes land, the same component becomes a pane body by passing the same
+three props from there; `mount.ts` is what gets deleted, not what gets
+rewritten.
+
+### Annotating: the PDF is never written to
+
+`h` marks the selection, `H` steps the ink, `e` writes a note in the margin,
+`x` takes one back (with an Undo), `A` lists them. Every one of those has a
+name in the `:` line — `:highlight`, `:ink 3`, `:note`, `:annotations` — and
+`:h` still means `:help`, because the vi rule resolves the first name whose
+abbreviation the typed word satisfies and a reader with `:h` in their fingers
+must not have it start inking their selection.
+
+A highlight is stored in `VELLUM_DATA/books.json` under the book's CONTENT KEY,
+beside the reading position and validated by the same total, never-throwing
+shape (`shared/bookAnchor.ts::cleanHighlight`). It is a page number, one
+rectangle PER LINE, an ink 1–6, the passage, and a margin note. Rectangles are
+FRACTIONS of the unrotated page, never pixels and never PDF points: a reader
+annotates at 140% on a laptop and reopens at fit-width on a 4K display rotated
+ninety degrees, and the page's own proportions are the only coordinate space
+that survives all of it.
+
+**Nothing is written into the PDF.** Not a `/Annots` entry, not a re-save, not
+the mtime. The vault is the one directory this application does not own; a
+reader who marks a sentence must not thereby rewrite a 400 MB scan that five
+machines then have to pull down again, and a file whose bytes change is — by
+this reader's own rule — a DIFFERENT BOOK with a fresh position. So the whole
+census still holds: `npm run check-books` enumerates every write call in
+`server/books.ts` and the four in `persist()` are the entire list, and
+`tests/books.test.ts` compares the PDF's bytes and its mtime after a page has
+been annotated. The honest cost is that a highlight does not travel to a
+different reader of the same file. That is the right trade for a single-owner
+vault and it is the same one the reading position already makes.
+
+Annotations are a SIBLING of `books` in the store, not a field inside each
+state, because a position is patched forty times an hour by a debounced scroll
+and is merged partially — putting a list of passages inside the record a scroll
+write merges into is how a passage someone marked gets clobbered by them
+scrolling past it. For the same reason `:forget` does NOT delete them: it means
+"stop resuming this book", which is a sentence about a scroll offset, and a
+command that reads as tidying up must never be the command that throws work
+away.
+
+The six inks are `--book-ink-1..6`, on `:root` ONLY, outside `check-contrast`'s
+`REQUIRED_TOKENS`, and `npm run check-books` fails the build if any theme
+overrides one. They are PAGE inks, not chrome: they sit on a printed page
+rather than on the app's ground — the attachment viewer's fixed scrim makes the
+same argument pointed the other way — a highlighter is yellow in every theme
+anyone has ever bought one in, and a per-theme ink would mean the same passage
+is marked green on the laptop and pink on the desktop, which is not a theme but
+data loss. They are exempt from the contrast gate because an ink NEVER CARRIES
+TEXT: the words under it are the page's own glyphs at the page's own contrast,
+the wash is `aria-hidden` and takes no pointer events, and the passages are
+listed AS TEXT in the `A` panel, which is where a keyboard reader reaches them.
+Alpha around 0.4 is the hinge — under it a mark is invisible on a scanned grey
+page, over it the ink competes with the letters it is pointing at — and the
+blend is `multiply`, because a highlighter is a translucent ink laid on paper.
+
+### A quote is assembled by COLUMN GEOMETRY, not by stream order
+
+This is the load-bearing paragraph of the whole stage.
+
+**pdf.js returns text items in the order the content stream wrote them.** That
+is not a defect: a PDF page has no paragraphs, no columns and no reading order
+in it — only "put these glyphs at this matrix" — and a typesetter may emit them
+in any order that paints the same page. TeX, on a two-column paper, commonly
+INTERLEAVES the columns: line 1 left, line 1 right, line 2 left, line 2 right.
+
+Joined in that order the quotation is alternating half-sentences. It is
+grammatical. It is fluent. It is not what the book says, and nothing on screen
+tells anyone: the reader selected the right passage, saw the right passage
+highlighted, pressed `c`, and a sentence the author never wrote went silently
+into their notes and from there into their own writing. **A wrong quotation
+that looks right is the worst failure this reader can produce**, which is why
+`client/books/columns.ts` is a module with its own fixture rather than three
+lines inside a keystroke handler.
+
+Nothing in it reads the order the pieces arrived in. Columns are found by
+projecting every piece onto the x axis and looking for a corridor no piece
+crosses — a real gutter is empty on EVERY line, whereas the space between two
+words is covered by the line above it — with the corridor required to be wider
+than both 3.5% of the selection and one line height. Lines are grouped on y.
+The order inside a line follows the SCRIPT: an Arabic line's first word is its
+rightmost, and sorting one by ascending x silently reverses every sentence in
+the quote. In a right-to-left paper the right-hand column is read first.
+
+And hyphens. A book breaks "significant" as "sig-" / "nificant", and a naive
+line join gives `sig- nificant` — embarrassing every single time, in every
+quote, forever. Undoing it is guarded on all four sides: a capital on the right
+is a compound the author wrote (`Anglo-Saxon`), a digit is never a hyphenation
+(`1990-1995`), a single letter before the break is `x-ray` rather than a word
+broken after one character, and the character before the hyphen must belong to
+a script that HYPHENATES — Arabic does not, so a dash at the end of an Arabic
+line survives. Soft hyphens are dropped; the Persian zero-width non-joiner is
+kept, because it is spelling and not noise.
+
+`npm run check-books` asserts that the reader builds its passages through
+`assembleSelection()` and that nothing under `client/books/` except
+`selection.ts` reads `getSelection().toString()` — DOM order is the PDF's
+stream order, and that shortcut is the one anyone would reach for.
+
+### `c` puts it in the note beside you
+
+`c` cites with no target dialog: the note beside you is the active tab, which
+is the answer in nearly every session. `Shift+C` opens the same panel with the
+note picker focused instead of the quote — one surface, two doors, nothing to
+learn twice. The list is the OPEN TABS and not the whole vault: a citation goes
+into something you are working on, and a list of nine hundred notes is a list
+nobody reads.
+
+**The assembled quote is shown in an EDITABLE field before one character
+reaches the note**, and that is not ceremony. Assembling a passage off a page
+that has no reading order in it is inference, and inference is occasionally
+wrong: a running head caught in the selection, a footnote marker, a wide table
+read as two columns. Every one of those produces a quotation that is fluent,
+plausible and not what the book says. A quote you can see before it lands is a
+quote you can fix. The field is set in `--font-serif` — the face it will be
+READ in — because a quotation proofread in the UI sans and then rendered in a
+book face is a quotation nobody actually proofread. The ink goes down only on
+confirm: a cancelled citation leaves the page exactly as it was.
+
+What lands is the vault's own callout syntax, which is the point — it already
+renders in the live preview, in the reading view and on a published page, and
+it already survives being opened in Obsidian:
+
+```
+> [!quote]
+> …the passage…
+>
+> — [[Ihya.pdf#page=42&rect=0.118,0.313,0.742,0.081&id=k7f3q2a9|Ihya, p. 42]]
+```
+
+EVERY line of the quote is prefixed, blank lines included: a callout whose body
+contains an unprefixed blank line ENDS at that line, which would put a
+two-paragraph quotation's second paragraph outside the box and its attribution
+somewhere else again. A selection that crosses a page break is one sentence and
+is joined by the same rule that joins two lines, hyphen and all; it leaves one
+highlight per PAGE, because a rectangle has to be on something.
+
+The write goes through `client/sectionActions.ts::applyNoteContent`, which
+**claims `markSelfWrite(path)` BEFORE the request** and prefers the open editor
+when one holds the note — so the citation is one undoable transaction the
+existing autosave carries to disk, and the SSE echo (which overtakes the
+response by about two milliseconds) is not reported back to the reader as
+"changed on disk". A bare `putNote` here fails `npm run check-books`. It is
+APPENDED rather than inserted at a cursor, and deliberately: the reader is
+full-screen over the app, so there is no caret anyone is looking at, and a
+block that lands invisibly mid-note is a block they have to go and find. The
+toast carries Undo, which restores the note to exactly what it was.
+
+### The anchor is a wikilink, not a new syntax
+
+`[[Ihya.pdf#page=42&rect=…&id=k7f3q2a9|Ihya, p. 42]]` rides
+`client/editor/links.ts::parseWikilink()` **unchanged** — target, `#anchor`,
+`|alias`. That is why it was given this shape: the live preview, the reading
+view, the backlink index, the hover card and the autocomplete all keep working
+without being taught anything. A `book:` scheme or a `%%vellum-cite%%` fence
+would have needed every one of them to learn a second language, and a note full
+of a syntax only this program understands has stopped being ordinary markdown,
+which is the promise the whole vault rests on.
+
+`page=` carrying a NUMBER is the whole of what tells a citation apart from a
+heading somebody wrote, and it is strict: `[[Notes#page=one]]` is a link to a
+heading called "page=one" and stays one. Three things ride in the anchor and
+each is load-bearing. `page` is where to open. `rect` is what to pulse — a
+citation that only opened a page of nine hundred words has not answered the
+click — and it is carried in the LINK and not only in the store, so a citation
+into a book whose annotations were later deleted still points at the passage.
+`id` is the handle the store knows, and it is what makes the link survive a
+rename.
+
+Both renderers draw it and both open it. In the reading view it is an
+`.s-rv-cite` anchor carrying the note it was clicked FROM; in the editor it is
+`cm-s-cite`, resolved through the reader's own PDF lookup rather than
+`resolveLink` (which answers about NOTES, so a PDF would otherwise render
+dashed and a click would offer to create `Ihya.pdf.md`). On a published page a
+citation is not a link at all — it reads as the words the owner wrote, because
+a visitor has no library to open and no business enumerating one.
+
+Clicking it opens the reader at that page and pulses the rectangle three times
+and then stops; under `prefers-reduced-motion` the ring is held still for the
+same span. A ring left permanently around a sentence is a defacement of
+somebody's book. `/book/<path>#page=42&rect=…&id=…` is the same address in the
+URL bar, so a citation is bookmarkable.
+
+### When the name in a citation stops being the book's name
+
+Three months after the note was written the file is
+`Sources/al-Ghazali - Ihya (ed. 1998).pdf`, because that is what people do to a
+shelf and because Obsidian, Syncthing, `git pull` and `mv` all write to this
+directory without telling us. Every reader that stored a PATH now has a dead
+link and the passage the note was arguing from is gone.
+
+It is not gone here. The `id` names a highlight, the highlight is filed under a
+CONTENT KEY, and the key is a hash of the bytes. `GET /api/books/locate?id=`
+answers where those bytes are now: the names this key has been seen under
+first, newest first and two cheap reads each, and failing that a walk of the
+vault's PDFs — the same pass the shelf already does. `BookState.names` is what
+makes the first half possible and is maintained by `cleanBookState` from the
+`path` every open already sends, capped and de-duplicated.
+
+So the book opens anyway, on the right page, on the right sentence. **And then
+it offers to repair the note**, because rescuing the reader once per click
+forever leaves the link wrong in git and on the published site. The offer is a
+toast with an action on it, not an automatic edit: repairing is a change to the
+reader's own file and the reader decides whether their file changes. The
+rewrite matches `[[<name>#` and nothing looser — a citation is the only
+wikilink shape that can carry a `.pdf` target followed by a `#`, so it cannot
+touch a `[[Note#Heading]]`, a differently-named book, or the words "Ihya.pdf"
+in a sentence. A repair that edited one line too many would be a far worse bug
+than the broken link it was fixing. It goes through the same
+`applyNoteContent` door and carries its own Undo.
+
+`path: null` is a real answer and means the bytes have left the vault. The
+reader is told that rather than shown a spinner.
+
+The recovery is DYNAMICALLY imported (`client/books/citations.ts`).
+`client/books/mount.ts` is first-paint code reached by a static import from the
+sidebar and the router; the happy path there is a tree walk and nothing else —
+no request, no await, the book opens on the same tick as the click — and only a
+citation whose name has stopped resolving loads a byte of the rest.
+
+### The shelf finds the passage, not just the book
+
+Typing in the library's search box now searches the marked passages as well as
+the titles, and shows them above the covers: someone who typed a word they
+remember reading is not looking for a cover. It is the one thing a library of
+PDFs can do that a folder of them cannot — find the sentence you underlined in
+a book whose title you have forgotten.
+
+`GET /api/books/highlights/all` ships the passages and the MATCHING happens in
+the client, on `client/books/search.ts`'s fold — the same one `/` uses inside a
+book, so `الْمُقَدِّمَة` is found by typing `المقدمة` and a margin note counts
+as part of its passage, because "the thing I wrote about it" is exactly what a
+person remembers. There is one implementation of that rule in this product and
+shipping the passages rather than the query is what lets the shelf reuse it.
+The request is made on the FIRST KEYSTROKE, never on open: a shelf that paints
+instantly is a promise this surface already made, and a decade of marginalia
+arriving before the first cover would break it for a search most visits never
+run. The store caps what it will carry at once and says when the answer was cut
+short.
+
+### The routes
+
+`GET|PUT|DELETE /api/books/highlights?key=` (PUT is an UPSERT by id — changing
+the ink, writing a margin note and correcting a quote are the same request with
+the same id, and appending would leave the old ribbon painted under the new
+one), `GET /api/books/highlights/all`, `GET /api/books/locate?id=`. Same guard
+and same reasoning as the rest of the chapter: the reads say
+`assertAdminRead(c)` themselves and nothing here serves a vault file — the
+routes trade in a content key, a page number and four numbers between 0 and 1.
+
+---
+
 ## Lazy surfaces: ONE BOUNDARY EACH (`client/App.tsx`)
 
 Every `React.lazy()` surface in the shell gets its **own** `<Suspense>`. This is a correctness
@@ -5130,6 +6489,14 @@ The rules that follow from it:
   `StatusBar`, the other into `DesignerPanel`, and each dragged its whole surface back into the
   first paint. `npm run check-bundle` is what catches the next one.
 
+- The reader is split TWICE, and the outer boundary is not `App.tsx`'s. The app
+  shell holds only `client/books/mount.ts` — a URL parser and a React root —
+  and reaches `BooksSurface` through `import()`; the surface then splits the
+  shelf from the reader, and `client/books/pdfjs.ts` splits the 1.1 MB engine
+  from both. A reader who only browses their shelf never downloads the page
+  renderer. `npm run check-bundle` names `pdfjs-dist` and the reader's
+  components in FORBIDDEN and `books/BooksSurface.tsx` in MUST_SPLIT.
+
 ## Tests (`npm test`) — the release gate
 
 `node --test` over `tests/*.test.ts`. No new dependencies, no test framework, no fixtures on disk
@@ -5144,6 +6511,8 @@ npm run check-i18n
 npm test
 node scripts/check-contrast.mjs
 npm run check-bundle
+npm run check-keymap
+npm run check-books
 ```
 
 (plus whatever visual gates the repo carries at the time — `check-caret`, `check-sections`,
@@ -5160,6 +6529,30 @@ What the suite covers, and why each file exists:
   `client/editor/links.ts`), including duplicate basenames, folder-named files, path-form targets,
   Arabic and punctuated titles, and visitor scoping. The parity block is the point: the editor and
   the graph must land on the same note.
+- `tests/aliases.test.ts` — every surface of `aliases:` from one vault (resolution, search,
+  `/api/aliases`, backlinks) plus the write half over strings alone. Pins the three YAML
+  spellings, alias-vs-filename precedence, the `pickShortest()` tie, a `.tex` note's aliases,
+  visitor scoping in both directions, and that a deleted note's aliases leave the table — the
+  incremental-upkeep case, which is the one a future refactor will break. It carries a parity
+  block of its own, for the same reason `links.test.ts` does: the client resolver must name the
+  note the server names, or an alias is a dashed link over a note that is right there.
+- `tests/books.test.ts` — the reader's testable half: that a book's key follows
+  its BYTES across a rename and differs between books, that the store merges a
+  partial patch and never lands in the vault, the search fold (harakat, the
+  alef family, tatweel, a line break inside a phrase, offsets into the original
+  string), the `:` grammar including its abbreviations and Eastern Arabic
+  digits, the page window's bound and the right-to-left spread order, and the
+  operator-list geometry that keeps night mode off the photographs. The
+  rendering half needs a browser and is not faked: a test asserting pdf.js was
+  called proves nothing about whether a page appeared.
+- `tests/keymap.test.ts` — the keyboard ledger: `GROUPS` parses, every row has an answer (a key or
+  the surface that carries it), every `keys` array spells a chord the one canonical way, no two rows
+  resolve to the same chord in an overlapping scope, every declared overlap in `RESOLVED` still
+  happens and still says why, and `docs/keymap.md` claims exactly the chords `GROUPS` binds. It runs
+  the same code `npm run check-keymap` does (`client/keymap.ts`), from the other door, so a green
+  gate and a green suite can never disagree. Its companion is `tests/shortcuts.test.ts`: this file
+  asks whether a binding is UNIQUE, that one asks whether a keyboard typing no Latin letters can
+  reach it. A new binding needs both.
 - `tests/anchors.test.ts` — `[[Note#Anchor]]` against both anchor resolvers (editor by heading
   TEXT, reading view by SLUG), plus `Slugger` collisions and unicode.
 - `tests/sections.test.ts` — the partition invariant: cutting a note at its heading line numbers
