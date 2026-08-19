@@ -1,0 +1,84 @@
+# Packaging. Run from this directory: `npm --prefix desktop run dist`.
+#
+# THE APP DIRECTORY IS THE REPO ROOT, and that is the whole shape of this file.
+# The desktop app does not bundle a server; it spawns `server/index.ts` and lets
+# Electron's bundled Node type-strip it (electron/server.ts explains why, and
+# electron/probe.ts checks the four ways that fails). So what has to be inside
+# the package is the repo: server/, shared/, the built dist/, vault-seed/, and
+# the production node_modules the server reaches — the exact set
+# `npm run check-desktop` asserts against desktop/package.json.
+#
+# `extraMetadata.main` is how the entry point gets named without touching the
+# root package.json, which belongs to the web deployment and to npm.
+
+appId: dev.vellum.desktop
+productName: Vellum
+copyright: Vellum
+
+directories:
+  app: ..
+  output: release
+  buildResources: icons
+
+extraMetadata:
+  main: electron/main.ts
+
+# Everything the spawned server can reach, and nothing else. The client's
+# SOURCE is not here — `dist/` is the built client, which is what the server
+# serves — and neither are the gates, the tests or the screenshot scripts.
+files:
+  - electron/**/*.ts
+  - server/**/*.ts
+  - shared/**/*.ts
+  - dist/**/*
+  - vault-seed/**/*
+  - desktop/build/preload.js
+  - desktop/icons/icon.png
+  - package.json
+  - "!**/*.map"
+  - "!**/node_modules/**/{test,__tests__,tests,example,examples,doc,docs}/**"
+
+# argon2 is a native addon and cannot be read out of an asar archive by the
+# dynamic linker. `npmRebuild` (on by default) is what compiles it against
+# Electron's ABI rather than stock Node's — the third thing electron/probe.ts
+# checks, because a build that skips it looks perfectly fine until auth runs,
+# which on the desktop is every launch.
+asar: true
+asarUnpack:
+  - "**/node_modules/argon2/**"
+
+# `vellum://open?vault=…&note=…`. Registered here for the installer and again at
+# runtime (electron/main.ts) so it also works from a dev checkout. What a link
+# is ALLOWED to do is decided in electron/deeplink.ts, not here: a vault
+# reference is honored only if the reader has already opened that vault.
+protocols:
+  - name: Vellum
+    schemes: [vellum]
+
+# Double-clicking a note opens it in the vault that contains it — and asks,
+# rather than guessing, when no known vault does (electron/main.ts::openFile).
+fileAssociations:
+  - ext: md
+    name: Markdown note
+    role: Editor
+  - ext: tex
+    name: LaTeX note
+    role: Editor
+  - ext: latex
+    name: LaTeX note
+    role: Editor
+
+mac:
+  category: public.app-category.productivity
+  icon: icons/icon.png
+  target: [dmg, zip]
+  darkModeSupport: true
+
+win:
+  icon: icons/icon.png
+  target: [nsis]
+
+linux:
+  icon: icons/icon.png
+  category: Office
+  target: [AppImage, deb]
