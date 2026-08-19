@@ -86,11 +86,43 @@ export function isPortFree(port: number): Promise<boolean> {
  *  is stated here; everything else (PATH, HOME, LANG, the proxy variables) is
  *  inherited, because a child process still has to be able to reach a network
  *  and find a temp directory. */
+/** Keys the DESKTOP owns whatever any .env says: where the server sits and
+ *  which directories it reads are this process's decisions — a deployment's
+ *  PORT is the one thing that must NOT follow it into a window, or opening the
+ *  vault fights the deployment for its own socket. */
+const DESKTOP_OWNED = new Set(["PORT", "HOST", "VELLUM_VAULT", "VELLUM_DATA", "ELECTRON_RUN_AS_NODE"]);
+
+/** Parse a deployment's `.env`, the same dialect `node --env-file` reads:
+ *  KEY=value lines, `#` comments, optional single/double quotes. Total — a
+ *  malformed line is skipped, never fatal, because refusing to open a vault
+ *  over a stray line in somebody's .env is worse than missing that line. */
+export function parseEnvFile(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line === "" || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    if (!/^[A-Z][A-Z0-9_]*$/.test(key)) continue;
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith("'") && value.endsWith("'") && value.length >= 2) ||
+      (value.startsWith("\"") && value.endsWith("\"") && value.length >= 2)
+    ) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
 export function childEnv(
   vault: string,
   dataDir: string,
   port: number,
   credential: Credential,
+  deployEnv: Record<string, string> | null = null,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   // Pure-Node mode: no Chromium, no app lifecycle, just the bundled Node.
@@ -99,11 +131,28 @@ export function childEnv(
   env.VELLUM_DATA = dataDir;
   env.HOST = "127.0.0.1";
   env.PORT = String(port);
-  // See electron/auth.ts for all four of these.
+  env.SECURE_COOKIES = "0";
+  if (deployEnv !== null) {
+    // AN ENV-LINKED VAULT IS THE DEPLOYMENT, IN A WINDOW. The row's `data`
+    // override shares the deployment's settings.json and comments — and then
+    // this function used to hand the child a minted credential and
+    // PUBLIC="false" on top, which quietly rebuilt a DIFFERENT site over the
+    // same data: the owner's password refused (the hash was ours, not
+    // theirs), the public layout gone ("opening public mode says everything
+    // is private"), the site language ignored. The deployment's own .env
+    // wins for everything identity-shaped; the desktop keeps only the keys
+    // that place the process (DESKTOP_OWNED above).
+    for (const [key, value] of Object.entries(deployEnv)) {
+      if (!DESKTOP_OWNED.has(key)) env[key] = value;
+    }
+    return env;
+  }
+  // A vault the desktop discovered itself: the owner IS the admin, so the
+  // window signs itself in with a credential minted for this launch, and
+  // nothing is public. See electron/auth.ts for all four of these.
   env.PUBLIC = "false";
   env.ADMIN_PASSWORD_HASH = credential.hash;
   env.SESSION_SECRET = credential.secret;
-  env.SECURE_COOKIES = "0";
   return env;
 }
 
@@ -127,6 +176,8 @@ export interface StartOptions {
   dataDir: string;
   prefs: Prefs;
   credential: Credential;
+  /** The deployment's own .env, for an env-linked vault. See childEnv. */
+  deployEnv?: Record<string, string> | null;
   /** Called for every line the child writes, so the app's own console is the
    *  server's console. A desktop app that swallows its server's stderr is a
    *  desktop app nobody can debug. */
@@ -174,7 +225,7 @@ function spawnOn(port: number, opts: StartOptions): Promise<Omit<VaultServer, "m
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [SERVER_ENTRY], {
       cwd: APP_ROOT,
-      env: childEnv(opts.vault, opts.dataDir, port, opts.credential),
+      env: childEnv(opts.vault, opts.dataDir, port, opts.credential, opts.deployEnv ?? null),
       // "ipc" is the whole handshake: it is what gives the child a
       // `process.send`, which is what `server/index.ts` guards its two additive
       // lines on, and it is what makes `process.on("disconnect")` fire in the

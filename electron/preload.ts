@@ -65,4 +65,6 @@ contextBridge.exposeInMainWorld("vellumDesktop", {
   /** Apply a staged update and relaunch — or open the release page on a build
    *  that cannot swap itself in place. */
   updateApply: () => ipcRenderer.invoke("vellum:update-apply"),
+  /** The chrome language, so the native menu follows the reader. */
+  chromeLang: (lang: string) => ipcRenderer.invoke("vellum:chrome-lang", lang),
 });

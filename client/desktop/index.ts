@@ -220,6 +220,15 @@ export async function mountDesktop(): Promise<void> {
   installDragOut();
   window.addEventListener("beforeunload", closeFindBar);
 
+  // The native menu follows the READER's chrome language, told once now and
+  // again on every change — from a store subscription rather than the setter,
+  // so a language switched from the palette, the settings panel or another
+  // window's broadcast all reach the menu without knowing it exists.
+  void bridge.chromeLang(useStore.getState().language);
+  useStore.subscribe((s, prev) => {
+    if (s.language !== prev.language) void bridge.chromeLang(s.language);
+  });
+
   const hello = await bridge.hello();
   // Tell the editor which languages a DICTIONARY actually exists for, so the
   // per-line `lang` invites the checker only where checking can be right —

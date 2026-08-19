@@ -38,6 +38,7 @@ export interface DesktopBridge {
   spellReplace(text: string): Promise<void>;
   spellAdd(word: string): Promise<void>;
   updateApply(): Promise<void>;
+  chromeLang(lang: string): Promise<void>;
   onUpdateState(cb: (payload: unknown) => void): void;
   findInPage(query: string, forward: boolean, again: boolean): Promise<void>;
   findStop(): Promise<void>;

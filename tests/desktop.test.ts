@@ -35,6 +35,7 @@ import {
 } from "../electron/deeplink.ts";
 import { TO_MAIN, TO_RENDERER, COMMANDS } from "../electron/ipc.ts";
 import { parseSessionCookie } from "../electron/cookie.ts";
+import { childEnv, parseEnvFile } from "../electron/server.ts";
 import {
   EMPTY_PREFS,
   MAX_RECENTS,
@@ -417,6 +418,56 @@ describe("the data-dir override", () => {
     prefs = rememberVault(prefs, "/v/a", 6823, 99);
     assert.equal(prefs.vaults[0].data, "/srv/vellum-data");
     assert.equal(prefs.vaults[0].port, 6823);
+  });
+});
+
+describe("an env-linked vault is the deployment, in a window", () => {
+  it("parses the .env dialect node --env-file reads, totally", () => {
+    const env = parseEnvFile(
+      [
+        "# a comment",
+        "PORT=8080",
+        "SITE_NAME='Night Garden'",
+        'ADMIN_PASSWORD_HASH="$argon2id$v=19$m=65536,t=3"',
+        "  PUBLIC_LAYOUT = blog  ",
+        "not a line",
+        "lower=case is not a key",
+        "",
+      ].join("\n"),
+    );
+    assert.equal(env.SITE_NAME, "Night Garden");
+    assert.equal(env.ADMIN_PASSWORD_HASH, "$argon2id$v=19$m=65536,t=3");
+    assert.equal(env.PUBLIC_LAYOUT, "blog");
+    assert.equal(env.lower, undefined);
+  });
+
+  it("the deployment's identity wins; the desktop keeps only placement", () => {
+    const cred = { password: "minted", hash: "minted-hash", secret: "minted-secret" };
+    const env = childEnv("/v", "/data", 6821, cred, {
+      PORT: "8080",
+      HOST: "0.0.0.0",
+      ADMIN_PASSWORD_HASH: "owner-hash",
+      SESSION_SECRET: "owner-secret",
+      PUBLIC_LAYOUT: "blog",
+      SITE_LANG: "ar",
+    });
+    // Identity is the deployment's: the owner's password works, the public
+    // site is public, the site speaks its own language.
+    assert.equal(env.ADMIN_PASSWORD_HASH, "owner-hash");
+    assert.equal(env.SESSION_SECRET, "owner-secret");
+    assert.equal(env.PUBLIC_LAYOUT, "blog");
+    assert.equal(env.PUBLIC, undefined);
+    // Placement is the desktop's: a deployment's PORT following it into a
+    // window would fight the deployment for its own socket.
+    assert.equal(env.PORT, "6821");
+    assert.equal(env.HOST, "127.0.0.1");
+  });
+
+  it("without a linked deployment, the minted credential still rules", () => {
+    const cred = { password: "minted", hash: "minted-hash", secret: "minted-secret" };
+    const env = childEnv("/v", "/data", 6821, cred, null);
+    assert.equal(env.ADMIN_PASSWORD_HASH, "minted-hash");
+    assert.equal(env.PUBLIC, "false");
   });
 });
 

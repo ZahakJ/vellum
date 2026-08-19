@@ -34,6 +34,12 @@ export const TO_MAIN = {
   /** The reader answered an update toast: apply the staged AppImage and
    *  relaunch, or open the release page on a build that cannot swap itself. */
   updateApply: "vellum:update-apply",
+  /** The renderer's CHROME language — the reader's own preference, which the
+   *  native menu follows. The menu used to follow the SITE's language from
+   *  /api/me, which put an Arabic menu bar over an English interface the
+   *  moment a reader kept English chrome on an Arabic site: the same
+   *  mixed-language chrome the numerals fix closed one layer down. */
+  chromeLang: "vellum:chrome-lang",
   /** Native find-in-page: the whole rendered document, including the reading
    *  view, the outline and the backlinks panel — which is the half `Ctrl/Cmd F`
    *  (CodeMirror's find, scoped to the open note) cannot reach. */
