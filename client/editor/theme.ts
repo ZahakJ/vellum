@@ -98,6 +98,15 @@ export function editorTheme(): Extension {
     ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--border)" },
     ".cm-panels.cm-panels-bottom": { borderTop: "1px solid var(--border)" },
     ".cm-panel.cm-search label": { color: "var(--text-muted)" },
+    // The panel's WORDS come from EditorState.phrases (searchPhrases.ts) and
+    // it mirrors for free, because it sits outside `.cm-content` and inherits
+    // the document's own `dir`. What it cannot inherit is the direction of the
+    // QUERY: a reader searching for "الغزالي" on an English instance, or for
+    // "KaTeX" on an Arabic one, is typing the other direction into a field
+    // whose own direction is the shell's. `plaintext` is the CSS spelling of
+    // `dir="auto"` — first strong character decides, per field — and it is the
+    // same treatment the rendered note gives every block.
+    ".cm-panel.cm-search input[type=text]": { unicodeBidi: "plaintext" },
 
     // Vim's status line (vim({ status: true })). It is the modal editor's own
     // `-- INSERT --` readout AND the host for the `:` / `/` command line, so

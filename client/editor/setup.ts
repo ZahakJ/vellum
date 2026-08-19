@@ -5,11 +5,13 @@
 import { Compartment, EditorState, Prec } from "@codemirror/state";
 import {
   EditorView,
+  crosshairCursor,
   drawSelection,
   dropCursor,
   highlightSpecialChars,
   keymap,
   placeholder,
+  rectangularSelection,
 } from "@codemirror/view";
 import {
   defaultKeymap,
@@ -38,6 +40,7 @@ import { noteLayoutExtension } from "./noteLayout.ts";
 import { editorTheme, vellumHighlighting } from "./theme.ts";
 import { livePreview } from "./livePreview.ts";
 import { pointerSelection } from "./pointer.ts";
+import { searchPhrases } from "./searchPhrases.ts";
 import { formatKeymap } from "./commands.ts";
 import { selectionMenu } from "../components/SelectionMenu.tsx";
 import { wikilinkAutocomplete } from "./autocomplete.ts";
@@ -46,7 +49,7 @@ import { hoverPreviews } from "./hoverPreview.ts";
 import { headingFolds } from "./folding.ts";
 import { sectioning } from "./sectioning.ts";
 import { attachVimStatus, detachVimStatus } from "./vimStatus.ts";
-import { t } from "../i18n.ts";
+import { getLang, t } from "../i18n.ts";
 import { isTexPath } from "../../shared/noteFormat.ts";
 import { texFolds, texHighlighting, texLanguage } from "./tex/lang.ts";
 import { texPreview } from "./tex/preview.ts";
@@ -113,6 +116,45 @@ export function buildEditorState(options: EditorSetupOptions): EditorState {
           },
         ]),
       ),
+      // MULTIPLE SELECTIONS, and this one flag is the whole feature. Every
+      // other piece was already here and had never once been exercised:
+      // `pointer.ts` implements add-a-range and remove-a-range on Mod+click,
+      // `livePreview.ts`'s `activeLines` reveals the raw markdown around EVERY
+      // range rather than the main one, and the formatting commands map over
+      // `state.selection.ranges` and carry `mainIndex` through the dispatch.
+      // Without this facet `EditorState` funnels every multi-range selection
+      // through `asSingle()`, so all of that code ran exactly once per
+      // keystroke on exactly one range and looked, from the outside, like a
+      // product that had simply chosen not to have multi-cursor.
+      EditorState.allowMultipleSelections.of(true),
+      // The find panel, the go-to-line panel and the completion list are built
+      // inside CodeMirror from English literals, so on an Arabic instance
+      // Ctrl+F opened the one piece of chrome in the product that had never
+      // been translated — and `check-i18n` could not see it, because its scan
+      // root is `client/` and those strings live in node_modules. See
+      // searchPhrases.ts: this facet is the library's own door for it.
+      EditorState.phrases.of(searchPhrases()),
+      // SPELLCHECK, WHICH THIS EDITOR HAS NEVER HAD. CodeMirror's own default
+      // content attributes set `spellcheck: "false"`, and nothing here ever
+      // overrode it — so the only appearances of the attribute in the whole
+      // client were `spellCheck={false}` on chrome inputs, and the reader's
+      // right-click menu offered no spelling and no dictionary. CONTRACTS
+      // already declined to put a formatting menu on an empty selection on the
+      // grounds that "the browser's own menu (spelling, paste, the dictionary)
+      // is the better answer and taking it would be theft" — a menu that, with
+      // this off, had none of those things in it.
+      //
+      // `lang` is the INSTANCE's language and it is only the floor: bidi.ts
+      // stamps a narrower one per line, so an Arabic paragraph inside an
+      // English note is checked in Arabic. Autocorrect and autocapitalize stay
+      // off — a markdown note is not a message box, and a capitalized `iOS` or
+      // a "corrected" `[[wikilink]]` is a silent edit to somebody's file.
+      EditorView.contentAttributes.of({
+        spellcheck: "true",
+        autocorrect: "off",
+        autocapitalize: "off",
+        lang: getLang(),
+      }),
       history(),
       drawSelection(),
       dropCursor(),
@@ -163,6 +205,16 @@ export function buildEditorState(options: EditorSetupOptions): EditorState {
       // `posAtCoords`, which mis-maps every row carrying a replaced inline
       // widget (rendered math, an image, a hidden wikilink bracket) — see
       // pointer.ts, and scripts/check-caret.mjs, which is the gate.
+      // ABOVE pointerSelection, and the order is the whole reason it works.
+      // `EditorView.mouseSelectionStyle` takes the FIRST style that answers,
+      // and pointerSelection answers every primary-button press — including
+      // one with Alt held. rectangularSelection's own filter is `altKey`, so
+      // putting it first means Alt-drag becomes a column selection and every
+      // other drag still goes through pointer.ts's DOM-resolved caret. The
+      // crosshair is the affordance: hold Alt and the pointer says what the
+      // next drag will do.
+      rectangularSelection(),
+      crosshairCursor(),
       pointerSelection,
       // Bold/italic/underline/strikethrough/highlight. Above defaultKeymap,
       // below the vim compartment — see commands.ts for every number. Bound in

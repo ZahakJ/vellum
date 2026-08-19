@@ -263,7 +263,10 @@ function removeRangeAround(
 }
 
 /** Caret placement and drag-selection resolved through `posFromPoint` instead
- *  of `posAtCoords`. Shift extends, Alt adds a range, double/triple click take
+ *  of `posAtCoords`. Shift extends, Mod adds or removes a range (this said
+ *  "Alt" for as long as it existed, and Alt is `rectangularSelection`'s key —
+ *  `get()`'s third argument is CodeMirror's `multiple`, which resolves to
+ *  Ctrl on Linux/Windows and Cmd on macOS), double/triple click take
  *  a rendered unit / a word / a paragraph (selection.ts) — the whole of
  *  CodeMirror's `basicMouseSelection` contract, which this replaces rather
  *  than wraps (the facet takes the first style that answers, and the built-in
