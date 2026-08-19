@@ -1,7 +1,9 @@
-// Dev harness (not shipped): screenshot the site settings panel, logged in as
-// admin — the chrome shoot.mjs never signs in to see. Captures every section
-// through the rail and prints the panel's scroll geometry and the specimen
-// font sizes, which is how the typography and panel-shape work is measured.
+// Dev harness (not shipped): screenshot the settings panel, logged in as
+// admin — the chrome shoot.mjs never signs in to see. Captures every tab
+// through the rail and prints the panel's scroll geometry, the ⓘ env
+// disclosure's geometry and the specimen font sizes, which is how the
+// typography, the panel shape and the disclosure are measured rather than
+// eyeballed.
 //   node scripts/shoot-settings.mjs http://localhost:7006 test1234 /outdir
 // env: THEME=parchment  LANGSET=ar  HEIGHT=768  CHROMIUM=/usr/bin/chromium
 // LANGSET writes the instance language through the API — point it at a scratch
@@ -80,6 +82,37 @@ if (n === 0) {
     await shot(`settings-scroll-${y}`);
   }
 }
+
+// The ⓘ disclosure, measured rather than eyeballed: it is a REGION in the flow,
+// so the two things worth asserting are that opening one does not resize the
+// panel (a popover would have, and a panel that jumps under the pointer is the
+// bug the fixed height exists to prevent) and that the .env line it reveals
+// stays inside the scrolling body's own box.
+// Identity, not the first tab: "This device" holds no server settings, so it
+// has no environment variable to disclose — which is the whole point of it.
+await rail.nth(1).click();
+await page.waitForTimeout(300);
+const disclosure = await page.evaluate(async () => {
+  const btn = document.querySelector(".s-smodal__envbtn");
+  if (!btn) return null;
+  const modal = document.querySelector(".s-smodal");
+  const before = Math.round(modal.getBoundingClientRect().height);
+  btn.click();
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const region = document.querySelector(".s-smodal__env:not([hidden])");
+  const body = document.querySelector(".s-smodal__body").getBoundingClientRect();
+  const box = region?.getBoundingClientRect() ?? null;
+  return {
+    expanded: btn.getAttribute("aria-expanded"),
+    controls: btn.getAttribute("aria-controls") === region?.id,
+    line: region?.querySelector(".s-smodal__envline")?.textContent ?? null,
+    panelHeightBefore: before,
+    panelHeightAfter: Math.round(modal.getBoundingClientRect().height),
+    insideBody: box ? box.left >= body.left - 1 && box.right <= body.right + 1 : null,
+  };
+});
+console.log("[env disclosure]", JSON.stringify(disclosure));
+await shot("settings-env-disclosure");
 
 // Specimen font sizes — the typography blocker's measurement.
 const spec = await page.evaluate(() => {

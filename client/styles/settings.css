@@ -1,15 +1,15 @@
 /* Vellum — the settings surface.
    Linked after app.css (client/index.html), and it turns the panel app.css
-   built — a rail beside one long scrolling form — into SIX TABS. What
+   built — a rail beside one long scrolling form — into EIGHT TABS. What
    changed, and why each change is here rather than in app.css:
 
-     · the panel sizes to its tab instead of standing at a fixed 860px, since
-       most tabs are now four rows and a sentence;
      · the rail is sticky and reads as navigation (it switches the panel, it no
        longer bookmarks a scroll position);
      · every tab opens with a heading and ONE sentence saying what it decides;
      · the control column is a fixed measure, so hints and inputs line up down
        the whole panel instead of ranging with the widest row;
+     · a row whose value can also come from the environment carries a ⓘ, and
+       what it discloses is a block in the flow — never a popover;
      · About gets its own small type system (facts, counts, doc topics).
 
    Everything is logical-property clean: the panel mirrors under dir="rtl"
@@ -17,7 +17,7 @@
 
 /* ── Shape ───────────────────────────────────────────────────────────────── */
 
-/* ONE height for all six tabs, and that is the whole point of the rule.
+/* ONE height for all eight tabs, and that is the whole point of the rule.
    Sizing to the tab — even between a floor and the viewport — meant the panel
    stood at 467px on Appearance and 855px on Typography, and since it is
    centred in the window, every click moved the RAIL as well as the body: the
@@ -243,7 +243,7 @@
   --fade-top: 0px;
 }
 
-/* ── Appearance: the reader's own theme ──────────────────────────────────── */
+/* ── This device: the reader's own theme ─────────────────────────────────── */
 
 /* "Your theme" is a Select-shaped trigger that opens the browsing panel — see
    the comment on the row in SettingsModal. It only needs the swatch's air and
@@ -391,9 +391,10 @@
 @media (max-width: 720px) {
   /* Sticky is for a rail beside the content; as a top strip it scrolls with
      the panel head. `align-self` has to go back to stretch with it: left at
-     flex-start in the COLUMN layout the strip sized to its six tabs (701px)
-     instead of to the panel, so `overflow-x: auto` had nothing to scroll and
-     the whole modal overflowed sideways on a phone. */
+     flex-start in the COLUMN layout the strip sized to its tabs (701px at the
+     six it had then, wider at eight) instead of to the panel, so
+     `overflow-x: auto` had nothing to scroll and the whole modal overflowed
+     sideways on a phone. */
   .s-smodal__rail {
     position: static;
     align-self: stretch;
@@ -648,4 +649,214 @@
   .s-smodal__fontname {
     flex-basis: 100%;
   }
+}
+
+/* ── The environment variable, behind a ⓘ ─────────────────────────────────── */
+
+/* The mark itself: a footnote mark, at the end of the label's own text line.
+   It used to be two pieces of standing chrome — an "inherited" badge beside
+   the label and an "inherited from SITE_LANG" line under the control — which
+   put a deployment mechanism in front of every owner who will never open a
+   shell. Muted until asked for, and never smaller than a finger: the glyph is
+   0.8rem but the button holds a 22px box around it. */
+.s-smodal__envbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+  /* The label's line is `align-items: baseline`; a circular button has no
+     useful baseline of its own, so it is nudged onto the text's. */
+  align-self: center;
+}
+
+.s-smodal__envbtn:hover,
+.s-smodal__envbtn[aria-expanded="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* The same ring the control set uses (controls.css `.s-ctl:focus-visible`),
+   written out because this button is chrome rather than a control. */
+.s-smodal__envbtn:focus-visible {
+  outline: none;
+  color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* The disclosed region. A block in the flow under the control — NOT a popover:
+   this panel already stacks a theme picker, an open Select and an image picker
+   over itself, and a fourth transient surface in that Esc chain is how the
+   panel starts closing itself. In the flow it costs the chain nothing, it
+   scrolls with its row, and it is reachable by Tab from the control it
+   annotates. */
+.s-smodal__env {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 9px 10px;
+  /* --bg inside --bg-raised: the same inset the specimen and font rows use, so
+     a disclosed region reads as a well rather than as a card floating on the
+     tab. */
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* `hidden` has to WIN. A display rule on the class outranks the UA's
+   `[hidden] { display: none }`, and a region that is only visually gone is
+   still in the tab order — which is the whole failure mode this attribute was
+   chosen to avoid. */
+.s-smodal__env[hidden] {
+  display: none;
+}
+
+.s-smodal__envnote {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.s-smodal__envrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* The line an operator pastes. Its own LTR isolate and its own scroller: a
+   long remote or a long tag list must not widen the panel, and `SITE_LANG=en`
+   reordered by an Arabic paragraph is a different string. Selectable, because
+   the copy button is a convenience and not the only way out. */
+.s-smodal__envline {
+  flex: 1;
+  min-width: 12rem;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text);
+  user-select: all;
+}
+
+.s-smodal__envcopy {
+  flex: none;
+}
+
+/* ── Searching the panel ─────────────────────────────────────────────────────
+   Above the rail, because it searches every tab: inside one of them it would
+   read as searching that one. */
+.s-smodal__railwrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 10px;
+}
+
+.s-smodal__search {
+  position: relative;
+  flex: none;
+}
+
+.s-smodal__searchinput {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.857rem;
+}
+
+.s-smodal__searchinput:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The results REPLACE nothing — they float over the rail, so the panel's shape
+   does not change under the reader as they type. The fixed panel height is
+   load-bearing here (see the chapter in CONTRACTS): a results list that grew
+   the dialog would move the rail out from under the pointer. */
+.s-smodal__results {
+  position: absolute;
+  inset-inline: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
+}
+
+.s-smodal__result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: start;
+  padding: 6px 8px;
+  border-radius: 4px;
+  color: var(--text);
+}
+
+.s-smodal__result--on,
+.s-smodal__result:hover {
+  background: var(--accent-soft);
+}
+
+.s-smodal__resultname {
+  font-size: 0.857rem;
+}
+
+.s-smodal__resultwhere {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.786rem;
+  color: var(--text-muted);
+}
+
+.s-smodal__resultenv {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.s-smodal__noresults {
+  margin: 0;
+  padding: 8px;
+  font-size: 0.857rem;
+  color: var(--text-muted);
+}
+
+/* The row a result landed on, marked for a moment. Scrolling to a row without
+   marking it leaves the reader looking at a list and guessing which one
+   answered. It fades rather than blinking: this arrives under a pointer that
+   is already moving toward it. */
+.s-smodal__row--found {
+  animation: s-setting-found 1.6s ease-out;
+  border-radius: var(--radius);
+}
+
+@keyframes s-setting-found {
+  0%, 45% { background: var(--accent-soft); }
+  100% { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-smodal__row--found { animation: none; background: var(--accent-soft); }
+  .s-smodal__results { scroll-behavior: auto; }
 }

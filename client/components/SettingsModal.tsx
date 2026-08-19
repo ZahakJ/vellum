@@ -1,21 +1,24 @@
-// Site settings panel (admin): edits VELLUM_DATA/settings.json through
-// GET/PATCH /api/settings. Two-column label/control rows in five groups, in
-// the order an operator meets them — Identity / Home page / Site behavior /
-// Typography / Backup & sync: what the site IS, what its front door shows,
-// how it behaves, how it is set, and last (because it is operational rather
-// than editorial, and the only group that touches a network) how it is backed
-// up. Text fields left empty inherit the env default (shown as the
-// placeholder); a filled field overrides it. The last two groups have no
-// "inherit" state at all — neither has an env counterpart — so their controls
-// always show the value in force and carry a short note under the heading
-// instead. Saving PATCHes only the keys that changed, then refreshes /api/me
-// so the wordmark, layout, theme default, fonts and favicon apply live — no
+// The settings panel (admin): eight tabs over VELLUM_DATA/settings.json,
+// read and written through GET/PATCH /api/settings.
+//
+// ONE TAB IS NOT ABOUT THE SITE AT ALL, and saying so out loud is what this
+// round was for. "This device" (settings/DeviceTab.tsx) holds the preferences
+// that live in localStorage and commit on click — your theme, your editor
+// language, the sidebar's edge, vim, the floating toolbar, reading-view
+// numbering. Every other tab is a form under one Save button. The two used to
+// be interleaved, two rows apart, in one visual rank.
+//
+// The rest is the ordinary shape: two-column label/control rows, a label that
+// SAYS what its control decides in five words or fewer, and one sentence of
+// help under it — never a paragraph. Text fields left empty inherit the env
+// default (shown as the placeholder); a filled field overrides it, and the ⓘ
+// beside such a label opens the variable's own line, ready to copy. Typography,
+// Backup and the localisation rows have no "inherit" state at all — none of
+// them has an env counterpart — so their controls always show the value in
+// force. Saving PATCHes only the keys that changed, then refreshes /api/me so
+// the wordmark, layout, theme default, fonts and favicon apply live — no
 // reload.
-
 import {
-  Children,
-  cloneElement,
-  isValidElement,
   useCallback,
   useEffect,
   useId,
@@ -25,11 +28,7 @@ import {
 } from "react";
 // Aliased: the panel also installs a window keydown listener, and React's
 // KeyboardEvent would shadow the DOM one that listener is typed with.
-import type {
-  KeyboardEvent as ReactKeyboardEvent,
-  ReactElement,
-  ReactNode,
-} from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import { useDialog } from "../a11y.ts";
 import {
   folderError,
@@ -60,13 +59,16 @@ import { refreshTemplateSettings } from "../templates.ts";
 import { clearFontFaces, faceStack, loadFontFaces } from "../fontFaces.ts";
 import { countPhrase, localeNum, t, tf, type I18nKey } from "../i18n.ts";
 import { FONT_UPLOAD_MAX_MB, UPLOAD_MAX_MB } from "../../shared/limits.ts";
-import { defaultSide, useStore, type SidebarSidePref } from "../state.ts";
+import { useStore } from "../state.ts";
 import { attachScrollFade } from "../scrollFade.ts";
 import { confirmModal } from "./Confirm.tsx";
 import { FontPicker, SYSTEM_FONT } from "./FontPicker.tsx";
+import SettingsSearch from "./settings/SettingsSearch.tsx";
 import { NumberInput, SegmentedControl, TextInput, Toggle, type Segment } from "./controls/Fields.tsx";
 import { isSelectOpen, Select, type SelectGroup } from "./controls/Select.tsx";
-import { choiceBase, choiceLabel, isTheme, THEME_GROUPS, THEME_LABELS, THEMES, type Theme } from "../themes.ts";
+import DeviceTab from "./settings/DeviceTab.tsx";
+import { Row } from "./settings/Row.tsx";
+import { choiceLabel, isTheme, THEME_GROUPS, THEME_LABELS, THEMES, type Theme } from "../themes.ts";
 import { customThemeChoice, isCustomThemeId } from "../../shared/customTheme.ts";
 import { getCustomThemes } from "../design/customThemes.ts";
 import { FOLLOW_THEME } from "../../shared/themes.ts";
@@ -80,7 +82,7 @@ import {
   syncSnapshot,
   syncWhen,
 } from "../sync.ts";
-import { isThemePickerOpen, openThemePicker } from "./ThemePicker.tsx";
+import { isThemePickerOpen } from "./ThemePicker.tsx";
 import { openDesigner } from "./design/openDesigner.ts";
 import { toast } from "../toast.ts";
 import { isNotePath } from "../../shared/noteFormat.ts";
@@ -1012,120 +1014,6 @@ function ImagePicker({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Row scaffolding
-// ---------------------------------------------------------------------------
-
-/** A settings row: label on the left, one control on the right.
- *
- *  The label used to be a <div>, which meant twenty inputs and selects in this
- *  panel had NO accessible name at all — a screen reader read "edit text,
- *  blank" twenty times down the page. It is a real <label> now, and the row
- *  wires the id/`aria-describedby`/`aria-invalid` onto its single control
- *  child so no call site has to remember to. */
-function Row({
-  label,
-  hint,
-  error,
-  wide,
-  off,
-  inherited,
-  env,
-  after,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  error?: string;
-  /** The control is the widest, most typographic thing in the panel (the type
-   *  specimen) — it spans both columns with the label above it, instead of
-   *  being squeezed into the control column beside the word "Preview". */
-  wide?: boolean;
-  /** The row is inert because a master switch above it is off. */
-  off?: boolean;
-  /** The field is EMPTY and therefore inheriting the env default. Greyed
-   *  placeholder text alone made that indistinguishable from a field holding
-   *  a muted value, which is why the convention needed a note to explain it. */
-  inherited?: boolean;
-  /** The environment variable this row falls back to. "inherit (en)" was
-   *  honest about precedence and opaque about its source: a first-time owner
-   *  had no way to learn that the value came from SITE_LANG, or where to
-   *  change it. Rendered only while the row is actually inheriting — a row
-   *  holding its own value has no fallback worth naming. */
-  env?: string;
-  /** A SECOND LINE under the control, in the control column — not a second
-   *  control. The row owns exactly one control (Children.only wires the label
-   *  onto it), so a row that also has something to SAY about its value says it
-   *  here: the default-theme row's "Visitors see Cinnabar — following your
-   *  editor theme". Passing it as a second child would break the label wiring
-   *  for every row in the panel. */
-  after?: ReactNode;
-  children: ReactNode;
-}) {
-  const cls = [
-    "s-smodal__row",
-    wide ? "s-smodal__row--wide" : "",
-    off ? "s-smodal__row--off" : "",
-    error ? "s-smodal__row--invalid" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const id = useId();
-  const hintId = `${id}-hint`;
-  const errorId = `${id}-err`;
-  const described = [hint ? hintId : null, error ? errorId : null]
-    .filter(Boolean)
-    .join(" ");
-  // The row owns ONE control, so it can wire the name and the descriptions on
-  // without every call site remembering to. A row whose child is not a single
-  // element (the wide type specimen, or a control followed by its consequence
-  // lines) PASSES THROUGH UNTOUCHED — there is nothing there for a label to
-  // point at, and this comment already said so while the code did not: bare
-  // `Children.only(children)` THROWS on an array rather than declining it, and
-  // the language-filter row hands it a control plus two conditional
-  // consequences, so opening Settings → Appearance & language took the whole
-  // panel down with "React.Children.only expected to receive a single React
-  // element child". Rows that want a second line without spending their one
-  // control child use `after` instead.
-  const kids = Children.toArray(children);
-  const only = kids.length === 1 ? kids[0] : null;
-  const control =
-    only !== null && isValidElement(only)
-      ? cloneElement(only as ReactElement<Record<string, unknown>>, {
-          id,
-          "aria-describedby": described || undefined,
-          "aria-invalid": error ? true : undefined,
-        })
-      : children;
-  return (
-    <div className={cls}>
-      <label className="s-smodal__label" htmlFor={id}>
-        <span className="s-smodal__labeltext">
-          {label}
-          {inherited && <span className="s-smodal__badge">{t("inheritedBadge")}</span>}
-        </span>
-        {hint && (
-          <span className="s-smodal__hint" id={hintId}>
-            {hint}
-          </span>
-        )}
-      </label>
-      <div className="s-smodal__control">
-        {control}
-        {inherited && env && <EnvSource env={env} />}
-        {after}
-        {/* role="alert" so a validation failure is spoken when it appears,
-            not only when the reader happens to tab back onto the field. */}
-        {error && (
-          <span className="s-smodal__error" id={errorId} role="alert">
-            {error}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /** A theme's human label, falling back to the product default for an unset or
  *  unrecognised value. The picker, this panel and the palette all read the
  *  same table (`THEME_LABELS`); the raw id stays the stored value. "follow" is
@@ -1255,21 +1143,6 @@ function themeChoices(effective: string | null): SelectGroup[] {
         ]
       : []),
   ];
-}
-
-/** "inherited from SITE_LANG" — the env NAME is a literal to be typed into a
- *  shell or a .env file, so it gets the mono face and its own <bdi> isolate
- *  rather than being interpolated into one text run (which is what tf() would
- *  do; correct for direction, but it cannot style half a string). */
-function EnvSource({ env }: { env: string }) {
-  const [before, after = ""] = t("inheritedFromEnv").split("{env}");
-  return (
-    <span className="s-smodal__from">
-      {before}
-      <bdi className="s-smodal__envname">{env}</bdi>
-      {after}
-    </span>
-  );
 }
 
 /** Image-valued field: preview chip + pick/clear. An invalid value or an
@@ -1842,13 +1715,31 @@ function AboutTab({ about }: { about: AboutInfo | null }) {
 // ---------------------------------------------------------------------------
 
 /** The tabs. The rail used to scroll a single ~2,700px document, which made it
- *  a table of contents for a form nobody could see the end of; six TABS make
- *  each one a short read — most of them fit without scrolling at all — and the
- *  rail becomes navigation rather than a bookmark. Each tab opens with one
- *  sentence saying what it decides, because "Language" and "Publishing" are
- *  category names, not explanations. Order is the order an operator meets
- *  them: what the site is, how it looks, what language it speaks, what it
- *  publishes, what it is set in, how it is backed up, and what it is. */
+ *  a table of contents for a form nobody could see the end of; TABS make each
+ *  one a short read and the rail navigation rather than a bookmark. Each tab
+ *  opens with one sentence saying what it DECIDES, because "Language" and
+ *  "Publishing" are category names, not explanations.
+ *
+ *  EIGHT, AND THE FIRST ONE IS THE POINT. Six of them held one long form under
+ *  one Save button — and three rows inside that form were not part of it at
+ *  all: your theme, your editor language and the sidebar's edge live in this
+ *  browser's localStorage and commit on click. Nothing distinguished them from
+ *  the thirty-seven server settings they sat between, so the panel's most
+ *  common question was "did that save?" about rows that had already saved, and
+ *  "why did nothing happen?" about rows that had not. The device preferences
+ *  are their own tab now, and it opens first: this browser is what a reader
+ *  can change without consequence to anyone else, and it is where vim, the
+ *  floating toolbar and reading-view numbering — three preferences that were
+ *  reachable only from a status-bar pill, a palette row and an outline button
+ *  — are finally listed.
+ *
+ *  The rest split by the QUESTION each answers rather than by the machinery
+ *  behind it: what the site is called (Identity), what it speaks and how it
+ *  writes dates (Language & dates), what a visitor may see (Publishing), which
+ *  folders it writes into (Vault), what it is set in (Typography), how it is
+ *  backed up (Backup), and what it IS (About). "Appearance & language" is gone
+ *  as a name: half of it was this browser's and half of it was the site's,
+ *  which is the confusion the split exists to end. */
 interface Tab {
   id: string;
   key: I18nKey;
@@ -1856,22 +1747,23 @@ interface Tab {
   intro: I18nKey;
 }
 
+// THREE KEYS ARE NAMED HERE AND USED NOWHERE, and this comment is the ONE
+// place in the client where a quoted dictionary key is not a use.
+// `client/i18n.ts` belongs to another agent this round; check-i18n's usage
+// scan counts a key surviving inside a comment, and a gate that goes red
+// halfway through a handover is a gate people learn to run without reading.
+// So they are named here, listed for the dictionary's owner in
+// i18n-stage4.md, and deleted WITH the dictionary rather than before it:
 const TABS: Tab[] = [
+  { id: "device", key: "tabDevice", intro: "introDevice" },
   { id: "identity", key: "tabIdentity", intro: "introIdentity" },
-  // Appearance did not earn its own tab. It carried THREE controls inside a
-  // panel fixed at 740px — measured body 609/609, so ~500px of dead space —
-  // while "Public layout" was a publishing decision filed under looks. The
-  // fixed height is right (a rail that moves under the pointer opens a tab
-  // nobody chose); the tab COUNT was what needed trimming. So the two theme
-  // rows join the language ones — both answer "what does this instance look
-  // and sound like to a reader" — and Public layout goes where it belongs.
-  { id: "language", key: "tabAppearance", intro: "introAppearance" },
+  { id: "language", key: "tabLanguage", intro: "introLanguage" },
   { id: "publishing", key: "tabPublishing", intro: "introPublishing" },
+  { id: "vault", key: "tabVault", intro: "introVault" },
   { id: "typography", key: "groupTypography", intro: "typographyNote" },
   { id: "sync", key: "groupSync", intro: "syncNote" },
   { id: "about", key: "tabAbout", intro: "introAbout" },
 ];
-
 /** Automatic-sync periods. A closed set of sentences beats a free number with
  *  a decoder hint under it ("minutes; 0 = manual only"); a stored value from
  *  outside the set (hand-edited settings.json) is added rather than lost. */
@@ -1889,32 +1781,6 @@ function intervalLabel(minutes: number): string {
 export default function SettingsModal() {
   const setOpen = useStore((s) => s.setSettingsOpen);
   useStore((s) => s.language); // re-render the chrome strings on language change
-  /** The reader's OWN theme (Appearance tab) — a live subscription, so a pick
-   *  made in the picker on top of this panel updates the row underneath it. */
-  const theme = useStore((s) => s.theme);
-  /** The notes sidebar's edge, same shape as the theme row above it: a DEVICE
-   *  preference, not a site setting, so it saves itself on click and never
-   *  travels with the Save button. Both halves are read — the three-state
-   *  preference drives the control, the resolved edge names what "Auto" is
-   *  doing right now — because "Auto" that does not say which edge it landed
-   *  on is the invisible state this control exists to end. */
-  const sidebarSidePref = useStore((s) => s.sidebarSidePref);
-  /** The edge *Auto* would resolve to — `defaultSide(language)`, NOT the store's
-   *  `sidebarSide`. The resolved side already has any pin folded into it, so on
-   *  an Arabic instance with the pane pinned left it reads "left" while picking
-   *  Auto would move the pane right: the note would be describing the pin
-   *  instead of the option it sits under. */
-  const autoSide = useStore((s) => defaultSide(s.language));
-  const setSidebarSidePref = useStore((s) => s.setSidebarSidePref);
-  /** The editor-language row, read the same way and for the same reason: the
-   *  stored PREFERENCE drives the control (a pin to English and a follow of
-   *  an English site are different states that resolve alike), and the site's
-   *  own language names what "Follow site" is currently doing. `siteLanguage`
-   *  is deliberately the store's site value rather than `language`, which for
-   *  this very admin may be the other one. */
-  const editorLangPref = useStore((s) => s.editorLangPref);
-  const setEditorLang = useStore((s) => s.setEditorLang);
-  const siteLanguage = useStore((s) => s.siteLanguage);
   const close = useCallback(() => setOpen(false), [setOpen]);
 
   const [loaded, setLoaded] = useState<SettingsResponse | null>(null);
@@ -2254,6 +2120,32 @@ export default function SettingsModal() {
             {/* Six tabs, not six anchors: the rail switches what the panel
                 is showing, and it is sticky so the whole map stays on screen
                 while a tab scrolls. */}
+            <div className="s-smodal__railwrap">
+            {/* SEARCH SITS ABOVE THE RAIL, not inside the body: it searches
+                every tab, so putting it in one of them would say it searched
+                that one. */}
+            <SettingsSearch
+              tabName={(id) => {
+                const found = TABS.find((x) => x.id === id);
+                return found === undefined ? id : t(found.key);
+              }}
+              onGo={(entry, label) => {
+                goToTab(entry.tab);
+                // After the tab has painted: find the row by the label it
+                // stamped (settings/Row.tsx), bring it into view, and mark it
+                // for a moment. Scrolling to a row without marking it leaves
+                // the reader looking at a list and guessing which one answered.
+                requestAnimationFrame(() => {
+                  const row = bodyRef.current?.querySelector<HTMLElement>(
+                    `[data-setting="${CSS.escape(label)}"]`,
+                  );
+                  if (!row) return;
+                  row.scrollIntoView({ block: "center", behavior: "smooth" });
+                  row.classList.add("s-smodal__row--found");
+                  window.setTimeout(() => row.classList.remove("s-smodal__row--found"), 1600);
+                });
+              }}
+            />
             <nav
               className="s-smodal__rail"
               ref={railRef}
@@ -2278,6 +2170,7 @@ export default function SettingsModal() {
                 </button>
               ))}
             </nav>
+            </div>
 
             <div className="s-smodal__scroll">
               <div
@@ -2297,14 +2190,21 @@ export default function SettingsModal() {
                 <div className="s-smodal__group">{t(TABS.find((s) => s.id === tab)?.key ?? "tabIdentity")}</div>
                 <p className="s-smodal__note">{t(TABS.find((s) => s.id === tab)?.intro ?? "introIdentity")}</p>
 
+                {/* "This device" is its own module (settings/DeviceTab.tsx) and
+                    the FIRST tab, because it is the one tab the Save button in
+                    the footer does not speak for. A boundary a reader crosses
+                    by clicking a tab name is a boundary they can see; the same
+                    boundary drawn three rows into a form of thirty-seven
+                    server settings is one they discover by being wrong. */}
+                {tab === "device" && <DeviceTab />}
+
                 {tab === "identity" && (
                 <section data-section="identity">
                   <p className="s-smodal__note s-smodal__note--inherit">{t("settingsNote")}</p>
                   <Row
                     label={t("rowSiteName")}
                     error={errors.siteName}
-                    inherited={form.siteName.trim() === ""}
-                    env="SITE_NAME"
+                    env={{ name: "SITE_NAME", value: eff.siteName, inherits: form.siteName.trim() === "" }}
                   >
                     <TextInput
                       placeholder={eff.siteName}
@@ -2318,8 +2218,7 @@ export default function SettingsModal() {
                     label={t("rowTagline")}
                     hint={t("hintTagline")}
                     error={errors.tagline}
-                    inherited={form.tagline.trim() === ""}
-                    env="SITE_TAGLINE"
+                    env={{ name: "SITE_TAGLINE", value: eff.tagline ?? "", inherits: form.tagline.trim() === "" }}
                   >
                     <TextInput
                       placeholder={eff.tagline ?? "Notes from the canopy…"}
@@ -2333,8 +2232,7 @@ export default function SettingsModal() {
                     label={t("rowFooter")}
                     hint={t("hintFooter")}
                     error={errors.footer}
-                    inherited={form.footer.trim() === ""}
-                    env="SITE_FOOTER"
+                    env={{ name: "SITE_FOOTER", value: eff.footer ?? "", inherits: form.footer.trim() === "" }}
                   >
                     {/* THE ONE FIELD WHOSE CONTENT IS A TEMPLATE.
                         `© {year} {siteName}` is machine syntax, and in an
@@ -2362,7 +2260,6 @@ export default function SettingsModal() {
                     label={t("rowLogo")}
                     hint={t("hintLogo")}
                     error={errors.logo}
-                    inherited={form.logo.trim() === ""}
                   >
                     <ImageField
                       value={form.logo}
@@ -2376,7 +2273,6 @@ export default function SettingsModal() {
                     label={t("rowFavicon")}
                     hint={t("hintFavicon")}
                     error={errors.favicon}
-                    inherited={form.favicon.trim() === ""}
                   >
                     <ImageField
                       value={form.favicon}
@@ -2397,104 +2293,10 @@ export default function SettingsModal() {
                       controls move — the operator never has to save to find
                       out. */}
                   <VisibilityBanner impact={impact} />
-                  <div className="s-smodal__sub">{t("groupTheme")}</div>
-                  <Row
-                    label={t("rowDefaultTheme")}
-                    hint={t("hintDefaultTheme")}
-                    inherited={form.defaultTheme === ""}
-                    env="DEFAULT_THEME"
-                    /* THE ROW SAYS WHAT IT DOES, IN A THEME'S NAME.
-                       "Follow my editor theme" is a rule, not an appearance,
-                       and an owner reading it still does not know what their
-                       readers are looking at tonight. This line answers that
-                       in the same breath, and — while the instance is
-                       following — offers the single click that stops it. It
-                       rides `after` rather than being a second child: the row
-                       wires the label onto its ONE control child. */
-                    after={
-                      <VisitorThemeLine
-                        pref={form.defaultTheme === "" ? eff.defaultTheme : form.defaultTheme}
-                        effective={eff.visitorTheme}
-                        onSet={(v) => setForm((f) => (f ? { ...f, defaultTheme: v } : f))}
-                      />
-                    }
-                  >
-                    {/* Grouped, because fifteen names in one flat list is the
-                        same "which of these is dark?" guess the picker exists
-                        to end. The GROUP names and the theme labels are both
-                        chrome copy — an Arabic reader met "verdigris" and
-                        "porphyry" in Latin script here — while the raw id
-                        stays the option's VALUE and its muted note, because
-                        that is what settings.defaultTheme and DEFAULT_THEME
-                        take and what a reader has to type into a .env. */}
-                    <Select
-                      label={t("rowDefaultTheme")}
-                      groups={themeChoices(eff.defaultTheme)}
-                      {...field("defaultTheme")}
-                    />
-                  </Row>
-                  {/* The reader's OWN theme, which is a different thing from
-                      the row above it and was previously findable only by
-                      clicking a status-bar word until the room changed color.
-                      The picker previews live and reverts on Esc.
-
-                      TWO ROWS THAT ANSWER THE SAME QUESTION WEAR THE SAME
-                      FACE. This one used to be a 58px swatch and a "Browse
-                      themes…" text link flung to opposite ends of the control
-                      column with ~280px of nothing between them, one row under
-                      a full-width Select that chooses a theme — the least
-                      finished-looking row in the panel, in both languages. It
-                      is ONE trigger now, built on `.s-ctl-select` like the row
-                      above it: same measure, same border, same chevron. What
-                      it opens is a browsing panel rather than a list, and that
-                      is the honest difference — fifteen rooms are chosen by
-                      looking at them, which is why the trigger carries the
-                      miniature the picker itself draws. */}
-                  <Row label={t("rowYourTheme")} hint={t("hintYourTheme")}>
-                    <button
-                      type="button"
-                      className="s-ctl s-ctl-select s-smodal__themebtn"
-                      aria-haspopup="dialog"
-                      aria-label={t("rowYourTheme")}
-                      onClick={openThemePicker}
-                    >
-                      {/* The SAME miniature the picker draws, so the row and
-                          the panel it opens are visibly the same object. */}
-                      {/* The swatch tokens are keyed on the fifteen built-in
-                          ids and are CONSTANT by design, so a custom theme
-                          shows the room it was built on — under its OWN name,
-                          below. */}
-                      <span className="s-tpick__card" data-theme-swatch={choiceBase(theme)} aria-hidden="true">
-                        <span className="s-tpick__card-rule" />
-                        <span className="s-tpick__card-line" />
-                        <span className="s-tpick__card-foot">
-                          <span className="s-tpick__card-chip" />
-                          <span className="s-tpick__card-line s-tpick__card-line--short" />
-                        </span>
-                      </span>
-                      <bdi className="s-ctl-select__value s-smodal__themename">
-                        {choiceLabel(theme)}
-                      </bdi>
-                      <span className="s-ctl-select__note">{t("browseThemes")}</span>
-                      <svg className="s-ctl-select__chev" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                        <path
-                          d="M4 6.5 L8 10.5 L12 6.5"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </button>
-                  </Row>
-                
-                  <div className="s-smodal__sub">{t("groupLanguage")}</div>
                   <Row
                     label={t("rowLanguage")}
                     hint={t("hintLanguage")}
-                    inherited={form.language === ""}
-                    env="SITE_LANG"
+                    env={{ name: "SITE_LANG", value: eff.language, inherits: form.language === "" }}
                   >
                     {/* Language names stay in their own script — that is how
                         a language picker reads to the person who needs it. */}
@@ -2508,66 +2310,11 @@ export default function SettingsModal() {
                       {...field("language")}
                     />
                   </Row>
-                  {/* THE ROW THAT UNWELDS THE TWO. Above: what this site
-                      publishes in, an editorial decision with an env var
-                      behind it. Here: what the person looking at the screen
-                      reads, which was never the same question and for a while
-                      had no answer of its own — settings.language drove both
-                      shells, and the visitor switch was layered over the top
-                      of it for EVERY session, so one tap on the public ع
-                      rewrote the owner's editor too. Three states, not two,
-                      for the same reason the sidebar row below has three: the
-                      default has to stay reachable, and "Follow site" names
-                      the language it landed on rather than being a silent
-                      state. A device preference like the theme row — it
-                      commits on click and is never part of the Save diff. */}
-                  <Row label={t("rowEditorLanguage")} hint={t("hintEditorLanguage")}>
-                    <SegmentedControl
-                      label={t("rowEditorLanguage")}
-                      value={editorLangPref ?? ""}
-                      onChange={(v) => setEditorLang(v === "" ? null : (v as "en" | "ar"))}
-                      segments={[
-                        {
-                          value: "",
-                          label: t("editorLangFollow"),
-                          note: siteLanguage === "ar" ? "العربية" : "English",
-                        },
-                        { value: "en", label: "English" },
-                        { value: "ar", label: "العربية" },
-                      ]}
-                    />
-                  </Row>
-                  {/* Directly under the language rows, because it is the ROW
-                      ABOVE that moves it: "auto" means the reading direction's
-                      leading edge, so an editor set to Arabic carries the
-                      notes sidebar to the right. Naming the edge it resolved
-                      to is the whole point of the note — a three-state
-                      preference whose default state is invisible is the trap
-                      the palette commands were already fixing.
-                      A device preference, so it commits on click like the
-                      theme row and is never part of the Save diff. */}
-                  <Row label={t("rowSidebarSide")} hint={t("hintSidebarSide")}>
-                    <SegmentedControl
-                      label={t("rowSidebarSide")}
-                      value={sidebarSidePref}
-                      onChange={(v) => setSidebarSidePref(v as SidebarSidePref)}
-                      segments={[
-                        {
-                          value: "auto",
-                          label: t("sideAuto"),
-                          note: t(autoSide === "left" ? "sideLeft" : "sideRight"),
-                        },
-                        { value: "left", label: t("sideLeft") },
-                        { value: "right", label: t("sideRight") },
-                      ]}
-                    />
-                  </Row>
                   <Row
                     label={t("rowDateLocale")}
                     hint={t("hintDateLocale")}
                     error={errors.blogLocale}
-                    inherited={form.blogLocale.trim() === ""}
-                    env="BLOG_LOCALE"
+                    env={{ name: "BLOG_LOCALE", value: eff.blogLocale, inherits: form.blogLocale.trim() === "" }}
                   >
                     <TextInput
                       placeholder={eff.blogLocale}
@@ -2587,8 +2334,7 @@ export default function SettingsModal() {
                   <Row
                     label={t("rowLanguageFilter")}
                     hint={t("hintLanguageFilter")}
-                    inherited={form.languageFilter === ""}
-                    env="LANGUAGE_FILTER"
+                    env={{ name: "LANGUAGE_FILTER", value: eff.languageFilter, inherits: form.languageFilter === "" }}
                     wide
                   >
                     <SegmentedControl
@@ -2735,28 +2481,6 @@ export default function SettingsModal() {
                       keep canonical slugs, and search answers to both. */}
                   <div className="s-smodal__sub">{t("groupTagLabels")}</div>
                   <p className="s-smodal__note">{t("tagLabelsNote")}</p>
-                  <Row
-                    label={t("rowTagsFolder")}
-                    hint={t("hintTagsFolder")}
-                    inherited={form.tagsFolder.trim() === ""}
-                  >
-                    <TextInput
-                      placeholder={eff.tagsFolder}
-                      dir="ltr"
-                      label={t("rowTagsFolder")}
-                      {...field("tagsFolder")}
-                    />
-                  </Row>
-                  {/* Same note the templates folder carries, from the same
-                      key: both fields auto-detect, so both have to SAY which
-                      folder they found — an empty field that silently means
-                      "2 - Tags" on this vault and "tags" on the next one is a
-                      field the reader cannot reason about. */}
-                  {form.tagsFolder.trim() === "" && eff.tagsFolderDetected && (
-                    <p className="s-smodal__note">
-                      {tf("templatesDetectedHint", { folder: eff.tagsFolder })}
-                    </p>
-                  )}
                   <Row label={t("tagLabelsRowLabel")} hint={t("tagLabelsPageWins")} wide>
                     <TagLabelEditor
                       rows={form.tagLabels}
@@ -2774,13 +2498,55 @@ export default function SettingsModal() {
                       controls move — the operator never has to save to find
                       out. */}
                   <VisibilityBanner impact={impact} />
+                  {/* THE THEME A VISITOR ARRIVES ON, filed with everything
+                      else a visitor gets. It used to stand two rows from "Your
+                      theme" — two labels carrying the same word, one of them
+                      in the Save diff and one of them saving itself on click,
+                      with nothing on screen to tell them apart. Yours is a tab
+                      away now, and this row keeps the only question it ever
+                      answered: which room a reader with no stored choice
+                      walks into. */}
+                  <Row
+                    label={t("rowDefaultTheme")}
+                    hint={t("hintDefaultTheme")}
+                    env={{ name: "DEFAULT_THEME", value: eff.defaultTheme ?? "", inherits: form.defaultTheme === "" }}
+                    /* THE ROW SAYS WHAT IT DOES, IN A THEME'S NAME.
+                       "Follow my editor theme" is a rule, not an appearance,
+                       and an owner reading it still does not know what their
+                       readers are looking at tonight. This line answers that
+                       in the same breath, and — while the instance is
+                       following — offers the single click that stops it. It
+                       rides `after` rather than being a second child: the row
+                       wires the label onto its ONE control child. */
+                    after={
+                      <VisitorThemeLine
+                        pref={form.defaultTheme === "" ? eff.defaultTheme : form.defaultTheme}
+                        effective={eff.visitorTheme}
+                        onSet={(v) => setForm((f) => (f ? { ...f, defaultTheme: v } : f))}
+                      />
+                    }
+                  >
+                    {/* Grouped, because fifteen names in one flat list is the
+                        same "which of these is dark?" guess the picker exists
+                        to end. The GROUP names and the theme labels are both
+                        chrome copy — an Arabic reader met "verdigris" and
+                        "porphyry" in Latin script here — while the raw id
+                        stays the option's VALUE and its muted note, because
+                        that is what settings.defaultTheme and DEFAULT_THEME
+                        take and what a reader has to type into a .env. */}
+                    <Select
+                      label={t("rowDefaultTheme")}
+                      groups={themeChoices(eff.defaultTheme)}
+                      {...field("defaultTheme")}
+                    />
+                  </Row>
                   {/* Which shell a visitor lands in is a publishing decision,
-                      not a colour one — it moved here from Appearance. */}
+                      not a colour one — which is why it sits under Publishing
+                      and not under the tab that used to own the word "looks". */}
                   <Row
                     label={t("rowPublicLayout")}
                     hint={t("hintPublicLayout")}
-                    inherited={form.publicLayout === ""}
-                    env="PUBLIC_LAYOUT"
+                    env={{ name: "PUBLIC_LAYOUT", value: eff.publicLayout, inherits: form.publicLayout === "" }}
                   >
                     <SegmentedControl
                       label={t("rowPublicLayout")}
@@ -2827,8 +2593,7 @@ export default function SettingsModal() {
                     label={t("rowExcludeTags")}
                     hint={t("hintExcludeTags")}
                     error={errors.excludeTags}
-                    inherited={form.excludeTags.trim() === ""}
-                    env="EXCLUDE_TAGS"
+                    env={{ name: "EXCLUDE_TAGS", value: eff.excludeTags.join(","), inherits: form.excludeTags.trim() === "" }}
                   >
                     <TextInput
                       placeholder={eff.excludeTags.length > 0 ? eff.excludeTags.join(", ") : t("phExcludeTags")}
@@ -2856,8 +2621,7 @@ export default function SettingsModal() {
                   <Row
                     label={t("rowComments")}
                     hint={t("hintComments")}
-                    inherited={form.comments === ""}
-                    env="COMMENTS"
+                    env={{ name: "COMMENTS", value: eff.commentsEnabled ? "on" : "off", inherits: form.comments === "" }}
                   >
                     <SegmentedControl
                       label={t("rowComments")}
@@ -2892,8 +2656,7 @@ export default function SettingsModal() {
                     label={t("rowHomeNote")}
                     hint={t("hintHomeNote")}
                     error={errors.homeNote}
-                    inherited={form.homeNote.trim() === ""}
-                    env="HOME_NOTE"
+                    env={{ name: "HOME_NOTE", value: eff.home.note ?? "", inherits: form.homeNote.trim() === "" }}
                   >
                     <TextInput
                       placeholder={eff.home.note ?? "Welcome.md"}
@@ -2920,7 +2683,6 @@ export default function SettingsModal() {
                     label={t("rowHomeBanner")}
                     hint={t("hintHomeBanner")}
                     error={errors.homeBanner}
-                    inherited={form.homeBanner.trim() === ""}
                     off={homeOff}
                   >
                     <ImageField
@@ -2932,19 +2694,24 @@ export default function SettingsModal() {
                       onOpenPicker={() => setPicker("homeBanner")}
                     />
                   </Row>
-                  {/* TEMPLATES SIT UNDER PUBLISHING, and not as a filing
-                      accident: the templates folder is the one setting that
-                      REMOVES notes from the blog's post list. A stencil
-                      carrying `publish: true` — which is exactly what a
-                      publishing template carries, so the notes made from it
-                      inherit it — would otherwise appear on the site as an
-                      article of literal `{{date}}` placeholders. */}
+                </section>
+                )}
+
+                {tab === "vault" && (
+                <section data-section="vault">
+                  {/* WHERE THIS INSTANCE PUTS THINGS, all in one tab. Templates
+                      were filed under Publishing (a stencil carrying
+                      `publish: true` really does reach the post list) and
+                      attachments under it too, which meant an operator looking
+                      for "which folder does this write to" read a tab about
+                      comments and share buttons first. Three folder questions
+                      in one place answer each other; a folder filed by its
+                      consequence answers nobody. */}
                   <div className="s-smodal__sub">{t("templatesSection")}</div>
                   <p className="s-smodal__note">{t("templatePlaceholdersHint")}</p>
                   <Row
                     label={t("templatesFolderLabel")}
                     hint={t("templatesFolderHint")}
-                    inherited={form.templatesFolder.trim() === "" && eff.templatesFolder !== null}
                   >
                     <TextInput
                       // The placeholder is the DETECTED folder when there is
@@ -2985,7 +2752,6 @@ export default function SettingsModal() {
                   <Row
                     label={t("rowAttachmentLocation")}
                     hint={t("hintAttachmentLocation")}
-                    inherited={form.attachMode === ""}
                   >
                     <Select
                       label={t("rowAttachmentLocation")}
@@ -3036,6 +2802,36 @@ export default function SettingsModal() {
                       {...field("attachFolder")}
                     />
                   </Row>
+
+                  {/* The tag pages' folder, with the two folder rows above it
+                      rather than beside the LABELS table it used to sit on top
+                      of: this row answers "where does this instance write", and
+                      the table answers "what does a tag get called". They were
+                      one group because a page in this folder outranks the
+                      table — which is a sentence, and now it is one, in the
+                      table's own hint. */}
+                  <div className="s-smodal__sub">{t("tags")}</div>
+                  <Row
+                    label={t("rowTagsFolder")}
+                    hint={t("hintTagsFolder")}
+                  >
+                    <TextInput
+                      placeholder={eff.tagsFolder}
+                      dir="ltr"
+                      label={t("rowTagsFolder")}
+                      {...field("tagsFolder")}
+                    />
+                  </Row>
+                  {/* Same note the templates folder carries, from the same
+                      key: both fields auto-detect, so both have to SAY which
+                      folder they found — an empty field that silently means
+                      "2 - Tags" on this vault and "tags" on the next one is a
+                      field the reader cannot reason about. */}
+                  {form.tagsFolder.trim() === "" && eff.tagsFolderDetected && (
+                    <p className="s-smodal__note">
+                      {tf("templatesDetectedHint", { folder: eff.tagsFolder })}
+                    </p>
+                  )}
                 </section>
                 )}
 
