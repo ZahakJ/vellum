@@ -792,7 +792,16 @@ function mirrorOf(
   }
   const noteHome = paneAt(ws, ws.noteFocus);
   const note = noteHome === null ? null : activeTabOf(noteHome);
-  return { workspace: ws, openTabs, openPath: note === null ? null : note.path, readingMode };
+  // `openPath` is a NOTE by contract. When the only thing open anywhere is a
+  // book, `noteFocus` still points at that pane and its active tab is the
+  // book — and mirroring the .pdf here sent the outline and the word count
+  // asking /api/note for it, a 400 on every book-only window.
+  return {
+    workspace: ws,
+    openTabs,
+    openPath: note === null || isBookPath(note.path) ? null : note.path,
+    readingMode,
+  };
 }
 
 /** The dirty map names OPEN notes and nothing else. A bulk close that left
