@@ -110,6 +110,38 @@
   --graph-edge: #5a5245;
   --graph-vignette: rgba(9, 8, 6, 0.4);
 
+  /* THE SIX PAGE INKS (client/books/). Defined on :root ONLY, and no theme
+     below overrides them.
+
+     These sit on a PRINTED PAGE, not on the app's ground, so they cannot be
+     styled as if they were chrome — the same argument the attachment viewer
+     makes about its fixed scrim, pointed the other way. A book's paper is
+     whatever colour the publisher printed it on; it does not become verdigris
+     because the panel around it did, and a highlighter is yellow in every
+     theme anyone has ever bought one in. A per-theme ink would mean the same
+     passage is marked green on the laptop and pink on the desktop, which is
+     not a theme, it is data loss.
+
+     They are outside check-contrast's REQUIRED_TOKENS on purpose and it is not
+     an exemption being claimed quietly: an ink NEVER CARRIES TEXT. The words
+     under a highlight are the page's own glyphs at the page's own contrast,
+     painted on the canvas underneath — the ink is a translucent wash over
+     them and is `aria-hidden`, because the passage itself is already in the
+     text layer and is listed as text in the reader's `A` panel. Nothing in
+     WCAG 1.4.3 or 1.4.11 has an opinion about a wash with no content of its
+     own, and inventing a ratio for it would be the same false coverage the
+     old "(info)" floor was.
+
+     Alpha, not solid: the type has to read THROUGH them. Around 0.4 is the
+     hinge — under it a mark is invisible on a scanned grey page, over it the
+     ink starts competing with the letters it is supposed to be pointing at. */
+  --book-ink-1: rgba(250, 204, 21, 0.42);
+  --book-ink-2: rgba(74, 222, 128, 0.4);
+  --book-ink-3: rgba(96, 165, 250, 0.4);
+  --book-ink-4: rgba(244, 114, 182, 0.4);
+  --book-ink-5: rgba(251, 146, 60, 0.4);
+  --book-ink-6: rgba(167, 139, 250, 0.4);
+
   /* How far a generated banner (client/banner.ts) lets its hash hue pull the
      ACCENT away from itself. The accent is the base colour of every blob and
      this is the swing, so 0% is pure accent — the safe floor, and what a theme
