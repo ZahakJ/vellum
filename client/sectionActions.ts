@@ -34,6 +34,7 @@ import {
   type DropTarget,
   type Section,
 } from "./sections.ts";
+import { noteFileName } from "./noteName.ts";
 import { markSelfWrite, useStore } from "./state.ts";
 import { toast } from "./toast.ts";
 import { actionToast } from "./undoToast.ts";
@@ -121,17 +122,48 @@ export function copySectionMarkdown(content: string, section: Section): void {
 // ── Extraction ──────────────────────────────────────────────────────────────
 
 /** A heading's text as a filename: the reader can still edit it in the dialog,
- *  but the offered name should be the one they would have typed. */
+ *  but the offered name should be the one they would have typed.
+ *
+ *  The stripping rule (the filesystem's forbidden set, plus the three the
+ *  VAULT forbids — the stub this extraction leaves behind is `[[<this name>]]`,
+ *  and a name carrying `[`, `]` or `#` is a name no wikilink can spell) moved
+ *  to composeText.ts's `noteFileName` so the selection-shaped extraction
+ *  offers names by the same law rather than by a second copy of the regex. */
 function suggestedName(section: Section): string {
-  const base = section.text
-    // The filesystem's forbidden set, plus the three the VAULT forbids: the
-    // stub this extraction leaves behind is `[[<this name>]]`, and a name
-    // carrying `[`, `]` or `#` is a name no wikilink can spell — the link
-    // would stop at the first `]]` and point at something else.
-    .replace(/[\\/:*?"<>|[\]#]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return `${base || "Section"}.md`;
+  return noteFileName(section.text, "Section");
+}
+
+/** The extraction dialog, shared by BOTH extractions — the section-shaped one
+ *  below and the selection-shaped one in composerActions.ts. One dialog, one
+ *  naming rule: the destination is named in the body, `..`/dotfiles/link-
+ *  breaking characters are refused before anything is created, and whatever
+ *  the field's text becomes ("ideas/Untitled.md" from a typed "Untitled") is
+ *  printed under it. Returns the checked path, or null on cancel. */
+export function promptExtractPath(
+  title: string,
+  dir: string,
+  suggested: string,
+): Promise<string | null> {
+  return promptModal({
+    title,
+    body: dir ? tf("promptInFolder", { folder: dir }) : t("promptAtRoot"),
+    value: suggested,
+    placeholder: suggested,
+    check: (raw) => {
+      const typed = raw.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+      if (!typed) return { value: "" };
+      if (typed.split("/").includes("..")) return { value: "", error: t("promptNoTraversal") };
+      if (typed.split("/").some((s) => s.startsWith(".")))
+        return { value: "", error: t("promptNoDotName") };
+      // Same reason `suggestedName` strips them: the stub left behind is
+      // `[[<this name>]]`, and these three characters end or re-open a
+      // wikilink. A name the vault cannot address is not a name.
+      if (/[[\]#|]/.test(typed)) return { value: "", error: t("promptNoLinkChars") };
+      const named = /\.(md|markdown|tex|latex)$/i.test(typed) ? typed : `${typed}.md`;
+      const value = dir ? `${dir}/${named}` : named;
+      return { value, note: value === typed ? undefined : tf("promptCreates", { path: value }) };
+    },
+  });
 }
 
 /**
@@ -150,26 +182,7 @@ function suggestedName(section: Section): string {
  */
 export async function extractSection(path: string, content: string, section: Section): Promise<void> {
   const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-  const toPath = await promptModal({
-    title: t("extractSection"),
-    body: dir ? tf("promptInFolder", { folder: dir }) : t("promptAtRoot"),
-    value: suggestedName(section),
-    placeholder: suggestedName(section),
-    check: (raw) => {
-      const typed = raw.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
-      if (!typed) return { value: "" };
-      if (typed.split("/").includes("..")) return { value: "", error: t("promptNoTraversal") };
-      if (typed.split("/").some((s) => s.startsWith(".")))
-        return { value: "", error: t("promptNoDotName") };
-      // Same reason `suggestedName` strips them: the stub left behind is
-      // `[[<this name>]]`, and these three characters end or re-open a
-      // wikilink. A name the vault cannot address is not a name.
-      if (/[[\]#|]/.test(typed)) return { value: "", error: t("promptNoLinkChars") };
-      const named = /\.(md|markdown|tex|latex)$/i.test(typed) ? typed : `${typed}.md`;
-      const value = dir ? `${dir}/${named}` : named;
-      return { value, note: value === typed ? undefined : tf("promptCreates", { path: value }) };
-    },
-  });
+  const toPath = await promptExtractPath(t("extractSection"), dir, suggestedName(section));
   if (!toPath) return;
 
   const carried = sectionMarkdown(content, section);

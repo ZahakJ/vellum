@@ -47,6 +47,8 @@ import type { EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
 import { isTexPath } from "../../shared/noteFormat.ts";
+import { t } from "../i18n.ts";
+import { toast } from "../toast.ts";
 import { notePathFacet } from "./livePreview.ts";
 
 /** Every wrapping format the editor knows. `color` is dynamic (the opening tag
@@ -592,3 +594,113 @@ export const formatKeymap: Extension = Prec.high(
     { key: "Mod-Shift-h", run: format("highlight"), preventDefault: true },
   ]),
 );
+
+// ── The composer commands ───────────────────────────────────────────────────
+// Footnotes, case transforms and the callout wrap. Selection-menu surfaces
+// with no keystroke of their own (the sheet's rows say "Selection menu"), but
+// they live HERE with the other commands for the file's founding reason: the
+// day one of them earns a key or a second surface, both must run this
+// implementation or they drift silently. The text arithmetic is in
+// composeText.ts — pure, so tests/composer.test.ts drives exactly what these
+// dispatch.
+
+import {
+  calloutWrap,
+  planFootnote,
+  transformCase,
+  type CaseMode,
+} from "./composeText.ts";
+
+export type { CaseMode } from "./composeText.ts";
+
+/** Insert a footnote at the caret (the selection's END — a footnote mark
+ *  follows the text it annotates): the `[^n]` reference plus a definition
+ *  stub at the note's end, with the caret moved INTO the stub, because the
+ *  next thing the writer types is the footnote itself.
+ *
+ *  `n` is chosen so existing footnotes stay ordered, renumbering the ones
+ *  after the caret when they must move to make room — a command that always
+ *  writes `[^1]` is actively harmful from the second footnote on. The whole
+ *  argument, and the clean refusals (caret in code, an id defined twice),
+ *  live on composeText.ts's `planFootnote`.
+ *
+ *  In a `.tex` note the honest spelling is LaTeX's own `\footnote{…}` at the
+ *  same spot — numbering is the compiler's job there, which is the whole
+ *  reason the macro exists. */
+export function insertFootnote(view: EditorView): boolean {
+  const state = view.state;
+  const at = state.selection.main.to;
+  if (syntaxOf(state) === "latex") {
+    const open = "\\footnote{";
+    view.dispatch({
+      changes: { from: at, insert: `${open}}` },
+      selection: EditorSelection.cursor(at + open.length),
+      userEvent: "input.format",
+      scrollIntoView: true,
+    });
+    return true;
+  }
+  const plan = planFootnote(state.doc.toString(), at);
+  if (plan === null) {
+    // The refusal speaks (caret in a code span, or a footnote id defined
+    // twice): a menu row that does nothing silently reads as a broken key,
+    // not as a decline.
+    toast(t("footnoteCollision"), "error");
+    return false;
+  }
+  view.dispatch({
+    changes: plan.changes,
+    selection: EditorSelection.cursor(plan.caret),
+    userEvent: "input.format",
+    scrollIntoView: true,
+  });
+  return true;
+}
+
+/** Title Case / UPPER / lower over the selection, PER RANGE — the same
+ *  `changeByRange` shape `insertPair` uses, so every caret of a multi-cursor
+ *  selection transforms its own range. Wikilink TARGETS and code spans pass
+ *  through untouched (composeText.ts's `transformCase` says why: a target is
+ *  a case-sensitive address, not prose). Empty ranges decline rather than
+ *  guessing at a word boundary. */
+export function transformSelectionCase(view: EditorView, mode: CaseMode): boolean {
+  const state = view.state;
+  let changed = false;
+  const spec = state.changeByRange((range) => {
+    if (range.empty) return { range };
+    const text = state.sliceDoc(range.from, range.to);
+    const next = transformCase(text, mode);
+    if (next === text) return { range };
+    changed = true;
+    return {
+      changes: { from: range.from, to: range.to, insert: next },
+      range: EditorSelection.range(range.from, range.from + next.length),
+    };
+  });
+  if (!changed) return false;
+  view.dispatch(spec, { userEvent: "input.format", scrollIntoView: true });
+  return true;
+}
+
+/** Wrap the selection's WHOLE LINES in a `> [!type]` callout. Blank lines
+ *  inside the selection become `>` — a blank line ends a blockquote, so the
+ *  naive wrap breaks the callout at the first paragraph break and the second
+ *  paragraph falls out as prose (composeText.ts's `calloutWrap`). Markdown
+ *  only: a callout is Obsidian syntax, and a `.tex` note has no honest
+ *  spelling for one — absent, never approximated, the menu's own rule. */
+export function wrapInCallout(view: EditorView, type: string): boolean {
+  const state = view.state;
+  if (syntaxOf(state) === "latex") return false;
+  const doc = state.doc;
+  const spec = state.changeByRange((range) => {
+    const fromLine = doc.lineAt(range.from);
+    const toLine = doc.lineAt(range.to);
+    const wrapped = calloutWrap(doc.sliceString(fromLine.from, toLine.to), type);
+    return {
+      changes: { from: fromLine.from, to: toLine.to, insert: wrapped },
+      range: EditorSelection.range(fromLine.from, fromLine.from + wrapped.length),
+    };
+  });
+  view.dispatch(spec, { userEvent: "input.format", scrollIntoView: true });
+  return true;
+}
