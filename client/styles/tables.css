@@ -1,0 +1,36 @@
+/* Live-preview tables (client/editor/tables.ts).
+   The widget's <table> itself is drawn by the reading renderer and styled by
+   reading.css (.s-rv-tablewrap / .s-rv-table) — the same pixels the reading
+   view and the blog show, which is the point. This file only settles the
+   widget into the editor column and marks revealed source lines. No colors
+   of its own: every pair spent here is one tokens.css already carries and
+   check-contrast already holds to AA. */
+
+.cm-s-table {
+  padding: 0.15em 0;
+}
+
+/* The editor column is narrower than a wide table wants to be. The wrap
+   scrolls (overflow-x from reading.css); killing its outer margins keeps the
+   widget from adding phantom height that would make caret math above and
+   below it drift. */
+.cm-s-table .s-rv-tablewrap {
+  margin: 0.35em 0;
+  max-width: 100%;
+}
+
+/* Cells are click targets ("put the caret in this cell's source"), so they
+   advertise text editing, not link following. */
+.cm-s-table th,
+.cm-s-table td {
+  cursor: text;
+}
+
+/* Revealed source: monospace, or the pipe padding format-on-exit just wrote
+   is invisible — proportional digits and Arabic letters give every column a
+   different width and the "aligned" pipes stagger anyway. Slightly small so
+   a padded table still fits the measure more often than not. */
+.cm-s-table-srcline {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}

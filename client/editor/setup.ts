@@ -39,6 +39,7 @@ import { layoutFallback } from "./layoutKeys.ts";
 import { noteLayoutExtension } from "./noteLayout.ts";
 import { editorTheme, vellumHighlighting } from "./theme.ts";
 import { livePreview } from "./livePreview.ts";
+import { markdownTables } from "./tables.ts";
 import { pointerSelection } from "./pointer.ts";
 import { searchPhrases } from "./searchPhrases.ts";
 import { formatKeymap } from "./commands.ts";
@@ -204,6 +205,9 @@ export function buildEditorState(options: EditorSetupOptions): EditorState {
             editorTheme(),
             vellumHighlighting(),
             livePreview(options.path),
+            // GFM tables: widget when the caret is out, source when it is
+            // in, cell keys, prettify-on-exit — tables.ts owns all of it.
+            markdownTables(),
           ]),
       // Caret placement resolved through the DOM rather than CodeMirror's
       // `posAtCoords`, which mis-maps every row carrying a replaced inline
