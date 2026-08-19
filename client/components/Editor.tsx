@@ -22,7 +22,7 @@ import { t, tf } from "../i18n.ts";
 import { Lru } from "../lru.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
-import { buildEditorState, setVim } from "../editor/setup.ts";
+import { buildEditorState, setEditorLanguage, setVim } from "../editor/setup.ts";
 import {
   acquire,
   attach,
@@ -247,7 +247,15 @@ export default function Editor({ path }: { path: string }) {
   }, [vimMode]);
 
   useEffect(() => {
-    viewRef.current?.dispatch({ effects: languageChanged.of(null) });
+    const view = viewRef.current;
+    if (view) {
+      view.dispatch({ effects: languageChanged.of(null) });
+      // The find panel's phrases and the spellcheck `lang` are state facets
+      // the registry caches with the buffer; the decoration rebuild above
+      // cannot touch them. This writes the fresh language back into the
+      // shared EditorState through the live view.
+      setEditorLanguage(view);
+    }
   }, [language]);
 
   // The SITE's note direction/alignment moved (a settings save). Same shape as

@@ -20,8 +20,25 @@ directories:
   output: release
   buildResources: icons
 
+# NO ASAR, and it is the architecture speaking rather than a preference. The
+# desktop app's whole design is "spawn server/index.ts as a real Node child and
+# let it type-strip real files" — and an asar is an archive a plain Node child
+# cannot cwd into (the packaged app died at boot with spawn ENOTDIR), cannot
+# ESM-import through, and cannot dlopen argon2 out of. Selectively unpacking
+# the server's world would have left electron/ alone in the archive and a
+# second APP_ROOT code path to keep true forever. A directory tree is what the
+# child was always meant to read; ship one.
+asar: false
+
 extraMetadata:
   main: electron/main.ts
+  # The deb target requires a homepage and a maintainer, and neither belongs in
+  # the root package.json (see the header). Both are true values, not filler:
+  # the project site the README links, and the identity every commit carries.
+  homepage: https://zahakj.github.io/vellum/
+  author:
+    name: ZahakJ
+    email: 77855241+ZahakJ@users.noreply.github.com
 
 # Everything the spawned server can reach, and nothing else. The client's
 # SOURCE is not here — `dist/` is the built client, which is what the server
@@ -30,6 +47,14 @@ files:
   - electron/**/*.ts
   - server/**/*.ts
   - shared/**/*.ts
+  # The ONE client source file in the package, and it is here on purpose:
+  # electron/menuStrings.ts re-exports the dictionary so the native menu and
+  # the renderer can never disagree about a word — which makes client/i18n.ts
+  # the single module the main process shares with the client. Its only import
+  # is shared/numerals.ts, already above. check-desktop asserts the packaged
+  # list covers electron/'s whole import closure, because leaving this line out
+  # was a boot failure that only the PACKAGED app could show.
+  - client/i18n.ts
   - dist/**/*
   - vault-seed/**/*
   - desktop/build/preload.js

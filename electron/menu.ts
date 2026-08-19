@@ -131,7 +131,15 @@ export function buildMenu(h: MenuHandlers): Menu {
       // CodeMirror's own history extension already answers, so the editor's
       // undo stack stays the editor's.
       { label: m("undo"), role: "undo" },
-      { label: m("menuRedo"), role: "redo" },
+      // Ctrl/Cmd+Y, EXPLICITLY, because the role's default accelerator is
+      // Shift+Cmd+Z — which is zen. A menu accelerator is consumed by the OS
+      // before the page ever sees the keystroke, so the default made the
+      // desktop the one build where a documented binding silently did nothing.
+      // Inside the editor Mod-y is already CodeMirror's own redo, so the menu
+      // and the keymap agree; on macOS Cmd+Shift+Z still redoes IN the editor
+      // (the caret-position rule in the ledger), it just no longer belongs to
+      // the menu bar.
+      { label: m("menuRedo"), role: "redo", accelerator: "CmdOrCtrl+Y" },
       { type: "separator" },
       { label: m("menuCut"), role: "cut" },
       { label: m("menuCopy"), role: "copy" },

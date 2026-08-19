@@ -309,6 +309,42 @@ for (const [rel, src] of [...mainSide, [path.join("electron", "preload.ts"), pre
   });
 }
 
+// ── 4b. everything electron/ imports is actually IN the package ────────────
+// The dev run resolves imports against the repo, the packaged app against
+// app.asar's files list — so an import that escapes the list is a boot failure
+// that ONLY the packaged binary can show, which is the worst place to learn it.
+// It happened: menuStrings.ts began re-exporting client/i18n.ts and the
+// packaged app died at startup while every dev surface stayed green. This walks
+// electron/'s relative-import closure and asserts each landing file is covered
+// by electron-builder.yml's files globs.
+{
+  const yml = read("desktop/electron-builder.yml");
+  const globs = [...yml.matchAll(/^\s*-\s*([^!#\s][^\n]*?)\s*$/gm)].map((m) => m[1]);
+  const covered = (rel) =>
+    globs.some((g) => {
+      if (g === rel) return true;
+      if (g.endsWith("/**/*.ts")) return rel.startsWith(g.slice(0, -8)) && rel.endsWith(".ts");
+      if (g.endsWith("/**/*")) return rel.startsWith(g.slice(0, -5));
+      return false;
+    });
+  const seen = new Set();
+  const queue = readdirSync(path.join(root, "electron")).filter((f) => f.endsWith(".ts")).map((f) => `electron/${f}`);
+  while (queue.length > 0) {
+    const rel = queue.pop();
+    if (seen.has(rel)) continue;
+    seen.add(rel);
+    if (!covered(rel)) {
+      errs.push(`PACKAGE  ${rel} is imported by electron/ but matches nothing in electron-builder.yml files — the packaged app will die at boot on it`);
+      continue;
+    }
+    const src = read(rel);
+    for (const m of src.matchAll(/from "(\.\.?\/[^"]+)"/g)) {
+      const resolved = path.posix.normalize(path.posix.join(rel, "..", m[1]));
+      if (resolved.endsWith(".ts")) queue.push(resolved);
+    }
+  }
+}
+
 // ── 5. the menu's copy comes from the ONE dictionary ───────────────────────
 // It used to live in `electron/menuStrings.ts` as a second 63-key dictionary,
 // kept byte-identical to the client's by this gate. That was scaffolding for a

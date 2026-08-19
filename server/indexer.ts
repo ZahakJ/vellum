@@ -1063,7 +1063,19 @@ export function aliasEntries(publishedOnly: boolean, lang: FilterLang): AliasEnt
       out.push({ alias: stripBidiControls(alias), path: record.path, title: record.title });
     }
   }
-  return out.sort((a, b) => a.alias.localeCompare(b.alias) || a.path.localeCompare(b.path));
+  // Within one alias, claimants in RESOLUTION order — pickShortest's own rule,
+  // fewest segments then shortest then alphabetical — so the first row for any
+  // alias is the note `[[alias]]` will actually reach. The `[[` completion
+  // relies on this to keep one honest row per alias: sorted by plain path, the
+  // row it kept could NAME the loser while inserting a link that lands on the
+  // winner.
+  return out.sort(
+    (a, b) =>
+      a.alias.localeCompare(b.alias) ||
+      a.path.split("/").length - b.path.split("/").length ||
+      a.path.length - b.path.length ||
+      a.path.localeCompare(b.path),
+  );
 }
 
 /** Resolve a link/embed target to a note OR attachment path. Notes win

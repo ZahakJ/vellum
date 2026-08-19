@@ -130,12 +130,24 @@ async function wikilinkSource(
   // dropped: it would complete to the same link twice, and the second row
   // would say something different about where it goes.
   const titles = new Set(notes.map((note) => note.title.toLowerCase()));
+  // ONE ROW PER ALIAS, not one per claimant. Both rows would insert the same
+  // `[[Alias]]`, and `resolveLink` then resolves that text to its single
+  // deterministic winner — so with two notes claiming `ML`, the row labelled
+  // "alias of Meta Learning" could land the reader on Machine Learning: a
+  // completion whose own description lies about where it goes. The table
+  // arrives sorted, and the sort puts each alias's WINNING claimant first
+  // (the same pickShortest rule resolution uses), so keeping the first row is
+  // keeping the honest one.
+  const seenAlias = new Set<string>();
   for (const entry of aliases) {
-    if (titles.has(entry.alias.toLowerCase())) continue;
+    const key = entry.alias.toLowerCase();
+    if (titles.has(key) || seenAlias.has(key)) continue;
+    seenAlias.add(key);
     options.push({
       // The detail says whose alias it is, because the label alone is a name
-      // the reader may not recognise as belonging to that note yet — and if two
-      // notes claim it, this row is the only place that difference is visible.
+      // the reader may not recognise as belonging to that note yet — and when
+      // two notes claim it, this row names the one the link will actually
+      // reach.
       label: entry.alias,
       detail: tf("aliasCompletionDetail", { title: entry.title }),
       type: "text",

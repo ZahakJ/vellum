@@ -152,9 +152,15 @@ export function applyUrl(initial = false): boolean {
     }
     if (location.pathname === "/") {
       if (initial) return false; // keep the home note / restored session
-      // Back to the root entry: show the empty state (tabs stay open).
+      // Back past the first note lands on the root entry. Pre-panes this
+      // nulled `openPath` to show the empty state; with panes that write was
+      // pure DESYNC — a pane renders its own active tab from the workspace, so
+      // the note stayed on screen while the status bar, the palette and every
+      // `openPath`-gated command were told nothing was open, and the next
+      // `commitWorkspace` snapped the mirror back anyway. `openPath` is a
+      // derived mirror with exactly one writer; the root entry now keeps the
+      // reader's place and touches only the view mode.
       if (store.view === "graph") store.setView("editor");
-      useStore.setState({ openPath: null });
       return true;
     }
     return false;

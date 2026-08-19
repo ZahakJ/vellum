@@ -185,6 +185,15 @@ async function openVaultDialog(): Promise<void> {
  * already has, which is what makes "one window per vault" true across deep
  * links, file associations and second launches alike.
  */
+/** Opens IN FLIGHT, keyed like `instances`. The instance registry only gains
+ *  its row once the server has booted and the window exists, which is seconds
+ *  — and a second ask inside that window (a double-clicked dock icon, a deep
+ *  link landing during first launch, two files opened together) found no row,
+ *  and started a SECOND server and a second window on the same vault, the two
+ *  then fighting over one registry key. Idempotent has to mean "from the first
+ *  moment of the first ask", not "once the slow part is done". */
+const opening = new Map<string, Promise<void>>();
+
 async function openVault(vaultPath: string, route = "/"): Promise<void> {
   const vault = path.resolve(vaultPath);
   const existing = instances.get(vault);
@@ -193,6 +202,23 @@ async function openVault(vaultPath: string, route = "/"): Promise<void> {
     restoreWindow(existing);
     return;
   }
+  const inFlight = opening.get(vault);
+  if (inFlight !== undefined) {
+    // Join the open already underway; deliver the route once it lands.
+    await inFlight;
+    const opened = instances.get(vault);
+    if (opened) {
+      if (route !== "/") deliver(opened, route);
+      restoreWindow(opened);
+    }
+    return;
+  }
+  const work = openVaultUnguarded(vault, route);
+  opening.set(vault, work.finally(() => opening.delete(vault)));
+  return opening.get(vault);
+}
+
+async function openVaultUnguarded(vault: string, route: string): Promise<void> {
   const prefs = loadPrefs();
   // Read BEFORE the open is recorded: `rememberVault` below overwrites this
   // vault's row with the port it actually got, and the dialog at the end of

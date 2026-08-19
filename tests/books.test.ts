@@ -300,17 +300,21 @@ describe("reader commands", () => {
 
 describe("page layout", () => {
   it("puts one page per spread in single mode", () => {
-    const spreads = spreadsOf(5, false, false);
+    const spreads = spreadsOf(5, false);
     assert.deepEqual(spreads.map((s) => s.pages), [[1], [2], [3], [4], [5]]);
   });
 
   it("leaves page one alone and pairs the rest, like a bound book", () => {
-    assert.deepEqual(spreadsOf(6, true, false).map((s) => s.pages), [[1], [2, 3], [4, 5], [6]]);
+    assert.deepEqual(spreadsOf(6, true).map((s) => s.pages), [[1], [2, 3], [4, 5], [6]]);
   });
 
-  it("reverses the PAIR, not the sequence, for a right-to-left binding", () => {
-    const rtl = spreadsOf(6, true, true).map((s) => s.pages);
-    assert.deepEqual(rtl, [[1], [3, 2], [5, 4], [6]]);
+  it("speaks LOGICAL order whatever the binding — direction is presentation", () => {
+    // The model used to reverse the pair for RTL while the spread container
+    // also carried dir="rtl": a flex row under that direction lays children
+    // right-to-left by itself, so the two reversals cancelled and an Arabic
+    // book's spreads rendered in Latin order. Exactly one layer owns
+    // direction now, and it is not this one.
+    assert.deepEqual(spreadsOf(6, true).map((s) => s.pages), [[1], [2, 3], [4, 5], [6]]);
   });
 
   it("round-trips page ↔ spread in both modes", () => {
