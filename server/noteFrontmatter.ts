@@ -9,7 +9,7 @@
 import matter from "gray-matter";
 import { isTexPath } from "../shared/noteFormat.ts";
 import { findTexFrontmatter } from "../shared/tex.ts";
-import { publishFlag, readFrontmatter, setFrontmatterLine, setPublishFlag } from "./publish.ts";
+import { publishFlag, readFrontmatter, setFrontmatterLine, setPublishFlag, yamlQuote } from "./publish.ts";
 
 /** The comment fences a `.tex` frontmatter block is WRITTEN with (reading
  *  tolerates the variants; writing picks one and sticks to it). */
@@ -75,4 +75,120 @@ function setTexFrontmatterLine(src: string, key: string, line: string | null): s
   // No block yet: prepend one. A leading comment block is legal above
   // \documentclass, so the file still compiles unchanged.
   return `${TEX_OPEN}\n% ${line}\n${TEX_CLOSE}\n${src}`;
+}
+
+// ---------------------------------------------------------------- aliases
+
+/** The other names a note answers to — frontmatter `aliases:`.
+ *
+ *  The README invites the reader to point Vellum at an existing Obsidian
+ *  vault, and in one of those a note is routinely linked by a name that is not
+ *  its filename. Three spellings reach this function from real vaults, because
+ *  YAML gives three different values for what an author reads as one list:
+ *
+ *    aliases: [ML, machine-learning]   → an array
+ *    aliases:                          → an array (block list)
+ *      - ML
+ *    aliases: ML, machine-learning     → the STRING "ML, machine-learning"
+ *    aliases: ML                       → the STRING "ML"
+ *
+ *  A scalar is split on commas; a LIST ITEM never is. That asymmetry is the
+ *  whole rule: `aliases: [Smith, John]` is already two items to YAML, so an
+ *  author who means one alias containing a comma writes `["Smith, John"]` —
+ *  splitting items too would turn every quoted bibliographic alias into two
+ *  wrong ones, and there would be no way left to spell the right one.
+ *
+ *  `alias:` (singular) is read as well: Obsidian accepted it for years and
+ *  vaults still carry it, and a note whose only alias is silently ignored is
+ *  exactly the first-hour disappointment this feature exists to remove.
+ *
+ *  Duplicates collapse case-insensitively, first spelling kept — the table
+ *  this feeds is keyed lowercased, so the second one could only ever be a
+ *  second Set entry for the same note. */
+export function parseAliases(fm: Record<string, unknown>): string[] {
+  const raw = fm.aliases ?? fm.alias;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (value: string): void => {
+    const alias = value.trim();
+    if (!alias || seen.has(alias.toLowerCase())) return;
+    seen.add(alias.toLowerCase());
+    out.push(alias);
+  };
+  // A bare number is a legitimate alias ("2024" on a year note) and YAML hands
+  // it over as a number, not a string; anything else — a nested map, a date, a
+  // boolean — is not a name and is dropped rather than stringified into one.
+  const scalar = (value: unknown): string | null => {
+    if (typeof value === "string") return value;
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    return null;
+  };
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const text = scalar(item);
+      if (text !== null) push(text);
+    }
+    return out;
+  }
+  const text = scalar(raw);
+  if (text === null) return out;
+  for (const part of text.split(",")) push(part);
+  return out;
+}
+
+/** A frontmatter `aliases:` line whose value is EMPTY, followed by at least one
+ *  `- item` — the block form, in either note format (a `.tex` block prefixes
+ *  its lines with `%`). Group 1 is the item's own prefix + indentation, which
+ *  is the only shape we can safely copy when adding one more. */
+const ALIAS_BLOCK_RE = /^[ \t]*(?:%[ \t]*)?aliases:[ \t]*\r?\n([ \t]*(?:%[ \t]*)?)-[ \t]+\S/m;
+
+/** Add one alias to a note, preserving every other byte — the write half of
+ *  "keep the old title as an alias" after a rename.
+ *
+ *  Two shapes, because the surgical line editor above can only ever replace ONE
+ *  line and a block list is several. Merging a block list into one flow line
+ *  would leave its `- item` lines orphaned under a key that now holds a value:
+ *  that is not a note with an odd alias list, it is a note whose YAML no longer
+ *  parses — and the first thing lost when frontmatter stops parsing is
+ *  `publish: true`, i.e. the note silently leaves the public site. So:
+ *
+ *   - block form → one more item line, wearing the indentation (and, in a
+ *     `.tex` note, the `%` comment prefix) of the item already there;
+ *   - absent or inline → one `aliases: [...]` line, the new name first.
+ *
+ *  Idempotent: an alias the note already answers to returns the source
+ *  unchanged, so the offer can be taken twice without growing the list. */
+export function addNoteAlias(relPath: string, src: string, alias: string): string {
+  const name = alias.trim();
+  if (!name) return src;
+  const existing = parseAliases(readNoteFrontmatter(relPath, src));
+  if (existing.some((a) => a.toLowerCase() === name.toLowerCase())) return src;
+
+  // Only the frontmatter block is searched for the block form: a BODY that
+  // happens to quote an `aliases:` list (this file's own prose does) must
+  // never be edited by a frontmatter write.
+  const region = frontmatterRegion(relPath, src);
+  const block = region === null ? null : ALIAS_BLOCK_RE.exec(region.text);
+  if (region !== null && block !== null) {
+    const at = region.start + block.index + block[0].indexOf("\n") + 1;
+    return `${src.slice(0, at)}${block[1]}- ${yamlQuote(name)}\n${src.slice(at)}`;
+  }
+  const list = [name, ...existing].map(yamlQuote).join(", ");
+  return setNoteFrontmatterLine(relPath, src, "aliases", `aliases: [${list}]`);
+}
+
+/** Where a note's frontmatter TEXT sits inside its own source, for the one
+ *  operation that has to look at more than a single key line. Null when the
+ *  note has no frontmatter at all. */
+function frontmatterRegion(relPath: string, src: string): { start: number; text: string } | null {
+  // Both formats open on line 1, so the block's text starts exactly where the
+  // opening fence ends — measured, not searched for: `indexOf(block.text)`
+  // would answer with the body's first coincidental copy of it.
+  if (isTexPath(relPath)) {
+    const block = findTexFrontmatter(src);
+    const open = /^%-{3,}%?[ \t]*\r?\n/.exec(src);
+    return block === null || open === null ? null : { start: open[0].length, text: block.raw };
+  }
+  const md = /^(---\r?\n)([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(src);
+  return md === null ? null : { start: md[1].length, text: md[2] };
 }

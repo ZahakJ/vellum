@@ -1,7 +1,7 @@
 // Wikilink autocomplete: typing "[[" offers every note title in the vault,
-// read live from the zustand store's tree; typing "#" inside the brackets
-// offers the headings of the target note ([[Note#…]] / [[#…]] for the
-// current note).
+// read live from the zustand store's tree, plus every frontmatter ALIAS those
+// notes declare; typing "#" inside the brackets offers the headings of the
+// target note ([[Note#…]] / [[#…]] for the current note).
 
 import {
   autocompletion,
@@ -14,10 +14,11 @@ import type { EditorView } from "@codemirror/view";
 import { getNote } from "../api.ts";
 import { Lru } from "../lru.ts";
 import { useStore } from "../state.ts";
-import { collectNotes, resolveLink } from "./links.ts";
+import { aliasCompletions, collectNotes, resolveLink } from "./links.ts";
 import { noteAnchors } from "../../shared/anchors.ts";
 import { stripNoteExt } from "../../shared/noteFormat.ts";
 import { notePathFacet } from "./livePreview.ts";
+import { tf } from "../i18n.ts";
 import {
   calloutIconRender,
   calloutTypeSource,
@@ -114,7 +115,10 @@ async function wikilinkSource(
   if (!match) return null;
 
   const notes = collectNotes(useStore.getState().tree);
-  if (notes.length === 0) return null;
+  // The alias table travels with the tree (state.loadTree), so this is a read,
+  // not a fetch: the popup opens at the same speed it always did.
+  const aliases = aliasCompletions();
+  if (notes.length === 0 && aliases.length === 0) return null;
 
   const options: Completion[] = notes.map((note) => ({
     label: note.title,
@@ -122,6 +126,22 @@ async function wikilinkSource(
     type: "text",
     apply: applyInner,
   }));
+  // …and the note's OTHER names. An alias that merely repeats a filename is
+  // dropped: it would complete to the same link twice, and the second row
+  // would say something different about where it goes.
+  const titles = new Set(notes.map((note) => note.title.toLowerCase()));
+  for (const entry of aliases) {
+    if (titles.has(entry.alias.toLowerCase())) continue;
+    options.push({
+      // The detail says whose alias it is, because the label alone is a name
+      // the reader may not recognise as belonging to that note yet — and if two
+      // notes claim it, this row is the only place that difference is visible.
+      label: entry.alias,
+      detail: tf("aliasCompletionDetail", { title: entry.title }),
+      type: "text",
+      apply: applyInner,
+    });
+  }
 
   return {
     from: match.from + 2, // just past "[["
