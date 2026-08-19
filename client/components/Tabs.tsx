@@ -162,6 +162,14 @@ export default function Tabs({ paneId }: { paneId?: string } = {}) {
       { label: null },
       { label: pinned ? t("tmUnpin") : t("tmPin"), onSelect: () => { focusPane(id); setTabPinned(path, !pinned); } },
       {
+        // When you need it you are looking at the NOTE, not at the tree — the
+        // row walks the sidebar to the file: ancestors open, row lit, scrolled
+        // into the middle of the pane.
+        label: t("tmReveal"),
+        onSelect: () =>
+          window.dispatchEvent(new CustomEvent("vellum:tree-reveal", { detail: { path } })),
+      },
+      {
         label: t("tmCopyPath"),
         onSelect: () => {
           void navigator.clipboard?.writeText(path).then(() => toast(t("tmPathCopied")));

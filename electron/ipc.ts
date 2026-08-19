@@ -31,6 +31,9 @@ export const TO_MAIN = {
   spellReplace: "vellum:spell-replace",
   /** Teach the system dictionary a word ("Add to dictionary"). */
   spellAdd: "vellum:spell-add",
+  /** The reader answered an update toast: apply the staged AppImage and
+   *  relaunch, or open the release page on a build that cannot swap itself. */
+  updateApply: "vellum:update-apply",
   /** Native find-in-page: the whole rendered document, including the reading
    *  view, the outline and the backlinks panel — which is the half `Ctrl/Cmd F`
    *  (CodeMirror's find, scoped to the open note) cannot reach. */
@@ -55,6 +58,10 @@ export const TO_RENDERER = {
   spellMenu: "vellum:spell-menu",
   /** Match count and active index for the find bar. */
   findResult: "vellum:find-result",
+  /** The updater's phase moved: available / downloading / ready / current /
+   *  failed, with the version it is about. The renderer says it in the app's
+   *  own voice — a toast, never a dialog. */
+  updateState: "vellum:update-state",
   /** Go somewhere: a `vellum://` deep link, or a file association opening a
    *  note that is already inside this window's vault. */
   navigate: "vellum:navigate",
@@ -100,4 +107,8 @@ export interface Hello {
    *  dictionary for any enabled language, and the renderer must not draw a
    *  spelling menu that can never be populated. */
   spellcheck: boolean;
+  /** The languages the checker actually HOLDS dictionaries for. The per-line
+   *  `lang` invites the checker only for these — a line checked against a
+   *  dictionary that does not exist is a line underlined entirely in red. */
+  spellLanguages: string[];
 }

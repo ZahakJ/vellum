@@ -21,7 +21,7 @@ import {
   type EditorView,
   type ViewUpdate,
 } from "@codemirror/view";
-import { spellcheckLang } from "../../shared/script.ts";
+import { spellcheckKnown, spellcheckLang } from "../../shared/script.ts";
 import { noteLayout } from "../textLayout.ts";
 import { layoutSignal, sourceLines } from "./noteLayout.ts";
 
@@ -55,7 +55,14 @@ function lineDeco(dir: string, lang: string | null, source: boolean): Decoration
   const cached = lineDecos.get(key);
   if (cached) return cached;
   const attributes: Record<string, string> = { dir };
-  if (lang !== null) attributes.lang = lang;
+  if (lang !== null) {
+    attributes.lang = lang;
+    // `lang` always — it is true, and screen readers use it — but the CHECKER
+    // is only invited when a dictionary for that language is known to exist.
+    // Without this, a system with no Arabic hunspell (every Chromium) checked
+    // Arabic lines against English and underlined the entire vault in red.
+    if (!spellcheckKnown(lang)) attributes.spellcheck = "false";
+  }
   // A code fence is not written in any language, and underlining every
   // identifier in it in red is how a reader learns to turn spellcheck off.
   if (source) attributes.spellcheck = "false";

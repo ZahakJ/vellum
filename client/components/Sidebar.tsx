@@ -214,6 +214,45 @@ function defaultOpen(depth: number): boolean {
   return depth === 0;
 }
 
+/** Fold or unfold EVERY folder. A 1,400-note vault's tree is a place a reader
+ *  navigates, and after twenty minutes of browsing it is a place they have to
+ *  dig themselves out of one chevron at a time — the single most-asked-for
+ *  small thing Obsidian has and this tree did not. Writes the whole map, then
+ *  asks the tree to re-seed (the rows keep their open state locally for cheap
+ *  toggles, so a bulk write has to be followed by a remount — `treeEpoch` in
+ *  the component below is that ask). */
+function setAllFolders(tree: TreeNode | null, open: boolean): void {
+  const walk = (node: TreeNode): void => {
+    for (const child of node.children ?? []) {
+      if (child.type === "folder") {
+        expandedMap.set(child.path, open);
+        walk(child);
+      }
+    }
+  };
+  if (tree) walk(tree);
+  persistExpanded();
+}
+
+/** Open every ancestor of `path`, so a reveal can scroll to a row that is
+ *  actually on screen. */
+function expandAncestors(path: string): void {
+  const parts = path.split("/");
+  let at = "";
+  for (let i = 0; i < parts.length - 1; i += 1) {
+    at = at === "" ? parts[i] : `${at}/${parts[i]}`;
+    expandedMap.set(at, true);
+  }
+  persistExpanded();
+}
+
+/** The two window events other surfaces drive the tree with. Events rather
+ *  than store actions because the tree's expansion has never lived in the
+ *  store — it is this module's own map — and the palette and the tab menu
+ *  should not need a second copy of that fact. */
+export const TREE_ALL_EVENT = "vellum:tree-all";
+export const TREE_REVEAL_EVENT = "vellum:tree-reveal";
+
 // ---------------------------------------------------------------------------
 // Visitor topic sections: per-section collapse persists like the tree's
 // folder expansion (module map + localStorage; true = collapsed, default open).
@@ -380,6 +419,15 @@ function IconNewNote() {
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <path d="M14 2v6h6" />
       <path d="M12 12v6M9 15h6" />
+    </svg>
+  );
+}
+
+function IconCollapseAll() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M7 10l5-5 5 5" />
+      <path d="M7 19l5-5 5 5" />
     </svg>
   );
 }
@@ -696,6 +744,37 @@ export default function Sidebar() {
   // ── Tree cursor (aria-activedescendant) ────────────────────────────────
   const treeRef = useRef<HTMLDivElement | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
+  // Bumped when the expansion map is rewritten WHOLESALE (collapse all,
+  // expand all, reveal): rows keep their open state locally for cheap
+  // per-chevron toggles, so a bulk write is followed by a keyed remount and
+  // every row re-seeds from the map.
+  const [treeEpoch, setTreeEpoch] = useState(0);
+  useEffect(() => {
+    const onAll = (e: Event): void => {
+      const open = (e as CustomEvent<{ open: boolean }>).detail?.open === true;
+      setAllFolders(useStore.getState().tree, open);
+      setTreeEpoch((n) => n + 1);
+    };
+    const onReveal = (e: Event): void => {
+      const path = (e as CustomEvent<{ path: string }>).detail?.path;
+      if (typeof path !== "string" || path === "") return;
+      expandAncestors(path);
+      setTreeEpoch((n) => n + 1);
+      setCursor(path);
+      // After the remount has painted the now-visible row.
+      requestAnimationFrame(() => {
+        treeScrollRef.current
+          ?.querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(path)}"]`)
+          ?.scrollIntoView({ block: "center" });
+      });
+    };
+    window.addEventListener(TREE_ALL_EVENT, onAll);
+    window.addEventListener(TREE_REVEAL_EVENT, onReveal);
+    return () => {
+      window.removeEventListener(TREE_ALL_EVENT, onAll);
+      window.removeEventListener(TREE_REVEAL_EVENT, onReveal);
+    };
+  }, []);
   /** The cursor as a DOM class + activedescendant, applied imperatively so
    *  moving it costs one attribute write instead of a re-render of the tree. */
   const paintCursor = useCallback((path: string | null, scroll = true) => {
@@ -1053,6 +1132,17 @@ export default function Sidebar() {
             <button
               type="button"
               className="s-iconbtn"
+              title={t("collapseAll")}
+              aria-label={t("collapseAll")}
+              onClick={() =>
+                window.dispatchEvent(new CustomEvent(TREE_ALL_EVENT, { detail: { open: false } }))
+              }
+            >
+              <IconCollapseAll />
+            </button>
+            <button
+              type="button"
+              className="s-iconbtn"
               title={t("newFolder")}
               aria-label={t("newFolder")}
               onClick={() => void promptNewFolder("")}
@@ -1253,6 +1343,7 @@ export default function Sidebar() {
                 from janking, and the folders-first ordering. It threads
                 index/setSize down to each row for aria-posinset/setsize. */}
             <TreeChildren
+              key={treeEpoch}
               nodes={tree?.children ?? []}
               depth={0}
               renaming={renaming}

@@ -2566,6 +2566,15 @@ off, contained none of those three things.
   each line's direction from its own content — stamps a narrower `lang` on any line whose SCRIPT
   disagrees with the document. One scan answers both questions; a Latin line gets no attribute at
   all and inherits, which also keeps the markup off the overwhelming majority of lines.
+- **A line is checked only in a language a dictionary is KNOWN to exist for.** The first shipped
+  version trusted `lang` alone, and on a system with no Arabic dictionary — which is every
+  Chromium, whose hunspell set has never included Arabic — the checker fell back to English and
+  underlined every correctly spelled Arabic word in the vault: the wall of red this feature exists
+  to prevent, produced by the feature, found by the owner within a day. `setSpellcheckAvailable()`
+  is the gate; the desktop feeds it from Electron's own resolved dictionary list ("*" on macOS,
+  whose system checker reads the attribute itself), and the plain browser — which cannot ask —
+  leaves RTL-script lines unchecked rather than wrongly checked. `lang` itself stays on the line
+  regardless: it is true, and screen readers use it.
 - The rule itself is `shared/script.ts`'s `spellcheckLang()`, deliberately a SCRIPT test and not a
   language detector: script is a property of the codepoints, cheap and total, whereas guessing
   French from Spanish out of Latin letters is a different problem with a much worse failure mode —

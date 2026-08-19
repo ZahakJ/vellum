@@ -25,6 +25,7 @@ export interface DesktopHello {
   vaultName: string;
   pendingRoute: string | null;
   spellcheck: boolean;
+  spellLanguages: string[];
 }
 
 export interface DesktopBridge {
@@ -36,6 +37,8 @@ export interface DesktopBridge {
   onOsTheme(cb: (dark: boolean) => void): void;
   spellReplace(text: string): Promise<void>;
   spellAdd(word: string): Promise<void>;
+  updateApply(): Promise<void>;
+  onUpdateState(cb: (payload: unknown) => void): void;
   findInPage(query: string, forward: boolean, again: boolean): Promise<void>;
   findStop(): Promise<void>;
   dragNote(rel: string): Promise<void>;

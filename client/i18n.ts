@@ -2906,6 +2906,35 @@ const DICT = {
   },
   settingsSearchNone: { en: "Nothing matches", ar: "لا شيء يطابق" },
 
+  // ── The tree, folded and found ───────────────────────────────────────────
+  collapseAll: { en: "Collapse all folders", ar: "طي كل المجلدات" },
+  expandAll: { en: "Expand all folders", ar: "بسط كل المجلدات" },
+  tmReveal: { en: "Reveal in the sidebar", ar: "إظهار في الشريط الجانبي" },
+
+  // ── Software updates (desktop) ───────────────────────────────────────────
+  // Toasts, never dialogs: a release is good news arriving at a random moment,
+  // and good news does not get to interrupt a sentence.
+  menuCheckUpdates: { en: "Check for updates…", ar: "التحقق من التحديثات…" },
+  updateReady: {
+    en: "Vellum {version} is ready",
+    ar: "‏ڤيلوم {version} جاهز",
+  },
+  updateRestart: { en: "Restart now", ar: "إعادة التشغيل الآن" },
+  updateAvailable: {
+    en: "Vellum {version} is out",
+    ar: "صدر ڤيلوم {version}",
+  },
+  updateView: { en: "See the release", ar: "عرض الإصدار" },
+  updateDownloading: {
+    en: "Downloading Vellum {version} in the background…",
+    ar: "يجري تنزيل ڤيلوم {version} في الخلفية…",
+  },
+  updateCurrent: { en: "You are on the latest release.", ar: "أنت على أحدث إصدار." },
+  updateFailed: {
+    en: "Could not check for updates — will try again later.",
+    ar: "تعذّر التحقق من التحديثات — ستُعاد المحاولة لاحقًا.",
+  },
+
   // ── Panes ────────────────────────────────────────────────────────────────
   // The cap said out loud. A split that silently does nothing is indis-
   // tinguishable from a broken key, and this one has a real reason behind it:

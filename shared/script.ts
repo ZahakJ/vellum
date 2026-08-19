@@ -29,6 +29,34 @@ const PERSIAN_RE = /[\u067e\u0686\u0698\u06af\u06a9\u06cc]/;
  *  Persian before Arabic because Persian is written in the Arabic script — the
  *  test is for the letters that are Persian's and not Arabic's, so the order is
  *  "narrower first", not "commoner first". */
+/** Which of the line-level languages a DICTIONARY actually exists for.
+ *
+ *  Empty by default, and that emptiness is the fix for a real failure: the
+ *  per-line `lang` was shipped assuming the checker would follow it, and on a
+ *  system with no Arabic dictionary — which is every Chromium, whose hunspell
+ *  set has never included Arabic — the checker fell back to English and drew a
+ *  red underline under EVERY correctly spelled Arabic word in the vault. The
+ *  wall of red this feature exists to prevent, produced by the feature.
+ *
+ *  So the rule is: a line is spellchecked only in a language a dictionary is
+ *  KNOWN to exist for. The desktop app knows — Electron reports its checker's
+ *  languages, and client/desktop/index.ts feeds them in here. The plain
+ *  browser cannot ask, so RTL-script lines go unchecked there rather than
+ *  wrongly checked; Latin lines still inherit the instance language, whose
+ *  dictionary every browser ships. */
+let available: ReadonlySet<string> = new Set();
+
+export function setSpellcheckAvailable(langs: readonly string[]): void {
+  // "ar-SA" counts for "ar": dictionaries are named regionally, lines are not.
+  available = new Set(langs.map((l) => l.toLowerCase().split("-")[0]));
+}
+
+export function spellcheckKnown(lang: string): boolean {
+  // "*" is macOS: the system checker reads `lang` itself and supports what the
+  // system supports, so every line-level language is worth inviting it for.
+  return available.has("*") || available.has(lang);
+}
+
 export function spellcheckLang(text: string): string | null {
   if (HEBREW_RE.test(text)) return "he";
   if (ARABIC_RE.test(text)) return PERSIAN_RE.test(text) ? "fa" : "ar";

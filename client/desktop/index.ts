@@ -28,6 +28,10 @@ import { promptNewNote } from "../prompts.ts";
 import { applyUrl } from "../router.ts";
 import { useStore } from "../state.ts";
 import { choiceGroup, counterpartChoice } from "../themes.ts";
+import { t, tf } from "../i18n.ts";
+import { toast } from "../toast.ts";
+import { actionToast } from "../undoToast.ts";
+import { setSpellcheckAvailable } from "../../shared/script.ts";
 import { desktop, IS_DESKTOP } from "./bridge.ts";
 import { closeFindBar, openFindBar, showFindResult } from "./findBar.ts";
 import { openSpellMenu } from "./spellMenu.ts";
@@ -175,6 +179,38 @@ export async function mountDesktop(): Promise<void> {
   bridge.onSpellMenu(openSpellMenu);
   bridge.onFindResult(showFindResult);
   bridge.onOsTheme(followOsTheme);
+  // Updates, said in the app's own voice. Never a dialog: a release is good
+  // news arriving at a random moment, and good news does not get to interrupt
+  // a sentence. "Ready" carries the one action worth a button; the other
+  // phases are one quiet line each, and the timer's "you are current" is not
+  // shown at all — only the menu's explicit ask answers out loud.
+  bridge.onUpdateState((payload) => {
+    const state = payload as { phase?: string; version?: string };
+    const version = state.version ?? "";
+    switch (state.phase) {
+      case "ready":
+        actionToast(tf("updateReady", { version }), t("updateRestart"), () => {
+          void bridge.updateApply();
+        });
+        break;
+      case "available":
+        // A build a package manager owns cannot swap itself; the button opens
+        // the release page instead of pretending.
+        actionToast(tf("updateAvailable", { version }), t("updateView"), () => {
+          void bridge.updateApply();
+        });
+        break;
+      case "downloading":
+        toast(tf("updateDownloading", { version }));
+        break;
+      case "current":
+        toast(t("updateCurrent"));
+        break;
+      case "failed":
+        toast(t("updateFailed"), "error");
+        break;
+    }
+  });
   bridge.onNavigate((route) => {
     if (!route.startsWith("/")) return;
     history.pushState(null, "", route);
@@ -185,6 +221,10 @@ export async function mountDesktop(): Promise<void> {
   window.addEventListener("beforeunload", closeFindBar);
 
   const hello = await bridge.hello();
+  // Tell the editor which languages a DICTIONARY actually exists for, so the
+  // per-line `lang` invites the checker only where checking can be right —
+  // "*" is macOS, whose system checker reads the attribute itself.
+  setSpellcheckAvailable(hello.spellLanguages ?? []);
   // A deep link or a double-clicked `.md` that arrived before this document
   // existed. The main process holds exactly one, and hands it over here rather
   // than sending it into a window that has no listener yet.
