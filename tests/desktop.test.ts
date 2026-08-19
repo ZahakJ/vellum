@@ -394,3 +394,29 @@ describe("the IPC register", () => {
     for (const command of COMMANDS) assert.match(command, /^[a-z-]+$/);
   });
 });
+
+describe("the data-dir override", () => {
+  it("parses only an absolute path, and survives a round trip", () => {
+    const prefs = parsePrefs({
+      vaults: [
+        { path: "/v/a", port: 6821, lastOpened: 5, data: "/srv/vellum-data" },
+        { path: "/v/b", port: 6822, lastOpened: 4, data: "relative/nope" },
+      ],
+    });
+    assert.equal(prefs.vaults[0].data, "/srv/vellum-data");
+    assert.equal(prefs.vaults[1].data, undefined);
+  });
+
+  it("SURVIVES rememberVault, which rebuilds the row on every open", () => {
+    // Without the carry, the override existed until the first launch: the
+    // rewrite dropped it, the vault silently reverted to an empty per-app
+    // home, and the desktop "lost" the reader's settings.
+    let prefs = parsePrefs({
+      vaults: [{ path: "/v/a", port: 6821, lastOpened: 5, data: "/srv/vellum-data" }],
+    });
+    prefs = rememberVault(prefs, "/v/a", 6823, 99);
+    assert.equal(prefs.vaults[0].data, "/srv/vellum-data");
+    assert.equal(prefs.vaults[0].port, 6823);
+  });
+});
+
