@@ -1,0 +1,26 @@
+{
+  "name": "vellum-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Vellum desktop app: an Electron shell that supervises a real server/index.ts per vault.",
+  "scripts": {
+    "start": "npm run build:preload && electron ../electron/main.ts",
+    "build:preload": "tsc -p tsconfig.preload.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "probe": "node probe.mjs",
+    "dist": "npm run build:preload && electron-builder --config electron-builder.yml"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.8",
+    "argon2": "^0.45.1",
+    "chokidar": "^5.0.0",
+    "gray-matter": "^4.0.3",
+    "hono": "^4.12.27",
+    "minisearch": "^7.2.0"
+  },
+  "devDependencies": {
+    "electron": "^40.10.6",
+    "electron-builder": "^26.0.0",
+    "typescript": "^5.6.0"
+  }
+}

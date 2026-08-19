@@ -1,0 +1,25 @@
+{
+  // The root tsconfig, plus `electron/`. Deliberately NOT the other way round:
+  // adding "electron" to the root `include` would put `import { app } from
+  // "electron"` in front of `npm run typecheck` — a named release gate that
+  // every contributor runs and that must keep passing on a clone with no
+  // Electron installed. It would report TS2307 for everyone.
+  //
+  //   npm run desktop:typecheck   ·   npm --prefix desktop run typecheck
+  //
+  // `paths` is load-bearing, not tidiness. The sources live at `../electron/`,
+  // so TypeScript resolves their bare imports from `<repo>/node_modules` and
+  // walks UP — it never looks inside `desktop/node_modules`, which is the whole
+  // point of desktop/ being its own project. This maps the one bare import
+  // those files make. At runtime the question does not arise: Electron injects
+  // `electron` as a built-in module into its own main process.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "electron": ["node_modules/electron"]
+    }
+  },
+  "include": ["../electron"]
+}

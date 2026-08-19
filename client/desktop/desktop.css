@@ -1,0 +1,78 @@
+/* The two pieces of chrome the desktop adds, and nothing else.
+ *
+ * Both are built out of tokens — never a literal colour — for the same reason
+ * every other surface in this product is: there are fifteen themes and a theme
+ * builder behind them, and a hard-coded hex is a surface that stops belonging
+ * to the room the moment a reader changes it. `npm run check-contrast` reads
+ * the tokens; anything painted with them is covered by it.
+ *
+ * Loaded only inside the desktop app: this file is imported by
+ * client/desktop/index.ts, which the browser build reaches through a dynamic
+ * import that never runs there. The bundle gate sees it as its own chunk. */
+
+/* ── The spelling menu ─────────────────────────────────────────────────────
+ * `.s-menu` verbatim (app.css) — only the word being corrected is styled here,
+ * because it is the one row that is not an action. */
+.s-menu--spell .s-menu__title--empty {
+  opacity: 0.7;
+}
+
+/* ── The find bar ──────────────────────────────────────────────────────────
+ * Native find-in-page searches the RENDERED DOCUMENT, which is the half
+ * Ctrl/Cmd F cannot reach — so it deliberately sits somewhere Ctrl/Cmd F's
+ * panel does not: pinned to the top trailing corner, over the chrome, out of
+ * the text column. `inset-inline-end` rather than `right`, so in Arabic it
+ * moves to the other corner with everything else. */
+.s-find {
+  position: fixed;
+  z-index: 320;
+  top: 10px;
+  inset-inline-end: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
+}
+
+.s-find__input {
+  width: 15rem;
+  padding: 4px 8px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.929rem;
+}
+
+/* A count, not a sentence: "3/17" in the instance's own numerals (localeNum).
+ * `tabular-nums` so stepping through matches does not make the bar twitch. */
+.s-find__count {
+  min-width: 4.5rem;
+  text-align: center;
+  color: var(--text-muted, var(--text));
+  font-size: 0.857rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.s-find__btn {
+  padding: 2px 8px;
+  color: var(--text);
+  border-radius: 4px;
+  font-size: 0.929rem;
+  line-height: 1.4;
+}
+
+.s-find__btn:hover {
+  background: var(--accent-soft);
+}
+
+/* The arrows point along the reading direction, so they flip with it. */
+[dir="rtl"] .s-find__btn--prev,
+[dir="rtl"] .s-find__btn--next {
+  transform: scaleX(-1);
+}

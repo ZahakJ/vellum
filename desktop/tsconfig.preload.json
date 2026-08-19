@@ -1,0 +1,27 @@
+{
+  // The preload, and ONLY the preload.
+  //
+  // `sandbox: true` is one of the four settings `npm run check-desktop` refuses
+  // to let anyone flip, and a sandboxed preload is loaded by Chromium rather
+  // than by Node: no ESM, no type stripping, and `require` limited to
+  // `electron` itself. So this one file is compiled — to CommonJS, standalone —
+  // while every other file under electron/ is run as TypeScript.
+  //
+  //   npm --prefix desktop run build:preload   →   desktop/build/preload.js
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": false,
+    "rootDir": "../electron",
+    "outDir": "build",
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "electron": ["node_modules/electron"]
+    }
+  },
+  "files": ["../electron/preload.ts"]
+}

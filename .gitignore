@@ -7,5 +7,12 @@ shots/
 *.log
 .DS_Store
 
+# the desktop app's build artifacts. `desktop/build/preload.js` is compiled
+# rather than type-stripped because a sandboxed preload is loaded by Chromium,
+# not by Node (see electron/preload.ts); `desktop/release/` is electron-builder's
+# output, which `dist/` above does NOT cover — that one is the web client.
+desktop/build/
+desktop/release/
+
 # agent worktrees and session scratch
 .claude/

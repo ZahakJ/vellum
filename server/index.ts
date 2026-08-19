@@ -102,9 +102,28 @@ const app = new Hono();
 // buys back nothing an attacker wants without script. Remote images are
 // allowed because `banner: https://…` and raw <img> in notes are documented
 // features; everything else is same-origin.
+//
+// `'wasm-unsafe-eval'` is for ONE thing: pdf.js. The reader (client/books/)
+// decodes JBIG2 and JPEG 2000 — the two formats every scanned book in the
+// world is stored in — with WebAssembly modules, and instantiating a wasm
+// module is a script-src decision. Without this token the reader opens a
+// scanned PDF and paints blank pages. It is the NARROW token on purpose:
+// `'unsafe-eval'` would also switch JavaScript's own evaluator back on, which
+// is the thing `script-src 'self'` is here to keep off.
+//
+// `worker-src 'self'` is stated rather than inherited, and it is a WALL, not a
+// default. The tutorial way to give pdf.js its worker is to fetch the worker
+// script and hand it over as a `blob:` URL — and that shim dies here, under a
+// policy with no `blob:` in it, in PRODUCTION ONLY: the vite dev server serves
+// no CSP at all, so the failure never appears while anyone is building the
+// feature and appears for every reader afterwards. So the worker is a real
+// same-origin asset that the build emits (client/books/pdfjs.ts), this line
+// says out loud where a worker may come from, and `npm run check-books`
+// asserts both halves so the shim cannot come back.
 const SHELL_CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "worker-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https: http:",
   "media-src 'self' data: https: http:",
@@ -246,6 +265,19 @@ if (existsSync(distDir)) {
   // "/" and "/index.html" would otherwise be served raw by serveStatic.
   app.get("/", serveShell);
   app.get("/index.html", serveShell);
+  // pdf.js side data (dist/pdfjs/**, put there by the pdfjsAssets() plugin in
+  // vite.config.ts). serveStatic below already answers these; what it gets
+  // wrong is the ONE content type that is load-bearing. `WebAssembly.
+  // instantiateStreaming` refuses anything that is not `application/wasm`,
+  // and pdf.js's JBIG2 and JPEG 2000 decoders — i.e. every scanned book —
+  // come through it. It does fall back to the slower non-streaming path, with
+  // a console warning, so this is a performance fix rather than a correctness
+  // one; it is here because the warning is otherwise the reader's first
+  // impression of the feature.
+  app.use("/pdfjs/*", async (c, next) => {
+    await next();
+    if (c.req.path.endsWith(".wasm")) c.res.headers.set("Content-Type", "application/wasm");
+  });
   // Built assets first: compressed, ETagged, and cached in memory. Falls
   // through to serveStatic for anything it does not recognise as a file, and
   // to the SPA shell for client-side routes.
@@ -254,7 +286,29 @@ if (existsSync(distDir)) {
   app.get("*", serveShell);
 }
 
-serve({ fetch: app.fetch, port, hostname: host }, () => {
+// ── A PARENT PROCESS, WHEN THERE IS ONE ─────────────────────────────────────
+// The desktop app (electron/) does not import this file; it SPAWNS it, with an
+// IPC channel, so that the web deployment and the desktop run the same boot in
+// the same order rather than two callers of a factored-out `boot()` that only
+// one of them exercises. Two lines is the whole of what that costs here, and
+// both are inert without a parent: `process.send` exists only when the process
+// was given an "ipc" stdio.
+//
+// The disconnect handler is the one that matters. Without it, quitting the
+// desktop app leaves this process alive — holding the vault's port, watching
+// its directory and rebuilding its index for a window that no longer exists —
+// and the next launch of that vault finds its own port taken and has to move,
+// which is precisely the event that loses the reader's stored theme, tabs and
+// folds (see electron/prefs.ts).
+if (process.send) {
+  process.on("disconnect", () => process.exit(0));
+}
+
+serve({ fetch: app.fetch, port, hostname: host }, (info) => {
+  // The port the OS actually gave us, not the one we asked for. They differ
+  // when PORT=0, and a parent that is about to load `http://127.0.0.1:<port>`
+  // needs the true one.
+  process.send?.({ type: "vellum:listening", port: info.port });
   const gold = "\x1b[33m";
   const dim = "\x1b[2m";
   const reset = "\x1b[0m";
@@ -264,6 +318,6 @@ serve({ fetch: app.fetch, port, hostname: host }, () => {
   ${gold}  v e l l u m${reset}
   ${dim}  ─────────────${reset}
     vault   ${vaultDir}
-    serving ${gold}http://${shownHost}:${port}${reset}${host !== "0.0.0.0" ? `${dim}  (bound to ${host})${reset}` : ""}
+    serving ${gold}http://${shownHost}:${info.port}${reset}${host !== "0.0.0.0" ? `${dim}  (bound to ${host})${reset}` : ""}
 `);
 });
