@@ -21,9 +21,13 @@ import { metaSepText } from "../metaSep.tsx";
 import { toNumerals } from "../../shared/numerals.ts";
 import "../styles/attachments.css";
 
-/** Kinds the viewer displays itself. PDFs are not among them: browsers render
- *  them far better in their own tab, which is where a click sends them, so
- *  they never enter the carousel either. */
+/** Kinds the viewer displays itself. PDFs are still not among them, but the
+ *  reason changed: this used to say browsers render them better in their own
+ *  tab, which was true and is no longer the point. A PDF in a vault is a BOOK
+ *  — it wants a remembered page, a keyboard, a shelf and a night mode — so a
+ *  click on one opens the reader (client/books/) instead. It stays out of the
+ *  carousel for a different reason again: arrowing from a photograph into a
+ *  900-page volume is not a thing anyone means to do. */
 const VIEWABLE: ReadonlySet<AttachmentKind> = new Set<AttachmentKind>([
   "image",
   "audio",

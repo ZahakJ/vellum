@@ -31,6 +31,8 @@ import type { SyntaxNode } from "@lezer/common";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { parseWikilink, resolveLink, WIKILINK_RE } from "./links.ts";
+import { parseBookAnchor } from "../../shared/bookAnchor.ts";
+import { findPdfPath, openBookCitation } from "../books/mount.ts";
 import { posFromEvent } from "./pointer.ts";
 import { bannerFromYaml } from "../banner.ts";
 import { getLang, t, tf } from "../i18n.ts";
@@ -554,8 +556,20 @@ function buildDecorations(view: EditorView, revealActive: boolean): DecorationSe
         if (blocked(start, end)) continue;
         const inner = m[1];
         const { target, heading, alias } = parseWikilink(inner);
-        const linkClass =
-          resolveLink(target, tree) !== null
+        // A CITATION INTO A BOOK is an ordinary wikilink whose anchor is a
+        // page rather than a heading — `[[Ihya.pdf#page=42&rect=…&id=…]]`. It
+        // parses here with no help at all (that is the whole reason the anchor
+        // was made to ride `parseWikilink`); what it needs is not to be drawn
+        // as BROKEN, because `resolveLink` answers about notes and a PDF is
+        // not one. The reader's own resolver is asked instead, and the extra
+        // class is what gives a citation its own colour.
+        const cite = heading === null ? null : parseBookAnchor(heading);
+        const isCitation = cite !== null && /\.pdf$/i.test(target);
+        const linkClass = isCitation
+          ? findPdfPath(tree, target) !== null
+            ? "cm-s-wikilink cm-s-cite"
+            : "cm-s-wikilink cm-s-cite cm-s-wikilink--broken"
+          : resolveLink(target, tree) !== null
             ? "cm-s-wikilink"
             : "cm-s-wikilink cm-s-wikilink--broken";
         if (lineIsActive) {
@@ -647,9 +661,19 @@ function toggleTask(view: EditorView, pos: number): boolean {
   return true;
 }
 
-function openWikilink(inner: string): void {
+function openWikilink(inner: string, notePath: string): void {
   const { target, heading } = parseWikilink(inner);
   const store = useStore.getState();
+
+  // A citation into a book opens the book, on its page, with its passage
+  // pulsed. The opener lives in the reader's own door (client/books/mount.ts)
+  // and the resolution-by-content-hash behind it is loaded only when the
+  // filename has stopped resolving — see that module and citations.ts.
+  const cite = heading === null ? null : parseBookAnchor(heading);
+  if (cite !== null && /\.pdf$/i.test(target)) {
+    openBookCitation(target, cite, store.tree, notePath);
+    return;
+  }
 
   // [[#Heading]] — scroll within the note that's already open.
   if (!target && heading) {
@@ -822,7 +846,7 @@ function handleMousedown(event: MouseEvent, view: EditorView): boolean {
     const end = start + m[0].length;
     if (pos >= start && pos < end) {
       event.preventDefault();
-      openWikilink(m[1]);
+      openWikilink(m[1], view.state.facet(notePathFacet));
       return true;
     }
   }

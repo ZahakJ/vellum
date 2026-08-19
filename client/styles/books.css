@@ -1,0 +1,937 @@
+/* Vellum — the book reader and the shelf.
+
+   Class prefixes: s-books (the surface), s-shelf (the library), s-book (the
+   reader). Every colour is a token from tokens.css; every edge is a logical
+   property, because this whole surface mirrors for Arabic exactly like the
+   rest of the chrome.
+
+   TWO DIRECTIONS LIVE ON THIS SCREEN AT ONCE and the split is deliberate.
+   `.s-books` and everything chrome-ish inherits the document's own dir, so an
+   Arabic interface puts the close button on the left and the outline panel on
+   the left edge. `.s-book__doc` sets its OWN dir from the book's binding, so
+   the pages inside an Arabic volume run right-to-left inside that same
+   Arabic-or-English panel. A bilingual owner reading an English monograph in
+   an Arabic interface is the case that proves the two have to be separate.
+
+   The reader is chrome-free at rest: `[data-chrome="off"]` fades the title bar
+   and the status line out entirely, and any pointer movement or keystroke
+   brings them back. Under `prefers-reduced-motion` the fade is a cut — the
+   thing being animated is a control appearing over a page of type, and a slow
+   dissolve there is the exact motion that makes people ill. */
+
+/* ── The surface ───────────────────────────────────────────────────────── */
+
+.s-books-host {
+  /* The portal element itself takes no space; the overlay inside it is fixed. */
+  display: contents;
+}
+
+/* z-index 90 puts the surface over the whole app shell and UNDER the things
+   that must still float on top of it: the toast (200) — which the reader
+   itself raises for marks and command errors — the command palette (100), the
+   login modal (120) and the confirm dialog (500). The mobile sidebar drawer
+   (400) is higher still and that is harmless: its only opener is a button this
+   surface covers, so it cannot be raised while a book is open. */
+.s-books {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.s-books__loading {
+  margin: auto;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+}
+
+/* ── The shelf ─────────────────────────────────────────────────────────── */
+
+.s-shelf {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 clamp(16px, 4vw, 48px) 64px;
+  font-family: var(--font-ui);
+}
+
+.s-shelf__bar {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 0 16px;
+  background: var(--bg);
+  border-block-end: 1px solid var(--border);
+}
+
+.s-shelf__heading {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.s-shelf__search {
+  flex: 1;
+  max-inline-size: 380px;
+  margin-inline-start: auto;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+.s-shelf__search:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.s-shelf__close {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.s-shelf__close:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.s-shelf__note {
+  margin: 24px 0 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* auto-fill, not auto-fit: an owner with three books gets three book-sized
+   cards, not three cards stretched across a 27-inch display. */
+.s-shelf__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 220px));
+  gap: 28px 24px;
+  padding-block-start: 28px;
+  justify-content: start;
+}
+
+.s-shelf__card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+
+.s-shelf__card:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+/* THE PLATE. This is the resting state of every card and it is a designed
+   object, not a placeholder: the title set in the serif on the raised ground,
+   which is what the spine of a book without a jacket looks like. A shelf whose
+   covers never render is still a shelf. */
+.s-shelf__plate {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-raised);
+  /* The spine: a hairline of accent down the leading edge, so a wall of plates
+     reads as a shelf of books rather than a grid of boxes. */
+  box-shadow: inset 3px 0 0 var(--accent-soft);
+}
+
+.s-shelf__spine {
+  margin-block-start: auto;
+  padding: 14px 12px;
+  font-family: var(--font-serif);
+  font-size: 0.95rem;
+  line-height: 1.35;
+  color: var(--text);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+}
+
+/* `contain`, not `cover`. A cover is a picture of a PAGE, and pages are not
+   all 3:4 — an atlas, a landscape monograph or a scanned broadsheet cropped to
+   fill the card loses its own title, which is the one thing the card is for.
+   Letterboxed on the raised ground it reads as a book in a slipcase. */
+.s-shelf__cover {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: contain;
+  display: block;
+  margin: auto;
+}
+
+.s-shelf__progress {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-start: 0;
+  block-size: 3px;
+  background: var(--accent);
+}
+
+.s-shelf__title {
+  font-size: 0.9rem;
+  line-height: 1.3;
+  color: var(--text);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.s-shelf__author,
+.s-shelf__meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── The reader ────────────────────────────────────────────────────────── */
+
+.s-book {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  font-family: var(--font-ui);
+}
+
+.s-book--empty {
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.s-book__message {
+  margin: 0;
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: 32px;
+}
+
+.s-book__button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text);
+  padding: 8px 16px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.s-book__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  /* The reader's own scroll position is stored and restored by hand, so the
+     browser must not also try to preserve it when pages resize under a zoom. */
+  overflow-anchor: none;
+}
+
+/* The scroll container is the reader's keyboard home — j/k, gg/G and every
+   other key are dispatched from it — so it takes focus constantly and a ring
+   drawn around the whole page area would be on screen for the entire session.
+   It gets an inset rule on its leading edge instead: present, quiet, and the
+   same vocabulary the reading column already uses to say "this surface has the
+   keyboard". Removing the outline with NOTHING in its place is what
+   check-a11y refuses, and rightly. */
+.s-book__scroll:focus-visible {
+  outline: none;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.s-book__doc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-block: 24px 96px;
+}
+
+/* A spread is a row. `dir` on .s-book__doc decides which end of that row page
+   2 sits at, which is the whole of right-to-left binding: the pages are in
+   visual order already (layout.ts), so the row only has to honour direction. */
+.s-book__spread {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  justify-content: center;
+  inline-size: 100%;
+}
+
+.s-book__page {
+  position: relative;
+  flex: none;
+  background: var(--bg-raised);
+  box-shadow: 0 1px 8px var(--graph-vignette);
+}
+
+.s-book__canvas {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+/* A page not in the render window: the same box, empty. It holds the
+   scrollbar honest, which is why nothing jumps when the reader arrives. */
+.s-book__placeholder {
+  flex: none;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+}
+
+/* ── The text layer ────────────────────────────────────────────────────── */
+/* pdf.js positions one transparent span per text run over the canvas. It is
+   what makes a book selectable and what `/` searches; the glyphs are
+   invisible and only the SELECTION is ever seen. The custom properties below
+   are the contract pdf.js writes against — it sizes every span with
+   `calc(<pt>px * var(--total-scale-factor))`, so a zoom is one property
+   change rather than a re-layout of ten thousand spans. */
+
+.s-book__text {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 1;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.s-book__text :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.s-book__text > :not(.markedContent),
+.s-book__text .markedContent span:not(.markedContent) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.s-book__text .markedContent {
+  display: contents;
+}
+
+.s-book__text ::selection {
+  background: var(--selection-bg);
+}
+
+/* The search hit, painted through the CSS Custom Highlight API — no node is
+   inserted into the text layer, so the positions pdf.js computed stay exact
+   and the text stays selectable. Browsers without the API simply scroll the
+   match into view instead. */
+::highlight(vellum-book-search) {
+  background-color: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ── Chrome that gets out of the way ───────────────────────────────────── */
+
+.s-book__top,
+.s-book__status {
+  position: absolute;
+  inset-inline: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 16px;
+  background: var(--bg-raised);
+  border-color: var(--border);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  transition: opacity 160ms ease;
+}
+
+.s-book__top {
+  inset-block-start: 0;
+  border-block-end: 1px solid var(--border);
+}
+
+.s-book__status {
+  inset-block-end: 0;
+  border-block-start: 1px solid var(--border);
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.s-book[data-chrome="off"] .s-book__top,
+.s-book[data-chrome="off"] .s-book__status {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-book__top,
+  .s-book__status {
+    transition: none;
+  }
+}
+
+.s-book__title {
+  flex: 1;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 0.95rem;
+}
+
+.s-book__act {
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.s-book__act:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.s-book__act:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* ── The command and search lines ──────────────────────────────────────── */
+
+.s-book__line {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--bg-raised);
+  border-block-start: 1px solid var(--accent);
+}
+
+.s-book__prompt {
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.s-book__input {
+  flex: 1;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+}
+
+/* The `:` command line. Its own bar IS the focus indicator — it is only on
+   screen while it has the keyboard — but "the surrounding element looks
+   different" is not something a gate can see, and a reader arriving by Tab
+   deserves the same mark everything else gives them. */
+.s-book__input:focus {
+  outline: none;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* ── Outline and key sheet ─────────────────────────────────────────────── */
+
+.s-book__outline,
+.s-book__help {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  z-index: 3;
+  inline-size: min(340px, 80vw);
+  overflow-y: auto;
+  padding: 0 16px 24px;
+  background: var(--bg-raised);
+  border-inline-end: 1px solid var(--border);
+}
+
+.s-book__help {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+  border-inline-end: none;
+  border-inline-start: 1px solid var(--border);
+}
+
+.s-book__outline-head {
+  position: sticky;
+  inset-block-start: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-block: 14px 10px;
+  background: var(--bg-raised);
+  border-block-end: 1px solid var(--border);
+}
+
+.s-book__outline-head h2 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.s-book__outline-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.s-book__outline-row {
+  display: flex;
+  gap: 10px;
+  inline-size: 100%;
+  padding: 5px 6px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: start;
+  cursor: pointer;
+}
+
+.s-book__outline-row:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.s-book__outline-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.s-book__outline-title {
+  flex: 1;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-book__outline-page {
+  flex: none;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.s-book__help-list {
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.s-book__help-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding-block: 5px;
+  font-size: 0.85rem;
+}
+
+.s-book__help-row dt {
+  flex: none;
+  inline-size: 68px;
+}
+
+.s-book__help-row dd {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.s-book__help-row kbd {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--accent);
+  /* The keys are printed as they are TYPED — `gg`, `12G` — so they read
+     left-to-right even in an Arabic panel, where the label beside them
+     mirrors. */
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* ── The ink ───────────────────────────────────────────────────────────── */
+/* A highlight is a wash over the page, painted BETWEEN the canvas and the
+   text layer. It takes no pointer events and it is `aria-hidden`: the words it
+   covers are already in the text layer, where they can be read, searched and
+   selected, and the marked passages are listed as text in the `A` panel. A
+   coloured rectangle announced on top of the words it sits over would say
+   everything twice.
+
+   The six inks live on `:root` in tokens.css and are the same six in all
+   fifteen themes — see the comment there. They are PAGE inks. */
+
+.s-book__ink-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.s-book__ink {
+  position: absolute;
+  border-radius: 2px;
+  /* `multiply`, not `normal`: a highlighter is a translucent ink laid on
+     paper, and compositing it that way keeps the type underneath at the
+     page's own contrast instead of veiling it in a flat wash. On a night-mode
+     page the canvas is already the theme's ground, so the same blend lands the
+     ink on that ground rather than on white the reader cannot see. */
+  mix-blend-mode: multiply;
+}
+
+.s-book__ink[data-ink="1"] { background: var(--book-ink-1); }
+.s-book__ink[data-ink="2"] { background: var(--book-ink-2); }
+.s-book__ink[data-ink="3"] { background: var(--book-ink-3); }
+.s-book__ink[data-ink="4"] { background: var(--book-ink-4); }
+.s-book__ink[data-ink="5"] { background: var(--book-ink-5); }
+.s-book__ink[data-ink="6"] { background: var(--book-ink-6); }
+
+/* A passage with a note in the margin wears a rule along its leading edge, so
+   "I wrote something about this" is visible from across the page rather than
+   only in the panel. */
+.s-book__ink[data-annotated="yes"] {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* THE PULSE. A citation clicked in a note opens the book at its page — which,
+   on a page of nine hundred words, has not really answered the click. So the
+   passage breathes three times and then stops. It is not a highlight and never
+   becomes one: a ring left permanently around a sentence is a defacement of
+   somebody's book. */
+.s-book__pulse {
+  position: absolute;
+  border-radius: 3px;
+  background: var(--accent-soft);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  animation: s-book-pulse 720ms ease-in-out 3;
+}
+
+@keyframes s-book-pulse {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Held still rather than removed. The reader still has to be able to FIND
+     the sentence; what they must not be given is a rectangle throbbing over a
+     page of type. */
+  .s-book__pulse {
+    animation: none;
+    opacity: 0.75;
+  }
+}
+
+/* The ink in force, in the status line and beside every row of the panel. */
+.s-book__ink-chip {
+  flex: none;
+  inline-size: 12px;
+  block-size: 12px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+.s-book__ink-chip[data-ink="1"] { background: var(--book-ink-1); }
+.s-book__ink-chip[data-ink="2"] { background: var(--book-ink-2); }
+.s-book__ink-chip[data-ink="3"] { background: var(--book-ink-3); }
+.s-book__ink-chip[data-ink="4"] { background: var(--book-ink-4); }
+.s-book__ink-chip[data-ink="5"] { background: var(--book-ink-5); }
+.s-book__ink-chip[data-ink="6"] { background: var(--book-ink-6); }
+
+/* ── The citation sheet and the margin note ────────────────────────────── */
+/* Both are the same object: a panel along the bottom edge, in the same place
+   the `:` line appears, because that is where this reader has already taught
+   everyone to look for a question. */
+
+.s-book__sheet {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 12px;
+  background: var(--bg-raised);
+  border-block-start: 1px solid var(--accent);
+  max-block-size: 70%;
+  overflow-y: auto;
+}
+
+.s-book__sheet-quote {
+  margin: 0;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--accent-soft);
+  color: var(--text-muted);
+  font-family: var(--font-serif);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  max-block-size: 6.5em;
+  overflow: hidden;
+}
+
+.s-book__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.s-book__field-name {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.s-book__select,
+.s-book__quote {
+  inline-size: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+/* The quotation is set in the serif it will be READ in once it is in the note.
+   A quote proofread in the UI sans and then rendered in a book face is a quote
+   nobody actually proofread. */
+.s-book__quote {
+  font-family: var(--font-serif);
+  font-size: 0.92rem;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.s-book__select:focus-visible,
+.s-book__quote:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.s-book__sheet-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.s-book__button--primary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.s-book__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── The marked-passage panel (`A`) ────────────────────────────────────── */
+/* Shares the outline panel's frame — same edge, same head, same scroll — so a
+   reader who has opened `o` already knows how this one behaves. */
+
+.s-book__annot {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.s-book__annot-body {
+  flex: 1;
+  min-inline-size: 0;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 6px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: start;
+  cursor: pointer;
+}
+
+.s-book__annot-body:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.s-book__annot-body:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.s-book__annot-page {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.s-book__annot-text {
+  font-family: var(--font-serif);
+  line-height: 1.45;
+  /* Four lines and then an ellipsis: a panel is an index of passages, not a
+     second copy of the book. The whole passage is on the page it came off. */
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+
+.s-book__annot-note {
+  grid-column: 3;
+  color: var(--accent);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.s-book__annot-acts {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding-block-start: 4px;
+}
+
+/* ── Marked passages on the shelf ─────────────────────────────────────── */
+/* "Find the passage I marked in a book whose title I have forgotten" — the
+   one search a library of PDFs can do that a folder of them cannot. It shows
+   ABOVE the covers, because someone who typed a word they remember reading is
+   not looking for a cover. */
+
+.s-shelf__passages {
+  padding-block-start: 24px;
+}
+
+.s-shelf__passages-head {
+  margin: 0 0 4px;
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.s-shelf__passage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.s-shelf__passage {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  inline-size: 100%;
+  padding: 10px 8px;
+  border: none;
+  border-block-end: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.s-shelf__passage:hover {
+  background: var(--bg-hover);
+}
+
+.s-shelf__passage:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.s-shelf__passage-ink {
+  inline-size: 10px;
+  block-size: 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  align-self: center;
+}
+
+.s-shelf__passage-ink[data-ink="1"] { background: var(--book-ink-1); }
+.s-shelf__passage-ink[data-ink="2"] { background: var(--book-ink-2); }
+.s-shelf__passage-ink[data-ink="3"] { background: var(--book-ink-3); }
+.s-shelf__passage-ink[data-ink="4"] { background: var(--book-ink-4); }
+.s-shelf__passage-ink[data-ink="5"] { background: var(--book-ink-5); }
+.s-shelf__passage-ink[data-ink="6"] { background: var(--book-ink-6); }
+
+.s-shelf__passage-text {
+  font-family: var(--font-serif);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.s-shelf__passage-note {
+  grid-column: 2;
+  color: var(--accent);
+  font-size: 0.82rem;
+}
+
+.s-shelf__passage-where {
+  grid-column: 2;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}

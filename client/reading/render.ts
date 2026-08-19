@@ -19,6 +19,7 @@ import { label as tagLabel } from "../tagLabels.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { parseWikilink, resolveLink } from "../editor/links.ts";
+import { parseBookAnchor } from "../../shared/bookAnchor.ts";
 import {
   brokenEmbed,
   embedKnownBroken,
@@ -207,6 +208,26 @@ function renderInline(raw: string, ctx: Ctx, multiline = false): string {
   // [[wikilinks]] — plain click navigates (handled by the root listener).
   s = s.replace(/\[\[([^[\]]+?)\]\]/g, (_m, inner: string) => {
     const { target, heading, alias } = parseWikilink(unesc(inner));
+    // A CITATION INTO A BOOK: `[[Ihya.pdf#page=42&rect=…&id=…|Ihya, p. 42]]`.
+    // It is a wikilink and nothing else — `parseWikilink` split it without
+    // being taught anything, which is exactly why the anchor was given this
+    // shape — but `resolveLink` answers about NOTES, so a PDF would otherwise
+    // render dashed and a click on it would offer to create "Ihya.pdf.md".
+    // The click is answered by the reader's own door (onRootClick below); the
+    // note it was clicked FROM travels on the element, because that is what a
+    // repaired link has to be written back into.
+    const cite = heading === null ? null : parseBookAnchor(heading);
+    if (cite !== null && /\.pdf$/i.test(target)) {
+      const shown = alias ?? `${target} › ${cite.page}`;
+      // On a published page a citation is not a link: a visitor has no library
+      // to open and no business enumerating one. It reads as the words the
+      // owner wrote, which is what `brokenLinks: "plain"` already means here.
+      if (ctx.brokenLinks === "plain") return keep(esc(shown));
+      return keep(
+        `<a class="s-rv-wikilink s-rv-cite" data-book="${esc(target)}" data-anchor="${esc(heading ?? "")}"` +
+          ` data-cite-note="${esc(ctx.notePath)}" role="link" tabindex="0">${esc(shown)}</a>`,
+      );
+    }
     const resolved = target ? resolveLink(target, ctx.tree) : null;
     const label =
       alias ?? (heading ? (target ? `${target} › ${heading}` : heading) : target);
@@ -1041,6 +1062,25 @@ export function onRootClick(ev: MouseEvent): void {
   const wl = target.closest<HTMLElement>(".s-rv-wikilink");
   if (wl) {
     ev.preventDefault();
+    // A citation into a book. The opener is loaded on the click rather than
+    // imported here: this module renders the blog's articles as well as the
+    // vault's, and a reader of one published essay must not download the book
+    // reader's door to find out they never clicked a citation.
+    const book = wl.dataset.book;
+    const anchorText = wl.dataset.anchor;
+    if (book !== undefined && anchorText !== undefined) {
+      const anchor = parseBookAnchor(anchorText);
+      const store = useStore.getState();
+      if (anchor !== null && store.admin) {
+        const from = wl.dataset.citeNote ?? "";
+        void import("../books/mount.ts").then((mod) =>
+          mod.openBookCitation(book, anchor, store.tree, from),
+        );
+      } else if (anchor !== null) {
+        toast(tf("linkNotPublished", { name: book }));
+      }
+      return;
+    }
     const name = wl.dataset.target ?? "";
     const heading = wl.dataset.heading;
     if (!name && heading) {
