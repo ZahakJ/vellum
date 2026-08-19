@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld("vellumDesktop", {
   onFindResult: (cb: (payload: unknown) => void) => on("vellum:find-result", cb),
   onNavigate: (cb: (route: string) => void) => on("vellum:navigate", cb),
   onOsTheme: (cb: (dark: boolean) => void) => on("vellum:os-theme", cb),
+  onUpdateState: (cb: (payload: unknown) => void) => on("vellum:update-state", cb),
 
   // ── renderer → main ──────────────────────────────────────────────────────
   /** The reader picked a spelling. */
@@ -61,4 +62,7 @@ contextBridge.exposeInMainWorld("vellumDesktop", {
   dragNote: (rel: string) => ipcRenderer.invoke("vellum:drag-note", rel),
   /** Open this route in an always-on-top reference window. */
   openReference: (route: string) => ipcRenderer.invoke("vellum:open-reference", route),
+  /** Apply a staged update and relaunch — or open the release page on a build
+   *  that cannot swap itself in place. */
+  updateApply: () => ipcRenderer.invoke("vellum:update-apply"),
 });

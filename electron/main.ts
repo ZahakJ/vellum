@@ -28,6 +28,7 @@ import {
   session,
   shell,
 } from "electron";
+import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { TO_MAIN, TO_RENDERER, type Command, type Hello } from "./ipc.ts";
@@ -46,6 +47,7 @@ import {
 import { APP_ROOT, startVaultServer, type VaultServer } from "./server.ts";
 import { enableSpellcheck, replaceMisspelling, spellMenuFor } from "./spellcheck.ts";
 import { dataDirFor, flushPrefs, loadPrefs, partitionFor, savePrefs } from "./store.ts";
+import { applyStagedUpdate, checkForUpdates, installUpdater, onUpdateState } from "./update.ts";
 import { createReferenceWindow, createVaultWindow, focusedFirst, tell } from "./windows.ts";
 
 const ICON = path.join(APP_ROOT, "desktop", "icons", "icon.png");
@@ -61,6 +63,11 @@ interface Instance {
   /** A route that arrived before a window was ready to receive it. */
   pendingRoute: string | null;
   spellcheck: boolean;
+  /** The dictionary languages the checker resolved — what Hello reports so the
+   *  editor invites the checker only where a dictionary exists. On macOS the
+   *  OS checker reads `lang` itself and supports what the system supports, so
+   *  the wildcard says "trust the attribute". */
+  spellLanguages: string[];
 }
 
 /** Vault path → instance. The registry, and the reason "one window per vault"
@@ -110,10 +117,23 @@ async function start(): Promise<void> {
   installTray();
   refreshMenu();
   await handleArgv(process.argv);
-  // Nothing to open: ask. A vault picker on first launch is the app's first
-  // sentence, so it is a real dialog with a real question, not an "Open…".
+  // Nothing named on the command line: reopen the vault the reader was last
+  // in. A notes app that greets its owner with a file dialog every morning is
+  // asking a question it already knows the answer to — the prefs have carried
+  // `lastOpened` since the first launch, and launch never once read it. The
+  // PICKER is for the launch that genuinely has no answer: first run, or a
+  // remembered vault whose directory has since gone away (renamed, on an
+  // unmounted drive) — falling through to the dialog there rather than
+  // erroring, because "where is your vault" is again a real question.
+  if (instances.size === 0) {
+    const last = loadPrefs().vaults[0];
+    if (last !== undefined && existsSync(last.path)) await openVault(last.path);
+  }
+  // Still nothing to open: ask. A vault picker on first launch is the app's
+  // first sentence, so it is a real dialog with a real question, not "Open…".
   if (instances.size === 0) await openVaultDialog();
   if (instances.size === 0 && process.platform !== "darwin") app.quit();
+  installUpdater();
 }
 
 app.on("window-all-closed", () => {
@@ -266,6 +286,7 @@ async function openVaultUnguarded(vault: string, route: string): Promise<void> {
     windows: new Set(),
     pendingRoute: null,
     spellcheck: prefs.spellcheck,
+    spellLanguages: [],
   };
   instances.set(vault, instance);
 
@@ -273,7 +294,11 @@ async function openVaultUnguarded(vault: string, route: string): Promise<void> {
   // in Arabic gets an Arabic menu bar, because the window under it is already
   // mirrored and translated. Asked once, over the session that just signed in.
   await adoptLanguage(instance);
-  enableSpellcheck(ses, menuLang(), instance.spellcheck);
+  instance.spellLanguages =
+    process.platform === "darwin" && instance.spellcheck
+      ? ["*"]
+      : enableSpellcheck(ses, menuLang(), instance.spellcheck);
+  if (process.platform === "darwin") enableSpellcheck(ses, menuLang(), instance.spellcheck);
 
   savePrefs(rememberVault(loadPrefs(), vault, server.port, Date.now()));
   newWindowFor(instance, route);
@@ -484,6 +509,16 @@ function focusedInstance(): Instance | null {
 // already inside.
 
 function registerBridge(): void {
+  // The updater speaks to EVERY window: which vault is in front has nothing to
+  // do with which app version is running.
+  onUpdateState((state) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      tell(win, TO_RENDERER.updateState, state);
+    }
+  });
+  ipcMain.handle(TO_MAIN.updateApply, async () => {
+    await applyStagedUpdate();
+  });
   ipcMain.handle(TO_MAIN.hello, (event): Hello => {
     const instance = instanceOf(event.sender);
     const pendingRoute = instance?.pendingRoute ?? null;
@@ -494,6 +529,7 @@ function registerBridge(): void {
       vaultName: instance?.vaultName ?? "",
       pendingRoute,
       spellcheck: instance?.spellcheck ?? false,
+      spellLanguages: instance?.spellLanguages ?? [],
     };
   });
 
@@ -603,6 +639,7 @@ function refreshMenu(): void {
     send: sendCommand,
     openVault: () => void openVaultDialog(),
     openRecent: (vault) => void openVault(vault),
+    checkUpdates: () => void checkForUpdates(true),
     clearRecent: () => {
       let prefs = loadPrefs();
       // The OPEN vaults stay: "clear the list" is about history, and removing

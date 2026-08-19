@@ -175,6 +175,16 @@ const COMMANDS: Command[] = [
   // there is nothing to pop out of a blog page, and a visitor has no second
   // window to keep in step.
   {
+    id: "collapse-folders",
+    label: () => t("collapseAll"),
+    available: ({ admin }) => admin,
+  },
+  {
+    id: "expand-folders",
+    label: () => t("expandAll"),
+    available: ({ admin }) => admin,
+  },
+  {
     id: "pop-out",
     label: () => t("cmdPopOut"),
     available: ({ admin, openPath }) => admin && openPath !== null,
@@ -632,6 +642,12 @@ export default function CommandPalette() {
       switch (command.id) {
         case "daily-note":
           void openDailyNote();
+          break;
+        case "collapse-folders":
+          window.dispatchEvent(new CustomEvent("vellum:tree-all", { detail: { open: false } }));
+          break;
+        case "expand-folders":
+          window.dispatchEvent(new CustomEvent("vellum:tree-all", { detail: { open: true } }));
           break;
         case "pop-out": {
           const open = useStore.getState().openPath;

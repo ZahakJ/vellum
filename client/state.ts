@@ -1272,22 +1272,29 @@ export const useStore = create<State>()((set, get) => {
         clearBrokenEmbeds();
         if (on) {
           previewSnapshot = get().workspace;
-          // openPath goes to null for the length of the transition. The
-          // scoping below cannot run until loadTree() has answered, and in
-          // the meantime the reading view would refetch the OPEN note with
-          // the visitor header on — the server correctly 404s an unpublished
-          // note, and the owner's very first use of preview announced
-          // "Failed to open <path>" about a site that is fine. Drop the tab
-          // before the view refetches, then put it back if it survives.
-          set({
+          // THE TABS LEAVE BEFORE THE HEADER GOES ON. The scoping below cannot
+          // run until loadTree() answers, and in the meantime every pane
+          // refetches ITS OWN note with the visitor header on — the server
+          // correctly 404s an unpublished one, and preview opened by
+          // announcing "cannot access <note>" about a site that is fine. The
+          // pre-pane code nulled `openPath` here for exactly this reason, and
+          // panes made that guard DEAD: a pane renders from the workspace, so
+          // the write desynced the mirror and unmounted nothing (the owner
+          // met this within a day). The pane-shaped guard prunes the
+          // WORKSPACE, optimistically, against the published set the store
+          // already holds — the authoritative prune against the visitor tree
+          // still runs below, and the snapshot above restores everything on
+          // the way out.
+          set((s) => ({
+            ...s,
+            ...mirrorOf(pruneWorkspace(s.workspace, s.publishedPaths ?? new Set())),
             previewVisitor: true,
-            openPath: null,
             paletteOpen: false,
             moderationOpen: false,
             // The trash browser is an admin surface over deleted vault paths;
             // it must not survive into a visitor preview.
             trashOpen: false,
-          });
+          }));
           // Tree BEFORE me: the shell swap (admin flips false on loadMe) must
           // find the visitor tree already in place, or the blog router would
           // transiently resolve routes against the full admin tree.

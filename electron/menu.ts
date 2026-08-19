@@ -47,6 +47,9 @@ export interface MenuHandlers {
   clearRecent: () => void;
   newWindow: () => void;
   revealVault: () => void;
+  /** Ask the updater, out loud — the same code path the six-hour timer runs,
+   *  except a person who asked deserves an answer either way. */
+  checkUpdates: () => void;
   about: () => void;
   recents: RecentEntry[];
   spellcheckEnabled: boolean;
@@ -231,6 +234,7 @@ export function buildMenu(h: MenuHandlers): Menu {
     label: m("menuHelp"),
     submenu: [
       { label: m("menuShortcuts"), accelerator: "CmdOrCtrl+/", click: () => h.send("shortcuts") },
+      { label: m("menuCheckUpdates"), click: () => h.checkUpdates() },
       ...(isMac ? [] : [{ type: "separator" as const }, { label: m("menuAbout"), click: () => h.about() }]),
     ],
   });

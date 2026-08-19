@@ -27,7 +27,10 @@ directories:
 # ESM-import through, and cannot dlopen argon2 out of. Selectively unpacking
 # the server's world would have left electron/ alone in the archive and a
 # second APP_ROOT code path to keep true forever. A directory tree is what the
-# child was always meant to read; ship one.
+# child was always meant to read; ship one. (This also retires the argon2
+# asarUnpack that used to sit below: with no archive there is nothing to
+# unpack. `npmRebuild` still compiles it against Electron's ABI — the third
+# thing electron/probe.ts checks at every launch.)
 asar: false
 
 extraMetadata:
@@ -62,15 +65,6 @@ files:
   - package.json
   - "!**/*.map"
   - "!**/node_modules/**/{test,__tests__,tests,example,examples,doc,docs}/**"
-
-# argon2 is a native addon and cannot be read out of an asar archive by the
-# dynamic linker. `npmRebuild` (on by default) is what compiles it against
-# Electron's ABI rather than stock Node's — the third thing electron/probe.ts
-# checks, because a build that skips it looks perfectly fine until auth runs,
-# which on the desktop is every launch.
-asar: true
-asarUnpack:
-  - "**/node_modules/argon2/**"
 
 # `vellum://open?vault=…&note=…`. Registered here for the installer and again at
 # runtime (electron/main.ts) so it also works from a dev checkout. What a link
