@@ -164,8 +164,19 @@ const app = APP_SHELL_ROOTS.reduce((acc, key) => closure(key, acc), new Set(entr
 // The ratchet is kept, not loosened: 480 is the new actual plus ~2%, which is
 // TIGHTER than the ~5% the numbers below were set with. A regression of any
 // size still turns this red, which is the only property that matters.
+//
+// RE-BASELINED for BOOK TABS and the TAB-DRAG gesture (499.7 kB actual →
+// 510 kB, actual + ~2%). What grew, and why no split can take it off:
+// `client/books/door.ts` now calls into the store (a book is a workspace tab,
+// so the door's happy path IS a store call), the router computes book URLs
+// from the workspace, Tabs.tsx carries the drag/reorder handlers, and the
+// dictionary gained the composer/table/palette keys — `t()` reads it on every
+// surface. The drag's drop zones themselves are NOT here: they lazy-load at
+// the first lift, which is what kept this bump at ~4 kB instead of ~7. The
+// by-language dictionary split (below) remains the scheduled recovery of
+// ~32 kB from every one of these numbers.
 const AUDIENCES = [
-  { name: "entry (everyone)", keys: entry, budget: 496 * 1024 },
+  { name: "entry (everyone)", keys: entry, budget: 510 * 1024 },
   // RE-BASELINED for the DICTIONARY, and this one deserves naming as a debt
   // rather than a measurement. `client/i18n.ts` is a single object read by
   // `t()` on every surface, so it lands whole in every first paint — and this
@@ -193,8 +204,10 @@ const AUDIENCES = [
   // cross-window lease and the buffer bridge are all structural additions to
   // the shell that no split can remove from a first paint, and they arrived
   // with the dictionary keys that name them.
-  { name: "anonymous blog reader", keys: blog, budget: 672 * 1024 },
-  { name: "admin first paint", keys: app, budget: 1080 * 1024 },
+  // Moves with the entry above (the blog closure contains it): same causes,
+  // same recovery path, actual 673.4 kB at the book-tabs re-baseline.
+  { name: "anonymous blog reader", keys: blog, budget: 688 * 1024 },
+  { name: "admin first paint", keys: app, budget: 1096 * 1024 },
 ];
 
 // ── things that must never be in a first paint ──────────────────────────────
@@ -226,10 +239,11 @@ const FORBIDDEN = [
   //     client/books/pdfjs.ts (that file is reached only through `import()`);
   //   · the reader's own modules, which come back the moment anyone imports
   //     a component or a helper out of client/books/ from the app shell.
-  //     `client/books/mount.ts` is the deliberate exception and the reason
+  //     `client/books/door.ts` is the deliberate exception and the reason
   //     the rule names the surface files rather than the directory: it is the
-  //     door the sidebar and the router hold, it is ~120 lines of URL parsing
-  //     and a React root, and everything behind it is dynamic.
+  //     door the sidebar, the router and the editors hold — URL parsing, a
+  //     tree walk and a store call — and everything behind it is dynamic
+  //     (Pane.tsx mounts BooksSurface through React.lazy).
   { label: "pdf.js", test: (k) => /node_modules\/pdfjs-dist\//.test(k) },
   {
     label: "the book reader",

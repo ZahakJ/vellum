@@ -51,15 +51,8 @@ import { randomBytes } from "node:crypto";
 import argon2 from "argon2";
 import type { Session } from "electron";
 import { parseSessionCookie, type SessionCookie } from "./cookie.ts";
+import type { Credential } from "./server.ts";
 
-export interface Credential {
-  /** The plaintext. In memory, in this process, for this launch. */
-  password: string;
-  /** What the server child is given as ADMIN_PASSWORD_HASH. */
-  hash: string;
-  /** What the server child is given as SESSION_SECRET. */
-  secret: string;
-}
 
 /** argon2 parameters for a password NOBODY TYPES.
  *

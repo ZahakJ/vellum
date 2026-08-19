@@ -36,7 +36,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Credential } from "./auth.ts";
 import { portCandidates, rememberedPort, type Prefs } from "./prefs.ts";
 
 /** Repo root — the directory holding `server/`, `dist/` and `vault-seed/`.
@@ -90,6 +89,21 @@ export function isPortFree(port: number): Promise<boolean> {
  *  which directories it reads are this process's decisions — a deployment's
  *  PORT is the one thing that must NOT follow it into a window, or opening the
  *  vault fights the deployment for its own socket. */
+// Credential lives HERE, not in auth.ts, although auth mints it: the root
+// tsconfig reaches this module (tests import childEnv), and auth.ts types
+// against `electron` itself — a type-only import of Credential from auth
+// dragged the whole electron type surface into a project that cannot resolve
+// it. The interface describes what the server child is GIVEN, so the child's
+// module is its natural home.
+export interface Credential {
+  /** The plaintext. In memory, in this process, for this launch. */
+  password: string;
+  /** What the server child is given as ADMIN_PASSWORD_HASH. */
+  hash: string;
+  /** What the server child is given as SESSION_SECRET. */
+  secret: string;
+}
+
 const DESKTOP_OWNED = new Set(["PORT", "HOST", "VELLUM_VAULT", "VELLUM_DATA", "ELECTRON_RUN_AS_NODE"]);
 
 /** Parse a deployment's `.env`, the same dialect `node --env-file` reads:

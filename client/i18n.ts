@@ -978,6 +978,41 @@ const DICT = {
   // pane offers the notes this reader was last in, plus the three doors the
   // legend was only naming.
   emptyRecent: { en: "Recent notes", ar: "ملاحظات حديثة" },
+  // The palette's own captions. paletteRecent duplicates emptyRecent's words
+  // on purpose: two surfaces, one phrase TODAY — a shared key would weld them
+  // so that rewording one silently rewords the other.
+  paletteRecent: { en: "Recent notes", ar: "ملاحظات حديثة" },
+  // "@…" rows are headings AND LaTeX \labels; an "Outline" caption undersells
+  // the second half.
+  paletteHeadings: { en: "Headings & labels", ar: "العناوين والتسميات" },
+  // The wikilink popup's create row — one sentence, not two strings glued.
+  linkCreateNote: { en: "Create “{name}”", ar: "إنشاء «{name}»" },
+  // The search hit's per-line matches disclosure.
+  searchHitMatches: { en: "Matches in {label}", ar: "المطابقات في {label}" },
+  searchHitMatchesHide: { en: "Hide matches in {label}", ar: "إخفاء المطابقات في {label}" },
+  // ── The composer rows (SelectionMenu) ────────────────────────────────────
+  extractSelection: { en: "Extract selection to a new note", ar: "استخراج التحديد إلى ملاحظة جديدة" },
+  selectionExtracted: { en: "Moved “{title}” into {path}", ar: "نُقل «{title}» إلى {path}" },
+  selectionExtractUndone: { en: "Extraction undone", ar: "أُلغي الاستخراج" },
+  selectionExtractFailed: { en: "Could not extract the selection", ar: "تعذّر استخراج التحديد" },
+  insFootnote: { en: "Footnote", ar: "حاشية سفلية" },
+  // The refusal has a voice: planFootnote declines in code spans and on a
+  // duplicate definition, and a silent decline reads as a broken key.
+  footnoteCollision: { en: "Could not insert a footnote here", ar: "تعذّر إدراج حاشية هنا" },
+  caseTitle: { en: "Title Case", ar: "حالة العنوان" },
+  caseUpper: { en: "UPPERCASE", ar: "أحرف كبيرة" },
+  caseLower: { en: "lowercase", ar: "أحرف صغيرة" },
+  calloutPage: { en: "Callout", ar: "تنبيه" },
+  scExtractSelection: { en: "Extract the selection into a new linked note", ar: "استخراج التحديد إلى ملاحظة مرتبطة جديدة" },
+  scInsertFootnote: { en: "Insert a footnote (numbered in order)", ar: "إدراج حاشية سفلية (مرقّمة بالترتيب)" },
+  scCaseTransform: { en: "Change the selection's case (Title / UPPER / lower)", ar: "تغيير حالة أحرف التحديد" },
+  scWrapCallout: { en: "Wrap the selection in a callout", ar: "لفّ التحديد في تنبيه" },
+  // ── The table keymap's shortcut-sheet rows ───────────────────────────────
+  scTableCells: { en: "Next table cell (in the last cell: adds a row)", ar: "الخلية التالية في الجدول (في الخلية الأخيرة: يضيف صفًا)" },
+  scTableCellsBack: { en: "Previous table cell", ar: "الخلية السابقة في الجدول" },
+  scTableRowDown: { en: "Down a row (out of the table from the last row)", ar: "صف إلى الأسفل (خروج من الجدول من الصف الأخير)" },
+  scTableMoveRow: { en: "Move table row", ar: "نقل صف الجدول" },
+  scTableMoveColumn: { en: "Move table column (with its alignment)", ar: "نقل عمود الجدول (مع محاذاته)" },
   openSidebar: { en: "Open Notes sidebar", ar: "فتح لوحة الملاحظات" },
   closeSidebar: { en: "Close Notes sidebar", ar: "إغلاق لوحة الملاحظات" },
   exitZen: { en: "Exit zen mode (Esc)", ar: "إنهاء وضع التركيز (Esc)" },
@@ -1135,7 +1170,7 @@ const DICT = {
   slashCodeBlock: { en: "Code block", ar: "كتلة شفرة" },
   slashCodeBlockDetail: { en: "``` with language search", ar: "``` مع بحث عن اللغة" },
   slashTable: { en: "Table", ar: "جدول" },
-  slashTableDetail: { en: "3-column skeleton", ar: "هيكل من ثلاثة أعمدة" },
+  slashTableDetail: { en: "2×2 skeleton", ar: "هيكل ٢×٢" },
   slashTaskList: { en: "Task list", ar: "قائمة مهام" },
   slashMathBlock: { en: "Math block", ar: "كتلة معادلات" },
   slashMathDetail: { en: "$$ display math $$", ar: "$$ معادلة مستقلة $$" },

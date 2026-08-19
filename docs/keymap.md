@@ -59,6 +59,19 @@ is handed straight back to the browser.
 | `Ctrl/Cmd Z` / `Ctrl/Cmd Shift Z` | Undo / redo (inside the editor; see the note on zen below) |
 | `Ctrl/Cmd F` | Find within the note |
 
+## Tables
+
+All five live ONLY while the caret sits inside a table block — outside one, `Tab` still indents,
+`Enter` still breaks the line, and `Alt` with an arrow still belongs to the browser.
+
+| Keys | Action |
+| ---- | ------ |
+| `Tab` | Next table cell (in the last cell: adds a row) |
+| `Shift Tab` | Previous table cell |
+| `Enter` | Down a row in the table (out of the table from the last row) |
+| `Alt ↑` / `↓` | Move table row |
+| `Alt ←` / `→` | Move table column, alignment row included (visual arrows — flipped in an RTL table) |
+
 ## Templates
 
 | Keys | Action |
@@ -115,6 +128,10 @@ key, and the keymap gate leaves them alone.
 | `/` at line start | Slash menu (callout, code fence, table, …) |
 | `Tab` | Indent (CodeMirror's `indentWithTab`) |
 | `↑` `↓` `Enter` `Esc` | Navigate / confirm / dismiss the palette (`Enter` always runs the keyboard's row, never whatever the mouse happens to rest on) |
+| Selection menu | Extract the selection into a new linked note — `[[link]]` left standing, and the toast's Undo restores **both** files |
+| Selection menu → Insert | Footnote — `[^n]` numbered so existing footnotes stay ordered, definition stub at the note's end; `\footnote{…}` in a `.tex` note |
+| Selection menu → Structure | Title Case / UPPERCASE / lowercase over the selection, per cursor — wikilink targets and code spans untouched |
+| Selection menu → Callout | Wrap the selection in a `> [!type]` callout — every line prefixed, blank lines kept inside the callout |
 
 Every modal, popover and picker in the product answers the same four keys — `Esc` to leave, arrows
 to move, `Enter` to commit, type-ahead where there is a list — and `Esc` always belongs to the

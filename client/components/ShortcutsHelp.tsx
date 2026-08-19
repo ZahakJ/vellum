@@ -225,6 +225,24 @@ const GROUPS: Group[] = [
       { label: "scColumnSelect", via: "scColumnSelectHow", admin: true },
       { label: "scSelectionMenu", via: "scSelectionMenuKey", admin: true },
       { label: "scTextColor", via: "scViaSelectionMenu", admin: true },
+      // The composer's four verbs. Surfaces, not keystrokes — the sheet's rule
+      // is that a row with no key still appears, naming where it lives — and
+      // deliberately NO new bindings: the selection menu is the door, and the
+      // gate has nothing to collide.
+      { label: "scExtractSelection", via: "scViaSelectionMenu", admin: true },
+      { label: "scInsertFootnote", via: "scViaSelectionMenu", admin: true },
+      { label: "scCaseTransform", via: "scViaSelectionMenu", admin: true },
+      { label: "scWrapCallout", via: "scViaSelectionMenu", admin: true },
+      // Tables (client/editor/tables.ts): all five bindings exist only while
+      // the caret sits inside a table block — outside it Tab still indents,
+      // Enter still breaks the line, Alt+arrows still move lines. The Tab row
+      // and the add-a-row row share a chord on purpose: same key, one place,
+      // two outcomes by position.
+      { label: "scTableCells", keys: ["Tab"], admin: true },
+      { label: "scTableCellsBack", keys: ["Shift", "Tab"], admin: true },
+      { label: "scTableRowDown", keys: ["Enter"], admin: true },
+      { label: "scTableMoveRow", keys: ["Alt", "↑ / ↓"], admin: true },
+      { label: "scTableMoveColumn", keys: ["Alt", "← / →"], admin: true },
     ],
   },
   {
