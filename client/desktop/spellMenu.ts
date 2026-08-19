@@ -28,8 +28,16 @@ import { desktop, type SpellMenuPayload } from "./bridge.ts";
 const EDGE = 8;
 
 let open: HTMLElement | null = null;
+/** Whatever the OPEN menu registered on window, torn down with it. There is
+ *  exactly one closer, and this is why: the suggestion rows used to call a
+ *  close that removed the DOM while the four capture-phase listeners stayed
+ *  behind — every correction after the first left another ghost eating the
+ *  arrow keys and Escape app-wide. */
+let teardown: (() => void) | null = null;
 
 export function closeSpellMenu(): void {
+  teardown?.();
+  teardown = null;
   open?.remove();
   open = null;
 }
@@ -126,12 +134,14 @@ export function openSpellMenu(payload: SpellMenuPayload): void {
     const next = ev.key === "ArrowDown" ? at + 1 : at - 1;
     items[(next + items.length) % items.length]?.focus();
   };
-  const dismiss = (): void => {
+  const dismiss = (): void => closeSpellMenu();
+  // Registered as the menu's teardown, so EVERY close path — a row's click, an
+  // outside mousedown, Escape, a resize, the next menu opening — removes them.
+  teardown = () => {
     window.removeEventListener("mousedown", onAway, true);
     window.removeEventListener("contextmenu", onAway, true);
     window.removeEventListener("keydown", onKey, true);
     window.removeEventListener("resize", dismiss);
-    closeSpellMenu();
   };
   window.addEventListener("mousedown", onAway, true);
   window.addEventListener("contextmenu", onAway, true);

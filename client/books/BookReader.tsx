@@ -295,7 +295,7 @@ export default function BookReader({ path, citation = null, onClose, onLibrary }
   }, [doc]);
 
   const spreads = useMemo(
-    () => spreadsOf(state.pages, state.dual, state.rtl),
+    () => spreadsOf(state.pages, state.dual),
     [state.pages, state.dual, state.rtl],
   );
 
@@ -658,7 +658,7 @@ export default function BookReader({ path, citation = null, onClose, onLibrary }
   const cycleInk = useCallback((delta: number) => {
     const next = ((inkRef.current - 1 + delta + INK_COUNT) % INK_COUNT) + 1;
     setInk(next);
-    toast(tf("bookInkSet", { percent: localeNum(next) }));
+    toast(tf("bookInkSet", { ink: localeNum(next) }));
   }, []);
 
   /** The highlight `x` and `e` mean when the reader has not pointed at one:
@@ -834,8 +834,15 @@ export default function BookReader({ path, citation = null, onClose, onLibrary }
   }, [doc, outline]);
 
   // ── Search ────────────────────────────────────────────────────────────────
+  /** Bumped per search; a scan that is no longer the newest stops publishing.
+   *  The scan is page-by-page and awaits between pages, so a SLOWER earlier
+   *  query could finish after a faster later one and overwrite its results —
+   *  scrolling the reader away from hits they were already walking. */
+  const searchSeq = useRef(0);
+
   const runSearch = useCallback(
     async (text: string) => {
+      const seq = ++searchSeq.current;
       if (!doc || text.trim() === "") {
         setHits([]);
         return;
@@ -857,7 +864,9 @@ export default function BookReader({ path, citation = null, onClose, onLibrary }
         } catch {
           // A page whose text cannot be extracted contributes no hits.
         }
+        if (seq !== searchSeq.current) return; // superseded mid-scan
       }
+      if (seq !== searchSeq.current) return;
       setHits(found);
       setHitAt(0);
       if (found.length > 0) goToPage(found[0].page);
@@ -972,7 +981,7 @@ export default function BookReader({ path, citation = null, onClose, onLibrary }
           else {
             const picked = Math.min(INK_COUNT, Math.max(1, Math.round(command.ink)));
             setInk(picked);
-            toast(tf("bookInkSet", { percent: localeNum(picked) }));
+            toast(tf("bookInkSet", { ink: localeNum(picked) }));
           }
           break;
         case "cite":
@@ -1342,7 +1351,7 @@ export default function BookReader({ path, citation = null, onClose, onLibrary }
           className="s-book__ink-chip"
           data-ink={ink}
           title={tf("bookZoomPct", { percent: localeNum(ink) })}
-          aria-label={tf("bookZoomPct", { percent: localeNum(ink) })}
+          aria-label={tf("bookInkSet", { ink: localeNum(ink) })}
         />
       </footer>
 
@@ -1979,11 +1988,21 @@ function highlightHit(
   if (!host) return null;
 
   // Flatten the layer into one string plus a node map, then run the SAME
-  // matcher the extracted text was searched with.
-  const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+  // matcher the extracted text was searched with. THE SAME STRING, and that is
+  // the load-bearing part: the scan haystack (`textOf`) writes "\n" wherever
+  // pdf.js reported `hasEOL`, and the text layer renders that same fact as a
+  // <br> — which a SHOW_TEXT walk skips entirely. The two haystacks then
+  // disagreed about both offsets and match COUNT, so the `nth` computed
+  // against one indexed into the other and `n` lit the wrong occurrence. The
+  // walk now speaks for the <br> the way the extractor spoke for `hasEOL`.
+  const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
   const nodes: { node: Text; start: number }[] = [];
   let text = "";
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      if ((node as Element).tagName === "BR") text += "\n";
+      continue;
+    }
     const textNode = node as Text;
     nodes.push({ node: textNode, start: text.length });
     text += textNode.data;

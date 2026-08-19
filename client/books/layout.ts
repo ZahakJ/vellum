@@ -46,7 +46,7 @@ export interface Spread {
  * spread 3 in a right-to-left book, because the reader is still scrolling
  * downwards through it.
  */
-export function spreadsOf(pages: number, dual: boolean, rtl: boolean): Spread[] {
+export function spreadsOf(pages: number, dual: boolean): Spread[] {
   const total = Math.max(0, Math.floor(pages));
   const out: Spread[] = [];
   if (total === 0) return out;
@@ -57,7 +57,14 @@ export function spreadsOf(pages: number, dual: boolean, rtl: boolean): Spread[] 
   out.push({ index: 0, pages: [1] });
   for (let p = 2; p <= total; p += 2) {
     const pair = p + 1 <= total ? [p, p + 1] : [p];
-    out.push({ index: out.length, pages: rtl ? [...pair].reverse() : pair });
+    // LOGICAL order, always — page 2 then page 3 — and never reversed here.
+    // The spread container carries dir="rtl" for an RTL book, and a flex row
+    // under that direction lays its children right-to-left BY ITSELF; the
+    // reversal this line used to do on top of that cancelled it, so an Arabic
+    // book's spreads rendered in Latin order — two corrections making a wrong.
+    // Same rule as the pane grid: the model speaks reading order, direction is
+    // presentation, exactly one layer owns it.
+    out.push({ index: out.length, pages: pair });
   }
   return out;
 }

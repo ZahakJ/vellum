@@ -409,6 +409,15 @@ async function syncDir(dir: string): Promise<void> {
  *
  *  Returns the published file's mtime, which is what `NoteData` carries and
  *  what a future write precondition will compare against. */
+/** Serial number for temp names. The pid alone is NOT unique enough: two
+ *  concurrent writes to ONE note inside this one process — the autosave timer
+ *  firing while an explicit Ctrl+S is in flight — would share a temp path, and
+ *  the interleaving (A opens, B opens and truncates, A renames B's half-written
+ *  bytes over the note) splices the two writes into a file that is neither.
+ *  The very corruption the atomic dance exists to prevent, reintroduced by its
+ *  own scratch file. */
+let tmpSeq = 0;
+
 async function writeFileAtomic(abs: string, content: string): Promise<number> {
   let target = abs;
   try {
@@ -417,7 +426,8 @@ async function writeFileAtomic(abs: string, content: string): Promise<number> {
     /* absent: a new file at the lexical path is exactly right */
   }
   const dir = path.dirname(target);
-  const tmp = path.join(dir, `.${path.basename(target)}.${process.pid}.tmp`);
+  tmpSeq += 1;
+  const tmp = path.join(dir, `.${path.basename(target)}.${process.pid}.${tmpSeq}.tmp`);
   let mode: number | undefined;
   try {
     mode = (await fs.stat(target)).mode & 0o777;

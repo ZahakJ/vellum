@@ -45,8 +45,22 @@ export const AUTOSAVE_MS = 600;
 /** Marks a transaction as the echo of a sibling view's edit. Forwarding a
  *  change into the other panes showing one note is how they stay one document;
  *  this is what stops the echo being forwarded back and the two panes typing
- *  at each other forever. */
+ *  at each other forever.
+ *
+ *  It was defined, exported and NEVER CONSULTED — the review's first finding.
+ *  The mirror dispatch below goes through the sibling view's own
+ *  `dispatchTransactions`, which is `dispatchFrom` again, which mirrored it
+ *  back: with one note in two panes every keystroke re-entered until the
+ *  ChangeSet no longer fit the document and CodeMirror threw a RangeError. */
 const sibling = Annotation.define<boolean>();
+
+/** Marks an ADOPTED external change — the watcher said the file moved and no
+ *  buffer here was dirty. It must reach the other views like a sibling echo,
+ *  but unlike typing it must NOT mark the buffer dirty: dirtying it schedules
+ *  an autosave that writes the adopted text straight back at the file, and the
+ *  echo of THAT write comes back through the watcher — a loop whose only
+ *  visible symptom is a vault where mtimes never settle. */
+const external = Annotation.define<boolean>();
 
 /** Counting is O(document) and typing is not, so it trails the keystrokes
  *  rather than riding them. Long enough to skip most of a burst, short enough
@@ -148,46 +162,51 @@ export function acquire(
   path: string,
   build: (doc: string) => EditorState,
 ): Promise<Buffer> {
+  // EVERY caller takes its reference in its own continuation, and the creator
+  // takes none. The old shape — creator starts at refs 1, later arrivals add
+  // one in a chained .then — interleaved wrongly with an immediate release:
+  // React StrictMode mounts, unmounts and remounts every editor, so acquire /
+  // release / acquire against one in-flight load was the COMMON path, and the
+  // second acquire could chain onto a promise whose buffer the first release
+  // had already deleted. The orphan still rendered; its dirty flag, autosave
+  // and stats spoke to a registry entry that no longer existed.
   const open = buffers.get(path);
   if (open) {
     open.refs += 1;
     return Promise.resolve(open);
   }
-  const already = loading.get(path);
-  if (already) {
-    return already.then((buf) => {
-      buf.refs += 1;
+  let p = loading.get(path);
+  if (p === undefined) {
+    p = getNote(path).then((note) => {
+      const existing = buffers.get(path);
+      if (existing) return existing;
+      const buf: Buffer = {
+        path,
+        state: build(note.content),
+        baseMtimeMs: note.mtimeMs,
+        dirty: false,
+        diverged: null,
+        writable: true,
+        views: new Set(),
+        refs: 0,
+        saveTimer: 0,
+      };
+      buffers.set(path, buf);
+      loading.delete(path);
+      // Announce that this window is now the one typing into this note.
+      // Another window already holding it wins on age, and `setWritable`
+      // arrives a tick later to turn our autosave off.
+      claim(path);
+      buf.writable = holdsLease(path);
       return buf;
     });
+    loading.set(path, p);
+    p.catch(() => loading.delete(path));
   }
-  const p = getNote(path).then((note) => {
-    // Two callers can arrive while one fetch is in flight; the first to finish
-    // creates the buffer and the second adopts it.
-    const existing = buffers.get(path);
-    if (existing) return existing;
-    const buf: Buffer = {
-      path,
-      state: build(note.content),
-      baseMtimeMs: note.mtimeMs,
-      dirty: false,
-      diverged: null,
-      writable: true,
-      views: new Set(),
-      refs: 1,
-      saveTimer: 0,
-    };
-    buffers.set(path, buf);
-    loading.delete(path);
-    // Announce that this window is now the one typing into this note. Another
-    // window already holding it wins on age, and `setWritable` arrives a tick
-    // later to turn our autosave off.
-    claim(path);
-    buf.writable = holdsLease(path);
+  return p.then((buf) => {
+    buf.refs += 1;
     return buf;
   });
-  loading.set(path, p);
-  p.catch(() => loading.delete(path));
-  return p;
 }
 
 /** One fewer holder. The buffer is kept while anything still holds it AND for
@@ -200,11 +219,22 @@ export function release(path: string): void {
   buf.refs = Math.max(0, buf.refs - 1);
   if (buf.refs > 0) return;
   if (buf.dirty) {
-    // Save now rather than on a timer nobody is left to wait for.
+    // Save now rather than on a timer nobody is left to wait for. `save()`
+    // finishes the release when the write lands — the early return here used
+    // to be the whole story, which parked the buffer AND ITS LEASE forever: a
+    // closed dirty tab kept the note claimed, and a second window's editor
+    // stayed a read-only mirror of a tab that no longer existed.
     void save(path);
     return;
   }
+  dispose(path, buf);
+}
+
+/** The actual teardown, shared by the clean release above and the save that
+ *  completes a dirty one. Only ever with refs at zero. */
+function dispose(path: string, buf: Buffer): void {
   window.clearTimeout(buf.saveTimer);
+  statsTimers.delete(path);
   buffers.delete(path);
   // Hand the note back, so a peer showing it as a read-only mirror becomes
   // editable again the moment we close it.
@@ -237,9 +267,20 @@ export function dispatchFrom(path: string, origin: EditorView, trs: readonly Tra
   origin.update(trs as Transaction[]);
   if (!buf) return;
   buf.state = origin.state;
+  // Which lane is this? Typing mirrors AND dirties; a sibling echo does
+  // neither (it IS the mirror, arriving); an adopted external change mirrors
+  // and does not dirty. One annotation check, consulted where it matters
+  // rather than exported for someone else to remember.
   let changed = false;
-  for (const tr of trs) if (tr.docChanged) changed = true;
-  if (changed) {
+  let echoed = false;
+  let adopted = false;
+  for (const tr of trs) {
+    if (!tr.docChanged) continue;
+    changed = true;
+    if (tr.annotation(sibling) === true) echoed = true;
+    if (tr.annotation(external) === true) adopted = true;
+  }
+  if (changed && !echoed) {
     for (const view of buf.views) {
       if (view === origin) continue;
       for (const tr of trs) {
@@ -247,11 +288,11 @@ export function dispatchFrom(path: string, origin: EditorView, trs: readonly Tra
         view.dispatch({ changes: tr.changes, annotations: sibling.of(true) });
       }
     }
-    if (buf.diverged === null) {
-      setDirty(buf, true);
-      window.clearTimeout(buf.saveTimer);
-      buf.saveTimer = window.setTimeout(() => void save(path), AUTOSAVE_MS);
-    }
+  }
+  if (changed && !echoed && !adopted && buf.diverged === null) {
+    setDirty(buf, true);
+    window.clearTimeout(buf.saveTimer);
+    buf.saveTimer = window.setTimeout(() => void save(path), AUTOSAVE_MS);
   }
   // Selection changes matter too: the bar reports the SELECTION's length the
   // moment there is one, and the caret count the moment there is more than one.
@@ -286,6 +327,9 @@ export async function save(path: string): Promise<void> {
     announceWrite(path, written.mtimeMs);
     // Only clean if nothing was typed while the request was in flight.
     if (buf.state.doc.toString() === content) setDirty(buf, false);
+    // The write that a dirty last-release was waiting on: nothing holds the
+    // buffer any more and it is clean, so it goes now — lease included.
+    if (buf.refs <= 0 && !buf.dirty) dispose(path, buf);
   } catch (err) {
     if (isStaleWriteError(err)) {
       // THE FILE MOVED UNDER US. The reader's text is not discarded and not
@@ -341,7 +385,13 @@ export function adoptExternal(path: string, note: NoteData): boolean {
   if (buf.dirty) return false; // a real conflict; the save path will find it
   buf.baseMtimeMs = note.mtimeMs;
   const view = [...buf.views][0];
-  const tr = { changes: { from: 0, to: buf.state.doc.length, insert: note.content } };
+  // Annotated as EXTERNAL: dispatchFrom mirrors it into the other views but
+  // must not dirty the buffer — dirtying schedules an autosave that writes the
+  // adopted text straight back at the file it just came from.
+  const tr = {
+    changes: { from: 0, to: buf.state.doc.length, insert: note.content },
+    annotations: external.of(true),
+  };
   if (view) view.dispatch(tr);
   else buf.state = buf.state.update(tr).state;
   return true;
@@ -385,7 +435,10 @@ registerBufferBridge({
   flushAll: () => {
     let sent = 0;
     for (const buf of buffers.values()) {
-      if (!buf.dirty || buf.diverged !== null) continue;
+      // `writable` too: a window the lease demoted holds text it is not the
+      // one saving, and its unload must not manufacture the very 409 the
+      // lease exists to prevent — the winner is saving that note already.
+      if (!buf.dirty || buf.diverged !== null || !buf.writable) continue;
       if (flushNoteBeacon(buf.path, buf.state.doc.toString(), buf.baseMtimeMs)) sent += 1;
     }
     return sent;

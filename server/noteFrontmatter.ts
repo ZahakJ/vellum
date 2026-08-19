@@ -140,7 +140,45 @@ export function parseAliases(fm: Record<string, unknown>): string[] {
  *  `- item` — the block form, in either note format (a `.tex` block prefixes
  *  its lines with `%`). Group 1 is the item's own prefix + indentation, which
  *  is the only shape we can safely copy when adding one more. */
-const ALIAS_BLOCK_RE = /^[ \t]*(?:%[ \t]*)?aliases:[ \t]*\r?\n([ \t]*(?:%[ \t]*)?)-[ \t]+\S/m;
+/** Find the block-form alias list inside frontmatter TEXT: the offset just
+ *  after the `aliases:` key line, and the exact `indent + "- "` prefix its
+ *  first item uses (a `.tex` note's items carry a `%` in that prefix).
+ *
+ *  A LINE SCAN, and the regex it replaces is the reason. That regex demanded
+ *  the first `- item` on the very next line after the key, so YAML that is
+ *  perfectly valid — a trailing `# comment` on the key line, a blank line or a
+ *  comment between the key and its items — made it miss. The fallback then
+ *  rewrote the key line into flow form while the item lines stayed behind,
+ *  orphaned under a key that now holds a value: not a note with an odd alias
+ *  list, a note whose YAML no longer parses — and the first casualty of
+ *  frontmatter that stops parsing is `publish: true`, i.e. the note silently
+ *  leaves the public site. The scan reads lines the way YAML does, so the only
+ *  way to miss a block list is for there not to be one. */
+function findAliasBlock(text: string): { insertAt: number; itemPrefix: string } | null {
+  const lines = text.split("\n");
+  let at = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineStart = at;
+    at += line.length + 1;
+    // The key line, comment-tolerant: `aliases:`, `aliases:  # names`, and the
+    // `%`-prefixed spelling a .tex comment block carries.
+    if (!/^[ \t]*(?:%[ \t]*)?aliases:[ \t]*(?:#.*)?\r?$/.test(line)) continue;
+    // Walk forward past blank and comment-only lines to the first real line.
+    for (let j = i + 1; j < lines.length; j++) {
+      const next = lines[j];
+      if (/^[ \t]*(?:%[ \t]*)?\r?$/.test(next)) continue; // blank
+      if (/^[ \t]*(?:%[ \t]*)?#/.test(next)) continue; // comment
+      const item = /^([ \t]*(?:%[ \t]*)?)-[ \t]+\S/.exec(next);
+      // A real line that is not an item means the key holds no block list
+      // (empty key, or the next mapping key) — the flow path handles it.
+      if (item === null) return null;
+      return { insertAt: lineStart + line.length + 1, itemPrefix: item[1] };
+    }
+    return null;
+  }
+  return null;
+}
 
 /** Add one alias to a note, preserving every other byte — the write half of
  *  "keep the old title as an alias" after a rename.
@@ -168,10 +206,10 @@ export function addNoteAlias(relPath: string, src: string, alias: string): strin
   // happens to quote an `aliases:` list (this file's own prose does) must
   // never be edited by a frontmatter write.
   const region = frontmatterRegion(relPath, src);
-  const block = region === null ? null : ALIAS_BLOCK_RE.exec(region.text);
+  const block = region === null ? null : findAliasBlock(region.text);
   if (region !== null && block !== null) {
-    const at = region.start + block.index + block[0].indexOf("\n") + 1;
-    return `${src.slice(0, at)}${block[1]}- ${yamlQuote(name)}\n${src.slice(at)}`;
+    const at = region.start + block.insertAt;
+    return `${src.slice(0, at)}${block.itemPrefix}- ${yamlQuote(name)}\n${src.slice(at)}`;
   }
   const list = [name, ...existing].map(yamlQuote).join(", ");
   return setNoteFrontmatterLine(relPath, src, "aliases", `aliases: [${list}]`);

@@ -24,7 +24,7 @@ import {
   resolveLink as resolveLinkRaw,
   search as searchRaw,
 } from "../server/indexer.ts";
-import { addNoteAlias, parseAliases } from "../server/noteFrontmatter.ts";
+import { addNoteAlias, parseAliases, readNoteFrontmatter } from "../server/noteFrontmatter.ts";
 import { resolveLink as clientResolve, setAliasTable } from "../client/editor/links.ts";
 import { initSite } from "../server/site.ts";
 import { buildTree, initVault } from "../server/vault.ts";
@@ -191,8 +191,22 @@ describe("the completion list's data source", () => {
     const entries = aliasEntries(false, null);
     const ml = entries.filter((e) => e.path === "Notes/Machine Learning.md").map((e) => e.alias);
     assert.deepEqual(ml.sort(), ["ML", "machine-learning"]);
-    // Sorted by alias, so the popup order is stable between fetches.
-    assert.deepEqual([...entries].sort((a, b) => a.alias.localeCompare(b.alias) || a.path.localeCompare(b.path)), entries);
+    // Sorted by alias for a stable popup — and WITHIN one alias, claimants in
+    // RESOLUTION order (fewest segments, shortest, then alphabetical: the
+    // pickShortest rule), because the completion keeps exactly one row per
+    // alias and it must be the row `[[alias]]` actually lands on. Plain path
+    // order could keep a row that names the loser.
+    const depth = (p: string): number => p.split("/").length;
+    assert.deepEqual(
+      [...entries].sort(
+        (a, b) =>
+          a.alias.localeCompare(b.alias) ||
+          depth(a.path) - depth(b.path) ||
+          a.path.length - b.path.length ||
+          a.path.localeCompare(b.path),
+      ),
+      entries,
+    );
   });
 
   it("offers a visitor only what a visitor may discover", () => {
@@ -337,5 +351,33 @@ describe("addNoteAlias — the write behind “keep the old title as an alias”
     await indexFile(rel);
     assert.equal(resolveLink("Its Old Name"), rel);
     assert.equal(resolveLink("Its Old Name", true), rel, "the publish flag survived the write");
+  });
+});
+
+describe("addNoteAlias: the block shapes the old regex missed", () => {
+  // Each of these is valid YAML the previous implementation mis-filed into the
+  // flow path, which rewrote the key line and orphaned the items — frontmatter
+  // that stops parsing, and with it `publish: true`. The assertions check the
+  // ITEMS survive beside the new one, which is exactly what orphaning breaks.
+  it("a trailing comment on the key line", () => {
+    const src = "---\ntitle: A\naliases:  # names\n  - ML\npublish: true\n---\nbody\n";
+    const out = addNoteAlias("a.md", src, "DL");
+    assert.ok(out.includes("  - \"DL\"\n") || out.includes("  - DL\n"), out);
+    assert.ok(out.includes("  - ML"), "the existing item was orphaned or lost");
+    assert.ok(out.includes("publish: true"), "publish line lost");
+  });
+
+  it("a blank line between the key and its items", () => {
+    const src = "---\naliases:\n\n  - ML\npublish: true\n---\nbody\n";
+    const out = addNoteAlias("a.md", src, "DL");
+    assert.ok(out.includes("- ML"), "the existing item was orphaned");
+    // However it was inserted, the result must still parse as one list of two.
+    assert.equal(parseAliases(readNoteFrontmatter("a.md", out)).length, 2, out);
+  });
+
+  it("a comment line between the key and its items", () => {
+    const src = "---\naliases:\n  # old names\n  - ML\n---\nbody\n";
+    const out = addNoteAlias("a.md", src, "DL");
+    assert.equal(parseAliases(readNoteFrontmatter("a.md", out)).length, 2, out);
   });
 });

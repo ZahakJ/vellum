@@ -1,6 +1,6 @@
 {
   "name": "vellum-desktop",
-  "version": "0.1.0",
+  "version": "1.6.0",
   "private": true,
   "description": "The Vellum desktop app: an Electron shell that supervises a real server/index.ts per vault.",
   "scripts": {

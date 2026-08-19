@@ -80,15 +80,19 @@ describe("searching the settings", () => {
     setLang("en");
   });
 
-  it("folds Arabic diacritics and the alef family a reader may spell either way", () => {
+  it("folds the alef family — and the fold provably DOES something", () => {
     setLang("ar");
-    // The fold is what stops "الغه" failing to find "اللغة".
-    const withHamza = searchSettings("إعداد");
-    const without = searchSettings("اعداد");
-    assert.deepEqual(
-      withHamza.map((h) => h.entry.label),
-      without.map((h) => h.entry.label),
-      "أ and ا did not fold to the same search",
+    // The first version of this test compared the two spellings and passed
+    // while both returned [] — two empty lists agreeing that the fold was
+    // broken. So first find a label that really contains a hamza-alef, then
+    // assert the BARE spelling finds it: non-empty, or the test says nothing.
+    const hamza = SETTINGS_INDEX.find((e) => /[\u0622\u0623\u0625]/.test(t(e.label)));
+    assert.ok(hamza, "no hamza-alef label in the index — pick another probe");
+    const bare = t(hamza.label).replace(/[\u0622\u0623\u0625]/g, "\u0627");
+    const hits = searchSettings(bare);
+    assert.ok(
+      hits.some((h) => h.entry.label === hamza.label),
+      `bare-alef "${bare}" did not find the hamza-spelled label "${t(hamza.label)}"`,
     );
     setLang("en");
   });

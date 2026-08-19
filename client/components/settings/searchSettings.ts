@@ -10,17 +10,36 @@ import { t } from "../../i18n.ts";
 import { SETTINGS_INDEX, type SettingEntry } from "./settingsIndex.ts";
 
 /** Casefold, strip Arabic diacritics and tatweel, and unify the letters Arabic
- *  spells more than one way. The same fold the book reader's search uses, for
- *  the same reason: a reader types what they hear. */
+ *  spells more than one way — a reader types what they hear.
+ *
+ *  CHARACTER MAP FIRST, normalize never. The first version ran `.normalize
+ *  ("NFKD")` and THEN replaced the hamza-alef family — but NFKD had already
+ *  decomposed those alefs into bare alef + a combining hamza (U+0654/0655),
+ *  which neither the harakat class nor the Latin combining class stripped. The
+ *  fold was a complete no-op: searching a bare-alef spelling found nothing a
+ *  hamza-spelled label offered, which is precisely the "reader concludes the
+ *  setting does not exist" failure this module exists to prevent — and the
+ *  test comparing the two spellings passed vacuously, two empty lists agreeing
+ *  with each other. The map below is the book reader's own (search.ts), which
+ *  was right all along. */
+const ARABIC_FOLD: Record<string, string> = {
+  "\u0623": "\u0627", // alef with hamza above  -> alef
+  "\u0625": "\u0627", // alef with hamza below  -> alef
+  "\u0622": "\u0627", // alef with madda        -> alef
+  "\u0671": "\u0627", // alef wasla             -> alef
+  "\u0649": "\u064a", // alef maksura           -> yeh
+  "\u06cc": "\u064a", // Persian yeh            -> yeh
+  "\u0629": "\u0647", // teh marbuta            -> heh
+  "\u06a9": "\u0643", // Persian keheh          -> kaf
+};
+
 function fold(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[ً-ْـٰ]/g, "")
-    .replace(/[آأإٱ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    .replace(/[̀-ͯ]/g, "");
+  let out = "";
+  for (const ch of text) {
+    if (/[\u064b-\u0652\u0640\u0670]/.test(ch)) continue; // harakat + tatweel
+    out += ARABIC_FOLD[ch] ?? ch.toLowerCase();
+  }
+  return out;
 }
 
 export interface SettingHit {

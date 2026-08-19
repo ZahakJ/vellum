@@ -68,6 +68,33 @@ export interface EditorSetupOptions {
 
 const vimCompartment = new Compartment();
 
+/** The two facets that SPEAK the instance's language — the find panel's words
+ *  and `.cm-content`'s `lang` (the spellcheck dictionary's floor). In a
+ *  compartment because the buffer registry caches an EditorState per note for
+ *  the whole session: baked in at build time they were exactly as fresh as the
+ *  first note opened, so switching the editor to Arabic left every open buffer
+ *  with an English Ctrl+F and an English dictionary until a full reload — the
+ *  opposite of what the searchPhrases header promises. `setEditorLanguage()`
+ *  below is dispatched by Editor.tsx's language effect, into live views, which
+ *  writes the fresh facets back into the shared state. */
+const languageCompartment = new Compartment();
+
+function languageFacets() {
+  return [
+    EditorState.phrases.of(searchPhrases()),
+    EditorView.contentAttributes.of({
+      spellcheck: "true",
+      autocorrect: "off",
+      autocapitalize: "off",
+      lang: getLang(),
+    }),
+  ];
+}
+
+export function setEditorLanguage(view: EditorView): void {
+  view.dispatch({ effects: languageCompartment.reconfigure(languageFacets()) });
+}
+
 // @replit/codemirror-vim is heavy and most sessions never enable it: load it
 // on demand and cache the built extension for later editors.
 type VimExtension = ReturnType<typeof import("@replit/codemirror-vim").vim>;
@@ -127,34 +154,11 @@ export function buildEditorState(options: EditorSetupOptions): EditorState {
       // keystroke on exactly one range and looked, from the outside, like a
       // product that had simply chosen not to have multi-cursor.
       EditorState.allowMultipleSelections.of(true),
-      // The find panel, the go-to-line panel and the completion list are built
-      // inside CodeMirror from English literals, so on an Arabic instance
-      // Ctrl+F opened the one piece of chrome in the product that had never
-      // been translated — and `check-i18n` could not see it, because its scan
-      // root is `client/` and those strings live in node_modules. See
-      // searchPhrases.ts: this facet is the library's own door for it.
-      EditorState.phrases.of(searchPhrases()),
-      // SPELLCHECK, WHICH THIS EDITOR HAS NEVER HAD. CodeMirror's own default
-      // content attributes set `spellcheck: "false"`, and nothing here ever
-      // overrode it — so the only appearances of the attribute in the whole
-      // client were `spellCheck={false}` on chrome inputs, and the reader's
-      // right-click menu offered no spelling and no dictionary. CONTRACTS
-      // already declined to put a formatting menu on an empty selection on the
-      // grounds that "the browser's own menu (spelling, paste, the dictionary)
-      // is the better answer and taking it would be theft" — a menu that, with
-      // this off, had none of those things in it.
-      //
-      // `lang` is the INSTANCE's language and it is only the floor: bidi.ts
-      // stamps a narrower one per line, so an Arabic paragraph inside an
-      // English note is checked in Arabic. Autocorrect and autocapitalize stay
-      // off — a markdown note is not a message box, and a capitalized `iOS` or
-      // a "corrected" `[[wikilink]]` is a silent edit to somebody's file.
-      EditorView.contentAttributes.of({
-        spellcheck: "true",
-        autocorrect: "off",
-        autocapitalize: "off",
-        lang: getLang(),
-      }),
+      // The find panel's words + spellcheck's language, live-reconfigurable —
+      // see languageCompartment above for why they cannot be baked in, and
+      // searchPhrases.ts / bidi.ts for what each half buys.
+      languageCompartment.of(languageFacets()),
+
       history(),
       drawSelection(),
       dropCursor(),
