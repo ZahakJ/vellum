@@ -12,6 +12,8 @@ import { Lru } from "../lru.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { numberRendered, useHeadingNumberTick } from "./headingNumbers.ts";
+import { noteAnchors } from "../../shared/anchors.ts";
+import { flashElement, takePendingLine } from "../landing.ts";
 import { renderNoteContent } from "./renderNote.ts";
 import { applyNoteLayoutTo } from "../textLayout.ts";
 import "./reading.css";
@@ -20,6 +22,39 @@ import "./reading.css";
  *  Bounded because "every note read this session" is the whole vault on a
  *  long day — 256 is far more history than a reader ever walks back through. */
 const scrollPositions = new Lru<number>({ max: 256 });
+
+/** The rendered element a source line lands on: the nearest heading
+ *  at-or-above the line, found through the note's own anchor table
+ *  (shared/anchors.ts — the same table `[[Note#anchor]]` resolves against, so
+ *  the two kinds of landing cannot disagree about where a section starts).
+ *  Null when no preceding anchor renders an element — the caller falls back
+ *  to the note top. Section-level precision is the honest ceiling here: this
+ *  renderer keeps no per-block source map (CONTRACTS — "Landing on a line").
+ *  Lives HERE and not in client/landing.ts because the anchor table drags the
+ *  TeX parser with it, and the reading chunk already carries both. */
+function readingLineTarget(
+  host: HTMLElement,
+  path: string,
+  content: string,
+  line: number,
+): HTMLElement | null {
+  const anchors = noteAnchors(path, content).filter((a) => a.line <= line);
+  // Walk backward: the nearest anchor may be one the renderer assigns no id
+  // to (a LaTeX label inside a paragraph) — the section above it still lands.
+  for (let i = anchors.length - 1; i >= 0; i--) {
+    const a = anchors[i];
+    const el =
+      host.querySelector<HTMLElement>(`#${CSS.escape(`tex-${a.id}`)}`) ??
+      host.querySelector<HTMLElement>(`#${CSS.escape(a.id)}`);
+    if (el !== null) return el;
+    const want = a.title.trim().toLowerCase();
+    const byText = [...host.querySelectorAll<HTMLElement>(".s-rv-h")].find(
+      (h) => (h.textContent ?? "").trim().toLowerCase() === want,
+    );
+    if (byText !== undefined) return byText;
+  }
+  return null;
+}
 
 function publishActive(host: HTMLElement): void {
   const heads = host.querySelectorAll<HTMLElement>(".s-rv-h[id]");
@@ -39,6 +74,10 @@ export default function ReadingView({ path }: { path: string }) {
   // The rendered markdown lives in its own child div so React siblings
   // (Marginalia) survive the imperative replaceChildren below.
   const bodyRef = useRef<HTMLElement | null>(null);
+  // The raw source of what is on screen, for the line-based landings below:
+  // mapping a SOURCE line to a rendered element needs the note's own anchor
+  // table, and the goto handler runs outside the load effect's closure.
+  const contentRef = useRef<string | null>(null);
   const tree = useStore((s) => s.tree);
   const isDirty = useStore((s) => !!s.dirty[path]);
   // The rendered body carries t() chrome (properties card, transclusion cards,
@@ -79,6 +118,7 @@ export default function ReadingView({ path }: { path: string }) {
           el.appendChild(hint);
         }
         numberRendered(el, note.content);
+        contentRef.current = note.content;
         bodyRef.current?.replaceChildren(el);
         // [[Note#Heading]] navigation: land on the requested heading.
         const pending = useStore.getState().pendingHeading;
@@ -107,6 +147,27 @@ export default function ReadingView({ path }: { path: string }) {
             publishActive(hostRef.current);
             return;
           }
+        }
+        // Line-based landing (a backlink's mention, a search match): the same
+        // one-shot-at-mount shape pendingHeading has, from client/landing.ts.
+        // SECTION precision, honestly: the renderer keeps no per-block source
+        // map, so the landing is the nearest heading at-or-above the line —
+        // and the note TOP when nothing precedes it (CONTRACTS, "Landing on
+        // a line"). The mark makes the imprecision legible: the reader sees
+        // which section they were put in, not a silent almost-right scroll.
+        const pendingLine = takePendingLine(path);
+        if (pendingLine !== null) {
+          const target = readingLineTarget(hostRef.current, path, note.content, pendingLine);
+          if (target !== null) {
+            const hostTop = hostRef.current.getBoundingClientRect().top;
+            hostRef.current.scrollTop =
+              target.getBoundingClientRect().top - hostTop + hostRef.current.scrollTop - 28;
+            flashElement(target);
+          } else {
+            hostRef.current.scrollTop = 0;
+          }
+          publishActive(hostRef.current);
+          return;
         }
         const saved = scrollPositions.get(path);
         if (saved !== undefined) hostRef.current.scrollTop = saved;
@@ -160,9 +221,23 @@ export default function ReadingView({ path }: { path: string }) {
       const host = hostRef.current;
       if (!host) return;
       const detail =
-        (ev as CustomEvent<{ slug?: string; text?: string }>).detail ?? {};
+        (ev as CustomEvent<{ slug?: string; text?: string; line?: number; path?: string }>)
+          .detail ?? {};
+      // A goto that names a note is for that note's pane only — without this,
+      // a line-goto raised for one pane would scroll every reading pane on
+      // screen. Untargeted gotos (the outline's, unchanged) behave as before.
+      if (detail.path !== undefined && detail.path !== path) return;
       let el: HTMLElement | null = null;
-      if (detail.slug) {
+      if (typeof detail.line === "number" && contentRef.current !== null) {
+        // Same section-precision mapping the mount-time landing uses.
+        el = readingLineTarget(host, path, contentRef.current, detail.line);
+        if (el === null) {
+          host.scrollTo({ top: 0, behavior: scrollBehavior() });
+          return;
+        }
+        flashElement(el);
+      }
+      if (!el && detail.slug) {
         el = host.querySelector<HTMLElement>(`#${CSS.escape(detail.slug)}`);
       }
       if (!el && detail.text) {

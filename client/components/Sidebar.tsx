@@ -8,8 +8,8 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
 } from "react";
-import type { AttachmentKind, SearchHit, TagCount, TreeNode } from "../../shared/types.ts";
-import { getGraph, getTags, search } from "../api.ts";
+import type { AttachmentKind, SearchHit, SearchMatch, TagCount, TreeNode } from "../../shared/types.ts";
+import { getGraph, getTags, search, searchMatches } from "../api.ts";
 import {
   dragFileCount,
   dragHasFiles,
@@ -20,6 +20,11 @@ import { useBannerSrc } from "./BannerImg.tsx";
 import { collectNotes, resolveLink, type NoteRef } from "../editor/links.ts";
 import { useVaultGraph } from "../graphCache.ts";
 import { countPhrase, localeNum, t, tf, type Lang } from "../i18n.ts";
+// client/landing.ts (landOnLine, installNotePreviews) is reached by DYNAMIC
+// import below: this chunk is inside the admin-first-paint budget that
+// check-bundle measures, and a landing/hover module is interaction-time code.
+// The reading view imports the same module statically, so there is exactly one
+// instance either way.
 // Tag chips print the vault's own display label when one exists (a tag page's
 // `labels:` map, or settings.tagLabels); `data`/keys/searches stay canonical.
 import { label as tagLabel, useTagLabels } from "../tagLabels.ts";
@@ -41,8 +46,8 @@ import { newNoteFromTemplateCommand } from "../templateActions.ts";
 import { useStore } from "../state.ts";
 import AttachmentViewer, { fileUrl, isViewable } from "./AttachmentViewer.tsx";
 // The reader's door only — a tiny module whose heavy half (the shelf, the page
-// renderer, pdf.js) is behind a dynamic import. See client/books/mount.ts.
-import { openBookPath } from "../books/mount.ts";
+// renderer, pdf.js) is behind a dynamic import. See client/books/door.ts.
+import { openBookPath } from "../books/door.ts";
 import { confirmModal, confirmModalEx } from "./Confirm.tsx";
 import { moveViaPicker } from "./MovePicker.tsx";
 import {
@@ -461,6 +466,19 @@ export default function Sidebar() {
 
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[] | null>(null);
+  /** Hit rows expanded to their per-line matches (chevron). Query-scoped:
+   *  both reset with the results they annotate. */
+  const [expandedHits, setExpandedHits] = useState<Set<string>>(() => new Set());
+  /** Match lines per expanded path — "loading" while the fetch is out,
+   *  "error" is rendered as the honest empty state rather than a toast (the
+   *  whole-note click beside it still works). */
+  const [hitMatches, setHitMatches] = useState<Map<string, SearchMatch[] | "loading" | "error">>(
+    () => new Map(),
+  );
+  /** What the matches on screen were fetched FOR — a late response for an
+   *  abandoned query must die here, not repopulate the new query's rows. */
+  const matchQueryRef = useRef("");
+  const resultsRef = useRef<HTMLDivElement | null>(null);
   const [tags, setTags] = useState<TagCount[]>([]);
   const [tagsCollapsed, setTagsCollapsed] = useState(loadTagsCollapsed);
   /** Which tag pill currently carries the shelf's single tab stop. Null until
@@ -598,9 +616,62 @@ export default function Sidebar() {
     return () => window.removeEventListener("vellum:quicksearch", onQuickSearch);
   }, []);
 
+  /** Chevron: fold or unfold one hit's match lines, fetching them once per
+   *  query. The list can be empty for a real hit — fuzzy/title/alias matches
+   *  have no line that SAYS the words — and the row states that instead of
+   *  pretending (see searchMatches in server/indexer.ts). */
+  const toggleHitMatches = useCallback((path: string) => {
+    setExpandedHits((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+    const q = matchQueryRef.current;
+    if (!q) return;
+    setHitMatches((prev) => {
+      if (prev.has(path)) return prev; // fetched (or in flight) for this query
+      searchMatches(path, q)
+        .then((list) => {
+          if (matchQueryRef.current !== q) return; // the reader typed on
+          setHitMatches((cur) => new Map(cur).set(path, list));
+        })
+        .catch((err: unknown) => {
+          console.error("vellum: loading search matches failed", err);
+          if (matchQueryRef.current !== q) return;
+          setHitMatches((cur) => new Map(cur).set(path, "error"));
+        });
+      return new Map(prev).set(path, "loading");
+    });
+  }, []);
+
+  // Hover previews over the hit rows — the blog shell's engine with the admin
+  // wiring (client/landing.ts). Installed on the results region, which mounts
+  // and unmounts with the query; re-installed on a language flip because a
+  // rendered card carries t() chrome.
+  const hasResults = hits !== null;
+  useEffect(() => {
+    if (!hasResults) return;
+    let dispose: (() => void) | null = null;
+    let dead = false;
+    void import("../landing.ts").then((m) => {
+      if (dead || !resultsRef.current) return;
+      dispose = m.installNotePreviews(resultsRef.current, resultsRef.current);
+    });
+    return () => {
+      dead = true;
+      dispose?.();
+    };
+  }, [hasResults, lang]);
+
   // Debounced search.
   useEffect(() => {
     const q = query.trim();
+    // Expansions and their fetched lines belong to the query that earned
+    // them; a new query starts folded.
+    matchQueryRef.current = q;
+    setExpandedHits(new Set());
+    setHitMatches(new Map());
     if (!q) {
       setHits(null);
       return;
@@ -1192,14 +1263,14 @@ export default function Sidebar() {
       {hits !== null ? (
         // A results list that swaps in silently is a list a screen-reader user
         // never learns about — the count is announced politely as it lands.
-        <div className="s-search__results" role="region" aria-label={t("searchResultsAria")}>
+        <div className="s-search__results" role="region" aria-label={t("searchResultsAria")} ref={resultsRef}>
           <p className="s-sr-only" role="status">
             {hits.length === 0 ? t("noResultsAria") : tf("resultCount", { count: localeNum(hits.length) })}
           </p>
           {hits.length === 0 && <p className="s-search__none">{t("noMatchesDot")}</p>}
           {hits.map((hit) => (
+            <div key={hit.path} className="s-search-row" data-preview-path={hit.path}>
             <button
-              key={hit.path}
               type="button"
               className="s-search-hit"
               onClick={() => openNote(hit.path)}
@@ -1231,6 +1302,54 @@ export default function Sidebar() {
                 </span>
               )}
             </button>
+            {/* The chevron is the hit's SIBLING, not its child — a button may
+                not contain a button, and the row click keeps meaning "open the
+                note" exactly as before. */}
+            <button
+              type="button"
+              className="s-search-expand s-iconbtn"
+              onClick={() => toggleHitMatches(hit.path)}
+              aria-expanded={expandedHits.has(hit.path)}
+              aria-label={tf(expandedHits.has(hit.path) ? "searchHitMatchesHide" : "searchHitMatches", { label: hit.title })}
+              title={tf(expandedHits.has(hit.path) ? "searchHitMatchesHide" : "searchHitMatches", { label: hit.title })}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+            </button>
+            {expandedHits.has(hit.path) && (() => {
+              const state = hitMatches.get(hit.path);
+              if (state === undefined || state === "loading") return null;
+              if (state === "error" || state.length === 0) {
+                // An honest empty state: the NOTE matched (fuzzy spelling, its
+                // title, an alias) even though no line contains the words —
+                // and a fetch error earns the same quiet row, because the
+                // whole-note click above it still works either way.
+                return <p className="s-search-matches__none">{t("noMatchesDot")}</p>;
+              }
+              return (
+                <div className="s-search-matches">
+                  {state.map((m) => (
+                    <button
+                      key={m.line}
+                      type="button"
+                      className="s-search-match"
+                      onClick={() =>
+                        void import("../landing.ts").then((mod) => mod.landOnLine(hit.path, m.line))
+                      }
+                    >
+                      <span className="s-search-match__line" aria-hidden="true">
+                        {localeNum(m.line)}
+                      </span>
+                      <span className="s-search-match__text" dir="auto">
+                        {renderSnippet(m.text)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+            </div>
           ))}
         </div>
       ) : topics !== null && flatNotes !== null ? (

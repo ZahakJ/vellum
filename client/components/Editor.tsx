@@ -315,7 +315,11 @@ export default function Editor({ path }: { path: string }) {
       const view = viewRef.current;
       if (!view) return;
       const detail =
-        (ev as CustomEvent<{ line?: number; text?: string }>).detail ?? {};
+        (ev as CustomEvent<{ line?: number; text?: string; path?: string }>).detail ?? {};
+      // A goto that names a path is for THAT note. With two editor panes on
+      // screen, an unscoped landing scrolled both — the one you clicked for
+      // and the one you were reading.
+      if (typeof detail.path === "string" && detail.path !== path) return;
       let line = detail.line ?? null;
       if (line === null && detail.text) {
         line = findHeadingLine(view.state.doc.toString(), detail.text);

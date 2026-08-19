@@ -1,0 +1,166 @@
+/* Landing (client/landing.ts): the "you are here" mark a backlink or search
+   click leaves on the line it landed on, plus the furniture the sidebar's
+   expandable search hits and the backlink cards grew for line-precise clicks.
+
+   The mark is a translucent accent WASH over the surface's own text — the
+   glyphs under it keep their own color and contrast, the same argument the
+   book inks make (tokens.css), so there is no new text/background pair for
+   check-contrast to fail. It fades out over its lifetime so its disappearance
+   is not a blink; under prefers-reduced-motion the fade is dropped and the
+   mark simply leaves when the timer clears the class. */
+
+.s-landed {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 0 var(--accent);
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .s-landed {
+    animation: s-landed-fade 1.5s ease-out forwards; /* FLASH_MS in landing.ts */
+  }
+  @keyframes s-landed-fade {
+    0%, 45% { opacity: 1; }
+  }
+  /* The wash lives on the element itself (a .cm-line, a heading), so the fade
+     must not take the TEXT with it — fade a painted overlay instead where the
+     element can carry one. Elements that cannot (::after already taken) keep
+     the simple fade above; text under a fading wash never dips below its own
+     resting contrast, because the wash only ever ADDS backing. */
+}
+
+/* ------------------------------------------------ backlink cards, clickable  */
+/* The card stopped being one <button> (a button may not contain buttons): the
+   shell is a div wearing the same class, the title row and every context line
+   are buttons of their own. These rules restore what the elements lost by
+   changing tag, and nothing more — the card look itself still comes from
+   .s-backlink in app.css. */
+
+.s-backlink-open {
+  display: block;
+  width: 100%;
+  text-align: start;
+  cursor: pointer;
+  border-radius: var(--radius);
+}
+
+button.s-backlink-context {
+  display: -webkit-box; /* keep the 2-line clamp from app.css */
+  width: 100%;
+  text-align: start;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+button.s-backlink-context:hover {
+  color: var(--text);
+}
+
+/* ------------------------------------------------ search hit expansion ----- */
+
+.s-search-row {
+  position: relative;
+  margin-bottom: 2px;
+}
+
+.s-search-row .s-search-hit {
+  margin-bottom: 0;
+  /* Room for the chevron so a long title does not sit under it. */
+  padding-inline-end: 26px;
+}
+
+.s-search-expand {
+  position: absolute;
+  top: 7px;
+  inset-inline-end: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius);
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.s-search-expand:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.s-search-expand svg {
+  transition: transform 0.15s ease;
+}
+
+.s-search-expand[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+[dir="rtl"] .s-search-expand svg {
+  transform: rotate(180deg);
+}
+
+[dir="rtl"] .s-search-expand[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-search-expand svg {
+    transition: none;
+  }
+}
+
+.s-search-matches {
+  margin: 0 4px 6px;
+  padding-inline-start: 8px;
+  border-inline-start: 1px solid var(--border);
+}
+
+.s-search-match {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  width: 100%;
+  text-align: start;
+  padding: 3px 6px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.821rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.s-search-match:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* The line number: a gutter figure, not prose. Muted, tabular, never wraps. */
+.s-search-match__line {
+  flex: none;
+  min-width: 2.2em;
+  text-align: end;
+  font-family: var(--font-mono);
+  font-size: 0.714rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.s-search-match:hover .s-search-match__line {
+  color: var(--accent);
+}
+
+.s-search-match__text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.s-search-matches__none {
+  margin: 2px 6px 4px;
+  font-size: 0.786rem;
+  font-style: italic;
+  color: var(--text-faint);
+}

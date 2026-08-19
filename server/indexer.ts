@@ -5,7 +5,7 @@ import { closesFence, fenceOpener, type Fence } from "../shared/fences.ts";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import MiniSearch from "minisearch";
-import type { AliasEntry, Backlink, GraphData, GraphEdge, PageMeta, PostMeta, SearchHit, TagCount, VaultEvent } from "../shared/types.ts";
+import type { AliasEntry, Backlink, GraphData, GraphEdge, PageMeta, PostMeta, SearchHit, SearchMatch, TagCount, VaultEvent } from "../shared/types.ts";
 import { stripBidiControls } from "../shared/bidi.ts";
 import { isNotePath, isTexPath, noteCandidates, noteTitleOf, stripNoteExt } from "../shared/noteFormat.ts";
 import { markdownAnchors, type NoteAnchor } from "../shared/anchors.ts";
@@ -25,6 +25,12 @@ interface NoteRecord {
   path: string;
   title: string;
   body: string; // content minus frontmatter
+  /** How many source lines the frontmatter block occupied (0 when none, and 0
+   *  for `.tex`, whose `body` IS the full file). Every `lineIdx` in this
+   *  record counts inside `body`, but the editor and the reading view count
+   *  the FULL file — this offset is what lets the wire carry a line number a
+   *  click can actually land on. */
+  bodyStartLine: number;
   links: { target: string; line: string; lineIdx: number }[];
   /** Vault-relative destinations of STANDARD-markdown images — `![alt](Media/x.png)`
    *  — resolved against this note's own folder. `links` only ever holds
@@ -478,6 +484,7 @@ export async function indexFile(relPath: string): Promise<void> {
     path: relPath,
     title,
     body: parts.body,
+    bodyStartLine: parts.bodyStartLine,
     links: parts.links,
     xrefs: parts.xrefs,
     assets: parts.assets,
@@ -525,6 +532,8 @@ interface NoteParts {
   /** Raw source minus frontmatter — LINE-indexed, because backlink context and
    *  the editor both count in source lines. */
   body: string;
+  /** Lines the stripped frontmatter took with it — see NoteRecord. */
+  bodyStartLine: number;
   /** Frontmatter TEXT (YAML), for parseTags(). */
   frontmatter: string;
   /** Where inline `#tags` are looked for. Markdown: the body. LaTeX: nowhere —
@@ -543,9 +552,10 @@ interface NoteParts {
 }
 
 function markdownParts(relPath: string, content: string): NoteParts {
-  const { body, frontmatter } = splitFrontmatter(content);
+  const { body, frontmatter, bodyStartLine } = splitFrontmatter(content);
   return {
     body,
+    bodyStartLine,
     frontmatter,
     tagSource: body,
     fm: readFrontmatter(content),
@@ -563,6 +573,7 @@ function texParts(relPath: string, content: string): NoteParts {
   const tex = readTexNote(relPath, content);
   return {
     body: content,
+    bodyStartLine: 0, // a .tex body IS the full file; its lineIdx is already absolute
     frontmatter: tex.frontmatter,
     tagSource: "",
     fm: tex.fm,
@@ -737,6 +748,7 @@ async function indexOversized(relPath: string, abs: string, stat: { size: number
     path: relPath,
     title: stripBidiControls(rawTitle),
     body: "",
+    bodyStartLine: 0,
     links: [],
     xrefs: [],
     assets: [],
@@ -846,10 +858,13 @@ function removeName(title: string, relPath: string): void {
 
 // ------------------------------------------------------------------- parsing
 
-function splitFrontmatter(content: string): { body: string; frontmatter: string } {
+function splitFrontmatter(content: string): { body: string; frontmatter: string; bodyStartLine: number } {
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content);
-  if (!match) return { body: content, frontmatter: "" };
-  return { body: content.slice(match[0].length), frontmatter: match[1] };
+  if (!match) return { body: content, frontmatter: "", bodyStartLine: 0 };
+  // Count what was CUT, not what remains: line N of `body` is line
+  // N + bodyStartLine of the file the editor opens.
+  const cut = match[0].match(/\n/g)?.length ?? 0;
+  return { body: content.slice(match[0].length), frontmatter: match[1], bodyStartLine: cut };
 }
 
 function parseLinks(body: string): NoteRecord["links"] {
@@ -1962,7 +1977,12 @@ export function backlinks(targetPath: string, publishedOnly: boolean, lang: Filt
       if (!context.endsWith("…") && !/[.!?…]["')\]]*$/.test(context)) {
         context = `${context}…`;
       }
-      hits.push({ path: record.path, title: record.title, context });
+      hits.push({
+        path: record.path,
+        title: record.title,
+        context,
+        line: fileLine(record, link.lineIdx),
+      });
     }
     // A `\cite` or a cross-note `\ref` is a backlink like any other — the
     // panel is where a note learns who leans on it, and a paper that cites this
@@ -1972,10 +1992,105 @@ export function backlinks(targetPath: string, publishedOnly: boolean, lang: Filt
       const key = `${record.path}\0${xref.line}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      hits.push({ path: record.path, title: record.title, context: xref.line });
+      hits.push({
+        path: record.path,
+        title: record.title,
+        context: xref.line,
+        line: fileLine(record, xref.lineIdx),
+      });
     }
   }
   return hits.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** A body-relative `lineIdx` as the 1-based line of the FULL file — the only
+ *  coordinate the editor (and the wire, by contract) counts in. Parsing runs
+ *  on `body`, which lost the frontmatter block, and shipping the body-relative
+ *  number was exactly the bug this exists to prevent: every landing would sit
+ *  N lines above the mention, where N is the size of the properties block. */
+function fileLine(record: NoteRecord, lineIdx: number): number {
+  return record.bodyStartLine + lineIdx + 1;
+}
+
+/** How many matched lines /api/search/matches will list for one note. A
+ *  search hit needs "where, exactly" — not a concordance. Past a hundred the
+ *  reader is no longer picking a line, they are re-reading the note, and the
+ *  note itself is one click away. */
+const SEARCH_MATCHES_MAX = 100;
+
+/** Only this much of one line is quoted (window centered on the first match
+ *  beyond it) — a match inside a 4,000-character hard-wrapped paragraph must
+ *  not ship the paragraph. */
+const SEARCH_MATCH_LINE_MAX = 200;
+
+/** Every line of one note that a search query matches — the expansion under a
+ *  search hit, so a click can land on the line rather than on the note.
+ *
+ *  Substring semantics, per whitespace-separated term, case-insensitive, any
+ *  term counts. Deliberately NOT minisearch: the index answers "which notes"
+ *  with fuzzy/prefix scoring, but a reader expanding a hit is asking "where
+ *  does it SAY that", and a line quoted back for a word it does not contain
+ *  reads as a bug. A hit earned purely by fuzzy spelling (or by title/alias)
+ *  can therefore answer with an empty list — the client says "no matches"
+ *  and the whole-note click still works, which is honest: the note matched,
+ *  no line did.
+ *
+ *  Lines are matched and quoted through the same cleaner the backlink context
+ *  uses, so what the row shows is what the panel beside it shows for the same
+ *  line — prose, with [[wikilinks]] kept for the client's gold spans. Text is
+ *  escaped with matches in literal <mark>…</mark>, exactly like
+ *  SearchHit.snippet. */
+export function searchMatches(
+  relPath: string,
+  query: string,
+  publishedOnly: boolean,
+  lang: FilterLang,
+): SearchMatch[] {
+  // The same refusal shape backlinks() makes for its target: a visitor asking
+  // about a note the filter hides must get the same "nothing" a missing note
+  // gets, never a confirmation that lines exist.
+  if (publishedOnly && !isNoteVisibleToVisitor(relPath, lang)) return [];
+  const record = notes.get(relPath);
+  if (!record) return [];
+  const terms = [...new Set(
+    query
+      .split(/\s+/)
+      .map((t) => t.replace(/^#/, "").toLowerCase())
+      .filter((t) => t.length > 0),
+  )];
+  if (terms.length === 0) return [];
+  const marker = new RegExp(
+    terms.map(escapeRegExp).sort((a, b) => b.length - a.length).join("|"),
+    "gi",
+  );
+  const out: SearchMatch[] = [];
+  const lines = record.body.split("\n");
+  for (let i = 0; i < lines.length && out.length < SEARCH_MATCHES_MAX; i++) {
+    // `.tex` lines are quoted raw (same reasoning as backlink context: the
+    // markdown cleaner would mangle them, and the editor shows this source).
+    const text = record.prose !== null ? lines[i].trim() : cleanContextLine(lines[i]);
+    if (text === "") continue;
+    const lower = text.toLowerCase();
+    let at = -1;
+    let len = 0;
+    for (const term of terms) {
+      const hit = lower.indexOf(term);
+      if (hit !== -1 && (at === -1 || hit < at)) {
+        at = hit;
+        len = term.length;
+      }
+    }
+    if (at === -1) continue;
+    const windowed =
+      text.length > SEARCH_MATCH_LINE_MAX
+        ? windowAround(text, at, len, Math.floor(SEARCH_MATCH_LINE_MAX / 2))
+        : text;
+    out.push({
+      line: fileLine(record, i),
+      text: escapeHtml(windowed).replace(marker, "<mark>$&</mark>"),
+    });
+  }
+  return out;
 }
 
 export function tags(publishedOnly: boolean, lang: FilterLang): TagCount[] {
