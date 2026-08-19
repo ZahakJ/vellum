@@ -431,8 +431,9 @@ export interface State {
   moveTabTo(path: string, index: number): void;
   /** A finished tab drag: `path` leaves `from` and lands on `to` — in its tab
    *  strip at an index, or on an edge, which splits `to` and puts the tab in
-   *  the new pane. The gesture reducers refuse whole at the caps. */
-  dropTab(from: string, path: string, to: string, dest: TabDropDest): void;
+   *  the new pane. `from` is null for a drag lifted off the TREE (no tab to
+   *  remove anywhere). The gesture reducers refuse whole at the caps. */
+  dropTab(from: string | null, path: string, to: string, dest: TabDropDest): void;
   setView(v: View): void;
   setTheme(t: ThemeChoice): void;
   /** What a cookieless VISITOR lands on, and why — admin sessions only (null
@@ -1585,14 +1586,20 @@ export const useStore = create<State>()((set, get) => {
       set((s) => ({ ...s, ...mirrorOf(reorderTabIn(s.workspace, s.workspace.focus, path, index)) })),
 
     dropTab: (from, path, to, dest) =>
-      set((s) => ({
-        ...s,
-        ...mirrorOf(
-          dest.kind === "edge"
-            ? dropTabSplitIn(s.workspace, from, path, to, dest.edge)
-            : moveTabIn(s.workspace, from, path, to, dest.index),
-        ),
-      })),
+      set((s) => {
+        let ws: Workspace;
+        if (dest.kind === "edge") {
+          ws = dropTabSplitIn(s.workspace, from, path, to, dest.edge);
+        } else if (from !== null) {
+          ws = moveTabIn(s.workspace, from, path, to, dest.index);
+        } else {
+          // Born in the strip: a tree drag opens a real tab in the target
+          // pane, then slides it to where it was dropped.
+          ws = openInPane(focusPaneIn(s.workspace, to), to, path, { newTab: true });
+          ws = reorderTabIn(ws, to, path, dest.index);
+        }
+        return { ...s, ...mirrorOf(ws) };
+      }),
 
     setView: (view) => set({ view }),
 

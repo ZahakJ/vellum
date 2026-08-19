@@ -259,6 +259,31 @@ describe("workspace: panes", () => {
     assert.equal(panesInOrder(ws).length, 2);
   });
 
+  it("closing a split pane's last tab closes the pane, and the tab is NOT adopted", () => {
+    let ws = soloWorkspace(tabs("A.md"), "A.md");
+    const p0 = ws.focus;
+    ws = splitPane(ws, p0, "inline", null)!;
+    const p1 = ws.focus;
+    ws = openInPane(ws, p1, "B.md");
+    ws = closeTabIn(ws, p1, "B.md");
+    assert.equal(paneAt(ws, p1), null, "the emptied split pane folded");
+    assert.deepEqual(allPaths(ws), ["A.md"], "the closed tab did not reappear next door");
+    // The LAST pane may be empty — the solo empty state is a real state.
+    let solo = soloWorkspace(tabs("A.md"), "A.md");
+    solo = closeTabIn(solo, solo.focus, "A.md");
+    assert.equal(panesInOrder(solo).length, 1);
+    assert.deepEqual(allPaths(solo), []);
+  });
+
+  it("dropTabSplit from the TREE (no source pane) splits without removing anything", () => {
+    let ws = soloWorkspace(tabs("A.md"), "A.md");
+    ws = dropTabSplit(ws, null, "Ihya.pdf", ws.focus, "end-inline");
+    const [first, second] = panesInOrder(ws);
+    assert.deepEqual(first.tabs.map((t) => t.path), ["A.md"]);
+    assert.deepEqual(second.tabs.map((t) => t.path), ["Ihya.pdf"]);
+    assert.equal(surfaceOf(second), "book");
+  });
+
   it("dropTabSplit: a solo pane's only tab dropped on its own edge is a no-op", () => {
     const ws = soloWorkspace(tabs("A.md"), "A.md");
     const out = dropTabSplit(ws, ws.focus, "A.md", ws.focus, "end-inline");

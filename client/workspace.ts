@@ -514,6 +514,14 @@ function dropTabs(ws: Workspace, id: PaneId, doomed: (t: TabState, i: number) =>
   // others" and "close all" would each need their own answer, and a reader
   // would have to remember which.
   const tabs = pane.tabs.filter((t, i) => t.pinned || !doomed(t, i));
+  // A split pane whose last tab leaves closes with it (the owner: "deleting
+  // the tab from the split window keeps the window even though it would have
+  // no tabs left"). An empty pane is a thing you ASK for (a bare split); it is
+  // not a thing a close should leave behind. closePane refuses on the last
+  // pane, so the solo empty state survives exactly as before. Emptied FIRST:
+  // closePane adopts a closing pane's tabs into a neighbour, and adopting the
+  // very tab being closed would turn every last-tab close into a move.
+  if (tabs.length === 0) return closePane(withTabs(ws, id, tabs, -1), id);
   const keptActive = active !== null ? tabs.findIndex((t) => t.path === active.path) : -1;
   return withTabs(ws, id, tabs, keptActive >= 0 ? keptActive : Math.min(pane.active, tabs.length - 1));
 }
@@ -524,6 +532,10 @@ export function closeTabIn(ws: Workspace, id: PaneId, path: string): Workspace {
   const at = pane.tabs.findIndex((t) => t.path === path);
   if (at < 0) return ws;
   const tabs = pane.tabs.filter((_, i) => i !== at);
+  // The same collapse dropTabs makes: a split pane whose LAST tab closes goes
+  // with it (emptied first — closePane adopts a closing pane's tabs, and
+  // adopting the tab being closed would turn the close into a move).
+  if (tabs.length === 0) return closePane(withTabs(ws, id, tabs, -1), id);
   // Closing the active tab lands on its neighbour, preferring the one after it
   // — the direction the reader was travelling.
   const active = pane.active > at ? pane.active - 1 : Math.min(pane.active, tabs.length - 1);
@@ -616,21 +628,30 @@ export type DropEdge = "start-inline" | "end-inline" | "start-block" | "end-bloc
  *  living here puts it under the property tests with everything else. */
 export function dropTabSplit(
   ws: Workspace,
-  from: PaneId,
+  from: PaneId | null,
   path: string,
   to: PaneId,
   edge: DropEdge,
 ): Workspace {
-  const src = paneAt(ws, from);
   const dst = paneAt(ws, to);
-  if (src === null || dst === null || dst.follow !== null) return ws;
-  const moved = src.tabs.find((t) => t.path === path);
-  if (moved === undefined) return ws;
-  // Dragging a pane's only tab onto that pane's own edge would close the pane
-  // and remake it one slot over — a no-op wearing a layout change.
-  if (from === to && src.tabs.length === 1) return ws;
-
-  const emptied = closeTabIn(ws, from, path);
+  if (dst === null || dst.follow !== null) return ws;
+  // `from === null` is a drag that never lived in a pane — a note or a book
+  // lifted straight off the TREE — so there is nothing to remove; the tab is
+  // born in the new pane.
+  let moved: TabState = tab(path);
+  let emptied = ws;
+  if (from !== null) {
+    const src = paneAt(ws, from);
+    if (src === null) return ws;
+    const held = src.tabs.find((t) => t.path === path);
+    if (held === undefined) return ws;
+    // Dragging a pane's only tab onto that pane's own edge would close the
+    // pane and remake it one slot over — a no-op wearing a layout change.
+    if (from === to && src.tabs.length === 1) return ws;
+    moved = held;
+    // closeTabIn folds a pane its last tab leaves, so no manual sweep here.
+    emptied = closeTabIn(ws, from, path);
+  }
   const split = splitPane(
     emptied,
     to,
@@ -638,13 +659,7 @@ export function dropTabSplit(
     { ...moved },
     edge === "start-inline" || edge === "start-block",
   );
-  if (split === null) return ws; // at a cap: the whole gesture refuses
-
-  // The pane the drag emptied closes behind it: its one job left with the
-  // tab, and an empty box the reader has to close by hand is what the gesture
-  // exists to avoid.
-  const rest = paneAt(split, from);
-  return rest !== null && rest.tabs.length === 0 ? closePane(split, from) : split;
+  return split ?? ws; // at a cap: the whole gesture refuses
 }
 
 // ── queries the rest of the shell asks ──────────────────────────────────────
@@ -733,6 +748,10 @@ function dropTabsUnconditional(
   const active = activeTabOf(pane);
   const tabs = pane.tabs.filter((t) => !doomed(t));
   if (tabs.length === pane.tabs.length) return ws;
+  // Same collapse as dropTabs: a pane emptied by the vault changing underneath
+  // (a delete, a rename, a visitor's pruning) folds rather than sitting as a
+  // grey box the reader never asked to keep. Emptied first — closePane adopts.
+  if (tabs.length === 0) return closePane(withTabs(ws, id, tabs, -1), id);
   const at = active !== null ? tabs.findIndex((t) => t.path === active.path) : -1;
   return withTabs(ws, id, tabs, at >= 0 ? at : Math.min(pane.active, tabs.length - 1));
 }

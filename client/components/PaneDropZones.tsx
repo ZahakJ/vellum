@@ -38,11 +38,14 @@ export default function PaneDropZones({ paneId }: { paneId: string }) {
 
   const pane = paneAt(workspace, paneId);
   if (pane === null || pane.follow !== null) return null;
-  // The source pane's only tab has nowhere meaningful to go on its own pane:
-  // every drop would be a no-op, so no zones are raised over it.
-  const src = paneAt(workspace, drag.pane);
-  if (src === null) return null;
-  if (drag.pane === paneId && src.tabs.length === 1) return null;
+  // A drag lifted off the TREE has no source pane — every pane accepts it.
+  // For a tab drag, the source pane's only tab has nowhere meaningful to go
+  // on its own pane: every drop would be a no-op, so no zones rise over it.
+  if (drag.pane !== null) {
+    const src = paneAt(workspace, drag.pane);
+    if (src === null) return null;
+    if (drag.pane === paneId && src.tabs.length === 1) return null;
+  }
 
   const columns = workspace.layout.columns;
   const col = columns.findIndex((c) => c.includes(paneId));
