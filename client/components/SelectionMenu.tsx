@@ -50,14 +50,20 @@ import {
   applyColor,
   format,
   formatsFor,
+  insertFootnote,
   insertPair,
   syntaxOf,
   toggleLinePrefix,
   toggleTexEnv,
   toggleTexSection,
+  transformSelectionCase,
+  wrapInCallout,
   type FormatKind,
   type NoteSyntax,
 } from "../editor/commands.ts";
+import { CALLOUT_TYPES } from "../editor/calloutDefs.ts";
+import { notePathFacet } from "../editor/livePreview.ts";
+import { extractSelection } from "../composerActions.ts";
 import { LITERAL_COLORS, SEMANTIC_COLORS } from "../../shared/textColors.ts";
 import { t, type I18nKey } from "../i18n.ts";
 import { useStore } from "../state.ts";
@@ -99,7 +105,11 @@ type Row =
   | { kind: "swatches" }
   /** The "fixed ink" switch, and the toolbar switch: rows that toggle rather
    *  than run, so they carry a mark and do not close the menu. */
-  | { kind: "toggle"; label: I18nKey; note?: I18nKey; on: boolean; toggle: () => void };
+  | { kind: "toggle"; label: I18nKey; note?: I18nKey; on: boolean; toggle: () => void }
+  /** A callout type on the Callout page. The label is the TYPE TOKEN itself
+   *  (`note`, `tip`, `warning`) — the syntax the row writes, exactly as the
+   *  editor's `> [!` autocomplete prints it, not chrome copy to translate. */
+  | { kind: "callout"; type: string };
 
 interface Swatch {
   id: string;
@@ -115,7 +125,7 @@ interface Group {
   rows: Row[];
 }
 
-type PageId = "root" | "structure" | "insert";
+type PageId = "root" | "structure" | "insert" | "callout";
 
 /** The i18n key for each swatch, written out. The gate counts a key as USED
  *  only when it appears as a quoted token in client/, so `t(`color_${id}`)`
@@ -206,6 +216,14 @@ function pagesFor(
           act("fmtQuote", (v) => toggleLinePrefix(v, "> ")),
         ],
   };
+  // The footnote is ONE row in both languages because it is one command
+  // (commands.ts::insertFootnote): `[^n]` chosen so existing footnotes stay
+  // ordered in markdown, `\footnote{…}` in a `.tex` note, where numbering is
+  // the compiler's job. Its one refusal (an id defined twice, or the caret in
+  // code) declines without touching the note — planFootnote's contract.
+  const footnote: Row = act("insFootnote", (v) => {
+    insertFootnote(v);
+  });
   const insert: Group = {
     title: "selGroupInsert",
     rows: tex
@@ -215,13 +233,41 @@ function pagesFor(
           act("insMath", (v) => insertPair(v, "$", "$")),
           act("insCodeBlock", (v) =>
             insertPair(v, "\\begin{verbatim}\n", "\n\\end{verbatim}")),
+          footnote,
         ]
       : [
           act("insWikilink", (v) => insertPair(v, "[[", "]]")),
           act("insLink", (v) => insertPair(v, "[", "](url)")),
           act("insMath", (v) => insertPair(v, "$", "$")),
           act("insCodeBlock", (v) => insertPair(v, "```\n", "\n```")),
+          footnote,
         ],
+  };
+  // Case transforms live at the bottom of the Structure page — per range
+  // (every caret of a multi-cursor selection transforms its own), wikilink
+  // targets and code spans untouched (commands.ts::transformSelectionCase).
+  // Untitled: three rows the reader can already read need no heading.
+  const caseRows: Group = {
+    rows: [
+      act("caseTitle", (v) => {
+        transformSelectionCase(v, "title");
+      }),
+      act("caseUpper", (v) => {
+        transformSelectionCase(v, "upper");
+      }),
+      act("caseLower", (v) => {
+        transformSelectionCase(v, "lower");
+      }),
+    ],
+  };
+  // The callout page: one row per canonical type, in calloutDefs.ts's own
+  // display order — the same vocabulary, in the same order, as the "> [!"
+  // autocomplete, so the two doors can never offer different callouts.
+  // Markdown only: a callout is Obsidian syntax and a `.tex` note has no
+  // honest spelling for one — absent, never approximated.
+  const callout: Group = {
+    title: "calloutPage",
+    rows: CALLOUT_TYPES.map((type) => ({ kind: "callout", type }) as Row),
   };
   const colour: Group = {
     title: "selGroupColor",
@@ -240,6 +286,17 @@ function pagesFor(
     rows: [
       { kind: "page", label: "selGroupStructure", page: "structure" },
       { kind: "page", label: "selGroupInsert", page: "insert" },
+      ...(tex ? [] : [{ kind: "page", label: "calloutPage", page: "callout" } as Row]),
+    ],
+  };
+  // Extract the selection into its own note, `[[link]]` left standing — the
+  // selection-shaped sibling of the heading menu's "Extract section"
+  // (composerActions.ts). Markdown only: the stub it leaves is vault syntax.
+  const extract: Group = {
+    rows: [
+      act("extractSelection", (v) => {
+        void extractSelection(v, v.state.facet(notePathFacet));
+      }),
     ],
   };
   // The floating toolbar's switch. An ACTION, not a checkbox: it names the
@@ -256,9 +313,10 @@ function pagesFor(
   return {
     root: tex
       ? [style, doors, toolbar]
-      : [style, colour, doors, toolbar],
-    structure: back("selGroupStructure", structure.rows),
+      : [style, colour, doors, extract, toolbar],
+    structure: [...back("selGroupStructure", structure.rows), caseRows],
     insert: back("selGroupInsert", insert.rows),
+    callout: back("tbGroupCallout", callout.rows),
   };
 }
 
@@ -407,7 +465,11 @@ function SelectionMenu({ view, x, y, onClose }: MenuProps) {
     if (row.kind === "action") run(row.run);
     else if (row.kind === "page") open(row.page);
     else if (row.kind === "toggle") row.toggle();
-    else {
+    else if (row.kind === "callout") {
+      run((v) => {
+        wrapInCallout(v, row.type);
+      });
+    } else {
       const chosen = chips[swatch];
       run((v) => {
         applyColor(v, chosen.value);
@@ -565,6 +627,27 @@ function SelectionMenu({ view, x, y, onClose }: MenuProps) {
                     <span className="s-selmenu__chev" aria-hidden="true">
                       ›
                     </span>
+                  </button>
+                );
+              }
+              if (row.kind === "callout") {
+                // The label is the type TOKEN the row writes (`[!note]`),
+                // printed as the "> [!" autocomplete prints it — syntax, not
+                // chrome copy, which is why it does not go through t().
+                return (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    key={row.type}
+                    className={cls}
+                    {...hover}
+                    onClick={() =>
+                      run((v) => {
+                        wrapInCallout(v, row.type);
+                      })
+                    }
+                  >
+                    <span className="s-selmenu__label">{row.type}</span>
                   </button>
                 );
               }
