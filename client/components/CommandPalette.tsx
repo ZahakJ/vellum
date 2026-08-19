@@ -33,6 +33,15 @@ import type { SearchHit } from "../../shared/types.ts";
 import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
 import { openThemePicker } from "./ThemePicker.tsx";
 import { openDesigner } from "./design/openDesigner.ts";
+import { installRecents, recentNotes } from "../recents.ts";
+import { getNote } from "../api.ts";
+import { noteAnchors, type NoteAnchor } from "../../shared/anchors.ts";
+
+// The palette owns the recents ledger's install: visits are recorded for the
+// palette's sake, so the palette is the module that switches recording on —
+// state.ts keeps no dependency on the feature. Module load runs once, and
+// installRecents guards itself besides.
+installRecents(useStore);
 
 // ---------------------------------------------------------------------------
 // Fuzzy matching (subsequence with consecutive/word-start bonuses)
@@ -440,13 +449,17 @@ const COMMANDS: Command[] = [
 
 type Item =
   | { kind: "command"; command: Command; indices: number[] }
+  | { kind: "recent"; path: string }
   | { kind: "tab"; path: string }
-  | { kind: "note"; hit: SearchHit };
+  | { kind: "note"; hit: SearchHit }
+  | { kind: "heading"; anchor: NoteAnchor; indices: number[] };
 
 const SECTION_KEY: Record<Item["kind"], I18nKey> = {
+  recent: "paletteRecent",
   command: "paletteCommands",
   tab: "paletteOpenTabs",
   note: "paletteNotes",
+  heading: "paletteHeadings",
 };
 
 function IconFile() {
@@ -494,6 +507,14 @@ export default function CommandPalette() {
   const [mode, setMode] = useState<Mode>({ type: "list" });
   const [selected, setSelected] = useState(0);
   const [hits, setHits] = useState<SearchHit[]>([]);
+  /** SNAPSHOT of the recents ledger, taken once per palette-open. A snapshot
+   *  rather than a live read on purpose: opening the palette IS a visit to
+   *  wherever you are, and a list that reshuffled under the second Ctrl+P of
+   *  the evening would break exactly the muscle memory it exists to serve. */
+  const [recent, setRecent] = useState<string[]>([]);
+  /** The open note's anchors (headings + LaTeX \labels), fetched lazily the
+   *  first time the query enters heading mode ("@…"); null = not loaded. */
+  const [anchors, setAnchors] = useState<NoteAnchor[] | null>(null);
   /** True from the moment the query changes until THAT query's results are in
    *  `hits` (covers the debounce window too). While true, the note rows on
    *  screen belong to an older query and Enter must not open them. */
@@ -533,6 +554,14 @@ export default function CommandPalette() {
       setSelected(0);
       setHits([]);
       setInFlight(false);
+      // Recents: pruned against the CURRENT tree at this read (a deleted or
+      // unpublished note's path never surfaces a title), minus the note the
+      // reader is looking at — "jump back to where I just was" never means
+      // "here". Ten rows: enough for an evening's trail, few enough that the
+      // commands stay one glance away.
+      const s = useStore.getState();
+      setRecent(recentNotes(s.tree, { exclude: s.openPath, limit: 10 }));
+      setAnchors(null);
       seqRef.current++; // invalidate any response still in flight
       pendingEnterRef.current = false;
       armedRef.current = false;
@@ -542,12 +571,16 @@ export default function CommandPalette() {
     }
   }, [paletteOpen]);
 
+  /** Heading mode: "@…" jumps within the OPEN note — one palette, one more
+   *  prefix, rather than a second Ctrl+Shift+O surface to learn. */
+  const headingMode = mode.type === "list" && query.startsWith("@");
+
   // Debounced live note search while typing in list mode. Token + abort per
   // query: only the latest query's results may land in `hits`.
   useEffect(() => {
     if (!paletteOpen || mode.type !== "list") return;
     const token = ++seqRef.current;
-    const q = query.trim();
+    const q = headingMode ? "" : query.trim();
     if (!q) {
       setHits([]);
       setInFlight(false);
@@ -573,21 +606,77 @@ export default function CommandPalette() {
       ctrl.abort();
       window.clearTimeout(timer);
     };
-  }, [paletteOpen, mode.type, query]);
+  }, [paletteOpen, mode.type, query, headingMode]);
+
+  // Heading mode's data: the open note's anchor table, via the API rather
+  // than the live editor buffer — the palette must stay importable without
+  // pulling CodeMirror into its chunk (the same wall bufferBridge.ts guards),
+  // and autosave (600ms) keeps the server copy close enough that the heading
+  // you typed a breath ago is the only thing that can be missing. Fetched
+  // once per palette-open, on first entering "@".
+  useEffect(() => {
+    if (!paletteOpen || !headingMode || anchors !== null) return;
+    const path = useStore.getState().openPath;
+    if (path === null || !isNotePath(path)) {
+      setAnchors([]);
+      return;
+    }
+    let dead = false;
+    getNote(path)
+      .then((note) => {
+        if (!dead) setAnchors(noteAnchors(path, note.content));
+      })
+      .catch((err: unknown) => {
+        console.error("CommandPalette: loading anchors failed", err);
+        if (!dead) setAnchors([]);
+      });
+    return () => {
+      dead = true;
+    };
+  }, [paletteOpen, headingMode, anchors]);
 
   const items = useMemo<Item[]>(() => {
     if (mode.type === "prompt") return [];
+    if (headingMode) {
+      // "@" then fuzzy over the open note's anchors. Empty query = the whole
+      // outline in document order — the "where am I" glance for free.
+      const hq = query.slice(1).trim();
+      const list = anchors ?? [];
+      if (!hq) return list.map<Item>((anchor) => ({ kind: "heading", anchor, indices: [] }));
+      return list
+        .map((anchor) => {
+          const onTitle = fuzzyMatch(hq, anchor.title);
+          if (onTitle) return { anchor, indices: onTitle.indices, score: onTitle.score };
+          // The id is how a \label is actually remembered ("eq:fourier"), so
+          // it is a haystack too — highlighting stays on the title, which is
+          // what the row displays.
+          const onId = fuzzyMatch(hq, anchor.id);
+          return onId ? { anchor, indices: [], score: onId.score - 1 } : null;
+        })
+        .filter((x): x is { anchor: NoteAnchor; indices: number[]; score: number } => x !== null)
+        .sort((a, b) => b.score - a.score)
+        .map<Item>(({ anchor, indices }) => ({ kind: "heading", anchor, indices }));
+    }
     const q = query.trim();
     const ctx: CommandCtx = { openPath, admin, authProtected, openPublished, preview };
     const available = COMMANDS.filter((c) => c.available(ctx));
     if (!q) {
+      // Empty palette: the notes you were just in FIRST — that is the jump a
+      // writer opens Ctrl+P for — then the commands, then whatever open tabs
+      // the recents section didn't already name (a duplicate row would make
+      // arrow-key distances change with usage, the muscle-memory killer).
+      const shown = new Set(recent);
+      // Filtered BEFORE the spread: `filter(...).map<Item>` reads to the
+      // check-i18n scanner like a JSX tag with English text in front of it.
+      const restTabs = openTabs.filter((path) => !shown.has(path));
       return [
+        ...recent.map<Item>((path) => ({ kind: "recent", path })),
         ...available.map<Item>((command) => ({
           kind: "command",
           command,
           indices: [],
         })),
-        ...openTabs.map<Item>((path) => ({ kind: "tab", path })),
+        ...restTabs.map<Item>((path) => ({ kind: "tab", path })),
       ];
     }
     // The hint is visible text on the row ("marginalia" / «الحواشي»), so it is
@@ -607,7 +696,7 @@ export default function CommandPalette() {
       .sort((a, b) => b.score - a.score)
       .map<Item>(({ command, indices }) => ({ kind: "command", command, indices }));
     return [...matchedCommands, ...hits.map<Item>((hit) => ({ kind: "note", hit }))];
-  }, [mode.type, query, openPath, admin, authProtected, openPublished, preview, openTabs, hits]);
+  }, [mode.type, query, openPath, admin, authProtected, openPublished, preview, openTabs, hits, headingMode, anchors, recent]);
 
   // Keep selection in bounds as results change.
   useEffect(() => {
@@ -802,7 +891,21 @@ export default function CommandPalette() {
         runCommand(item.command);
         return;
       }
-      const path = item.kind === "tab" ? item.path : item.hit.path;
+      if (item.kind === "heading") {
+        // The same event the outline's rows dispatch, with the same payload
+        // (TocPanel): the editor consumes `line`, the reading view `slug`, so
+        // one dispatch lands in whichever surface is showing the note. No
+        // pendingHeading — that is for a note that is about to MOUNT, and
+        // this note is on screen behind the palette right now.
+        window.dispatchEvent(
+          new CustomEvent("vellum:goto-heading", {
+            detail: { slug: item.anchor.id, line: item.anchor.line, text: item.anchor.title },
+          }),
+        );
+        close();
+        return;
+      }
+      const path = item.kind === "note" ? item.hit.path : item.path;
       useStore.getState().openNote(path);
       close();
     },
@@ -948,9 +1051,13 @@ export default function CommandPalette() {
               const key =
                 item.kind === "command"
                   ? `cmd:${item.command.id}`
-                  : item.kind === "tab"
-                    ? `tab:${item.path}`
-                    : `note:${item.hit.path}`;
+                  : item.kind === "recent"
+                    ? `recent:${item.path}`
+                    : item.kind === "tab"
+                      ? `tab:${item.path}`
+                      : item.kind === "heading"
+                        ? `head:${item.anchor.id}`
+                        : `note:${item.hit.path}`;
               const heading =
                 items[i - 1]?.kind !== item.kind ? (
                   <div className="s-palette-section" role="presentation">
@@ -1010,7 +1117,7 @@ export default function CommandPalette() {
                         )}
                       </>
                     )}
-                    {item.kind === "tab" && (
+                    {(item.kind === "tab" || item.kind === "recent") && (
                       <>
                         <span className="s-palette-item-title" dir="auto">
                           {titleOf(item.path)}
@@ -1018,6 +1125,21 @@ export default function CommandPalette() {
                         {folderOf(item.path) && (
                           <span className="s-palette-item-path" dir="auto">
                             {folderOf(item.path)}
+                          </span>
+                        )}
+                      </>
+                    )}
+                    {item.kind === "heading" && (
+                      <>
+                        <span className="s-palette-item-title" dir="auto">
+                          {highlight(item.anchor.title, item.indices)}
+                        </span>
+                        {/* A \label's id IS its name ("eq:fourier"); a
+                            heading's id merely restates the title as a slug,
+                            which would be noise on every row. */}
+                        {item.anchor.kind !== "heading" && (
+                          <span className="s-palette-item-path" dir="auto">
+                            {item.anchor.id}
                           </span>
                         )}
                       </>
