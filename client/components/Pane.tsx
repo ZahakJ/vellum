@@ -101,7 +101,7 @@ export default function Pane({
       </Suspense>
     ) : tab !== null && !reading && surface === "edit" ? (
       <Suspense fallback={<div className="s-editor" />}>
-        <Editor key={`${tab.path}#${reloadTicks}`} path={tab.path} />
+        <Editor key={`${tab.path}#${reloadTicks}`} path={tab.path} paneId={id} />
       </Suspense>
     ) : tab !== null && (surface === "reading" || surface === "edit") ? (
       <Suspense fallback={<div className="s-reading" />}>

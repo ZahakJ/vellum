@@ -21,6 +21,7 @@ import { holdsLease, setLeaseListener, takeOver } from "../windows/lease.ts";
 import { t, tf } from "../i18n.ts";
 import { Lru } from "../lru.ts";
 import { useStore } from "../state.ts";
+import { paneAt, surfaceOf } from "../workspace.ts";
 import { toast } from "../toast.ts";
 import { buildEditorState, setEditorLanguage, setVim } from "../editor/setup.ts";
 import {
@@ -92,7 +93,7 @@ setDivergeListener((path) => {
  *  the properties card every time they switched tabs and back. */
 const caretPlaced = new Set<string>();
 
-export default function Editor({ path }: { path: string }) {
+export default function Editor({ path, paneId = null }: { path: string; paneId?: string | null }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   // Whether THIS window may write this note. Recomputed rather than stored:
   // the lease is derived from facts both windows share, so asking is always
@@ -277,6 +278,20 @@ export default function Editor({ path }: { path: string }) {
       const view = viewRef.current;
       const detail = (ev as CustomEvent<InsertTemplateDetail>).detail;
       if (!view || !detail) return;
+      // ONE editor answers. This listener predates panes, when "the editor"
+      // was a singular; with a split open, every mounted editor applied the
+      // template to its own note. The insert belongs to the pane that owns
+      // the caret the command was aimed at: the focused pane when it is an
+      // editor, else the pane `noteFocus` names (a book or graph can hold
+      // `focus` while the note being worked on sits beside it) — the same
+      // resolution `openPath`, which the command consulted, mirrors.
+      if (detail.handled.value) return;
+      if (paneId !== null) {
+        const ws = useStore.getState().workspace;
+        const focused = paneAt(ws, ws.focus);
+        const target = focused !== null && surfaceOf(focused) === "edit" ? ws.focus : ws.noteFocus;
+        if (paneId !== target) return;
+      }
       const doc = view.state.doc.toString();
       const applied = applyTemplate(detail.source, doc, detail.vars);
       // Where the note's own frontmatter block ends today, and what it
@@ -307,7 +322,7 @@ export default function Editor({ path }: { path: string }) {
     };
     window.addEventListener(INSERT_TEMPLATE_EVENT, onInsert);
     return () => window.removeEventListener(INSERT_TEMPLATE_EVENT, onInsert);
-  }, []);
+  }, [paneId]);
 
   // Outline (TOC) clicks: jump the editor to the heading's source line.
   useEffect(() => {
