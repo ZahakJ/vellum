@@ -65,6 +65,14 @@ that is the pre-existing pattern, and the door is now open.
 - `POST /api/folder` body `{ path }` → `{ ok: true }`
 - `POST /api/folder/move` body `{ path, toPath }` → `{ ok: true, notes, rewritten }` (moves the whole subtree and repairs the links it would have broken; see "Moving notes and folders")
 - `GET  /api/search?q=` → `SearchHit[]` (max 50, minisearch, prefix+fuzzy)
+- `GET  /api/search/matches?path=&q=` → `SearchMatch[]` (max 100) — every line of ONE note the
+  query matches, `{ line, text }`: `line` 1-based in the note's FULL source (frontmatter
+  included), `text` HTML-escaped with matched terms in literal `<mark>…</mark>`. Substring
+  semantics per whitespace-separated term (leading `#` stripped, `expandTagQuery` applied),
+  deliberately NOT minisearch: the index answers "which notes" with fuzzy scoring, this route
+  answers "where does it SAY that" — so a hit earned by fuzzy spelling, its title or an alias
+  may legitimately answer `[]`. Visitor-scoped like `/api/backlinks`: a hidden or missing note
+  answers `[]`, never a 404 that confirms the path exists.
 - `GET  /api/graph` → `GraphData` (nodes = all md files, edges = resolved wikilinks).
   `?around=<path>` narrows it to that note, its direct wikilink neighbors in either
   direction, and the edges among that set — same shape, a fraction of the bytes, and the
@@ -507,6 +515,43 @@ a second time (a revisit is intent), pins it, or opens it explicitly in a new ta
 ephemeral are mutually exclusive by construction, and both are visible in the row rather than only
 in the menu that set them: an italic title for a preview, a gold ◆ for a pin, each with real
 screen-reader text beside it, because a promise the reader cannot see is one they will not rely on.
+
+### Drag a tab: reorder, move, or SPLIT (Tabs.tsx, PaneDropZones.tsx, dragTab.ts)
+
+Lift a tab and every pane raises five drop targets: a centre that means "join
+this pane's strip", and four edges that mean "split this pane and land me on
+THAT side" (the owner: "should be able to just drag and drop one of the
+windows to the right or lift to trigger a split"). The solo pane raises them
+too — dragging one of two tabs to an edge is exactly how the FIRST split is
+made. Within a strip, hovering a tab shows an insertion caret and dropping
+reorders; the caret's before/after half is resolved logically, so the leading
+half of a tab is the RIGHT half in an Arabic bar — the same physical→logical
+swap the tab arrow keys already make.
+
+**The gesture is ONE reducer** (`dropTabSplit` in client/workspace.ts): take
+the tab out of its pane, split the target on that edge, land the tab in the
+new pane — and at a cap (MAX_COLUMNS/ROWS/PANES) it refuses WHOLE. The halves
+are not independently meaningful: a close whose split then fails would eat the
+tab. Living in the model puts the gesture under the same property fuzz as
+every other reducer. A pane the drag emptied closes behind it — its one job
+left with the tab — and `splitPane` grew `before` for the leading edges,
+because an insert that only knew "after" would answer both edges with the
+same geometry and one of them would feel mirrored. Edges the model would
+refuse are NOT rendered: a zone that lights up and then does nothing on drop
+is a broken promise, and the caps are knowable right where the zones are
+drawn.
+
+The drag itself is module state (client/dragTab.ts), not store state: it
+exists between dragstart and dragend, must never persist or mirror to other
+windows, and `dataTransfer.getData()` is empty during dragover by spec — so
+the zones could not know what hovers them from the event alone. The payload
+still rides the DataTransfer under `application/x-vellum-tab`; a drag arriving
+from ANOTHER window has the MIME and no module state, and the zones simply do
+not raise — the honest no-op until cross-window adoption exists. The zones'
+chunk loads at the first LIFT (`React.lazy` in Pane.tsx): code that exists
+only during a gesture has no business in first paint, and a drag is hundreds
+of milliseconds long where the fetch is a handful. `:hover` is suppressed
+during native drags, so the lit zone is a class driven by dragenter/dragleave.
 
 ### The tab context menu (client/components/ContextMenu.tsx, Tabs.tsx)
 
@@ -6196,16 +6241,25 @@ typed without its harakat finds the book that carries them.
 `/library` is the shelf and `/book/<vault path>` is one book; both are real
 addresses, because a book someone is halfway through is a thing they bookmark
 (the page is already remembered server-side, so the URL only names the volume).
-`client/books/mount.ts` owns a React root on a portal element, the same
-arrangement the attachment viewer uses and for the same reason. While the
-reader is open it owns the address bar — `syncUrl()` and the store subscription
-both stand down, or the first SSE tree refresh would replace `/book/…` with the
-note underneath.
 
-`BooksSurface` takes a route and two callbacks and touches no global state.
-When panes land, the same component becomes a pane body by passing the same
-three props from there; `mount.ts` is what gets deleted, not what gets
-rewritten.
+**A book is a WORKSPACE TAB** (the owner: "prob should just treat it like a
+normal tab?? so people can open the book while taking notes"). The portal era —
+a React root on a body-appended element, full-screen over the app, a
+`booksAreOpen()` flag the router consulted — is deleted, not kept as a second
+door. `client/books/door.ts` is what remains in first-paint code: URL parsing,
+the tree walk that resolves a citation, and a call into the store
+(`openBook` / `openLibrary`). `Pane.tsx` mounts `BooksSurface` through
+`React.lazy` when a pane's surface is `"book"` or `"library"`; the surface
+still takes a route and callbacks and touches no global state, exactly the
+move its portal-era header promised. Its `active` prop says whether the pane
+holds the keyboard — every zathura key listens on `window`, and a `j` typed
+toward the note beside the book must not turn a page. The address bar follows
+the FOCUSED pane (`bookSurfaceOf` in client/router.ts): a book tab in focus
+puts `/book/…` up, focusing the note beside it hands the bar back — the
+computed-URL comparison in the router subscription is what lets that change
+without `openPath` changing. A citation rides the open itself
+(`OpenHow.book` → the pane's one-shot `bookTarget`, cleared by `onLanded`),
+so a later citation into an already-open book still jumps.
 
 ### Annotating: the PDF is never written to
 
@@ -6350,7 +6404,11 @@ response by about two milliseconds) is not reported back to the reader as
 "changed on disk". A bare `putNote` here fails `npm run check-books`. It is
 APPENDED rather than inserted at a cursor, and deliberately: the reader is
 full-screen over the app, so there is no caret anyone is looking at, and a
-block that lands invisibly mid-note is a block they have to go and find. The
+block that lands invisibly mid-note is a block they have to go and find. (The
+"no caret" half of that sentence predates book tabs — a note CAN be on screen
+beside the reader now — but appending is still right: the caret belongs to the
+OTHER pane, and a citation that teleports it mid-note would steal the very
+split the reader arranged.) The
 toast carries Undo, which restores the note to exactly what it was.
 
 ### The anchor is a wikilink, not a new syntax
@@ -6420,7 +6478,7 @@ than the broken link it was fixing. It goes through the same
 reader is told that rather than shown a spinner.
 
 The recovery is DYNAMICALLY imported (`client/books/citations.ts`).
-`client/books/mount.ts` is first-paint code reached by a static import from the
+`client/books/door.ts` is first-paint code reached by a static import from the
 sidebar and the router; the happy path there is a tree walk and nothing else —
 no request, no await, the book opens on the same tick as the click — and only a
 citation whose name has stopped resolving loads a byte of the rest.
@@ -6499,12 +6557,274 @@ The rules that follow from it:
   first paint. `npm run check-bundle` is what catches the next one.
 
 - The reader is split TWICE, and the outer boundary is not `App.tsx`'s. The app
-  shell holds only `client/books/mount.ts` — a URL parser and a React root —
-  and reaches `BooksSurface` through `import()`; the surface then splits the
+  shell holds only `client/books/door.ts` — a URL parser and a store call —
+  and `Pane.tsx` reaches `BooksSurface` through `React.lazy`; the surface then splits the
   shelf from the reader, and `client/books/pdfjs.ts` splits the 1.1 MB engine
   from both. A reader who only browses their shelf never downloads the page
   renderer. `npm run check-bundle` names `pdfjs-dist` and the reader's
   components in FORBIDDEN and `books/BooksSurface.tsx` in MUST_SPLIT.
+
+Proposed additions (I may not edit CONTRACTS.md). Suggested placement: a new
+subsection beside the palette/editor-extensions entries.
+
+## Finding: recents, ranked completion, tag completion, heading jump
+
+- `client/recents.ts` — the FRECENCY LEDGER: which notes this browser's reader
+  keeps returning to. Records every change of the store's `openPath` onto a
+  note (installed by `installRecents(useStore)`, which CommandPalette.tsx calls
+  at module load — state.ts keeps no dependency on the feature). One entry per
+  path: `{ path, weight, at }`, where `weight` is the visit count decayed with
+  a 7-day half-life (decay-then-increment on each visit, so the stored number
+  IS the decayed count). Persisted in `localStorage["vellum.recents"]`, capped
+  at 50 by score (not age). PATHS ONLY, PRUNED AT READ TIME: every read
+  filters against the live tree, so a deleted note leaves the list when the
+  tree does, and a visitor session — whose tree is the published subset —
+  never surfaces a private path's title, even one an admin session left in the
+  same browser. Storage is re-read on every public call because pop-out
+  windows share the origin's localStorage. The pure core (recordVisit /
+  rankRecents / parseRecents / decayedWeight) is proven in
+  tests/recents.test.ts under bare node; the module therefore must not import
+  state.ts (the store touches window/localStorage at import time) — the store
+  is handed in.
+
+- Palette on EMPTY query: recent notes first (a snapshot taken at palette
+  open — the list must not reshuffle between two Ctrl+Ps in one minute, and
+  opening the palette is itself a visit), minus the note currently open,
+  capped at 10; then the commands; then open tabs not already named by the
+  recents section (duplicate rows would make arrow-key distances drift with
+  usage).
+
+- Palette "@" prefix = HEADING JUMP within the open note: fuzzy over the
+  note's ANCHOR table (shared/anchors.ts — headings and LaTeX \labels alike;
+  ids are a match haystack too, since "eq:fourier" is how a \label is
+  remembered). Enter dispatches the same `vellum:goto-heading` event with the
+  same `{slug, line, text}` payload TocPanel's rows send, so the editor and
+  the reading view each consume the half they already handle. Content comes
+  from GET /api/note rather than the live buffer: the palette chunk must not
+  import CodeMirror (the bufferBridge wall), and autosave keeps the server
+  copy ~600ms fresh.
+
+- Wikilink completion ("[[") is RANKED, lexicographically: match quality on
+  the title/alias (exact > prefix > substring > subsequence), then frecency
+  (the same ledger), then already-linked-from-the-open-note, then
+  alphabetical. `filter: false` — the source hands CodeMirror a finished
+  order, because CM's own scorer would re-sort by string distance. An alias
+  row ranks by its NOTE's frecency/linkedness. Once a `|` is typed the popup
+  closes (the author is writing display text). The alias dedupe rules
+  (one row per alias, winner-first) are unchanged — tests/aliases.test.ts.
+
+- The CREATE ROW: last row of the "[[" popup, admin only, only when nothing
+  answers the typed name exactly. It creates `<open note's folder>/<typed>.md`
+  (a typed name containing "/" is obeyed as a root-relative path; a typed
+  note extension is kept) and SAYS SO on the row via `promptCreates` — a
+  create row that scatters files silently is worse than none. Apply inserts
+  the link as typed, creates the file via api.createNote + default template,
+  reloads the tree so the link renders resolved, and does NOT open the new
+  note: the writer is mid-sentence. (The click-a-dashed-link path still
+  creates at the vault root; that asymmetry is livePreview's to close.)
+
+- TAG completion: "#" mid-prose offers the vault's existing tags
+  (GET /api/tags, cached 60s — the SSE tree reload does not reach the editor
+  module, so a TTL stands in). It does NOT fire when the `#` opens the line
+  (a heading being typed), when the preceding char is not in TAG_RE's opener
+  class (URLs: `https://a/#frag`), inside code/links/math (syntax-tree
+  check), or inside "[[" (the anchor half owns that). Rows carry the
+  LOCALISED tag label (client/tagLabels.ts) as detail beside the canonical
+  tag; the canonical tag is what gets inserted — chips say, files store.
+  Boost is log-scaled usage count, so well-used tags surface first among
+  equal matches.
+
+## Landing on the line
+
+**The wire.** `Backlink` grew `line` (appended, never reordered): 1-based in the note's FULL
+source, frontmatter included — the coordinate the editor counts in. The indexer parses `body`
+(frontmatter stripped), so every record carries `bodyStartLine` and `fileLine()` is the ONE
+place body-relative indexes become file lines; `.tex` bodies are the full file (offset 0).
+`SearchMatch` is the same coordinate.
+
+**The machinery (client/landing.ts).** The line-based variant of `pendingHeading`, NOT a second
+system: for a surface already on screen it dispatches the existing `vellum:goto-heading` event —
+the editor's handler has read `detail.line` since the outline panel — and for a cross-note
+landing it holds a one-shot pending slot and retries per frame until an editor view for the note
+is attached (`bufferOf`, via DYNAMIC import so CodeMirror stays out of first paint;
+check-bundle), the reading view consumes the slot (`takePendingLine`) after its own render, the
+reader moves on, or ~4s pass. `detail.path` now rides on the event so a handler CAN scope a goto
+to its own pane's note; the reading view does, pre-existing handlers ignore it and behave as
+before. Every landing marks the landed element with `.s-landed` for 1.5s (`flashElement`) — a
+translucent accent wash, no new text/background pair, fade dropped under prefers-reduced-motion.
+
+**Reading-view precision is SECTION-level, and says so.** The reading renderer keeps no
+per-block source map, so a line landing resolves to the nearest heading at-or-above the line via
+the note's own anchor table (`shared/anchors.ts` — the same table `[[Note#anchor]]` resolves
+against, so the two landings cannot disagree about where a section starts), walking backward
+past anchors the renderer assigns no element to; with no preceding anchor it falls back to the
+note TOP. The flash makes the imprecision legible. The editor lands on the exact line. Honest
+fallback beats fake precision; anyone adding a source map to the renderer should delete this
+paragraph's fallback, not layer on it.
+
+**Surfaces.** A backlink card is a div now (a button may not contain buttons): the title row
+lands on the first mention, each context line on its own mention — mentions are distinct by LINE
+(two identical context lines are two places a click can land). A search hit grew a sibling
+chevron: expanded, it lists `/api/search/matches` rows (line number + marked line through the
+same snippet renderer as the hit itself); empty and failed fetches both render the quiet
+"no matches" row because the whole-note click above still works. Expansions and fetched lines
+are query-scoped state and a late response for an abandoned query is dropped.
+
+**Hover previews in the admin app.** `installNotePreviews` (client/landing.ts) is the blog
+shell's `installHoverCards` engine — same LRU, same card, check-hovercache still stands over the
+bound — with admin wiring: `resolve` reads `data-preview-path` off backlink cards and search hit
+rows, `render` is the blog card's excerpt recipe behind dynamic imports (the reading renderer
+must not enter the first-paint chunk for a hover). Installed by BacklinksPanel over its panel
+body and by the Sidebar over the search results region; re-installed on language change, exactly
+as the blog install's contract states. Recent-notes rows: none exist in the sidebar today
+(recents live in the CommandPalette, another owner) — nothing was installed there.
+
+**Multi-pane caveat (pre-existing, now load-bearing).** `vellum:goto-heading` is a broadcast and
+the EDITOR's handler ignores `detail.path`; with two editor panes on different notes a line-goto
+scrolls both. The reading view scopes itself; scoping the editor's handler is Editor.tsx-owner
+territory and the `path` in the detail is already there waiting for it.
+
+Insert under "Text formatting (client/editor/commands.ts)", after the LaTeX rule.
+
+---
+
+## The composer commands (selection menu only — no keystrokes, by decision)
+
+Four verbs behind the right-click menu: extract the selection into a linked
+note, insert a footnote, change the selection's case, wrap it in a callout.
+None of them claims a key — the selection menu is the door, Obsidian binds
+none of them by default either, and the keymap ledger gains four `via` rows
+and zero chords. The text arithmetic lives in `client/editor/composeText.ts`,
+pure and CodeMirror-free, so `tests/composer.test.ts` drives exactly what the
+commands dispatch — the same split `client/keymap.ts` makes for the gate.
+
+- **EXTRACT SELECTION (`client/composerActions.ts`) is the selection-shaped
+  sibling of `sectionActions.extractSection` and is built out of its parts** —
+  the same dialog (`promptExtractPath`, one naming rule for both, hoisted into
+  sectionActions.ts), the same create-the-new-note-FIRST ordering, the same
+  undo-toast shape. What differs is argued: the source is rewritten through
+  the LIVE VIEW as one transaction (the menu only exists over an open editor,
+  and one transaction means Ctrl+Z alone takes the source side back); the stub
+  is the bare `[[link]]`, not a heading plus a link, because a selection is
+  prose mid-paragraph and owns no outline entry that could vanish; and the
+  toast's Undo restores BOTH files — snapshot back into the source first,
+  the new note deleted only after that lands — because a cross-file undo that
+  restores one side is worse than no undo at all. Before the source is
+  rewritten the command re-reads the selection and, if the document moved
+  under the dialog (a second pane, a second window), takes the new note back
+  and changes nothing: replacing text nobody selected is worse than asking
+  again.
+- **A FOOTNOTE'S NUMBER IS EARNED, NOT ASSUMED** (`planFootnote`). A command
+  that always inserts `[^1]` is actively harmful from the second footnote on.
+  n = 1 + the highest numeric id before the caret; numeric footnotes that
+  first appear after the caret are renumbered upward — references and their
+  definitions in the same plan — only when they must move to make room, never
+  "tidied" (a note that jumps 1 → 5 keeps its 5: rewriting it is an edit
+  nobody asked for). Word-labelled footnotes (`[^note]`) are prose, not
+  arithmetic: never renamed, never counted. `[^…]` inside fenced blocks and
+  code spans is code, not a reference. The command REFUSES cleanly — changes
+  nothing — when the caret is in code or an id is defined twice (renumbering
+  an ambiguous note silently picks a winner, which is corruption wearing a
+  feature's name). The caret lands in the definition stub, because the next
+  thing the writer types is the footnote. In a `.tex` note the same row
+  writes `\footnote{…}` at the caret instead: numbering is the compiler's
+  job there, which is the whole reason the macro exists.
+- **CASE TRANSFORMS RUN PER RANGE** (`transformSelectionCase`) — the
+  `changeByRange` shape the other commands use, so every caret of a
+  multi-cursor selection transforms its own range. Wikilink TARGETS are
+  case-sensitive addresses on disk (`[[iPhone|the phone]]` uppercased into
+  `[[IPHONE|…]]` points at a file that does not exist), so only the alias
+  half is prose; a link with no alias is all address and passes through
+  whole, as do code spans, backticks included. Title Case is templates.ts's
+  rule (first and last words always capitalize, interior small words fall,
+  an author's inner capitals — "iOS" — stay), with the word positions
+  counted ACROSS skipped spans so "the" straight after a code span is still
+  an interior word. The implementation is a copy of templates.ts's private
+  `titleCase`, marked for reunification — that file was another engineer's
+  this round.
+- **A CALLOUT WRAP SURVIVES ITS OWN BLANK LINES** (`calloutWrap`). Every
+  selected line gets `> `; a blank line becomes a bare `>` — a genuinely
+  blank line ENDS a blockquote, so the naive wrap breaks the callout at the
+  first paragraph break and the second paragraph falls out as plain prose.
+  The type picker is `calloutDefs.ts`'s `CALLOUT_TYPES`, in the same order
+  the `> [!` autocomplete offers, so the two doors can never offer different
+  callouts. Markdown only: a callout is Obsidian syntax and a `.tex` note has
+  no honest spelling for one — absent, never approximated.
+- **`client/noteName.ts` is a module of one function on purpose**:
+  sectionActions.ts is first-paint code and composeText.ts is editor-chunk
+  code, and importing the shared naming rule from composeText dragged the
+  whole composer module into the admin first paint (measured: +3.2 kB in the
+  sectionActions chunk) for four lines of regex. The seam sits where the
+  chunk boundary is.
+
+Suggested placement: a new section after "Text formatting
+(client/editor/commands.ts)".
+
+---
+
+## Tables (client/editor/tables.ts, tableModel.ts; reading renderer's table branch)
+
+One renderer, four surfaces. The reading view, the blog article, the editor's
+transclusion widget and the editor's table widget all draw a table through
+`client/reading/render.ts` (`.s-rv-tablewrap` scrolls, `.s-rv-table` carries
+`dir="auto"` so column order follows the table's own text; alignment colons
+map to `.s-rv-al-c` / `.s-rv-al-r`; `\|` escapes survive; colors are tokens
+check-contrast already holds). The editor never grows a second table renderer.
+
+**Live preview follows the reveal-on-caret rule.** Caret outside a top-level
+`Table` node → the block is one `Decoration.replace` block widget
+(`.cm-s-table`, a StateField — block decorations cannot come from a
+ViewPlugin), and clicking a rendered cell puts the caret at that cell's
+source content (each cell carries `data-pos`, mapped from the same parse the
+renderer saw). Caret inside → the pipe source, its lines marked
+`.cm-s-table-srcline` and set in `--font-mono`, because the padded pipes
+format-on-exit writes only align in a monospace face. Tables nested in
+blockquotes/callouts or lists stay source in the editor (they still render in
+the reading view and blog): replacing a range that includes `> ` markers
+would fight the callout field for the same lines.
+
+**The table keymap is scoped, never global.** A `Prec.high` keymap whose
+every command resolves the syntax tree first and returns false unless the
+caret is a single selection inside a top-level table — outside a table Tab
+still indents, Enter still breaks the line, Alt+arrows still move lines, and
+an open autocomplete tooltip keeps Tab/Enter (completionStatus is checked
+before the table answers). Inside one:
+
+- **Tab / Shift+Tab** walk cells, selecting the cell's trimmed content;
+  Tab in the last cell appends an empty row. **Enter** moves down a row,
+  same column, caret at the content's end (walking must not arm an
+  overwrite); from the last row it leaves the table downward instead of
+  splitting a row.
+- **Alt+↑/↓** swap body rows. The header and delimiter never move — at them
+  the keystroke is consumed as a no-op, because falling through to
+  moveLineUp/Down would drag the header line out of the block.
+- **Alt+←/→** move a column: header, delimiter and every body row in the
+  same transaction — a column move that skips the delimiter walks each
+  column's alignment into its neighbour's. Arrows are VISUAL: in an RTL
+  table the header's own direction flips them, same as the rendered
+  `dir="auto"` does. Edges consume the key; nothing wraps, nothing shears.
+- **Format on exit.** When the caret leaves a table block (and only then —
+  not on undo/redo, not while any selection range still touches the block),
+  the block is prettified off the update cycle: every cell padded to its
+  column's display width (grapheme-clustered via Intl.Segmenter; CJK and
+  emoji count two columns, Arabic one), the delimiter stretched with its
+  colons kept where the author put them, leading/trailing pipes normalized,
+  short rows squared off. Cell CONTENT is copied verbatim — splitting on
+  unescaped pipes (`\|` holds, `\\|` splits: parity, not presence) is the
+  only operation that ever looks inside a cell, which is what keeps escapes
+  and code-span pipes uncorrupted. A block that stopped parsing as a table
+  mid-edit round-trips untouched.
+
+**The model is pure and tested.** All string/offset logic lives in
+`tableModel.ts` with zero imports — split from tables.ts for the reason
+calloutDefs.ts is split from callouts.ts: tables.ts's import chain carries
+.css and CodeMirror, and `node --test` (tests/tables.test.ts) must load the
+logic without them.
+
+**Creation.** The slash menu's Table entry inserts a 2×2 skeleton with
+exactly one snippet field selecting the first header cell; from there every
+Tab is the table's (three fields would feed Tab to the snippet walker
+instead of the cell walker).
 
 ## Tests (`npm test`) — the release gate
 

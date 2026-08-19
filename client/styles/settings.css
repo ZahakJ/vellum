@@ -761,6 +761,30 @@
   flex-direction: column;
   min-height: 0;
   gap: 10px;
+  /* THE RAIL'S WIDTH, STATED — NOT INHERITED FROM THE SEARCH FIELD. Left to
+     size itself, this column takes the widest thing in it, and that is the
+     <input>: a text input's intrinsic width is `size` characters of ITS FONT'S
+     average advance, which for the naskh UI face is nearly twice the Latin
+     figure. In Arabic the wrap ballooned to ~410px, the body gave up the
+     difference, the control column collapsed to ~200px, and every tab with a
+     segmented control or a min-width field overflowed sideways — the clipped
+     العربية segment on This device was this rule missing, not that row's
+     fault. The width is the rail's own 12.25rem (the search shares the rail's
+     column, so it shares the rail's measure), and the input follows the wrap
+     instead of the wrap following the input. */
+  flex: none;
+  width: 12.25rem;
+}
+
+/* The fixed measure is for the side-by-side layout only: once the cols stack
+   (app.css's own breakpoint), the wrap spans the panel like the strip the rail
+   becomes inside it. This lives HERE, not in the Narrow section above, because
+   the 12.25rem it undoes is declared later in the file than that section — an
+   equal-specificity override has to follow what it overrides. */
+@media (max-width: 720px) {
+  .s-smodal__railwrap {
+    width: auto;
+  }
 }
 
 .s-smodal__search {
@@ -777,6 +801,9 @@
   color: var(--text);
   font: inherit;
   font-size: 0.857rem;
+  /* The field is the rail's width, and the placeholder is a sentence: it
+     trails off instead of being guillotined mid-word. */
+  text-overflow: ellipsis;
 }
 
 .s-smodal__searchinput:focus-visible {
