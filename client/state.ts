@@ -8,7 +8,7 @@ import { create } from "zustand";
 import type { Backlink, HomeSettings, PublicThemeInfo, PublishedCounts, TreeNode } from "../shared/types.ts";
 import * as api from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
-import { collectNotes, resolveLink } from "./editor/links.ts";
+import { collectNotes, resolveLink, setAliasTable } from "./editor/links.ts";
 import type { LanguageFilterMode, VisibilityImpact } from "../shared/types.ts";
 import { setLang, setNumeralLocale, t, tf } from "./i18n.ts";
 // Localization the shell pushes into plain modules rather than into the store:
@@ -44,9 +44,35 @@ import {
   isKnownThemeChoice,
   syncCustomThemes,
 } from "./design/customThemes.ts";
+import { remapBufferPath } from "./editor/bufferBridge.ts";
 import { isPublishedContent } from "./publish.ts";
+import {
+  activeTabOf,
+  allPaths,
+  closeAfterIn,
+  closeAllPanes,
+  closeOthersIn,
+  closeTabIn,
+  emptyWorkspace,
+  closePane as closePaneIn,
+  setPaneMode as setPaneModeIn,
+  focusPane as focusPaneIn,
+  fromStoredTabs,
+  isBookPath,
+  openInPane,
+  paneAt,
+  parseWorkspace,
+  pruneWorkspace,
+  remapWorkspace,
+  reorderTab as reorderTabIn,
+  splitPane as splitPaneIn,
+  serializeWorkspace,
+  setPinned as setPinnedIn,
+  type Workspace,
+} from "./workspace.ts";
 import { applyDefaultTemplate } from "./templateActions.ts";
 import { toast } from "./toast.ts";
+import { actionToast } from "./undoToast.ts";
 import { noteLabelOf, noteTitleOf } from "../shared/noteFormat.ts";
 
 /** A note path as the reader knows it: the basename, minus `.md`. The toast
@@ -60,6 +86,11 @@ const THEME_KEY = "vellum.theme";
 const VIM_KEY = "vellum.vim";
 const READING_KEY = "vellum.reading";
 const TABS_KEY = "vellum.tabs";
+/** The workspace supersedes `vellum.tabs`, and BOTH are written. The old key
+ *  costs a few bytes and buys a downgrade that does not lose anyone's session:
+ *  an instance rolled back to a build without panes still finds the tabs it
+ *  understands. It is read only when the new key is absent or unreadable. */
+const WORKSPACE_KEY = "vellum.workspace";
 const PREVIEW_KEY = "vellum.preview";
 const SIDE_KEY = "vellum.sidebarSide";
 const SIDEBAR_COLLAPSED_KEY = "vellum.sidebarCollapsed";
@@ -112,6 +143,22 @@ export type View = "editor" | "graph";
 
 export interface State {
   tree: TreeNode | null;
+  /** THE WORKSPACE IS THE TRUTH; `openPath` and `openTabs` below are a derived
+   *  mirror of it, written by `commitWorkspace()` and by nothing else.
+   *
+   *  Doing it that way round is what makes panes affordable. Roughly forty
+   *  places in the client read `openPath` or `openTabs` — the status bar, the
+   *  router, the palette, the outline, the backlinks panel, every publish and
+   *  banner action — and none of them has to learn what a pane is. They keep
+   *  reading a path and a list of paths, and go on being right, because the
+   *  mirror answers for the FOCUSED pane. Only the dozen or so places that
+   *  WRITE the open set had to change, and they now say what they mean:
+   *  `closeOthersIn`, `pruneWorkspace`, `remapWorkspace`.
+   *
+   *  The model itself is pure and lives in `client/workspace.ts`, where it is
+   *  fuzzed over tens of thousands of random edit sequences. Nothing in this
+   *  file re-implements a rule it already states. */
+  workspace: Workspace;
   openPath: string | null;
   openTabs: string[];
   dirty: Record<string, boolean>;
@@ -338,6 +385,27 @@ export interface State {
   loadTree(): Promise<void>;
   openNote(path: string): void;
   closeTab(path: string): void;
+  /** Replace the workspace and re-derive the mirror. The ONE writer of
+   *  `openPath`/`openTabs`. */
+  commitWorkspace(ws: Workspace): void;
+  /** Move the keyboard to a pane. Every tab action below acts on the FOCUSED
+   *  pane, so a surface that acts on a particular one focuses it first — which
+   *  is what a click on it means anyway. */
+  focusPane(id: string): void;
+  /** Split the focused pane, carrying its active tab into the new one.
+   *  Returns false when the layout is at its cap, so the caller can say so by
+   *  name instead of the keystroke appearing to do nothing. */
+  splitFocusedPane(axis: "inline" | "block"): boolean;
+  closeFocusedPane(): void;
+  // The tab context menu's rows. Each names what it takes — and none of them
+  // takes a PINNED tab, which is the same promise in every row, so a reader
+  // never has to remember which of them respects a pin.
+  closeOtherTabs(path: string): void;
+  closeTabsAfter(path: string): void;
+  /** Every note in this window — the row the owner asked for by name. */
+  closeAllTabs(): void;
+  setTabPinned(path: string, pinned: boolean): void;
+  moveTabTo(path: string, index: number): void;
   setView(v: View): void;
   setTheme(t: ThemeChoice): void;
   /** What a cookieless VISITOR lands on, and why — admin sessions only (null
@@ -644,6 +712,66 @@ function persistTabs(tabs: string[], open: string | null): void {
   }
 }
 
+function persistWorkspace(ws: Workspace): void {
+  try {
+    localStorage.setItem(WORKSPACE_KEY, JSON.stringify(serializeWorkspace(ws)));
+  } catch {
+    // storage full/unavailable — session restore just won't work
+  }
+}
+
+/** The stored workspace, or null. `parseWorkspace` is TOTAL — it never throws
+ *  and recovers the reader's open notes out of a layout it cannot otherwise
+ *  understand — so the only null here means "nothing stored", and the caller
+ *  falls back to `vellum.tabs`. */
+function readStoredWorkspace(): Workspace | null {
+  try {
+    const raw = localStorage.getItem(WORKSPACE_KEY);
+    if (!raw) return null;
+    return parseWorkspace(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+/** The derived mirror: what `openTabs` and `openPath` mean once there is more
+ *  than one pane.
+ *
+ *  `openTabs` is the FOCUSED pane's list, because the tab bar draws that pane.
+ *  `openPath` is its active tab — unless that tab is a BOOK, in which case it
+ *  falls back to `noteFocus`. That fallback is the whole reason `noteFocus`
+ *  exists: `StatusBar` fires `getNote(openPath)` on every change and would 400
+ *  on every `.pdf`, and `router.ts` would push a PDF into the address bar as if
+ *  it were a permalink. A book pane can hold the keyboard; it cannot be "the
+ *  open note". */
+function mirrorOf(
+  ws: Workspace,
+): Pick<State, "workspace" | "openTabs" | "openPath" | "readingMode"> {
+  const pane = paneAt(ws, ws.focus);
+  const openTabs = pane === null ? [] : pane.tabs.map((t) => t.path);
+  // The focused pane's mode, mirrored for the ~dozen readers that ask "is the
+  // note being read or written" and have no business knowing about panes.
+  const readingMode = pane !== null && pane.mode === "reading";
+  const here = pane === null ? null : activeTabOf(pane);
+  if (here !== null && !isBookPath(here.path)) {
+    return { workspace: ws, openTabs, openPath: here.path, readingMode };
+  }
+  const noteHome = paneAt(ws, ws.noteFocus);
+  const note = noteHome === null ? null : activeTabOf(noteHome);
+  return { workspace: ws, openTabs, openPath: note === null ? null : note.path, readingMode };
+}
+
+/** The dirty map names OPEN notes and nothing else. A bulk close that left
+ *  entries behind would keep the unsaved count in "Close others (2 unsaved)"
+ *  counting notes that are no longer anywhere — and that count is the whole
+ *  reason those rows are trustworthy. */
+function dropDirty(dirty: Record<string, boolean>, ws: Workspace): Record<string, boolean> {
+  const open = new Set(allPaths(ws));
+  const out: Record<string, boolean> = {};
+  for (const [path, flag] of Object.entries(dirty)) if (open.has(path)) out[path] = flag;
+  return out;
+}
+
 function remap(current: string, from: string, to: string): string {
   if (current === from) return to;
   if (current.startsWith(`${from}/`)) return to + current.slice(from.length);
@@ -665,7 +793,11 @@ function clearStoredPreview(): void {
 
 // The admin's tabs, parked while previewing; restored on exit (with the note
 // the preview ended on kept open, per "exit returns to the same note").
-let previewSnapshot: { tabs: string[]; open: string | null } | null = null;
+/** The whole WORKSPACE the admin was in when preview started, not a tab list.
+ *  Preview is a round trip through a smaller vault, and what has to come back
+ *  afterwards is the layout as well as the notes — a reader who split a pane
+ *  and then looked at their site as a visitor should not find the split gone. */
+let previewSnapshot: Workspace | null = null;
 
 // ── Our own writes ──────────────────────────────────────────────────────────
 //
@@ -764,15 +896,29 @@ export const useStore = create<State>()((set, get) => {
     await get().loadTree();
     const tree = get().tree;
     const existing = new Set(collectNotes(tree).map((n) => n.path));
+    // The workspace first, `vellum.tabs` as the fallback — which is what makes
+    // the upgrade invisible: an instance that has never seen this build has no
+    // workspace key, and its tab list becomes a one-pane workspace holding
+    // exactly the notes it had open. Nobody's session is spent on the upgrade.
+    const restored = readStoredWorkspace();
     const stored = readStoredTabs();
-    const tabs = (stored?.tabs ?? []).filter((p) => existing.has(p));
-    if (tabs.length > 0) {
-      const remembered = stored?.open;
-      const open =
-        remembered && tabs.includes(remembered) ? remembered : tabs[tabs.length - 1];
-      set({ openTabs: tabs, openPath: open });
-      void get().refreshBacklinks();
-      return;
+    const ws = restored ?? (stored === null ? null : fromStoredTabs(stored));
+    if (ws !== null) {
+      // A note in the stored workspace may have been deleted, renamed or hidden
+      // while this browser was closed. Pruning here rather than at parse time
+      // keeps the model pure and total: `client/workspace.ts` knows about tabs,
+      // not about which of them still exist.
+      const pruned = pruneWorkspace(ws, existing);
+      if (allPaths(pruned).length > 0) {
+        // The stored reading preference is a DEVICE preference and the pane is
+        // where it now lives, so boot carries it across — otherwise a reader who
+        // left in reading view comes back to the editor.
+        get().commitWorkspace(
+          readReading() ? setPaneModeIn(pruned, pruned.focus, "reading") : pruned,
+        );
+        void get().refreshBacklinks();
+        return;
+      }
     }
     const home = get().homeNote;
     // A deep link in the address bar outranks the home note — the router
@@ -787,6 +933,7 @@ export const useStore = create<State>()((set, get) => {
 
   return {
     tree: null,
+    workspace: emptyWorkspace(),
     openPath: null,
     openTabs: [],
     dirty: {},
@@ -1096,21 +1243,14 @@ export const useStore = create<State>()((set, get) => {
         const { admin, publicReads } = get();
         if (!admin && !publicReads) {
           // Vault is locked again for this session — drop everything readable.
-          set({ tree: null, openTabs: [], openPath: null, backlinks: [], view: "editor" });
+          set({ tree: null, ...mirrorOf(emptyWorkspace()), backlinks: [], view: "editor" });
           return;
         }
         // Back to the visitor's curated view: refetch the (flat) tree and
         // drop tabs pointing at notes that are not published.
         await get().loadTree();
         const visible = new Set(collectNotes(get().tree).map((n) => n.path));
-        set((s) => {
-          const openTabs = s.openTabs.filter((p) => visible.has(p));
-          const openPath =
-            s.openPath && visible.has(s.openPath)
-              ? s.openPath
-              : openTabs[openTabs.length - 1] ?? null;
-          return { openTabs, openPath };
-        });
+        set((s) => mirrorOf(pruneWorkspace(s.workspace, visible)));
         void get().refreshBacklinks();
       }),
 
@@ -1131,7 +1271,7 @@ export const useStore = create<State>()((set, get) => {
         // Attachment resolution is scope-dependent; never reuse across modes.
         clearBrokenEmbeds();
         if (on) {
-          previewSnapshot = { tabs: [...get().openTabs], open: get().openPath };
+          previewSnapshot = get().workspace;
           // openPath goes to null for the length of the transition. The
           // scoping below cannot run until loadTree() has answered, and in
           // the meantime the reading view would refetch the OPEN note with
@@ -1156,12 +1296,14 @@ export const useStore = create<State>()((set, get) => {
           // Visitor scoping of the session: tabs pointing at unpublished
           // notes disappear, exactly as they do on logout.
           const visible = new Set(collectNotes(get().tree).map((n) => n.path));
-          set((s) => {
-            const openTabs = s.openTabs.filter((p) => visible.has(p));
-            const openPath =
-              before && visible.has(before) ? before : openTabs[openTabs.length - 1] ?? null;
-            return { openTabs, openPath, view: "editor" as const };
-          });
+          set((s) => ({
+            ...mirrorOf(
+              before !== null && visible.has(before)
+                ? openInPane(pruneWorkspace(s.workspace, visible), s.workspace.focus, before)
+                : pruneWorkspace(s.workspace, visible),
+            ),
+            view: "editor" as const,
+          }));
           // And SAY why the note went away. Silence here is the same bug in
           // the other direction: the tab vanishes, the pane reads "The vault
           // is open", and nothing connects either to the eye button.
@@ -1179,10 +1321,13 @@ export const useStore = create<State>()((set, get) => {
           const snap = previewSnapshot;
           previewSnapshot = null;
           set((s) => {
-            let openTabs = snap ? [...snap.tabs] : s.openTabs;
-            const openPath = current ?? snap?.open ?? s.openPath;
-            if (openPath && !openTabs.includes(openPath)) openTabs = [...openTabs, openPath];
-            return { openTabs, openPath, view: "editor" as const };
+            // The layout the admin left, plus wherever preview ended up: a
+            // reader who followed a link while previewing means to keep it.
+            const base = snap ?? s.workspace;
+            return {
+              ...mirrorOf(current === null ? base : openInPane(base, base.focus, current)),
+              view: "editor" as const,
+            };
           });
           void get().refreshBacklinks();
           void get().loadPublished();
@@ -1266,14 +1411,49 @@ export const useStore = create<State>()((set, get) => {
 
     loadTree: () =>
       guarded("loading vault tree", async () => {
-        const tree = await api.getTree();
+        // The tree and the ALIAS table are one refresh. A tree carries
+        // filenames; an alias lives in frontmatter, so the client cannot derive
+        // it — and a resolver that knows one and not the other draws a dashed
+        // "unresolved" link at a note that is sitting right there, then offers
+        // to create a duplicate of it. Their staleness is now identical, which
+        // is the only way the editor and the backlink panel can agree.
+        //
+        // The alias half fails SOFTLY: it is an enrichment of the tree, not a
+        // condition of it, and the last good table is kept rather than cleared.
+        const [tree, aliases] = await Promise.all([
+          api.getTree(),
+          api.getAliases().catch((err: unknown) => {
+            console.error("vellum: loading the alias table failed", err);
+            return null;
+          }),
+        ]);
+        if (aliases !== null) setAliasTable(aliases);
         set({ tree });
       }),
 
+    commitWorkspace: (ws) => set((s) => ({ ...s, ...mirrorOf(ws) })),
+
+    focusPane: (id) => set((s) => ({ ...s, ...mirrorOf(focusPaneIn(s.workspace, id)) })),
+
+    splitFocusedPane: (axis) => {
+      const s = get();
+      const pane = paneAt(s.workspace, s.workspace.focus);
+      // The new pane opens on the SAME note, which is what a split is for:
+      // the second view of the thing you are already reading. An empty pane
+      // beside a note is a pane the reader then has to fill.
+      const carry = pane === null ? null : activeTabOf(pane);
+      const next = splitPaneIn(s.workspace, s.workspace.focus, axis, carry);
+      if (next === null) return false;
+      set({ ...s, ...mirrorOf(next) });
+      return true;
+    },
+
+    closeFocusedPane: () =>
+      set((s) => ({ ...s, ...mirrorOf(closePaneIn(s.workspace, s.workspace.focus)) })),
+
     openNote: (path) => {
       set((s) => ({
-        openTabs: s.openTabs.includes(path) ? s.openTabs : [...s.openTabs, path],
-        openPath: path,
+        ...mirrorOf(openInPane(s.workspace, s.workspace.focus, path)),
         view: "editor",
         // Unknown until the status bar reads the new note's frontmatter —
         // unless the published set already knows the answer.
@@ -1286,19 +1466,49 @@ export const useStore = create<State>()((set, get) => {
 
     closeTab: (path) => {
       set((s) => {
-        const index = s.openTabs.indexOf(path);
-        if (index === -1) return s;
-        const openTabs = s.openTabs.filter((p) => p !== path);
-        const dirty = { ...s.dirty };
-        delete dirty[path];
-        let openPath = s.openPath;
-        if (openPath === path) {
-          openPath = openTabs[Math.min(index, openTabs.length - 1)] ?? null;
-        }
-        return { ...s, openTabs, dirty, openPath };
+        const ws = closeTabIn(s.workspace, s.workspace.focus, path);
+        if (ws === s.workspace) return s;
+        return { ...s, ...mirrorOf(ws), dirty: dropDirty(s.dirty, ws) };
       });
       void get().refreshBacklinks();
     },
+
+    // ── The tab context menu's rows ─────────────────────────────────────────
+    // Every one of them goes through a reducer in client/workspace.ts rather
+    // than filtering an array here, because "which tabs does this take" is a
+    // question with one answer and it is written down there — pins survive,
+    // the active tab lands on its neighbour, and the dirty map is trimmed to
+    // what is still open. Four subtly different filters in this file is how
+    // "close others" and "close to the right" end up disagreeing about a pin.
+
+    closeOtherTabs: (path) => {
+      set((s) => {
+        const ws = closeOthersIn(s.workspace, s.workspace.focus, path);
+        return { ...s, ...mirrorOf(ws), dirty: dropDirty(s.dirty, ws) };
+      });
+      void get().refreshBacklinks();
+    },
+
+    closeTabsAfter: (path) => {
+      set((s) => {
+        const ws = closeAfterIn(s.workspace, s.workspace.focus, path);
+        return { ...s, ...mirrorOf(ws), dirty: dropDirty(s.dirty, ws) };
+      });
+    },
+
+    closeAllTabs: () => {
+      set((s) => {
+        const ws = closeAllPanes(s.workspace);
+        return { ...s, ...mirrorOf(ws), dirty: dropDirty(s.dirty, ws) };
+      });
+      void get().refreshBacklinks();
+    },
+
+    setTabPinned: (path, pinned) =>
+      set((s) => ({ ...s, ...mirrorOf(setPinnedIn(s.workspace, s.workspace.focus, path, pinned)) })),
+
+    moveTabTo: (path, index) =>
+      set((s) => ({ ...s, ...mirrorOf(reorderTabIn(s.workspace, s.workspace.focus, path, index)) })),
 
     setView: (view) => set({ view }),
 
@@ -1357,8 +1567,25 @@ export const useStore = create<State>()((set, get) => {
     toggleReading: () => get().setReadingMode(!get().readingMode),
 
     setReadingMode: (readingMode) => {
+      // READING MODE IS PER-PANE, and this writes the PANE, not the flag.
+      //
+      // It used to set `readingMode` on the store and that was the whole
+      // mechanism, because there was one editor and `App.tsx` chose between it
+      // and the reading view. With panes, a pane picks its own surface from
+      // `pane.mode` — so setting the flag alone left `Ctrl/Cmd+E` flipping a
+      // value nothing rendered from. `check-layouts` caught it on all seven
+      // keyboard layouts at once, which is what a browser gate is for: nothing
+      // in the type system or the unit tests can see a store field that no
+      // longer reaches a component.
+      //
+      // The flag survives as the DERIVED mirror (`mirrorOf`), for the same
+      // reason `openPath` does: the status bar, the palette and the mode pill
+      // all read it and none of them needs to learn what a pane is.
       localStorage.setItem(READING_KEY, String(readingMode));
-      set({ readingMode });
+      const s = get();
+      s.commitWorkspace(
+        setPaneModeIn(s.workspace, s.workspace.focus, readingMode ? "reading" : "edit"),
+      );
     },
 
     setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
@@ -1433,10 +1660,30 @@ export const useStore = create<State>()((set, get) => {
 
     renameNote: (path, toPath) =>
       guarded(`renaming ${path}`, async () => {
+        const oldTitle = noteTitleOf(path);
         await api.renameNote(path, toPath);
         get().remapPath(path, toPath);
         await get().loadTree();
         void get().refreshBacklinks();
+        // The rewrite fixed every [[wikilink]] INSIDE this vault. It could not
+        // fix what is outside it: a published permalink, a link in someone
+        // else's notes, a bookmark — and it never sees the reader's own memory
+        // of what the note was called. One button keeps the old title working
+        // as a name (frontmatter `aliases:`), which is the half of a rename
+        // Obsidian leaves to the author. Offered only when the NAME changed —
+        // a move keeps it, and an alias for a name nothing lost is clutter.
+        const newTitle = noteTitleOf(toPath);
+        if (oldTitle.toLowerCase() !== newTitle.toLowerCase()) {
+          actionToast(tf("renameKeepAliasToast", { title: oldTitle }), t("renameKeepAliasAction"), () => {
+            api
+              .addAlias(toPath, oldTitle)
+              .then(() => toast(tf("renameAliasKeptToast", { title: oldTitle })))
+              .catch((err: unknown) => {
+                console.error("vellum: keeping the old title as an alias failed", err);
+                toast(tf("renameAliasFailed", { title: oldTitle }), "error");
+              });
+          });
+        }
       }),
 
     deleteNote: (path, opts) =>
@@ -1513,11 +1760,13 @@ export const useStore = create<State>()((set, get) => {
 
     remapPath: (path, toPath) =>
       set((s) => {
-        const openTabs = s.openTabs.map((p) => remap(p, path, toPath));
+        // The open DOCUMENT follows its file too, not just the tab. A rename
+        // that dropped the undo history of the note being renamed would do it
+        // at the one moment a reader most wants it back.
+        remapBufferPath(path, toPath);
         const dirty: Record<string, boolean> = {};
         for (const [p, d] of Object.entries(s.dirty)) dirty[remap(p, path, toPath)] = d;
-        const openPath = s.openPath === null ? null : remap(s.openPath, path, toPath);
-        return { openTabs, dirty, openPath };
+        return { ...mirrorOf(remapWorkspace(s.workspace, path, toPath)), dirty };
       }),
 
     bumpReload: () => set((s) => ({ reloadTick: s.reloadTick + 1 })),
@@ -1531,7 +1780,11 @@ export const useStore = create<State>()((set, get) => {
 // so a slow boot never clobbers the stored tabs with the empty initial state.
 useStore.subscribe((s, prev) => {
   if (!s.authReady) return;
+  if (s.workspace !== prev.workspace) persistWorkspace(s.workspace);
   if (s.openTabs !== prev.openTabs || s.openPath !== prev.openPath) {
+    // `vellum.tabs` is still written, and deliberately: it costs a few bytes
+    // and buys a downgrade that does not strand anyone. A build without panes
+    // still finds a session it understands.
     persistTabs(s.openTabs, s.openPath);
   }
 });

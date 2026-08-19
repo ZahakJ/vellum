@@ -32,6 +32,7 @@ import { promptNewNote } from "./prompts.ts";
 import { insertTemplateCommand, newNoteFromTemplateCommand } from "./templateActions.ts";
 import { applyUrl, installRouter, syncUrl } from "./router.ts";
 import { recentSelfWrite, sidebarIsDrawer, useStore } from "./state.ts";
+import { adoptExternalChange, flushAllBuffers, unsavedPaths } from "./editor/bufferBridge.ts";
 import { dismissToasts, toast } from "./toast.ts";
 
 /** Writes made by our own autosave echo back through the watcher; ignore
@@ -83,10 +84,9 @@ const SSE_COALESCE_MS = 250;
 // of every session dropped focus to <body>. Per-surface boundaries fix both,
 // because nothing that is already on screen is inside the boundary that
 // suspends.
-const Editor = lazy(() => import("./components/Editor.tsx"));
+const Workspace = lazy(() => import("./components/Workspace.tsx"));
 const BlogShell = lazy(() => import("./blog/BlogShell.tsx"));
 const DesignedSite = lazy(() => import("./design/DesignedSite.tsx"));
-const ReadingView = lazy(() => import("./reading/ReadingView.tsx"));
 const GraphView = lazy(() => import("./components/GraphView.tsx"));
 const Sidebar = lazy(() => import("./components/Sidebar.tsx"));
 const Tabs = lazy(() => import("./components/Tabs.tsx"));
@@ -183,6 +183,12 @@ export default function App() {
   const shortcutsOpen = useStore((s) => s.shortcutsOpen);
   const previewVisitor = useStore((s) => s.previewVisitor);
   const reloadTick = useStore((s) => s.reloadTick);
+  // Split at all? The shell's own tab bar belongs to the shell only while
+  // there is one pane; past that each pane carries its own, because a tab bar
+  // names what is open HERE and one strip above two panes cannot say which.
+  const split = useStore(
+    (s) => s.workspace.layout.columns.length > 1 || s.workspace.layout.columns[0].length > 1,
+  );
   const admin = useStore((s) => s.admin);
   // Only the SSE effect below reads this, and only to reconnect the stream
   // when the reader's language changes (see the comment there).
@@ -223,6 +229,58 @@ export default function App() {
   // Boot: /api/me, then tree + session restore / home note.
   useEffect(() => {
     void useStore.getState().bootstrap();
+  }, []);
+
+  // Several windows of one vault, behaving like one application: the theme and
+  // the language follow each other, a saved note re-bases its peers' write
+  // precondition, a sign-out is a barrier rather than an event, and exactly one
+  // window at a time holds the pen on any given note.
+  // DYNAMICALLY, because none of it is needed in the first frame. The bus, the
+  // lease and the peer census answer a question — "is another window editing
+  // this note" — that cannot arise until a note is open, and a static import
+  // put four modules into the entry chunk that every anonymous blog reader then
+  // downloaded to coordinate windows they do not have. `check-bundle` is what
+  // noticed.
+  useEffect(() => {
+    let stop: (() => void) | null = null;
+    let dead = false;
+    void import("./windows/coherence.ts").then((m) => {
+      if (dead) return;
+      stop = m.installWindowCoherence();
+    });
+    return () => {
+      dead = true;
+      stop?.();
+    };
+  }, []);
+
+  // CLOSING THE TAB WITH UNSAVED TEXT IN IT.
+  //
+  // There was no `beforeunload` anywhere in the client, and `putNote` is a
+  // plain fetch: closing a tab mid-sentence warned about nothing and saved
+  // nothing. The loss is one sentence at a time, which is exactly why it
+  // erodes trust instead of getting reported — nobody files a bug about a
+  // paragraph they are not certain they wrote.
+  //
+  // Two halves, and the order matters. The BEACON goes first and
+  // unconditionally, because it is the half that actually saves the work: a
+  // `fetch` started here dies with the document, while `sendBeacon` is the one
+  // transport the platform promises to deliver afterwards. Only then is the
+  // browser's own "leave site?" dialog raised, and only when something was
+  // still unsaved after the attempt — a confirmation prompt in front of a
+  // reader whose work is already on its way is a prompt that teaches them to
+  // click through prompts.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+      flushAllBuffers();
+      if (unsavedPaths().length === 0) return;
+      e.preventDefault();
+      // Every modern browser prints its own wording and ignores ours, but the
+      // assignment is still what marks the event as needing the dialog.
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
 
   // Once the vault is in, the router takes over the address bar: a pasted
@@ -351,7 +409,18 @@ export default function App() {
           if (store.dirty[ev.path]) {
             toast(tf("changedOnDisk", { path: ev.path }));
           } else {
-            store.bumpReload();
+            // Adopt the new text INTO the open buffer rather than remounting
+            // the editor. The remount used to be the whole mechanism, and with
+            // the buffer registry it became the wrong one: an unmount releases
+            // the buffer and a remount re-fetches it, so the note would come
+            // back correct and the reader's undo history would be gone — on an
+            // event they did not cause. Adoption goes through the document as
+            // an ordinary transaction, so the external change is itself
+            // undoable. The remount stays as the fallback for the surface that
+            // has no buffer: the reading view.
+            void adoptExternalChange(ev.path).then((adopted) => {
+              if (!adopted) store.bumpReload();
+            });
           }
         }
       }
@@ -490,7 +559,12 @@ export default function App() {
       // layout's own "/" is what arrives, and on Arabic the physical Slash key
       // (which types "ظ") resolves to "/". `isKey` is what folds "?" into "/",
       // so this is the one binding that does not read `key` directly.
-      if (isKey(e, "/")) {
+      // …but NOT Ctrl/Cmd+Alt+/, which is the editor's comment toggle. Without
+      // this exclusion the sheet swallowed it in the capture phase, and a
+      // capture-phase preventDefault ends CodeMirror's pipeline before its
+      // first handler runs — the same way it kept Ctrl/Cmd+D and Ctrl/Cmd+B
+      // dead. Alt is the escape hatch this file already uses for exactly this.
+      if (isKey(e, "/") && !e.altKey) {
         e.preventDefault();
         if (!modalUp(store)) {
           store.setPaletteOpen(false);
@@ -525,6 +599,15 @@ export default function App() {
       // layer down, where it can also let vim's Ctrl+B through.
       if (key === "k" || (!blogShell && key === "p")) e.preventDefault();
       if (bKey && !blogShell && !inEditor(e.target)) e.preventDefault();
+      // +D IS THE SAME EXCEPTION, FOR THE SAME REASON. Ctrl/Cmd+D is the
+      // EDITOR's — `searchKeymap`'s selectNextOccurrence, and vim's half-page
+      // scroll ahead of it — so it may only die out here, where it would
+      // otherwise be Chrome's and Firefox's "bookmark this page". Swallowing
+      // it unconditionally is precisely what kept multi-cursor dead: this
+      // listener has held the key for the daily note since it shipped, and a
+      // capture-phase preventDefault ends CodeMirror's pipeline before its
+      // first handler runs. The daily note now wears Alt, below.
+      if (key === "d" && !e.altKey && !blogShell && !inEditor(e.target)) e.preventDefault();
       // A modal dialog owns the keyboard: app-level shortcuts firing behind
       // the login/banner/moderation/confirm overlays would steal focus (e.g.
       // Ctrl+K focusing the sidebar search under the modal) or stack modals.
@@ -594,10 +677,28 @@ export default function App() {
         e.preventDefault();
         e.stopPropagation();
         store.setZen(!store.zen);
-      } else if (key === "d") {
+      } else if (key === "\\") {
+        // Ctrl/Cmd+\ splits along the INLINE axis, +Shift stacks instead, and
+        // +Alt closes the pane. One key, one mental model: "another one of
+        // these", with Shift choosing the direction — the same shape the pane
+        // toggles use. A split that would breach the cap says so by name
+        // rather than appearing to do nothing, which is how a keystroke gets
+        // reported as broken.
+        if (!store.admin) return;
+        e.preventDefault();
+        if (e.altKey) {
+          store.closeFocusedPane();
+        } else if (!store.splitFocusedPane(e.shiftKey ? "block" : "inline")) {
+          toast(t("paneCapReached"));
+        }
+      } else if (key === "d" && e.altKey) {
+        // Ctrl/Cmd+Alt+D — the daily note, moved here off the plain key for
+        // the same reason the pane toggles moved to Alt above: the unmodified
+        // key belongs to the editor, and a once-a-day verb does not outrank a
+        // per-minute one. It kept its letter, so the only thing to re-learn is
+        // "add Alt". The vim guard that used to sit here is gone with the
+        // collision: vim's Ctrl-D now reaches vim by simply not being taken.
         if (!store.admin) return; // daily note may create a file
-        // Vim's Ctrl+D (half-page scroll) keeps priority inside the editor.
-        if (store.vimMode && inEditor(e.target) && !e.metaKey) return;
         e.preventDefault();
         void openDailyNote();
       } else if (key === "n") {
@@ -757,7 +858,10 @@ export default function App() {
           </svg>
         </button>
         <Surface fallback={<div className="s-tabs" aria-hidden="true" />}>
-          <Tabs />
+          {/* The shell's bar belongs to the shell only while there is one pane.
+              Split, each pane carries its own — a tab bar names what is open
+              HERE, and one strip above two panes could not say which. */}
+          {!split && <Tabs />}
         </Surface>
         {/* One line, part of the layout (it pushes the note down, it does not
             float over it), saying what the mode is and how to leave it. The
@@ -789,26 +893,21 @@ export default function App() {
             </button>
           </div>
         )}
-        <section className="s-view">
-          {view === "graph" ? (
+        {/* The graph is about the WINDOW, not about a pane: it replaces the
+            whole working area, exactly as it did before panes existed. */}
+        {view === "graph" ? (
+          <section className="s-view">
             <Surface fallback={<div className="s-graph" />}>
               <GraphView />
             </Surface>
-          ) : openPath ? (
-            // Visitors read; only admins may mount the editor. One boundary
-            // per arm, INSIDE the ternary: a boundary around the ternary would
-            // make switching from the editor to the reading view suspend the
-            // arm that is already on screen.
-            readingMode || !admin ? (
-              <Surface fallback={<div className="s-reading" />}>
-                <ReadingView key={`${openPath}#${reloadTick}`} path={openPath} />
-              </Surface>
-            ) : (
-              <Surface fallback={<div className="s-editor" />}>
-                <Editor key={`${openPath}#${reloadTick}`} path={openPath} />
-              </Surface>
-            )
-          ) : locked ? (
+          </section>
+        ) : (
+          // Every pane draws its own note. The children below are the states
+          // that belong to the window rather than to a pane — a locked vault,
+          // an empty one — and a pane with no tab hands them straight through.
+          <Surface fallback={<div className="s-view" />}>
+            <Workspace>
+              {locked ? (
             <div className="s-empty">
               <div className="s-empty__glyph" aria-hidden="true">✦</div>
               <p className="s-empty__title">{t("vaultPrivate")}</p>
@@ -909,8 +1008,10 @@ export default function App() {
                 </div>
               </div>
             </div>
-          )}
-        </section>
+              )}
+            </Workspace>
+          </Surface>
+        )}
       </main>
       <Surface fallback={<aside className="s-panel" aria-hidden="true" />}>
         <BacklinksPanel />

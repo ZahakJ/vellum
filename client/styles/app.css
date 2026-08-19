@@ -510,6 +510,21 @@ select:focus,
   white-space: nowrap;
 }
 
+/* The reason line ("matched alias “ML”"): quieter than the snippet and above
+   it, because it explains the ROW rather than quoting the note. One line, cut
+   with an ellipsis — an alias is a name, and a name that needs two lines is a
+   name the reader is not going to recognise anyway. */
+.s-search-hit__why {
+  display: block;
+  font-size: 0.786rem;
+  line-height: 1.4;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 2px;
+}
+
 .s-search-hit__snippet {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -726,6 +741,17 @@ select:focus,
 .s-menu__item--danger:hover {
   background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
+}
+
+/* An EXPLICIT separator, for menus whose groups are not "ordinary rows then a
+   destructive tail". The tab menu has three groups and none of them is
+   destructive — closing a tab is not deleting a note — so the automatic rule
+   above, which keys off `--danger`, has nothing to hang on. Same hairline, same
+   negative inset so it spans the menu's own padding rather than the row's. */
+.s-menu__sep {
+  height: 1px;
+  margin: 5px -5px;
+  background: var(--border);
 }
 
 /* A context menu is a TOUCH surface too — it is the whole door the section
@@ -5086,6 +5112,160 @@ button.s-title:hover {
   /* The hint is the first thing to go: the mode name and the way out are
      what the strip exists for. */
   .s-preview-strip__hint {
+    display: none;
+  }
+}
+
+/* ── Pinned and preview tabs ─────────────────────────────────────────────────
+   Two opposite promises about the same tab, so they are told apart at a glance
+   rather than by opening a menu. A PINNED tab will not be replaced by a link
+   click and no bulk close takes it; a PREVIEW tab is the opposite — the next
+   single click from search or the palette lands on top of it, which is what
+   stops forty tabs accumulating in the first place.
+
+   Italic for preview because it is the one weight change that reads as
+   "provisional" without moving the row: a tab that changed width on commit
+   would shuffle the whole bar under the reader's pointer. */
+.s-tab--ephemeral .s-tab-title {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.s-tab--ephemeral.s-tab--active .s-tab-title {
+  color: var(--text);
+}
+
+.s-tab-pin {
+  flex: none;
+  font-size: 0.6rem;
+  line-height: 1;
+  color: var(--accent);
+  /* Optical, not geometric: the glyph sits high in its em box. */
+  transform: translateY(-1px);
+}
+
+/* ── Several windows, one vault ──────────────────────────────────────────────
+   The strip that says another window holds the pen. It RESERVES its height on
+   the wrapper rather than appearing into the flow: prose that reflows under a
+   live caret is how a reader loses their place mid-sentence, and this can
+   arrive while they are typing.
+
+   Deliberately not `--danger`. Nothing is wrong and nothing is at risk — the
+   text is intact and the other window is saving it. This is information, so it
+   wears the muted ground the other ambient chrome wears. */
+.s-editor-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.s-editor-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  padding: 7px 16px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.857rem;
+  color: var(--text-muted);
+}
+
+.s-editor-strip__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-editor-strip__act {
+  flex: none;
+  margin-inline-start: auto;
+  padding: 3px 12px;
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  color: var(--accent);
+  font-size: 0.857rem;
+}
+
+.s-editor-strip__act:hover {
+  background: var(--accent-soft);
+}
+
+/* ── Panes ───────────────────────────────────────────────────────────────────
+   Columns along the INLINE axis, at most two panes stacked in each. Nothing
+   here says "left": `grid-auto-flow` and logical properties do the mirroring,
+   the same way the shell's own "sidebar main panel" areas already do, so a
+   layout saved on an English instance opens correctly on an Arabic one with
+   nothing about sides stored.
+
+   A SOLO workspace renders none of this — `Workspace.tsx` returns the bare
+   `.s-view` the shell has always rendered. So a reader who never splits pays
+   nothing, and every `:has()`, zen and reading-rule selector that keys off
+   `.s-view > .s-editor` keeps matching exactly as before. */
+.s-panes {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  gap: 1px;
+  /* The gap IS the divider: one hairline of the border colour showing through,
+     rather than a border on each pane, which would double up between two. */
+  background: var(--border);
+}
+
+.s-panecol {
+  display: grid;
+  gap: 1px;
+  background: var(--border);
+  min-width: 0;
+  min-height: 0;
+}
+
+.s-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+  position: relative;
+}
+
+/* WHICH PANE HAS THE KEYBOARD, said quietly. A ring around the whole pane
+   would draw a box on screen at all times; this is a 2px accent rule on the
+   pane's leading edge, which is the same vocabulary the reading mode already
+   uses for "this column is in a mode" — and it mirrors for free. */
+.s-pane--focused::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0.55;
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* The graph wants every pixel; the rule that gave it them keyed off `.s-main`,
+   which is still right for a solo pane and wrong for a split one. */
+.s-pane:has(.s-graph) {
+  padding-inline: 0;
+}
+
+/* BELOW THE DRAWER BREAKPOINT THE INLINE AXIS FOLDS. There is no room for two
+   measures side by side — the reading column's whole argument is its width —
+   so every column but the focused one is hidden rather than squeezed. The
+   LAYOUT is untouched: it stays in the store and comes back on a wider
+   viewport, because a resize must never rewrite what the reader arranged. */
+@media (max-width: 999px) {
+  .s-panes {
+    display: flex;
+    flex-direction: column;
+  }
+  .s-panes > .s-panecol:not(:has(.s-pane--focused)) {
     display: none;
   }
 }
