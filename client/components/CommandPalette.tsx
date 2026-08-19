@@ -20,6 +20,7 @@ import { choiceBase } from "../themes.ts";
 import type { Theme } from "../state.ts";
 import { search } from "../api.ts";
 import { dailyNotePath, openDailyNote } from "../daily.ts";
+import { popOutNote } from "../windows/coherence.ts";
 import { insertTemplateCommand, newNoteFromTemplateCommand } from "../templateActions.ts";
 import { localeNum, t, tf, type I18nKey } from "../i18n.ts";
 import { isNotePath, noteLabelOf, stripNoteExt } from "../../shared/noteFormat.ts";
@@ -167,6 +168,16 @@ const COMMANDS: Command[] = [
     label: () => t("cmdDailyNote"),
     hint: () => dailyNotePath(),
     available: ({ admin }) => admin,
+  },
+  // Pop the note out into a real second window — same origin, so it shares the
+  // session cookie, the theme, the stored workspace and the bus that keeps the
+  // two coherent, without being handed any of it. Admin-only and note-gated:
+  // there is nothing to pop out of a blog page, and a visitor has no second
+  // window to keep in step.
+  {
+    id: "pop-out",
+    label: () => t("cmdPopOut"),
+    available: ({ admin, openPath }) => admin && openPath !== null,
   },
   // Templates. Two rows, because they are two different actions on two
   // different objects — one edits the note you are in, the other makes a new
@@ -622,6 +633,11 @@ export default function CommandPalette() {
         case "daily-note":
           void openDailyNote();
           break;
+        case "pop-out": {
+          const open = useStore.getState().openPath;
+          if (open !== null) popOutNote(open);
+          break;
+        }
         case "insert-template":
           void insertTemplateCommand();
           break;
