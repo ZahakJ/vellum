@@ -85,9 +85,13 @@ function slashItems(): SlashItem[] {
       displayLabel: "slashTable",
       detailKey: "slashTableDetail",
       boost: 7,
-      apply: snippet(
-        "| ${Column 1} | ${Column 2} | ${Column 3} |\n| --- | --- | --- |\n| ${} |  |  |",
-      ),
+      // 2×2, and exactly ONE snippet field: the old three-field skeleton fed
+      // Tab to the snippet walker, which collides with the table keymap's own
+      // Tab (tables.ts walks cells and grows rows — from the last field the
+      // snippet walker swallowed the keystroke that should have grown one).
+      // A single field selects the first header cell; from there every Tab
+      // is the table's.
+      apply: snippet("| ${Column 1} | Column 2 |\n| --- | --- |\n|  |  |"),
     },
     {
       label: "Task list",
