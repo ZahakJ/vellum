@@ -2,6 +2,8 @@
 //
 //   /                     → home (empty state or HOME_NOTE)
 //   /graph                → graph view
+//   /library              → the book shelf
+//   /book/folder/Book.pdf → that book, at the page its reader left off on
 //   /folder/Note          → the note folder/Note.md (".md" stripped, segments
 //                           URL-encoded; matching is case-insensitive)
 //   /folder/Note#Heading  → same note, scrolled to the heading
@@ -15,6 +17,7 @@
 import { stripBidiControls } from "../shared/bidi.ts";
 import type { TreeNode } from "../shared/types.ts";
 import { getNote } from "./api.ts";
+import { booksAreOpen, booksRouteFor, hideBooks, onBooksExit, showBooks } from "./books/mount.ts";
 import { collectNotes, resolveLink } from "./editor/links.ts";
 import { t } from "./i18n.ts";
 import { isNotePath, noteCandidates, noteTitleOf, stripNoteExt } from "../shared/noteFormat.ts";
@@ -113,6 +116,19 @@ export function applyUrl(initial = false): boolean {
   const store = useStore.getState();
   applying = true;
   try {
+    // Books first, and they are answered WITHOUT touching the store: the
+    // reader is a surface of its own with its own React root
+    // (client/books/mount.ts), so a book URL neither opens a note nor closes
+    // the one that is open — walk back out of a book and the note you were
+    // reading is still there. The converse is this second line: any URL that
+    // is NOT a book closes an open reader, which is what makes the back
+    // button work.
+    const books = booksRouteFor(location.pathname);
+    if (books) {
+      showBooks(books);
+      return true;
+    }
+    if (booksAreOpen()) hideBooks(false);
     if (location.pathname === "/graph") {
       store.setView("graph");
       return true;
@@ -186,6 +202,11 @@ function probeNote(pathname: string): boolean {
 /** Replace the address bar with the canonical URL for the current state
  *  (used when a pasted URL named a note that does not exist). */
 export function syncUrl(): void {
+  // While a book is open the address bar belongs to the reader. Without this
+  // the first store change of any kind — an SSE tree refresh, a theme write —
+  // would replace /book/… with the note underneath, and the reader's URL would
+  // stop being bookmarkable halfway through a chapter.
+  if (booksAreOpen()) return;
   const s = useStore.getState();
   const url = urlForState(s.view, s.openPath);
   setTitle(s.openPath, s.view);
@@ -207,6 +228,7 @@ export function installRouter(): () => void {
         applyUrl();
       });
     }
+    if (booksAreOpen()) return; // the reader owns the address bar (see syncUrl)
     if (s.openPath === prev.openPath && s.view === prev.view) return;
     const url = urlForState(s.view, s.openPath);
     setTitle(s.openPath, s.view);
@@ -225,6 +247,11 @@ export function installRouter(): () => void {
   window.addEventListener("popstate", onPopState);
 
   setTitle(useStore.getState().openPath, useStore.getState().view);
+
+  // Closing the reader hands the address bar back: the URL returns to whatever
+  // the app was showing underneath, rather than staying on a book nobody is
+  // reading any more.
+  onBooksExit(() => syncUrl());
 
   return () => {
     unsubscribe();
