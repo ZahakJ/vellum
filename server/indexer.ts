@@ -5,14 +5,15 @@ import { closesFence, fenceOpener, type Fence } from "../shared/fences.ts";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import MiniSearch from "minisearch";
-import type { Backlink, GraphData, GraphEdge, PageMeta, PostMeta, SearchHit, TagCount, VaultEvent } from "../shared/types.ts";
+import type { AliasEntry, Backlink, GraphData, GraphEdge, PageMeta, PostMeta, SearchHit, TagCount, VaultEvent } from "../shared/types.ts";
 import { stripBidiControls } from "../shared/bidi.ts";
 import { isNotePath, isTexPath, noteCandidates, noteTitleOf, stripNoteExt } from "../shared/noteFormat.ts";
 import { markdownAnchors, type NoteAnchor } from "../shared/anchors.ts";
+import { countNoteWords, countWords, readingMinutes } from "../shared/wordCount.ts";
 import { cleanLabelEntry, tagKey, type TagLabelMap } from "../shared/tagLabels.ts";
 import { pageFlag } from "./pages.ts";
 import { publishFlag, readFrontmatter } from "./publish.ts";
-import { readNoteFrontmatter } from "./noteFrontmatter.ts";
+import { parseAliases, readNoteFrontmatter } from "./noteFrontmatter.ts";
 import { readTexNote } from "./texNote.ts";
 import { excludedTags } from "./site.ts";
 // Cyclic with this module (settings.ts → site.ts → here) and inert: every
@@ -87,6 +88,12 @@ interface NoteRecord {
    *  frontmatter `citekey:`. A `\cite{knuth1997}` anywhere in the vault
    *  becomes an edge to the note carrying that key. */
   citekeys: string[];
+  /** The OTHER names this note answers to — frontmatter `aliases:`, exactly as
+   *  the author spelled them (see parseAliases). Kept on the record, not only
+   *  in the lookup table, because three surfaces need the spelling back: search
+   *  says WHICH alias matched, `[[` autocomplete offers them, and removeFile
+   *  unregisters them. */
+  aliases: string[];
   /** Lazily computed prose-stripped body for snippets (null until first use).
    *  Records are replaced wholesale on reindex, so this never goes stale. */
   flat: string | null;
@@ -97,6 +104,11 @@ interface NoteRecord {
 const notes = new Map<string, NoteRecord>();
 const byName = new Map<string, Set<string>>(); // lowercased basename -> paths
 const byPathLower = new Map<string, string>(); // lowercased vault-relative path -> path
+// Frontmatter `aliases:` — lowercased alias -> paths. A SECOND name table, kept
+// strictly behind the first: an Obsidian vault links a note by an alias as
+// readily as by its filename, and without this every `[[ML]]` in the vault the
+// README recruits rendered dashed and offered to create a duplicate note.
+const byAlias = new Map<string, Set<string>>();
 // The two vault-wide LaTeX lookups, so an imported project lights up unmodified:
 // a `\ref{sec:method}` that matches no label in its own document, and a
 // `\cite{knuth1997}` whose key some note in the vault carries.
@@ -160,10 +172,14 @@ const oversized = new Set<string>();
 /** Bounded concurrency for boot-time indexing: avoids EMFILE on big vaults. */
 const BOOT_CONCURRENCY = 64;
 
-const mini = new MiniSearch<{ path: string; title: string; body: string; tags: string }>({
+// `aliases` is a NAME field, so it is boosted like one — under the title (the
+// filename is what the note is called) and over tags. A note findable by a
+// `[[alias]]` and invisible to a search for the same word is a note whose
+// aliases the reader cannot trust.
+const mini = new MiniSearch<{ path: string; title: string; body: string; tags: string; aliases: string }>({
   idField: "path",
-  fields: ["title", "body", "tags"],
-  searchOptions: { prefix: true, fuzzy: 0.2, boost: { title: 6, tags: 2 } },
+  fields: ["title", "body", "tags", "aliases"],
+  searchOptions: { prefix: true, fuzzy: 0.2, boost: { title: 6, aliases: 4, tags: 2 } },
 });
 
 /** Matches [[Name]], [[Name#heading]], [[Name|alias]], [[Name#heading|alias]]. */
@@ -479,6 +495,7 @@ export async function indexFile(relPath: string): Promise<void> {
     prose: parts.prose,
     anchors: parts.anchors,
     citekeys: parts.citekeys,
+    aliases: parseAliases(fm),
     excerptSource: parts.firstParagraph,
     flat: null,
     post: null,
@@ -499,6 +516,7 @@ export async function indexFile(relPath: string): Promise<void> {
     // none of them match the sentence the reader remembers writing.
     body: record.prose ?? record.body,
     tags: record.tags.join(" "),
+    aliases: record.aliases.join(" "),
   });
 }
 
@@ -570,7 +588,13 @@ function citekeyOf(fm: Record<string, unknown>): string[] {
   return [];
 }
 
-/** Register a record's labels and citekeys in the two vault-wide tables. */
+/** Register a record's labels, citekeys and aliases in the vault-wide tables.
+ *
+ *  Aliases ride HERE, beside the other two, and not in their own call: every
+ *  path that indexes a note calls addKeys() and every path that forgets one
+ *  calls removeKeys(), so a table added to this pair cannot be the one a future
+ *  incremental `indexFile()` leaves stale. A stale alias resolving to a deleted
+ *  note is worse than no aliases at all. */
 function addKeys(record: NoteRecord): void {
   for (const anchor of record.anchors) {
     if (anchor.kind === "heading" || anchor.kind === "section") continue; // slugs are not labels
@@ -581,6 +605,15 @@ function addKeys(record: NoteRecord): void {
   for (const key of record.citekeys) {
     let set = byCitekey.get(key.toLowerCase());
     if (!set) byCitekey.set(key.toLowerCase(), (set = new Set()));
+    set.add(record.path);
+  }
+  // Keyed on the alias EXACTLY as written (lowercased), the same bargain the
+  // name table strikes with a raw basename: `title` is sanitized for display,
+  // the resolution key is not, so a link written with the author's own
+  // characters still resolves.
+  for (const alias of record.aliases) {
+    let set = byAlias.get(alias.toLowerCase());
+    if (!set) byAlias.set(alias.toLowerCase(), (set = new Set()));
     set.add(record.path);
   }
 }
@@ -594,6 +627,7 @@ function removeKeys(record: NoteRecord): void {
   };
   for (const anchor of record.anchors) drop(byLabel, anchor.id);
   for (const key of record.citekeys) drop(byCitekey, key);
+  for (const alias of record.aliases) drop(byAlias, alias);
 }
 
 /** A folder MOVED: drop every record under the old prefix, then index the
@@ -709,6 +743,9 @@ async function indexOversized(relPath: string, abs: string, stat: { size: number
     prose: null,
     anchors: [],
     citekeys: citekeyOf(fm),
+    // The head carried the whole frontmatter block, so an oversized note
+    // answers to its aliases exactly as it answers to its title.
+    aliases: parseAliases(fm),
     excerptSource: null,
     tags: parseTags("", frontmatter),
     labels: labelsOfFm(fm),
@@ -985,14 +1022,48 @@ export function resolveLink(
   }
   pathHit ??= byPathLower.get(asPath);
   if (pathHit && (!publishedOnly || isNoteVisibleToVisitor(pathHit, lang))) return pathHit;
-  let candidates = byName.get(key);
-  if (!candidates || candidates.size === 0) return null;
-  if (publishedOnly) {
-    const kept = filterCandidates(candidates, (p) => isNoteVisibleToVisitor(p, lang));
-    if (!kept) return null;
-    candidates = kept;
+  // Real basenames, THEN aliases — one rung apart and never mixed. A file
+  // actually named `ML.md` must not lose its own name to a `aliases: [ML]` some
+  // other note declares, whichever of the two sits at the shorter path.
+  //
+  // A rung the visitor filter empties falls through to the next one rather than
+  // answering null: the visitor's collection is a smaller vault, and inside it
+  // no note is named `ML` at all, so the aliased one is the honest answer. It
+  // leaks nothing either way — both branches are computed from notes the caller
+  // may already discover.
+  for (const table of [byName, byAlias]) {
+    let candidates = table.get(key);
+    if (!candidates || candidates.size === 0) continue;
+    if (publishedOnly) {
+      const kept = filterCandidates(candidates, (p) => isNoteVisibleToVisitor(p, lang));
+      if (!kept) continue;
+      candidates = kept;
+    }
+    // Two notes claiming one alias tie the SAME way two notes sharing a
+    // basename do — fewest segments, then shortest string, then alpha. One
+    // resolution rule for names, whoever wrote them down.
+    return pickShortest(candidates);
   }
-  return pickShortest(candidates);
+  return null;
+}
+
+/** Every alias in the vault, as `{ alias, path, title }`, sorted by alias —
+ *  what `[[` autocomplete offers beside the note titles it reads from the tree,
+ *  which is the one name table the client has no other way to see.
+ *
+ *  Visitor-scoped like every other discovery surface: an alias must never make
+ *  a note reachable that resolveLink itself would refuse to answer with. */
+export function aliasEntries(publishedOnly: boolean, lang: FilterLang): AliasEntry[] {
+  const out: AliasEntry[] = [];
+  for (const record of notes.values()) {
+    if (publishedOnly && !isNoteVisibleToVisitor(record.path, lang)) continue;
+    for (const alias of record.aliases) {
+      // Sanitized for DISPLAY, exactly as the title is: this string is drawn in
+      // a completion list, and an embedded RLO there reorders the row.
+      out.push({ alias: stripBidiControls(alias), path: record.path, title: record.title });
+    }
+  }
+  return out.sort((a, b) => a.alias.localeCompare(b.alias) || a.path.localeCompare(b.path));
 }
 
 /** Resolve a link/embed target to a note OR attachment path. Notes win
@@ -1598,7 +1669,16 @@ function postMeta(record: NoteRecord): PostMeta {
       // paragraph — both already plain prose, so the markdown paragraph
       // walker (which reads `#`, `|`, fences and `$$`) never sees TeX.
       excerpt: record.prose !== null ? cutExcerpt(record.excerptSource ?? "") : excerptOf(record.body),
-      words: flat === "" ? 0 : flat.split(" ").length,
+      // Counted from the WHOLE note, not from `flat` — which is capped at
+      // MAX_SNIPPET_SOURCE_CHARS because snippets do not need more, and which
+      // therefore under-counted every note past 128 KiB and told its readers a
+      // reading time for a document that stops two thirds of the way through.
+      // `countNoteWords` is the same function the author's status bar uses, so
+      // the number on the published article is the number they were shown while
+      // writing it. A `.tex` note's prose is already extracted and needs no
+      // stripping.
+      words:
+        record.prose !== null ? countWords(record.prose) : countNoteWords(record.body),
     };
   }
   const hidden = excludedTags();
@@ -1608,7 +1688,7 @@ function postMeta(record: NoteRecord): PostMeta {
     date: new Date(record.dateMs).toISOString(),
     excerpt: record.post.excerpt,
     words: record.post.words,
-    readingMinutes: Math.ceil(record.post.words / 200),
+    readingMinutes: readingMinutes(record.post.words),
     tags: record.tags.filter((t) => !hidden.has(t.toLowerCase())),
   };
   const banner = resolveBanner(record);
@@ -1703,24 +1783,72 @@ export function search(query: string, publishedOnly: boolean, lang: FilterLang):
     title,
     snippet: record ? makeSnippet(record, Object.keys(result.match)) : "",
     score: result.score,
+    ...(record ? aliasReason(record, result.match, qLower) : {}),
   }));
 
-  // Exact-title short-circuit: if a note titled exactly `q` exists but
+  // Exact-name short-circuit: if a note titled exactly `q` exists but
   // minisearch left it out (tokenizer/fuzzy quirks), force it in at #1.
-  const exactPaths = [...(byName.get(qLower) ?? [])]
-    .filter((p) => !seen.has(p) && (!publishedOnly || !visitorHidden(p)))
-    .sort((a, b) => a.localeCompare(b));
-  if (exactPaths.length > 0) {
+  //
+  // The alias table gets the same treatment one rung down, and needs it more:
+  // an alias is routinely a word the note's own text never contains — "ML" on a
+  // note that only ever writes "machine learning" — so there is no body match
+  // for minisearch to rank, and the note the reader is searching FOR by the
+  // name they gave it would come back below notes that merely mention it.
+  const forcedFrom = (table: Map<string, Set<string>>): string[] =>
+    [...(table.get(qLower) ?? [])]
+      .filter((p) => !seen.has(p) && (!publishedOnly || !visitorHidden(p)))
+      .sort((a, b) => a.localeCompare(b));
+  const exactPaths = forcedFrom(byName);
+  const aliasPaths = forcedFrom(byAlias).filter((p) => !exactPaths.includes(p));
+  if (exactPaths.length > 0 || aliasPaths.length > 0) {
     const topScore = (hits[0]?.score ?? 0) + 1;
-    const forced = exactPaths.flatMap<SearchHit>((p) => {
-      const record = notes.get(p);
-      if (!record) return [];
-      return [{ path: p, title: record.title, snippet: makeSnippet(record, [q]), score: topScore }];
-    });
-    hits.unshift(...forced);
+    const force = (paths: string[], score: number, fromAliasTable: boolean): SearchHit[] =>
+      paths.flatMap<SearchHit>((p) => {
+        const record = notes.get(p);
+        if (!record) return [];
+        const alias = fromAliasTable
+          ? record.aliases.find((a) => a.toLowerCase() === qLower)
+          : undefined;
+        return [{
+          path: p,
+          title: record.title,
+          snippet: makeSnippet(record, [q]),
+          score,
+          ...(alias === undefined ? {} : { alias: stripBidiControls(alias) }),
+        }];
+      });
+    // Named exactly beats aliased exactly, for the same reason resolveLink
+    // ranks them that way: a filename is the note's own name.
+    hits.unshift(...force(exactPaths, topScore + 1, false), ...force(aliasPaths, topScore, true));
     hits.length = Math.min(hits.length, 50);
   }
   return hits;
+}
+
+/** WHY this hit appeared, when the answer is "one of its other names".
+ *
+ *  Obsidian resolves and searches aliases silently: two notes claiming `ML` and
+ *  the reader is never told which one they are looking at, or that an alias was
+ *  involved at all. Naming the alias in the result row is the cheap half of
+ *  that fix (the deterministic tie rule is the other half).
+ *
+ *  Nothing is said when the TITLE matched too — the reader can already see why
+ *  that row is there, and a redundant caption on every result is noise. */
+function aliasReason(
+  record: NoteRecord,
+  match: Record<string, string[]>,
+  qLower: string,
+): { alias?: string } {
+  if (record.aliases.length === 0) return {};
+  if (Object.values(match).some((fields) => fields.includes("title"))) return {};
+  const terms = Object.entries(match)
+    .filter(([, fields]) => fields.includes("aliases"))
+    .map(([term]) => term);
+  if (terms.length === 0) return {};
+  const hit =
+    record.aliases.find((a) => a.toLowerCase() === qLower) ??
+    record.aliases.find((a) => terms.some((term) => a.toLowerCase().includes(term)));
+  return hit === undefined ? {} : { alias: stripBidiControls(hit) };
 }
 
 export function graph(publishedOnly: boolean, lang: FilterLang): GraphData {
