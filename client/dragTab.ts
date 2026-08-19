@@ -18,7 +18,9 @@
 import { useSyncExternalStore } from "react";
 
 export interface TabDrag {
-  pane: string;
+  /** The pane the tab was lifted from — null for a note or book dragged
+   *  straight off the TREE, which has no tab anywhere yet. */
+  pane: string | null;
   path: string;
 }
 

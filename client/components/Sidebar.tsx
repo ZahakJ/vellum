@@ -28,6 +28,8 @@ import { countPhrase, localeNum, t, tf, type Lang } from "../i18n.ts";
 // Tag chips print the vault's own display label when one exists (a tag page's
 // `labels:` map, or settings.tagLabels); `data`/keys/searches stay canonical.
 import { label as tagLabel, useTagLabels } from "../tagLabels.ts";
+import { beginTabDrag, endTabDrag } from "../dragTab.ts";
+import { isTabbablePath } from "../workspace.ts";
 import {
   autoScroll,
   beginDrag,
@@ -2058,17 +2060,32 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
 
   const onDragStart = (e: ReactDragEvent<HTMLDivElement>): void => {
     const item = itemOf(node);
-    beginDrag(item);
+    // Two drags share this row, and they are DIFFERENT permissions. The tree
+    // MOVE (drop on a folder) is the admin's and never an attachment's — the
+    // move endpoints are note routes. The tab LIFT (drop on a pane) is for
+    // anything a pane can host, books included, admin or reader: dropping a
+    // note beside another to read them side by side mutates nothing.
+    if (props.admin && !node.attachment) beginDrag(item);
     e.dataTransfer.effectAllowed = "move";
     // Firefox refuses to start a drag with an empty payload.
     e.dataTransfer.setData("text/plain", node.path);
     e.dataTransfer.setDragImage(makeDragGhost(item), 14, 14);
     rowRef.current?.classList.add("s-tree__item--dragging");
+    // A note or a book lifted off the tree is ALSO a tab drag (the owner:
+    // "cannot simply grab a note/book from the filesystem and drop it on one
+    // of my split windows"): the panes raise their drop zones, and dropping
+    // opens the file there — beside the tree's own drops, which keep meaning
+    // "move the file into that folder". `pane: null` is what tells the drop
+    // there is no tab to remove anywhere.
+    if (!item.isFolder && isTabbablePath(node.path)) {
+      beginTabDrag({ pane: null, path: node.path });
+    }
   };
 
   const onDragEnd = (): void => {
     rowRef.current?.classList.remove("s-tree__item--dragging");
     endDrag();
+    endTabDrag();
   };
 
   const onDragOver = (e: ReactDragEvent<HTMLDivElement>): void => {
@@ -2170,11 +2187,15 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
         data-tree-path={node.path}
         className={classes}
         style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
-        // Notes and folders move; an attachment does not (the move endpoints
-        // are note routes — an image travels only inside a folder that moves).
-        // A row being renamed is not draggable either: the field inside it
-        // needs its text selectable.
-        draggable={props.admin && !attachment && renaming !== node.path}
+        // Draggable for either of the row's two drags (see onDragStart): the
+        // admin's tree MOVE, or the tab LIFT that anything pane-hostable gets
+        // — which is what makes a BOOK liftable although attachments do not
+        // move (the move endpoints are note routes). A row being renamed is
+        // not draggable: the field inside it needs its text selectable.
+        draggable={
+          renaming !== node.path &&
+          ((props.admin && !attachment) || (!isFolder && isTabbablePath(node.path)))
+        }
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
         onDragEnter={onDragEnterFiles}
