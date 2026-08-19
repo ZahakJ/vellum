@@ -21,7 +21,7 @@
 // product uses — because a repair is an edit to the reader's own file and the
 // reader decides whether their file gets edited.
 //
-// DYNAMICALLY IMPORTED by client/books/mount.ts, which is first-paint code.
+// DYNAMICALLY IMPORTED by client/books/door.ts, which is first-paint code.
 // Everything in here is the rare path: a citation whose name still resolves
 // never loads a byte of it.
 
@@ -32,7 +32,7 @@ import { toast } from "../toast.ts";
 import { actionToast } from "../undoToast.ts";
 import { linkSafe, type BookAnchor } from "../../shared/bookAnchor.ts";
 import { locateCitation } from "./api.ts";
-import { showBooks } from "./mount.ts";
+import { useStore } from "../state.ts";
 
 /**
  * Open the book a citation names when its filename no longer resolves.
@@ -59,7 +59,7 @@ export async function recoverCitation(
       toast(tf("bookCitationLost", { name: target }), "error");
       return;
     }
-    showBooks({ kind: "book", path: found.path, anchor }, true);
+    useStore.getState().openBook(found.path, anchor);
     const name = found.path.slice(found.path.lastIndexOf("/") + 1);
     if (name === target) return; // it moved folders but kept its name: nothing to repair
     actionToast(

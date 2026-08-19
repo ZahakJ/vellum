@@ -32,7 +32,7 @@ import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { parseWikilink, resolveLink, WIKILINK_RE } from "./links.ts";
 import { parseBookAnchor } from "../../shared/bookAnchor.ts";
-import { findPdfPath, openBookCitation } from "../books/mount.ts";
+import { findPdfPath, openBookCitation } from "../books/door.ts";
 import { posFromEvent } from "./pointer.ts";
 import { bannerFromYaml } from "../banner.ts";
 import { getLang, t, tf } from "../i18n.ts";
@@ -666,7 +666,7 @@ function openWikilink(inner: string, notePath: string): void {
   const store = useStore.getState();
 
   // A citation into a book opens the book, on its page, with its passage
-  // pulsed. The opener lives in the reader's own door (client/books/mount.ts)
+  // pulsed. The opener lives in the reader's own door (client/books/door.ts)
   // and the resolution-by-content-hash behind it is loaded only when the
   // filename has stopped resolving — see that module and citations.ts.
   const cite = heading === null ? null : parseBookAnchor(heading);

@@ -7,9 +7,10 @@
 // bars behave: a reader arrowing along the bar is reading, not hunting.
 
 import { useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
+import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import { claimFocus } from "../a11y.ts";
 import { countPhrase, t, tf } from "../i18n.ts";
+import { beginTabDrag, endTabDrag, tabDrag, TAB_MIME } from "../dragTab.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
 import { ContextMenu, type MenuAnchor, type MenuRow } from "./ContextMenu.tsx";
@@ -82,6 +83,35 @@ export default function Tabs({ paneId }: { paneId?: string } = {}) {
   useStore((s) => s.language); // re-render the chrome strings on language change
   const barRef = useRef<HTMLDivElement | null>(null);
   const [menu, setMenu] = useState<(MenuAnchor & { path: string }) | null>(null);
+  /** Insertion point while a dragged tab hovers this strip, in PRE-REMOVAL
+   *  tab indices; null when nothing hovers. Drives the drop caret only — the
+   *  actual move happens on drop. */
+  const [dropAt, setDropAt] = useState<number | null>(null);
+  const dropTab = useStore((s) => s.dropTab);
+
+  /** Where between the tabs the pointer is aiming, in reading order: hovering
+   *  the leading half of a tab inserts before it. Physical → logical exactly
+   *  like the arrow keys above — in an RTL bar the leading half is the RIGHT
+   *  half. */
+  const aimAt = (e: ReactDragEvent, rowIndex: number): number => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const rtl = getComputedStyle(e.currentTarget as HTMLElement).direction === "rtl";
+    const past = (e.clientX - rect.left) / Math.max(rect.width, 1) >= 0.5;
+    const trailingHalf = rtl ? !past : past;
+    return trailingHalf ? rowIndex + 1 : rowIndex;
+  };
+
+  const landAt = (insertion: number): void => {
+    const drag = tabDrag();
+    if (drag === null) return;
+    // `reorderTab` (and `moveTab` on top of it) splices AFTER removing the
+    // dragged tab, so a same-pane insertion past the source slides back one.
+    const fromIdx = drag.pane === id ? openTabs.indexOf(drag.path) : -1;
+    const index = fromIdx >= 0 && insertion > fromIdx ? insertion - 1 : insertion;
+    dropTab(drag.pane, drag.path, id, { kind: "tabs", index });
+    endTabDrag();
+    setDropAt(null);
+  };
 
   // Visitors get a clean publish-site chrome: no tab bar until a second
   // note is actually open.
@@ -185,7 +215,26 @@ export default function Tabs({ paneId }: { paneId?: string } = {}) {
   };
 
   return (
-    <div className="s-tabs" role="tablist" aria-label={t("openTabsAria")} ref={barRef}>
+    <div
+      className="s-tabs"
+      role="tablist"
+      aria-label={t("openTabsAria")}
+      ref={barRef}
+      onDragOver={(e) => {
+        if (tabDrag() === null) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (e.target === e.currentTarget) setDropAt(openTabs.length);
+      }}
+      onDragLeave={(e) => {
+        if (e.target === e.currentTarget) setDropAt(null);
+      }}
+      onDrop={(e) => {
+        if (tabDrag() === null) return;
+        e.preventDefault();
+        landAt(openTabs.length);
+      }}
+    >
       {openTabs.map((path) => {
         const isActive = path === openPath;
         const isDirty = Boolean(dirty[path]);
@@ -204,7 +253,13 @@ export default function Tabs({ paneId }: { paneId?: string } = {}) {
             title={path}
             className={`s-tab${isActive ? " s-tab--active" : ""}${isDirty ? " s-tab--dirty" : ""}${
               pinned ? " s-tab--pinned" : ""
-            }${ephemeral ? " s-tab--ephemeral" : ""}`}
+            }${ephemeral ? " s-tab--ephemeral" : ""}${
+              dropAt !== null && openTabs.indexOf(path) === dropAt ? " s-tab--drop-before" : ""
+            }${
+              dropAt !== null && dropAt === openTabs.length && openTabs.indexOf(path) === openTabs.length - 1
+                ? " s-tab--drop-after"
+                : ""
+            }`}
             onAuxClick={(e) => {
               if (e.button === 1) {
                 e.preventDefault();
@@ -217,6 +272,35 @@ export default function Tabs({ paneId }: { paneId?: string } = {}) {
               if (e.button === 1) e.preventDefault();
             }}
             onContextMenu={(e) => openMenu(e, path)}
+            draggable
+            onDragStart={(e) => {
+              // The payload rides the DataTransfer for the spec's sake, but
+              // the UI reads client/dragTab.ts — getData() is empty during
+              // dragover by design (protected mode).
+              e.dataTransfer.setData(TAB_MIME, JSON.stringify({ pane: id, path }));
+              e.dataTransfer.setData("text/plain", path);
+              e.dataTransfer.effectAllowed = "move";
+              beginTabDrag({ pane: id, path });
+            }}
+            onDragEnd={() => {
+              // Fires on drop AND on a miss — the one hook that always runs,
+              // so the zones never outlive the ghost.
+              endTabDrag();
+              setDropAt(null);
+            }}
+            onDragOver={(e) => {
+              if (tabDrag() === null) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              const rowIndex = openTabs.indexOf(path);
+              setDropAt(aimAt(e, rowIndex));
+            }}
+            onDrop={(e) => {
+              if (tabDrag() === null) return;
+              e.preventDefault();
+              e.stopPropagation(); // the strip's own drop would double-fire
+              landAt(aimAt(e, openTabs.indexOf(path)));
+            }}
           >
             <button
               type="button"

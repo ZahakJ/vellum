@@ -64,10 +64,16 @@ import {
   parseWorkspace,
   pruneWorkspace,
   remapWorkspace,
+  dropTabSplit as dropTabSplitIn,
+  moveTab as moveTabIn,
   reorderTab as reorderTabIn,
   splitPane as splitPaneIn,
   serializeWorkspace,
+  setBookTarget as setBookTargetIn,
   setPinned as setPinnedIn,
+  type BookTarget,
+  type DropEdge,
+  type PaneMode,
   type Workspace,
 } from "./workspace.ts";
 import { applyDefaultTemplate } from "./templateActions.ts";
@@ -140,6 +146,9 @@ export type { Theme } from "./themes.ts";
  *  counterpartChoice / choiceBase instead of the built-in-only functions. */
 export type { ThemeChoice } from "./themes.ts";
 export type View = "editor" | "graph";
+
+/** Where a dropped tab lands on its target pane. */
+export type TabDropDest = { kind: "tabs"; index: number } | { kind: "edge"; edge: DropEdge };
 
 export interface State {
   tree: TreeNode | null;
@@ -397,6 +406,20 @@ export interface State {
    *  name instead of the keystroke appearing to do nothing. */
   splitFocusedPane(axis: "inline" | "block"): boolean;
   closeFocusedPane(): void;
+  /** Open a book as an ordinary WORKSPACE TAB — beside notes, in a pane — with
+   *  an optional landing target (a citation's page/rect). The full-screen
+   *  overlay was Stage 9's stopgap; a book you cannot read beside the note you
+   *  are taking is the wrong product, and the model carried `.pdf` tabs and
+   *  `bookTarget` from day one waiting for this wire. */
+  openBook(path: string, target?: BookTarget | null): void;
+  /** The reader landed on its citation — the one-shot target is spent. */
+  clearBookTarget(paneId: string): void;
+  /** The shelf, as the focused pane's surface. Tabs stay; the mode flips. */
+  openLibrary(): void;
+  closeLibrary(): void;
+  /** One pane's mode, set directly — what a pane's own chrome (its book
+   *  surface routing to the shelf) asks for. */
+  setPaneMode(paneId: string, mode: PaneMode): void;
   // The tab context menu's rows. Each names what it takes — and none of them
   // takes a PINNED tab, which is the same promise in every row, so a reader
   // never has to remember which of them respects a pin.
@@ -406,6 +429,10 @@ export interface State {
   closeAllTabs(): void;
   setTabPinned(path: string, pinned: boolean): void;
   moveTabTo(path: string, index: number): void;
+  /** A finished tab drag: `path` leaves `from` and lands on `to` — in its tab
+   *  strip at an index, or on an edge, which splits `to` and puts the tab in
+   *  the new pane. The gesture reducers refuse whole at the caps. */
+  dropTab(from: string, path: string, to: string, dest: TabDropDest): void;
   setView(v: View): void;
   setTheme(t: ThemeChoice): void;
   /** What a cookieless VISITOR lands on, and why — admin sessions only (null
@@ -1464,6 +1491,40 @@ export const useStore = create<State>()((set, get) => {
     closeFocusedPane: () =>
       set((s) => ({ ...s, ...mirrorOf(closePaneIn(s.workspace, s.workspace.focus)) })),
 
+    openBook: (path, target = null) =>
+      set((s) => {
+        // The target rides the open itself (OpenHow.book): the pane's one-shot
+        // `bookTarget` — "land on page 212, flash that rectangle" — consumed
+        // by the reader and cleared; a tab that permanently remembered its
+        // citation would reopen there forever. A pane still in "library" mode
+        // is answering the shelf by opening a book, so the mode comes home to
+        // the tabs.
+        let ws = openInPane(s.workspace, s.workspace.focus, path, target === null ? {} : { book: target });
+        if (paneAt(ws, ws.focus)?.mode === "library") ws = setPaneModeIn(ws, ws.focus, "edit");
+        return { ...s, ...mirrorOf(ws), sidebarOpen: false };
+      }),
+
+    clearBookTarget: (paneId) =>
+      set((s) => ({ ...s, ...mirrorOf(setBookTargetIn(s.workspace, paneId, null)) })),
+
+    openLibrary: () =>
+      set((s) => ({
+        ...s,
+        ...mirrorOf(setPaneModeIn(s.workspace, s.workspace.focus, "library")),
+        view: "editor",
+        sidebarOpen: false,
+      })),
+
+    closeLibrary: () =>
+      set((s) => {
+        const pane = paneAt(s.workspace, s.workspace.focus);
+        if (pane === null || pane.mode !== "library") return s;
+        return { ...s, ...mirrorOf(setPaneModeIn(s.workspace, s.workspace.focus, "edit")) };
+      }),
+
+    setPaneMode: (paneId, mode) =>
+      set((s) => ({ ...s, ...mirrorOf(setPaneModeIn(s.workspace, paneId, mode)) })),
+
     openNote: (path) => {
       set((s) => ({
         ...mirrorOf(openInPane(s.workspace, s.workspace.focus, path)),
@@ -1522,6 +1583,16 @@ export const useStore = create<State>()((set, get) => {
 
     moveTabTo: (path, index) =>
       set((s) => ({ ...s, ...mirrorOf(reorderTabIn(s.workspace, s.workspace.focus, path, index)) })),
+
+    dropTab: (from, path, to, dest) =>
+      set((s) => ({
+        ...s,
+        ...mirrorOf(
+          dest.kind === "edge"
+            ? dropTabSplitIn(s.workspace, from, path, to, dest.edge)
+            : moveTabIn(s.workspace, from, path, to, dest.index),
+        ),
+      })),
 
     setView: (view) => set({ view }),
 

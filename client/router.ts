@@ -17,11 +17,12 @@
 import { stripBidiControls } from "../shared/bidi.ts";
 import type { TreeNode } from "../shared/types.ts";
 import { getNote } from "./api.ts";
-import { booksAreOpen, booksRouteFor, hideBooks, onBooksExit, showBooks } from "./books/mount.ts";
+import { booksRouteFor, urlForBooksRoute } from "./books/door.ts";
 import { collectNotes, resolveLink } from "./editor/links.ts";
 import { t } from "./i18n.ts";
 import { isNotePath, noteCandidates, noteTitleOf, stripNoteExt } from "../shared/noteFormat.ts";
 import { useStore } from "./state.ts";
+import { activeTabOf, isBookPath, paneAt, surfaceOf, type Workspace } from "./workspace.ts";
 import { toast } from "./toast.ts";
 
 /** True while we are applying a URL to the store (popstate / initial load):
@@ -81,9 +82,30 @@ export function urlToNotePath(pathname: string, tree: TreeNode | null): string |
   return null;
 }
 
-/** The URL the current store state should display. */
-function urlForState(view: string, openPath: string | null): string {
+/** The focused pane's book surface, if that is what it is showing. A book is
+ *  a WORKSPACE TAB now, so "is a book on screen" is a question for the
+ *  workspace — not, as in the portal era, for a flag the reader kept beside
+ *  the store. */
+function bookSurfaceOf(ws: Workspace): { kind: "library" } | { kind: "book"; path: string } | null {
+  const pane = paneAt(ws, ws.focus);
+  if (pane === null) return null;
+  const surface = surfaceOf(pane);
+  if (surface === "library") return { kind: "library" };
+  const tab = activeTabOf(pane);
+  if (surface === "book" && tab !== null && isBookPath(tab.path)) {
+    return { kind: "book", path: tab.path };
+  }
+  return null;
+}
+
+/** The URL the current store state should display. The focused pane speaks
+ *  for the window: a book tab in focus puts its own address up — still a
+ *  bookmarkable place, "which page" is remembered server-side — and focusing
+ *  the note beside it hands the bar back to the note. */
+function urlForState(view: string, openPath: string | null, ws: Workspace): string {
   if (view === "graph") return "/graph";
+  const book = bookSurfaceOf(ws);
+  if (book !== null) return urlForBooksRoute(book);
   return openPath ? notePathToUrl(openPath) : "/";
 }
 
@@ -93,8 +115,14 @@ function currentUrl(): string {
 
 function setTitle(openPath: string | null, view: string): void {
   const base = useStore.getState().siteName; // SITE_NAME branding
+  const book = bookSurfaceOf(useStore.getState().workspace);
   if (view === "graph") {
     document.title = `${t("docTitleGraph")} · ${base}`;
+  } else if (book !== null) {
+    document.title =
+      book.kind === "library"
+        ? `${t("bookLibrary")} · ${base}`
+        : `${stripBidiControls(book.path.slice(book.path.lastIndexOf("/") + 1))} · ${base}`;
   } else if (openPath) {
     const name = stripBidiControls(noteTitleOf(openPath));
     document.title = `${name} · ${base}`;
@@ -116,19 +144,18 @@ export function applyUrl(initial = false): boolean {
   const store = useStore.getState();
   applying = true;
   try {
-    // Books first, and they are answered WITHOUT touching the store: the
-    // reader is a surface of its own with its own React root
-    // (client/books/mount.ts), so a book URL neither opens a note nor closes
-    // the one that is open — walk back out of a book and the note you were
-    // reading is still there. The converse is this second line: any URL that
-    // is NOT a book closes an open reader, which is what makes the back
-    // button work.
+    // Books first. A book URL opens the book as a TAB in the focused pane —
+    // the same thing clicking its cover does — so a deep link, a refresh and
+    // a back/forward step all land in the same workspace the click built.
+    // Walking back OUT of a book needs no special case any more: the note URL
+    // opens (or refocuses) the note tab, and the book tab simply stays where
+    // tabs stay.
     const books = booksRouteFor(location.pathname);
     if (books) {
-      showBooks(books);
+      if (books.kind === "library") store.openLibrary();
+      else store.openBook(books.path, books.anchor ?? null);
       return true;
     }
-    if (booksAreOpen()) hideBooks(false);
     if (location.pathname === "/graph") {
       store.setView("graph");
       return true;
@@ -208,13 +235,8 @@ function probeNote(pathname: string): boolean {
 /** Replace the address bar with the canonical URL for the current state
  *  (used when a pasted URL named a note that does not exist). */
 export function syncUrl(): void {
-  // While a book is open the address bar belongs to the reader. Without this
-  // the first store change of any kind — an SSE tree refresh, a theme write —
-  // would replace /book/… with the note underneath, and the reader's URL would
-  // stop being bookmarkable halfway through a chapter.
-  if (booksAreOpen()) return;
   const s = useStore.getState();
-  const url = urlForState(s.view, s.openPath);
+  const url = urlForState(s.view, s.openPath, s.workspace);
   setTitle(s.openPath, s.view);
   if (currentUrl() !== url) history.replaceState(null, "", url);
 }
@@ -234,9 +256,11 @@ export function installRouter(): () => void {
         applyUrl();
       });
     }
-    if (booksAreOpen()) return; // the reader owns the address bar (see syncUrl)
-    if (s.openPath === prev.openPath && s.view === prev.view) return;
-    const url = urlForState(s.view, s.openPath);
+    // Computed-URL comparison, not field comparison: a book tab gaining or
+    // losing focus changes the address without changing `openPath` (the note
+    // mirror deliberately stays on the note while a book pane holds focus).
+    const url = urlForState(s.view, s.openPath, s.workspace);
+    if (url === urlForState(prev.view, prev.openPath, prev.workspace)) return;
     setTitle(s.openPath, s.view);
     if (currentUrl() === url) return;
     if (applying) {
@@ -253,11 +277,6 @@ export function installRouter(): () => void {
   window.addEventListener("popstate", onPopState);
 
   setTitle(useStore.getState().openPath, useStore.getState().view);
-
-  // Closing the reader hands the address bar back: the URL returns to whatever
-  // the app was showing underneath, rather than staying on a book nobody is
-  // reading any more.
-  onBooksExit(() => syncUrl());
 
   return () => {
     unsubscribe();

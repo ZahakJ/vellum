@@ -5249,6 +5249,65 @@ button.s-title:hover {
   z-index: 4;
 }
 
+/* ── Tab drag: the drop zones ──────────────────────────────────────────────
+   Raised by every pane (client/components/PaneDropZones.tsx) only while a tab
+   drag is live. Four edges split; the centre joins the strip. The zones sit
+   over the pane's content, which is exactly why they exist only during a drag
+   — and why `.s-view` is the containing block (`position: relative` below):
+   solo panes raise them too, since dragging a tab to an edge is how the FIRST
+   split is made. */
+.s-view {
+  position: relative;
+}
+
+.s-dropzones {
+  position: absolute;
+  inset: 0;
+  z-index: 6; /* over the focus rule (4) and the pane's own content */
+}
+
+.s-dropzone {
+  position: absolute;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+
+/* Edge zones are a quarter of the pane deep — wide enough to aim for without
+   swallowing the centre. Logical insets: "start-inline" is the reading-order
+   leading edge in both directions, and nothing here says "left". */
+.s-dropzone--center { inset: 25%; }
+.s-dropzone--start-inline { inset-block: 0; inset-inline-start: 0; width: 25%; }
+.s-dropzone--end-inline { inset-block: 0; inset-inline-end: 0; width: 25%; }
+.s-dropzone--start-block { inset-inline: 0; inset-block-start: 0; height: 25%; }
+.s-dropzone--end-block { inset-inline: 0; inset-block-end: 0; height: 25%; }
+
+/* :hover is unreliable mid-drag (browsers suppress it during native HTML5
+   drags), so the lit zone is a CLASS the component toggles from the events
+   that ARE live during a drag — dragenter/dragleave. */
+.s-dropzone--hot {
+  background-color: var(--accent-soft);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-dropzone {
+    transition: none;
+  }
+}
+
+/* The insertion caret between tabs while a dragged tab hovers the strip. */
+.s-tab--drop-before::before,
+.s-tab--drop-after::after {
+  content: "";
+  position: absolute;
+  inset-block: 4px;
+  width: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.s-tab--drop-before::before { inset-inline-start: -1px; }
+.s-tab--drop-after::after { inset-inline-end: -1px; }
+
 /* The graph wants every pixel; the rule that gave it them keyed off `.s-main`,
    which is still right for a solo pane and wrong for a split one. */
 .s-pane:has(.s-graph) {

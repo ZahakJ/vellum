@@ -214,15 +214,22 @@ for (const line of pdfjsSrc.split("\n")) {
   }
 }
 
-// The books surface must not be statically reachable from the app shell: only
-// mount.ts is, and everything past it is dynamic.
-const mountSrc = read("client/books/mount.ts");
-for (const line of mountSrc.split("\n")) {
+// The books surface must not be statically reachable from the app shell.
+// door.ts is the one books module in first-paint code (the sidebar, the router
+// and the editors import it), so IT may import nothing of the surface but
+// types; the surface itself is mounted by Pane.tsx through React.lazy, which
+// keeps it the separate chunk check-bundle pins.
+const doorSrc = read("client/books/door.ts");
+for (const line of doorSrc.split("\n")) {
   const m = /^import\s+(?!type\b)[\s\S]*?from\s+"\.\/([A-Za-z]+)\.tsx?"/.exec(line.trim());
-  if (m) fail(`client/books/mount.ts statically imports ./${m[1]} — it is first-paint code and must use import()`);
+  if (m) fail(`client/books/door.ts statically imports ./${m[1]} — it is first-paint code and must use import()`);
 }
-if (/import\(\s*"\.\/BooksSurface\.tsx"\s*\)/.test(mountSrc)) ok("mount.ts reaches the surface through import()");
-else fail("client/books/mount.ts must load BooksSurface with a dynamic import()");
+const paneSrc = read("client/components/Pane.tsx");
+if (/lazy\(\(\) => import\("\.\.\/books\/BooksSurface\.tsx"\)\)/.test(paneSrc)) {
+  ok("Pane.tsx reaches the surface through React.lazy(import())");
+} else {
+  fail("client/components/Pane.tsx must load BooksSurface with React.lazy(() => import()) — a static import puts the reader in first paint");
+}
 
 // ── 3. Nothing writes to the vault ─────────────────────────────────────────
 
