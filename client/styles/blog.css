@@ -1649,83 +1649,188 @@
 }
 
 /* ── More from the author — external site cards ─────────────────────────────
-   The author's other homes, each wearing its own og:image as a cover. Cards
-   are anchors the whole way through; the cover crops to a wide band and lifts
-   a little on hover, which is as epic as a blog footer should get. Logical
-   properties throughout, so Arabic mirrors for free. */
+   The author's other homes. Cover-forward: the site's og:image fills the
+   card and the words sit on a bottom gradient scrim — which is why the
+   on-image text colors are LITERALS, not tokens: they rest on the scrim's
+   fixed dark, the same in every theme. A LONE card (the common case) turns
+   into a full-width feature band via :only-child + auto-fit, so one site
+   reads as the page's deliberate closing statement rather than an orphaned
+   tile. A card whose cover failed (--bare, set by the img onError) or never
+   existed reflows onto the raised panel in theme colors. Logical properties
+   throughout, so Arabic mirrors for free. */
 .s-blog-sites {
-  margin-block-start: 56px;
+  margin-block-start: 72px;
 }
 .s-blog-heading--sites {
-  margin-block-end: 18px;
+  margin-block-end: 20px;
 }
 .s-blog-sites__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
 }
 .s-blog-sites__card {
-  display: flex;
-  flex-direction: column;
+  position: relative;
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-raised);
-  overflow: hidden;
   text-decoration: none;
-  color: var(--text);
-  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  transition: border-color 0.35s ease, box-shadow 0.35s ease;
 }
 .s-blog-sites__card:hover,
 .s-blog-sites__card:focus-visible {
-  transform: translateY(-3px);
-  border-color: var(--accent);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
+}
+.s-blog-sites__card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 .s-blog-sites__cover {
+  position: absolute;
+  inset: 0;
   display: block;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  border-block-end: 1px solid var(--border);
 }
 .s-blog-sites__cover img {
-  width: 100%;
-  height: 100%;
+  inline-size: 100%;
+  block-size: 100%;
   object-fit: cover;
   display: block;
-  transition: transform 240ms ease;
+  transform: scale(1.001);
+  transition: transform 0.6s ease;
 }
 .s-blog-sites__card:hover .s-blog-sites__cover img {
-  transform: scale(1.04);
+  transform: scale(1.035);
 }
+/* The scrim IS the body's background — text always sits on readable dark. */
 .s-blog-sites__body {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
-  padding: 14px 16px 16px;
+  padding: 72px 20px 18px;
+  background: linear-gradient(
+    to top,
+    rgba(12, 12, 14, 0.92) 0%,
+    rgba(12, 12, 14, 0.72) 42%,
+    rgba(12, 12, 14, 0) 100%
+  );
 }
 .s-blog-sites__title {
   font-family: var(--font-serif);
-  font-size: 1.05rem;
+  font-size: 1.3rem;
   font-weight: 600;
-  color: var(--text);
+  line-height: 1.2;
+  color: #f2f0ec; /* on the scrim, not the theme */
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
 }
 .s-blog-sites__desc {
-  font-size: 0.86rem;
+  font-family: var(--font-serif);
+  font-size: 0.9rem;
   line-height: 1.5;
-  color: var(--text-muted);
+  color: #c9c5bf; /* on the scrim, not the theme */
+  max-inline-size: 52ch;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* The domain as a quiet pill — hairline glass, accent only on hover. */
 .s-blog-sites__domain {
-  margin-block-start: 4px;
+  margin-block-start: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid rgba(232, 230, 227, 0.22);
+  border-radius: 999px;
+  background: rgba(26, 26, 28, 0.4);
+  backdrop-filter: blur(6px);
   font-family: var(--font-ui);
-  font-size: 0.78rem;
-  letter-spacing: 0.04em;
-  color: var(--text-faint);
-  align-self: start;
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  color: #c9c5bf;
+  transition: color 0.3s ease, border-color 0.3s ease;
 }
-.s-blog-sites__card:hover .s-blog-sites__domain {
+.s-blog-sites__card:hover .s-blog-sites__domain,
+.s-blog-sites__card:focus-visible .s-blog-sites__domain {
   color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+/* ONE site: the card becomes a full-width feature band. */
+.s-blog-sites__card:only-child {
+  aspect-ratio: auto;
+  block-size: clamp(280px, 30vw, 360px);
+}
+.s-blog-sites__card:only-child .s-blog-sites__body {
+  padding: 96px 32px 28px;
+  gap: 8px;
+  background: linear-gradient(
+    to top,
+    rgba(12, 12, 14, 0.9) 0%,
+    rgba(12, 12, 14, 0.62) 48%,
+    rgba(12, 12, 14, 0) 100%
+  );
+}
+.s-blog-sites__card:only-child .s-blog-sites__title {
+  font-size: clamp(1.7rem, 2.6vw, 2.25rem);
+  letter-spacing: -0.01em;
+}
+.s-blog-sites__card:only-child .s-blog-sites__desc {
+  font-size: 1rem;
+  font-style: italic;
+}
+/* No cover — none configured, or it failed to load (--bare): the text
+   reflows onto the raised panel, back in THEME colors. */
+.s-blog-sites__card--bare .s-blog-sites__cover {
+  display: none;
+}
+.s-blog-sites__card--bare,
+.s-blog-sites__card:not(:has(.s-blog-sites__cover)) {
+  aspect-ratio: auto;
+  block-size: auto;
+}
+.s-blog-sites__card--bare .s-blog-sites__body,
+.s-blog-sites__card:not(:has(.s-blog-sites__cover)) .s-blog-sites__body {
+  position: static;
+  padding: 20px;
+  background: none;
+}
+.s-blog-sites__card--bare .s-blog-sites__title,
+.s-blog-sites__card:not(:has(.s-blog-sites__cover)) .s-blog-sites__title {
+  color: var(--text);
+  text-shadow: none;
+}
+.s-blog-sites__card--bare .s-blog-sites__desc,
+.s-blog-sites__card:not(:has(.s-blog-sites__cover)) .s-blog-sites__desc,
+.s-blog-sites__card--bare .s-blog-sites__domain,
+.s-blog-sites__card:not(:has(.s-blog-sites__cover)) .s-blog-sites__domain {
+  color: var(--text-muted);
+}
+.s-blog-sites__card--bare .s-blog-sites__domain,
+.s-blog-sites__card:not(:has(.s-blog-sites__cover)) .s-blog-sites__domain {
+  border-color: var(--border);
+  background: none;
+  backdrop-filter: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .s-blog-sites__card,
+  .s-blog-sites__cover img,
+  .s-blog-sites__domain {
+    transition: none;
+  }
+}
+@media (max-width: 640px) {
+  .s-blog-sites__grid {
+    grid-template-columns: 1fr;
+  }
+  .s-blog-sites__card:only-child {
+    block-size: 240px;
+  }
 }
