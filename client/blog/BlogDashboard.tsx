@@ -7,6 +7,7 @@
 // affordance that writes settings.home.banner via PATCH /api/settings.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import AuthorSites from "./AuthorSites.tsx";
 import type { PostMeta } from "../../shared/types.ts";
 import { bannerSrc, generatedBannerCss } from "../banner.ts";
 import { useBannerSrc } from "../components/BannerImg.tsx";
@@ -267,6 +268,8 @@ export default function BlogDashboard({
           </section>
         )}
       </div>
+
+      <AuthorSites />
 
       {pickerOpen && <HomeBannerModal onClose={() => setPickerOpen(false)} />}
     </div>
