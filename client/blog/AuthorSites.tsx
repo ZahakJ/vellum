@@ -27,14 +27,15 @@ export default function AuthorSites() {
           >
             {site.image && (
               <span className="s-blog-sites__cover">
-                {/* The site's own og:image, hotlinked. A broken cover folds
-                    the frame away rather than leaving a broken-image glyph. */}
+                {/* The site's own og:image, hotlinked. A broken cover marks
+                    the CARD bare — the stylesheet then reflows the text onto
+                    the raised panel instead of leaving a floating scrim. */}
                 <img
                   src={site.image}
                   alt=""
                   loading="lazy"
                   onError={(e) => {
-                    (e.currentTarget.parentElement as HTMLElement).style.display = "none";
+                    e.currentTarget.closest(".s-blog-sites__card")?.classList.add("s-blog-sites__card--bare");
                   }}
                 />
               </span>
