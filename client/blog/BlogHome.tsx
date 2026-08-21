@@ -21,6 +21,7 @@ export default function BlogHome({
   locale: string;
 }) {
   const tree = useStore((s) => s.tree);
+  const sites = useStore((s) => s.authorSites);
   const homeNote = useStore((s) => s.homeNote);
   useStore((s) => s.language); // re-render chrome strings on a live language switch
   const introRef = useRef<HTMLDivElement | null>(null);
@@ -87,6 +88,49 @@ export default function BlogHome({
         <p className="s-blog-empty">…</p>
       ) : (
         <PostList posts={listed} locale={locale} />
+      )}
+      {sites.length > 0 && (
+        <section className="s-blog-sites" aria-label={t("blogAuthorSites")}>
+          <h2 className="s-blog-heading s-blog-heading--sites">
+            <span>{t("blogAuthorSites")}</span>
+          </h2>
+          <div className="s-blog-sites__grid">
+            {sites.map((site) => (
+              <a
+                key={site.url}
+                className="s-blog-sites__card"
+                href={site.url}
+                target="_blank"
+                rel="noopener"
+              >
+                {site.image && (
+                  <span className="s-blog-sites__cover">
+                    {/* The site's own og:image, hotlinked. A broken or slow
+                        cover degrades to the text card: the onError hides the
+                        frame instead of leaving a broken-image glyph. */}
+                    <img
+                      src={site.image}
+                      alt=""
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.currentTarget.parentElement as HTMLElement).style.display = "none";
+                      }}
+                    />
+                  </span>
+                )}
+                <span className="s-blog-sites__body">
+                  <span className="s-blog-sites__title">{site.title}</span>
+                  {site.description && (
+                    <span className="s-blog-sites__desc">{site.description}</span>
+                  )}
+                  <span className="s-blog-sites__domain" dir="ltr">
+                    {site.domain} ↗
+                  </span>
+                </span>
+              </a>
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

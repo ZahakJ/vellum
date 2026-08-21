@@ -17,6 +17,8 @@ import { languageScope } from "./language.ts";
 import { injectPreloads, preloadTags } from "./preload.ts";
 import { faviconPath, migrateSettings } from "./settings.ts";
 import { initSite, publicLayout } from "./site.ts";
+import { warmAuthorSites } from "./authorSites.ts";
+import { getSettings } from "./settings.ts";
 import { initComments } from "./comments.ts";
 import { initIndexer } from "./indexer.ts";
 import { initVault, isIgnoredSegment, resolveVaultRoot, startWatcher, statAttachment } from "./vault.ts";
@@ -75,6 +77,9 @@ initSite();
 // and before anything reads the merged view. Silent unless something moved.
 migrateSettings();
 initComments();
+// The author-site cards' OpenGraph cache, warmed before the first visitor
+// asks. Fire and forget: a dead site costs boot nothing.
+warmAuthorSites(getSettings().authorSites ?? []);
 initVault(vaultDir);
 startWatcher();
 await initIndexer();

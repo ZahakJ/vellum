@@ -887,3 +887,22 @@
   .s-smodal__row--found { animation: none; background: var(--accent-soft); }
   .s-smodal__results { scroll-behavior: auto; }
 }
+
+/* Author-sites textarea: the panel's one multiline field. Same skin as its
+   text inputs, tall enough for the six lines the setting allows. */
+.s-smodal__textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 68px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.s-smodal__textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}

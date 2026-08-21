@@ -23,8 +23,10 @@ import {
   normalizeFolder,
   type FolderProblem,
 } from "../shared/attachments.ts";
+import { fetchableSiteUrl, warmAuthorSites } from "./authorSites.ts";
 import type {
   AboutInfo,
+  AuthorSiteRef,
   AttachmentSettings,
   EffectiveSettings,
   FontSlotsEffective,
@@ -113,6 +115,9 @@ const LOCALE_MAX = 35; // BCP47 tags are short; RFC 5646 recommends ≤ 35
 const TAG_MAX = 50;
 const TAGS_MAX = 200;
 const FOLDER_MAX = 180; // attachments.folder — a vault-relative directory
+const AUTHOR_SITES_MAX = 6;      // cards, not a blogroll
+const AUTHOR_SITE_URL_MAX = 300;
+const AUTHOR_SITE_TITLE_MAX = 80; // same budget as siteName
 
 /** Why a folder value was refused, as the tail of the 400 message. */
 const FOLDER_PROBLEM: Record<FolderProblem, string> = {
@@ -242,6 +247,22 @@ function cleanImageRef(value: string, key: string): string | null {
 
 /** One exclude tag: leading # tolerated, then a simple token (letters, digits,
  *  _ - and / for nested tags), ≤ 50 chars. Throws 400 otherwise. */
+/** One authorSites entry, or null when malformed: a fetchable public http(s)
+ *  URL and an optional short title. Shared by the read path (drop bad rows)
+ *  and the PATCH path (refuse them out loud). */
+function cleanAuthorSite(entry: unknown): AuthorSiteRef | null {
+  if (entry === null || typeof entry !== "object") return null;
+  const url = (entry as { url?: unknown }).url;
+  const title = (entry as { title?: unknown }).title;
+  if (typeof url !== "string" || url.length > AUTHOR_SITE_URL_MAX || !fetchableSiteUrl(url)) return null;
+  const site: AuthorSiteRef = { url };
+  if (typeof title === "string" && title.trim() !== "") {
+    if (title.length > AUTHOR_SITE_TITLE_MAX) return null;
+    site.title = title.trim();
+  }
+  return site;
+}
+
 function cleanTag(value: unknown): string {
   if (typeof value !== "string") {
     throw new VaultError(400, 'Settings key "excludeTags" must be an array of strings');
@@ -354,6 +375,14 @@ export function getSettings(): SettingsData {
     }
     // Presence of the key (even empty) is meaningful: it overrides EXCLUDE_TAGS.
     out.excludeTags = tags;
+  }
+  if (Array.isArray(raw.authorSites)) {
+    const sites: AuthorSiteRef[] = [];
+    for (const entry of raw.authorSites) {
+      const site = cleanAuthorSite(entry);
+      if (site !== null && sites.length < AUTHOR_SITES_MAX) sites.push(site);
+    }
+    if (sites.length > 0) out.authorSites = sites;
   }
   if (raw.language === "en" || raw.language === "ar") out.language = raw.language;
   {
@@ -474,6 +503,7 @@ export function effectiveSettings(): EffectiveSettings {
     // choice, and its default (off) is the "nothing changes" one.
     languageToggle: s.languageToggle ?? false,
     excludeTags: [...excludedTags()],
+    authorSites: (s.authorSites ?? []).map((site) => ({ ...site })),
     commentsEnabled: commentsEnabled(),
     shareButtons: s.shareButtons ?? true,
     favicon: s.favicon ?? null,
@@ -736,6 +766,34 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     }
     return Intl.getCanonicalLocales(clean)[0];
   }),
+  authorSites: (raw, value) => {
+    if (value === null) {
+      delete raw.authorSites;
+      return;
+    }
+    if (!Array.isArray(value)) {
+      throw new VaultError(400, 'Settings key "authorSites" must be an array of { url, title? } or null');
+    }
+    if (value.length > AUTHOR_SITES_MAX) {
+      throw new VaultError(400, `Settings key "authorSites" holds too many sites (${AUTHOR_SITES_MAX} max)`);
+    }
+    const sites: AuthorSiteRef[] = [];
+    for (const entry of value) {
+      const site = cleanAuthorSite(entry);
+      if (site === null) {
+        throw new VaultError(
+          400,
+          `Settings authorSites entry ${JSON.stringify(entry)} is not a public http(s) URL (with an optional title ≤ ${AUTHOR_SITE_TITLE_MAX} chars)`,
+        );
+      }
+      sites.push(site);
+    }
+    if (sites.length === 0) delete raw.authorSites;
+    else raw.authorSites = sites;
+    // The cards should be ready before the first visitor asks: start the
+    // OpenGraph fetch now rather than on their request.
+    warmAuthorSites(sites);
+  },
   excludeTags: (raw, value) => {
     if (value === null) {
       delete raw.excludeTags;

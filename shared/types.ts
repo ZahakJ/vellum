@@ -175,6 +175,25 @@ export interface TrashEntry {
   originTaken: boolean;
 }
 
+/** One entry of settings.authorSites as the ADMIN writes it: a URL and an
+ *  optional display title that outranks whatever the site says about itself. */
+export interface AuthorSiteRef {
+  url: string;
+  title?: string;
+}
+
+/** What a VISITOR receives for one author site: the reference enriched with
+ *  the site's own OpenGraph story (server/authorSites.ts fetches and caches
+ *  it). `title` always resolves — the admin's override, the page's og:title,
+ *  or the bare domain, in that order — so the blog never renders a hole. */
+export interface AuthorSiteCard {
+  url: string;
+  domain: string;
+  title: string;
+  description?: string;
+  image?: string;
+}
+
 export interface MeData {
   admin: boolean;      // this session may mutate the vault
   public: boolean;     // reads are open without a session (PUBLIC != false)
@@ -183,6 +202,10 @@ export interface MeData {
   homeNote?: string;   // note opened for fresh visitors (HOME_NOTE)
   published?: PublishedCounts; // publish stats for admin UI copy (admin sessions only)
   siteName?: string;   // instance branding (SITE_NAME; default "Vellum")
+  /** The author's other sites, enriched and ready to render (blog home shows
+   *  them as cards). Present only when configured AND the server has cards —
+   *  a cold cache warms in the background and the next load carries them. */
+  authorSites?: AuthorSiteCard[];
   /** The theme applied when this session has no stored choice — already
    *  RESOLVED by the server: a pinned `settings.defaultTheme`/`DEFAULT_THEME`,
    *  or (in the default "follow" mode) the theme the admin's own editor is
@@ -435,6 +458,10 @@ export interface SettingsData {
   /** Tags hidden from visitor surfaces (overrides EXCLUDE_TAGS). Simple
    *  tokens, ≤ 50 chars each. */
   excludeTags?: string[];
+  /** The author's other sites, shown to blog visitors as rich cards ("more
+   *  from the author"). ≤ 6 entries, each an http(s) URL the server will
+   *  enrich with the site's own OpenGraph metadata. */
+  authorSites?: AuthorSiteRef[];
   /** Marginalia comments on/off (overrides COMMENTS). */
   commentsEnabled?: boolean;
   /** Show the share-links row under blog articles (default ON). */
@@ -560,6 +587,7 @@ export interface EffectiveSettings {
   languageFilter: LanguageFilterMode;
   languageToggle: boolean;
   excludeTags: string[];
+  authorSites: AuthorSiteRef[];
   commentsEnabled: boolean;
   shareButtons: boolean;
   favicon: string | null;
@@ -609,6 +637,7 @@ export interface SettingsPatch {
   languageToggle?: boolean | null;
   blogLocale?: string | null;
   excludeTags?: string[] | null;
+  authorSites?: AuthorSiteRef[] | null;
   commentsEnabled?: boolean | null;
   shareButtons?: boolean | null;
   favicon?: string | null;
