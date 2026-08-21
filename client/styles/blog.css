@@ -1647,3 +1647,85 @@
     display: none;
   }
 }
+
+/* ── More from the author — external site cards ─────────────────────────────
+   The author's other homes, each wearing its own og:image as a cover. Cards
+   are anchors the whole way through; the cover crops to a wide band and lifts
+   a little on hover, which is as epic as a blog footer should get. Logical
+   properties throughout, so Arabic mirrors for free. */
+.s-blog-sites {
+  margin-block-start: 56px;
+}
+.s-blog-heading--sites {
+  margin-block-end: 18px;
+}
+.s-blog-sites__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 18px;
+}
+.s-blog-sites__card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  overflow: hidden;
+  text-decoration: none;
+  color: var(--text);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+.s-blog-sites__card:hover,
+.s-blog-sites__card:focus-visible {
+  transform: translateY(-3px);
+  border-color: var(--accent);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+}
+.s-blog-sites__cover {
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-block-end: 1px solid var(--border);
+}
+.s-blog-sites__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 240ms ease;
+}
+.s-blog-sites__card:hover .s-blog-sites__cover img {
+  transform: scale(1.04);
+}
+.s-blog-sites__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px 16px;
+}
+.s-blog-sites__title {
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.s-blog-sites__desc {
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.s-blog-sites__domain {
+  margin-block-start: 4px;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  align-self: start;
+}
+.s-blog-sites__card:hover .s-blog-sites__domain {
+  color: var(--accent);
+}

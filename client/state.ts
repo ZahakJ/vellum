@@ -5,7 +5,7 @@
 // (bumped when the open note changed on disk, so the Editor remounts).
 
 import { create } from "zustand";
-import type { Backlink, HomeSettings, PublicThemeInfo, PublishedCounts, TreeNode } from "../shared/types.ts";
+import type { AuthorSiteCard, Backlink, HomeSettings, PublicThemeInfo, PublishedCounts, TreeNode } from "../shared/types.ts";
 import * as api from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import { collectNotes, resolveLink, setAliasTable } from "./editor/links.ts";
@@ -235,6 +235,8 @@ export interface State {
   publicReads: boolean;
   /** Note path/name opened for fresh visitors (HOME_NOTE). */
   homeNote: string | null;
+  /** The author's other sites, enriched server-side; blog home renders them. */
+  authorSites: AuthorSiteCard[];
   /** Instance branding from SITE_NAME (wordmark, titles, login modal). */
   siteName: string;
   /** THIS SESSION'S chrome language — not necessarily the site's. "ar"
@@ -1007,6 +1009,7 @@ export const useStore = create<State>()((set, get) => {
     authProtected: false,
     publicReads: true,
     homeNote: null,
+    authorSites: [],
     siteName: "Vellum",
     language: "en",
     siteLanguage: "en",
@@ -1177,6 +1180,7 @@ export const useStore = create<State>()((set, get) => {
           publicReads: me.public,
           authProtected: me.protected ?? false,
           homeNote: me.homeNote ?? null,
+          authorSites: me.authorSites ?? [],
           publishedCounts: me.published ?? null,
           siteName: me.siteName?.trim() || "Vellum",
           language,

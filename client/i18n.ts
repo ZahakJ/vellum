@@ -1215,6 +1215,16 @@ const DICT = {
 
   // ── Blog lists: home, topics, dashboard ─────────────────────────────────
   blogWritings: { en: "Writings", ar: "كتابات" },
+  blogAuthorSites: { en: "More from the author", ar: "المزيد من أعمال الكاتب" },
+  rowAuthorSites: { en: "Your other sites", ar: "مواقعك الأخرى" },
+  hintAuthorSites: {
+    en: "Shown to blog visitors as cards under your writings. One per line: a link, then an optional | Title. Each site's own cover image and description are fetched automatically.",
+    ar: "تظهر لزوار المدونة كبطاقات أسفل كتاباتك. سطر لكل موقع: رابط ثم | عنوان اختياري. تُجلب صورة الغلاف والوصف من الموقع نفسه تلقائيًا.",
+  },
+  phAuthorSites: { en: "https://photos.example.com | My photography", ar: "https://photos.example.com | تصويري" },
+  errAuthorSite: { en: "Not a valid site line: {url}", ar: "سطر موقع غير صالح: {url}" },
+  errAuthorSitesMax: { en: "Six sites at most.", ar: "ستة مواقع كحد أقصى." },
+  authorSitesEffect: { en: "{count} card(s) will appear on the blog home.", ar: "ستظهر {count} بطاقة/بطاقات في صفحة المدونة الرئيسية." },
   blogLatest: { en: "Latest", ar: "الأحدث" },
   blogLatestWritings: { en: "Latest writings", ar: "أحدث الكتابات" },
   blogMostDiscussed: { en: "Most discussed", ar: "الأكثر نقاشًا" },

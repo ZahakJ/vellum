@@ -106,6 +106,7 @@ interface Form {
   languageFilter: string;
   languageToggle: string; // "" | "on" | "off" (public EN/ع switch; default off)
   excludeTags: string;  // comma-separated
+  authorSites: string;  // one per line: "https://url | optional title"
   comments: string;     // "" | "on" | "off"
   share: string;        // "" | "on" | "off" (blog article share row; default on)
   favicon: string;      // vault path or ""
@@ -209,6 +210,9 @@ function formFrom(s: SettingsResponse): Form {
     languageFilter: s.languageFilter ?? "",
     languageToggle: s.languageToggle === undefined ? "" : s.languageToggle ? "on" : "off",
     excludeTags: (s.excludeTags ?? []).join(", "),
+    authorSites: (s.authorSites ?? [])
+      .map((site) => (site.title ? `${site.url} | ${site.title}` : site.url))
+      .join("\n"),
     comments: s.commentsEnabled === undefined ? "" : s.commentsEnabled ? "on" : "off",
     share: s.shareButtons === undefined ? "" : s.shareButtons ? "on" : "off",
     favicon: s.favicon ?? "",
@@ -288,6 +292,21 @@ function imageRefError(value: string, httpsOk: boolean): string | null {
   return null;
 }
 
+/** One author site per line: "https://url" or "https://url | Display title". */
+function splitSites(value: string): { url: string; title?: string }[] {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
+    .map((line) => {
+      const bar = line.indexOf("|");
+      if (bar < 0) return { url: line };
+      const url = line.slice(0, bar).trim();
+      const title = line.slice(bar + 1).trim();
+      return title === "" ? { url } : { url, title };
+    });
+}
+
 function splitTags(value: string): string[] {
   return value
     .split(",")
@@ -352,6 +371,11 @@ function validate(f: Form): Partial<Record<keyof Form, string>> {
   if (f.blogLocale.trim() !== "" && (f.blogLocale.trim().length > 35 || !isValidLocale(f.blogLocale.trim()))) {
     errors.blogLocale = t("errLocale");
   }
+  const badSite = splitSites(f.authorSites).find(
+    (site) => !/^https?:\/\/[^\s|]+$/i.test(site.url) || (site.title ?? "").length > 80,
+  );
+  if (badSite !== undefined) errors.authorSites = tf("errAuthorSite", { url: badSite.url });
+  if (splitSites(f.authorSites).length > 6) errors.authorSites = t("errAuthorSitesMax");
   const badTag = splitTags(f.excludeTags).find((tag) => tag.length > 50 || !TAG_RE.test(tag));
   if (badTag !== undefined) errors.excludeTags = tf("errNotSimpleTag", { tag: badTag });
   if (f.homeNote.trim() !== "" && !isNotePath(f.homeNote.trim())) {
@@ -574,6 +598,10 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
       f.publicLayout === "app" || f.publicLayout === "blog" || f.publicLayout === "designed"
         ? f.publicLayout
         : null;
+  }
+  if (f.authorSites.trim() !== initial.authorSites.trim()) {
+    const sites = splitSites(f.authorSites);
+    patch.authorSites = sites.length > 0 ? sites : null;
   }
   if (f.excludeTags.trim() !== initial.excludeTags.trim()) {
     const tags = splitTags(f.excludeTags);
@@ -2635,6 +2663,36 @@ export default function SettingsModal() {
                       segments={onOffSegments(eff.shareButtons)}
                       {...field("share")}
                     />
+                  </Row>
+                  {/* The author's other homes. One per line, because a URL
+                      list belongs in a textarea: pasting six links into six
+                      separate fields is busywork this panel refuses to
+                      assign. The server enriches each with the site's own
+                      OpenGraph title, description and cover, so the row asks
+                      only for what the admin alone knows: which sites, and
+                      what to call one when its own title is wrong. */}
+                  <Row
+                    label={t("rowAuthorSites")}
+                    hint={t("hintAuthorSites")}
+                    error={errors.authorSites}
+                  >
+                    <textarea
+                      className="s-smodal__textarea"
+                      rows={3}
+                      dir="ltr"
+                      placeholder={t("phAuthorSites")}
+                      aria-label={t("rowAuthorSites")}
+                      aria-invalid={errors.authorSites !== undefined || undefined}
+                      value={field("authorSites").value}
+                      onChange={(e) => field("authorSites").onChange(e.target.value)}
+                    />
+                    {splitSites(form.authorSites).length > 0 && (
+                      <Consequence>
+                        {tf("authorSitesEffect", {
+                          count: localeNum(splitSites(form.authorSites).length),
+                        })}
+                      </Consequence>
+                    )}
                   </Row>
                   <div className="s-smodal__sub">{t("groupHome")}</div>
                   <p className="s-smodal__note">{t("homeNote")}</p>

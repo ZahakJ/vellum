@@ -27,6 +27,7 @@ import { dateCalendar, fontSlots, getSettings, textAlign, textDirection } from "
 import { FOLLOW_THEME } from "../shared/themes.ts";
 import { bannerFallback, blogLocale, customCssPath, dataDir, footerLine, publicLayout, siteLanguage, siteName, tagline, themePinnedByEnv, themePref, visitorTheme } from "./site.ts";
 import { activeDesign, customThemesSig, hasThemeChoice } from "./designs.ts";
+import { authorSiteCards } from "./authorSites.ts";
 import { normalizeRel } from "./vault.ts";
 
 const COOKIE_NAME = "vellum_session";
@@ -691,6 +692,12 @@ authRoutes.get("/me", (c) => {
     const impact = currentVisibility();
     if (isReducingReach(impact)) me.visibility = impact;
   }
+  // The author's other sites, as ready-made cards, for every session — the
+  // blog home renders them and an admin previewing as a visitor should see
+  // them too. Cache-only: a cold cache warms in the background and the next
+  // load carries the enrichment.
+  const sites = authorSiteCards(settings.authorSites ?? []);
+  if (sites.length > 0) me.authorSites = sites;
   // Marginalia, for every session. The reading view used to find this out by
   // asking /api/comments per note and reading the 404 — one bad response per
   // note open on every instance with comments off. It is one instance-wide
