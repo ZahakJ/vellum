@@ -1095,3 +1095,61 @@ span.s-rv-math-live {
 [dir="rtl"] .s-rv-props--collapsed .s-rv-props__chevron {
   transform: scaleX(-1);
 }
+
+/* ── The quote callout, as a quotation ─────────────────────────────────────
+   `> [!quote]` used to render as one more tinted box wearing the word
+   "Quote". A quotation is typography, not a notice: no tint, no label, a
+   large opening mark drawn in the text's own direction (a « for Arabic, a
+   curly “ otherwise), the words in the note's serif at a slightly larger
+   measure, and the attribution — the callout's title, when given — set small
+   under the words at the inline end, the way a citation sits. Logical
+   properties, so the bar and the mark swap sides with the writing. */
+.s-rv-callout--quote {
+  position: relative;
+  background: none;
+  border-inline-start: 3px solid color-mix(in srgb, var(--callout-quote) 70%, transparent);
+  border-radius: 0;
+  padding-block: 0.4em 0.5em;
+  padding-inline: 2.6em 0.6em;
+  margin-block: 1.4em;
+}
+.s-rv-callout--quote::before {
+  content: "\201C";
+  position: absolute;
+  inset-inline-start: 0.55em;
+  inset-block-start: -0.05em;
+  font-family: var(--font-serif);
+  font-size: 2.6em;
+  line-height: 1;
+  color: var(--callout-quote);
+  opacity: 0.85;
+  pointer-events: none;
+}
+.s-rv-callout--quote:dir(rtl)::before,
+[dir="rtl"] .s-rv-callout--quote::before {
+  content: "\00AB";
+}
+.s-rv-callout--quote .s-rv-callout__body {
+  margin-top: 0;
+  font-family: var(--font-serif);
+  font-size: 1.08em;
+  line-height: 1.85;
+  color: var(--text);
+}
+.s-rv-callout--quote .s-rv-callout__body p {
+  margin-block: 0.3em;
+}
+.s-rv-callout__cite {
+  margin-block-start: 0.45em;
+  font-family: var(--font-ui);
+  font-size: 0.82em;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  text-align: end;
+}
+/* A foldable quote keeps a bar, but the bar is an attribution, not a label. */
+.s-rv-callout--quote .s-rv-callout__title {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  color: var(--text-muted);
+}

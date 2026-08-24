@@ -36,6 +36,18 @@ import {
   calloutGroup,
   calloutIconSvg,
 } from "../editor/calloutDefs.ts";
+
+/** "rtl" or "ltr" from the first strongly directional character, null when
+ *  the text has none (digits, punctuation, an empty quote). The same test the
+ *  browser runs for dir="auto", done by hand for the one place dir="auto"
+ *  cannot see its own children. */
+function firstStrongDirection(text: string): "rtl" | "ltr" | null {
+  for (const ch of text) {
+    if (/[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/u.test(ch)) return "rtl";
+    if (/\p{L}/u.test(ch)) return "ltr";
+  }
+  return null;
+}
 import { bannerFromYaml } from "../banner.ts";
 import { buildBannerEl, buildPropsCard, TAG_RE } from "../editor/noteMeta.ts";
 import { htmlBlockStart, sanitizeHtml, sanitizeInlineTag } from "./rawHtml.ts";
@@ -824,9 +836,21 @@ function renderBlocks(lines: string[], ctx: Ctx, root: HTMLElement): void {
         const type = cm[2].toLowerCase();
         const group = calloutGroup(type);
         const marker = cm[3];
-        const title = cm[4].trim() || cm[2][0].toUpperCase() + type.slice(1);
+        // A QUOTE CARRIES NO LABEL. Every other kind wears its name in a title
+        // bar; a quotation wearing the word "Quote" (in English, on an Arabic
+        // page) was the thing readers called lame. Its title, when given, is
+        // the ATTRIBUTION, and it goes under the words, where a citation goes.
+        const isQuote = group === "quote";
+        const custom = cm[4].trim();
+        const title = custom || (isQuote ? "" : cm[2][0].toUpperCase() + type.slice(1));
         const box = document.createElement("div");
         box.className = `s-rv-callout s-rv-callout--${group}${marker === "-" ? " s-rv-callout--folded" : ""}`;
+        // The BOX takes the direction of its own words. Not dir="auto": the
+        // paragraphs inside carry their own dir attribute, and the algorithm
+        // SKIPS such descendants when resolving a parent, so an Arabic quote's
+        // box came out LTR with its bar and opening mark on the wrong side.
+        // Resolved here from the first strong character of the quoted text.
+        box.dir = firstStrongDirection(qlines.slice(1).map(stripQuote).join(" ")) ?? "auto";
         const bar = document.createElement("div");
         bar.className =
           "s-rv-callout__title" +
@@ -837,11 +861,20 @@ function renderBlocks(lines: string[], ctx: Ctx, root: HTMLElement): void {
           (marker !== ""
             ? '<span class="s-rv-callout__chevron"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></span>'
             : "");
-        box.appendChild(bar);
+        // A foldable quote keeps its bar (the chevron has to live somewhere);
+        // an unfoldable one opens straight onto the words.
+        if (!isQuote || marker !== "") box.appendChild(bar);
         const body = document.createElement("div");
         body.className = "s-rv-callout__body";
         renderBlocks(qlines.slice(1).map(stripQuote), nested, body);
         box.appendChild(body);
+        if (isQuote && custom !== "" && marker === "") {
+          const cite = document.createElement("footer");
+          cite.className = "s-rv-callout__cite";
+          cite.dir = "auto";
+          cite.innerHTML = renderInline(custom, nested);
+          box.appendChild(cite);
+        }
         if (marker !== "") {
           bar.addEventListener("click", () =>
             box.classList.toggle("s-rv-callout--folded"),

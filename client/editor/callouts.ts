@@ -60,7 +60,9 @@ export function findCallouts(
         type,
         group,
         marker: (m[3] as Callout["marker"]) ?? "",
-        title: m[4].trim() || m[2][0].toUpperCase() + type.slice(1),
+        // A quote's default title is NONE (the reading renderer agrees): its
+        // explicit title is an attribution, not a label.
+        title: m[4].trim() || (group === "quote" ? "" : m[2][0].toUpperCase() + type.slice(1)),
         titleLineFrom: line.from,
         titleLineTo: line.to,
         contentFrom: line.from + m[1].length,
@@ -124,14 +126,31 @@ class CalloutTitleWidget extends WidgetType {
   toDOM(view: EditorView): HTMLElement {
     const bar = document.createElement("span");
     bar.className = `cm-s-callout__title cm-s-callout--${this.group}`;
-    const icon = document.createElement("span");
-    icon.className = "cm-s-callout__icon";
-    icon.innerHTML = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${calloutIconSvg(this.group)}</svg>`;
-    const text = document.createElement("span");
-    text.className = "cm-s-callout__text";
-    text.dir = "auto"; // Arabic/Hebrew callout titles order correctly
-    text.textContent = this.title;
-    bar.append(icon, text);
+    if (this.group === "quote") {
+      // The quotation mark IS the icon, and the title (if any) is the
+      // attribution, set small and quiet rather than as a label.
+      bar.classList.add("cm-s-callout__title--quote");
+      const mark = document.createElement("span");
+      mark.className = "cm-s-callout__mark";
+      mark.setAttribute("aria-hidden", "true");
+      bar.appendChild(mark);
+      if (this.title !== "") {
+        const cite = document.createElement("span");
+        cite.className = "cm-s-callout__cite";
+        cite.dir = "auto";
+        cite.textContent = this.title;
+        bar.appendChild(cite);
+      }
+    } else {
+      const icon = document.createElement("span");
+      icon.className = "cm-s-callout__icon";
+      icon.innerHTML = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${calloutIconSvg(this.group)}</svg>`;
+      const text = document.createElement("span");
+      text.className = "cm-s-callout__text";
+      text.dir = "auto"; // Arabic/Hebrew callout titles order correctly
+      text.textContent = this.title;
+      bar.append(icon, text);
+    }
     if (this.foldable) {
       const chevron = document.createElement("span");
       chevron.className = `cm-s-callout__chevron${this.open ? " cm-s-callout__chevron--open" : ""}`;

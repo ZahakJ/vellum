@@ -774,3 +774,36 @@
   font-size: 0.8rem;
   line-height: 1;
 }
+
+/* The quote callout in the live preview: the same quotation the reading
+   view draws (see reading.css) — no tint, an opening mark in the text's own
+   direction, the attribution small under the words. */
+.s-editor .cm-line.cm-s-callout--quote {
+  background: none;
+  border-inline-start: 3px solid color-mix(in srgb, var(--callout-quote) 70%, transparent);
+  border-radius: 0 !important;
+  font-family: var(--font-serif);
+  font-size: 1.04em;
+  color: var(--text);
+}
+.s-editor .cm-s-callout__title--quote {
+  gap: 0.6em;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.s-editor .cm-s-callout__mark::before {
+  content: "\201C";
+  font-family: var(--font-serif);
+  font-size: 1.9em;
+  line-height: 0.6;
+  color: var(--callout-quote);
+  vertical-align: -0.25em;
+}
+.s-editor .cm-line[dir="rtl"] .cm-s-callout__mark::before {
+  content: "\00AB";
+}
+.s-editor .cm-s-callout__cite {
+  font-family: var(--font-ui);
+  font-size: 0.82em;
+  color: var(--text-muted);
+}
