@@ -307,9 +307,17 @@ export function isSiblingEcho(tr: Transaction): boolean {
   return tr.annotation(sibling) === true;
 }
 
-export async function save(path: string): Promise<void> {
+export async function save(path: string, explicit = false): Promise<void> {
   const buf = buffers.get(path);
-  if (!buf || !buf.dirty || buf.diverged !== null) return;
+  if (!buf || !buf.dirty) return;
+  if (buf.diverged !== null) {
+    // Diverged: nothing is written until the reader chooses a side. A timer
+    // arriving here stays silent; Ctrl+S does not — "I pressed save and
+    // nothing happened" was how a reader learned about this state, once, and
+    // then not again. Re-announcing puts the resolution back in front of them.
+    if (explicit) onDiverge(path, buf.diverged);
+    return;
+  }
   // Another window has the pen. Keeping the text and refusing to write it is
   // the whole point — the alternative is two windows racing the precondition
   // and one of them losing a paragraph to a 409 every few minutes.

@@ -3022,6 +3022,15 @@ const DICT = {
     en: "{path} changed on disk — your edits are safe, and unsaved",
     ar: "تغيّر {path} على القرص — تعديلاتك سليمة، وغير محفوظة",
   },
+  // The resolution strip above a diverged editor: what happened, then the
+  // two ways out. "Keep mine" leads, because it is the one that loses nothing
+  // typed here.
+  conflictStrip: {
+    en: "This note changed on disk while you were editing. Your text is intact but not saved.",
+    ar: "تغيّرت هذه الملاحظة على القرص أثناء تحريرك. نصّك سليم لكنه غير محفوظ.",
+  },
+  conflictKeepMine: { en: "Keep my version", ar: "احتفظ بنسختي" },
+  conflictTakeDisk: { en: "Use the disk version", ar: "استخدم نسخة القرص" },
 
   // ── The book reader ──────────────────────────────────────────────────────
   // The shelf.

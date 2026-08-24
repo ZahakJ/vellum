@@ -27,10 +27,13 @@ import { buildEditorState, setEditorLanguage, setVim } from "../editor/setup.ts"
 import {
   acquire,
   attach,
+  bufferOf,
   detach,
   dispatchFrom,
+  keepMine,
   release,
   save as saveBuffer,
+  takeDisk,
   setDirtyListener,
   setDivergeListener,
   setSaveErrorListener,
@@ -78,13 +81,20 @@ setSaveErrorListener((path, err) => {
   console.error(`Failed to save ${path}`, err);
   toast(tf("saveFailed", { path }), "error");
 });
+/** Raised on the window when a note's save is refused as stale, so the pane
+ *  holding that note can show the resolution strip. A window event rather
+ *  than component state because the registry announces divergence from
+ *  outside React, and the note may be open in more than one pane. */
+const DIVERGED_EVENT = "vellum:diverged";
 setDivergeListener((path) => {
   // A save was refused because the file changed underneath. Nothing was lost
   // and nothing was written; the reader's text is still in the buffer, which
   // has stopped autosaving so the next keystroke cannot clobber the newer
-  // version. Saying so is the minimum — the side-by-side resolution arrives
-  // with the pane work, which is where there is room to show both.
+  // version. The toast says so; the strip in the pane offers the way out —
+  // for a long time it did not exist, and "Ctrl+S does nothing" was the
+  // whole experience of this state.
   toast(tf("saveConflict", { path }), "error");
+  window.dispatchEvent(new CustomEvent(DIVERGED_EVENT, { detail: { path } }));
 });
 
 /** Paths whose caret has already been placed once. A buffer restored from the
@@ -104,6 +114,19 @@ export default function Editor({ path, paneId = null }: { path: string; paneId?:
     return setLeaseListener((changed) => {
       if (changed === path) setWritable(holdsLease(path));
     });
+  }, [path]);
+  // THE FILE CHANGED UNDER THIS NOTE while it had unsaved text. The registry
+  // keeps both versions and writes neither until told which; this is where it
+  // is told. Read on mount too — a pane opened onto an already-diverged buffer
+  // (a tab switch and back) must not hide the choice.
+  const [diverged, setDiverged] = useState(false);
+  useEffect(() => {
+    setDiverged(bufferOf(path)?.diverged != null);
+    const onDiverged = (ev: Event): void => {
+      if ((ev as CustomEvent<{ path: string }>).detail?.path === path) setDiverged(true);
+    };
+    window.addEventListener(DIVERGED_EVENT, onDiverged);
+    return () => window.removeEventListener(DIVERGED_EVENT, onDiverged);
   }, [path]);
   const viewRef = useRef<EditorView | null>(null);
   const vimMode = useStore((s) => s.vimMode);
@@ -133,7 +156,7 @@ export default function Editor({ path, paneId = null }: { path: string; paneId?:
         // save must survive the pane that started it being unmounted, and a
         // per-view timer cannot. `dispatchFrom` below is where they are driven.
         onDocChanged: () => {},
-        onSave: () => void saveBuffer(path),
+        onSave: () => void saveBuffer(path, true),
       }),
     )
       .then((buf) => {
@@ -355,6 +378,37 @@ export default function Editor({ path, paneId = null }: { path: string; paneId?:
 
   return (
     <div className="s-editor-wrap">
+      {diverged && (
+        // TWO VERSIONS, ONE CHOICE. Keeping mine writes the reader's text over
+        // the disk version (re-based, so the write is not refused again);
+        // taking the disk replaces the text — through the undo history, so it
+        // can be taken back. Neither happens on its own.
+        <div className="s-editor-strip s-editor-strip--conflict" role="alert">
+          <span className="s-editor-strip__text">{t("conflictStrip")}</span>
+          <button
+            type="button"
+            className="s-editor-strip__act"
+            onClick={() => {
+              keepMine(path);
+              setDiverged(false);
+              viewRef.current?.focus(); // back to the sentence, not the button
+            }}
+          >
+            {t("conflictKeepMine")}
+          </button>
+          <button
+            type="button"
+            className="s-editor-strip__act s-editor-strip__act--quiet"
+            onClick={() => {
+              takeDisk(path);
+              setDiverged(false);
+              viewRef.current?.focus();
+            }}
+          >
+            {t("conflictTakeDisk")}
+          </button>
+        </div>
+      )}
       {!writable && (
         // ANOTHER WINDOW HAS THE PEN. Not a lock and not a warning: the text
         // here is intact and stays intact, autosave is simply off so two

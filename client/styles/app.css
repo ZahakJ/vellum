@@ -5328,3 +5328,16 @@ button.s-title:hover {
     display: none;
   }
 }
+
+/* The conflict strip: the lease strip's shape with two actions. The first
+   keeps the auto margin that pushes it to the inline end; the second follows
+   it, muted, because taking the disk is the one that discards typing. */
+.s-editor-strip--conflict {
+  border-bottom-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.s-editor-strip__act + .s-editor-strip__act {
+  margin-inline-start: 0;
+}
+.s-editor-strip__act--quiet {
+  color: var(--text-muted);
+}
