@@ -1,16 +1,18 @@
 // ONE numeral policy for the whole instance — client and server share this
 // module so a page can never print two numbering systems on one line.
 //
-// The rule: the instance's DATE locale decides. An Arabic locale that names no
-// numbering system of its own means Eastern Arabic numerals ("١٥ أغسطس"), and
-// then every number the chrome renders beside a date — counts, word totals,
-// reading minutes, the footer year — uses the same digits. An admin who spells
-// a system out (`ar-EG-u-nu-latn`) keeps exactly what they asked for, and
-// again every number follows: one system, everywhere.
+// The rule, BY OWNER DECREE (2026-08-24): Western digits everywhere — "15
+// أغسطس", "1447 هـ", "3 دقائق قراءة" — including Hijri dates. Arabic locales
+// default to Eastern Arabic-Indic numerals in Intl, so this module PINS latn
+// rather than merely omitting a preference. An admin who spells a system out
+// in the locale (`ar-u-nu-arab`) still keeps exactly what they asked for:
+// the pin applies only when the locale names no system of its own.
 //
-// Previously localeDigits() pinned dates to "arab" while countPhrase() kept
-// counts Western, so a single Arabic blog card read "٩ يناير ٢٠٢٦ · 3 دقائق
-// قراءة" — two numeral systems inside one line.
+// The module's original sin is worth remembering both times it was rewritten:
+// localeDigits() once pinned dates to "arab" while countPhrase() kept counts
+// Western, and a single Arabic blog card read "٩ يناير ٢٠٢٦ · 3 دقائق قراءة"
+// — two numeral systems inside one line. Whatever the policy is, it lives
+// HERE and nowhere else.
 
 export type NumeralSystem = "latn" | "arab";
 
@@ -21,14 +23,17 @@ export function arabicDefaultDigits(locale: string): boolean {
   return /^ar\b/i.test(locale) && !/-u-.*\bnu-/i.test(locale);
 }
 
-/** The numbering system every number on the site is rendered in. */
+/** The numbering system every number on the site is rendered in. Always
+ *  "latn" unless the locale itself demands otherwise (`-u-nu-arab`). */
 export function numeralSystem(locale: string): NumeralSystem {
-  return arabicDefaultDigits(locale) ? "arab" : "latn";
+  return /-u-.*\bnu-arab\b/i.test(locale) ? "arab" : "latn";
 }
 
-/** Intl options that pin the numerals for `locale` (empty when it decides). */
+/** Intl options that pin the numerals for `locale`. Arabic locales are pinned
+ *  to latn EXPLICITLY — Intl would otherwise give them arab digits — and a
+ *  locale that names its own system is left alone. */
 export function localeDigits(locale: string): { numberingSystem?: string } {
-  return arabicDefaultDigits(locale) ? { numberingSystem: "arab" } : {};
+  return arabicDefaultDigits(locale) ? { numberingSystem: "latn" } : {};
 }
 
 /** Re-render the ASCII digits in `text` in `system` (identity for "latn").

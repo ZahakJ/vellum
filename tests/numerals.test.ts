@@ -26,7 +26,13 @@ import {
 } from "../client/i18n.ts";
 import { footerLine, initSite } from "../server/site.ts";
 import { stripBidiControls } from "../shared/bidi.ts";
-import { arabicDefaultDigits, localeDigits, numeralSystem, toNumerals } from "../shared/numerals.ts";
+import {
+  arabicDefaultDigits,
+  localeDigits,
+  numeralSystem,
+  toNumerals,
+  type NumeralSystem,
+} from "../shared/numerals.ts";
 import { makeDir, removeVault } from "./helpers/vault.ts";
 
 const ARABIC_DIGITS = "٠١٢٣٤٥٦٧٨٩";
@@ -41,25 +47,28 @@ after(() => removeVault(data));
 // ---------------------------------------------------------------- the policy
 
 describe("which digits a locale gets", () => {
-  const CASES: [string, boolean][] = [
-    ["ar", true],
-    ["AR", true],
-    ["ar-EG", true],
-    ["ar-SA", true],
-    ["arabic", false], // not a language subtag match
-    ["ar-EG-u-nu-latn", false], // the admin named a system: honor it
-    ["ar-u-nu-arab", false], // …even when it is the same one
-    ["en", false],
-    ["en-US", false],
-    ["fa", false],
-    ["", false],
+  // OWNER DECREE (2026-08-24): Western digits everywhere, Hijri included.
+  // Arabic locales are PINNED to latn (Intl would default them to arab);
+  // only a locale that spells out `-u-nu-arab` keeps Eastern digits.
+  const CASES: [string, boolean, NumeralSystem][] = [
+    ["ar", true, "latn"],
+    ["AR", true, "latn"],
+    ["ar-EG", true, "latn"],
+    ["ar-SA", true, "latn"],
+    ["arabic", false, "latn"], // not a language subtag match
+    ["ar-EG-u-nu-latn", false, "latn"], // the admin named the system
+    ["ar-u-nu-arab", false, "arab"], // the one road back to Eastern digits
+    ["en", false, "latn"],
+    ["en-US", false, "latn"],
+    ["fa", false, "latn"],
+    ["", false, "latn"],
   ];
 
-  for (const [locale, arabic] of CASES) {
-    it(`${locale || "(empty)"} → ${arabic ? "arab" : "latn"}`, () => {
-      assert.equal(arabicDefaultDigits(locale), arabic);
-      assert.equal(numeralSystem(locale), arabic ? "arab" : "latn");
-      assert.deepEqual(localeDigits(locale), arabic ? { numberingSystem: "arab" } : {});
+  for (const [locale, arabicDefault, system] of CASES) {
+    it(`${locale || "(empty)"} → ${system}`, () => {
+      assert.equal(arabicDefaultDigits(locale), arabicDefault);
+      assert.equal(numeralSystem(locale), system);
+      assert.deepEqual(localeDigits(locale), arabicDefault ? { numberingSystem: "latn" } : {});
     });
   }
 });
@@ -93,21 +102,23 @@ describe("a separator is never a digit", () => {
     assert.notEqual(MIDDOT.charCodeAt(0), ARABIC_ZERO.charCodeAt(0));
   });
 
-  it("grouping uses U+066C, not a middot and not a zero", () => {
+  it("an Arabic site groups Western now — by owner decree", () => {
     setNumeralLocale("ar");
+    const n = localeNum(1234567);
+    assert.equal(n, "1,234,567");
+    assert.ok(!new RegExp(`[${ARABIC_DIGITS}]`).test(n), n);
+  });
+
+  it("the one road back to Eastern digits still pairs them with U+066C", () => {
+    setNumeralLocale("ar-u-nu-arab");
     const n = localeNum(1234567);
     assert.equal(n, "١٬٢٣٤٬٥٦٧");
     assert.ok(n.includes(ARABIC_THOUSANDS));
     assert.ok(!n.includes(MIDDOT), "a middot inside a number reads as a zero");
     assert.ok(!n.includes(","), "an ASCII comma beside Arabic digits");
-  });
-
-  it("a formatted number contains ONLY digits and its grouping mark", () => {
-    setNumeralLocale("ar");
-    for (const n of [0, 7, 10, 99, 100, 1000, 12345, 1000000]) {
-      const text = localeNum(n);
+    for (const v of [0, 7, 12345]) {
+      const text = localeNum(v);
       assert.match(text, new RegExp(`^[${ARABIC_DIGITS}${ARABIC_THOUSANDS}]+$`), text);
-      assert.ok(!/[0-9]/.test(text), `${text} still holds Western digits`);
     }
   });
 
@@ -127,18 +138,24 @@ describe("dates and the counts beside them agree", () => {
       ...localeDigits(locale),
     }).format(new Date(iso));
 
-  it("an Arabic site prints Arabic digits in BOTH", () => {
+  it("an Arabic site prints WESTERN digits in BOTH — by owner decree, Hijri included", () => {
     setLang("ar");
     setNumeralLocale("ar");
     const date = formatDate("ar");
     const count = countPhrase(3, "readMinutes");
-    assert.ok(!/[0-9]/.test(date), `date fell back to Western digits: ${date}`);
-    assert.ok(!/[0-9]/.test(count), `count fell back to Western digits: ${count}`);
-    assert.match(date, new RegExp(`[${ARABIC_DIGITS}]`));
-    assert.match(count, new RegExp(`[${ARABIC_DIGITS}]`));
-    // The whole card line, separator included.
+    assert.match(date, /2026/, `date kept Eastern digits: ${date}`);
+    assert.match(count, /[0-9]/, `count kept Eastern digits: ${count}`);
     const line = `${date} ${MIDDOT} ${count}`;
-    assert.ok(!/[0-9]/.test(line), line);
+    assert.ok(!new RegExp(`[${ARABIC_DIGITS}]`).test(line), line);
+    // The decree covers the Hijri calendar too.
+    const hijri = new Intl.DateTimeFormat("ar", {
+      dateStyle: "long",
+      timeZone: "UTC",
+      calendar: "islamic-umalqura",
+      ...localeDigits("ar"),
+    }).format(new Date(iso));
+    assert.match(hijri, /[0-9]/, `Hijri date kept Eastern digits: ${hijri}`);
+    assert.ok(!new RegExp(`[${ARABIC_DIGITS}]`).test(hijri), hijri);
   });
 
   it("an admin who asks for Western digits gets them in BOTH", () => {
@@ -152,11 +169,11 @@ describe("dates and the counts beside them agree", () => {
   });
 
   it("the footer year follows the same policy", () => {
-    initSite({ VELLUM_DATA: data, SITE_LANG: "ar" });
     const year = String(new Date().getFullYear());
-    assert.equal(footerLine(), `© ${toNumerals(year, "arab")} Vellum`);
+    initSite({ VELLUM_DATA: data, SITE_LANG: "ar" });
+    assert.equal(footerLine(), `© ${year} Vellum`);
     initSite({ VELLUM_DATA: data, SITE_LANG: "ar", SITE_FOOTER: "{siteName} — {year}", SITE_NAME: "دفتر" });
-    assert.equal(footerLine(), `دفتر — ${toNumerals(year, "arab")}`);
+    assert.equal(footerLine(), `دفتر — ${year}`);
     initSite({ VELLUM_DATA: data });
     assert.equal(footerLine(), `© ${year} Vellum`);
   });
@@ -182,13 +199,13 @@ describe("dates and the counts beside them agree", () => {
     );
   });
 
-  it("plain 'ar' would print WESTERN digits without localeDigits (why it exists)", () => {
-    const bare = new Intl.DateTimeFormat("ar", { dateStyle: "long", timeZone: "UTC" }).format(
-      new Date(iso),
-    );
+  it("localeDigits pins latn so no ICU build can answer arab (why it exists)", () => {
+    // Some ICU builds default bare 'ar' to Eastern digits, some to Western;
+    // the pin makes the answer the same everywhere. This build's bare answer
+    // is documented, not relied on.
     const pinned = formatDate("ar");
-    assert.match(bare, /2026/, "this ICU build answers latn for bare 'ar'");
-    assert.match(pinned, /٢٠٢٦/);
+    assert.match(pinned, /2026/);
+    assert.ok(!new RegExp(`[${ARABIC_DIGITS}]`).test(pinned), pinned);
   });
 });
 
@@ -202,23 +219,23 @@ describe("count agreement", () => {
     assert.equal(countPhrase(1214, "notes"), "1,214 notes");
   });
 
-  it("Arabic uses the real forms (one / two / few / many)", () => {
+  it("Arabic keeps the real plural forms, with Western digits", () => {
     setLang("ar");
     setNumeralLocale("ar");
     assert.equal(countPhrase(0, "notes"), "لا ملاحظات");
     assert.equal(countPhrase(1, "notes"), "ملاحظة واحدة");
     assert.equal(countPhrase(2, "notes"), "ملاحظتان");
-    assert.equal(countPhrase(3, "notes"), "٣ ملاحظات");
-    assert.equal(countPhrase(10, "notes"), "١٠ ملاحظات");
-    assert.equal(countPhrase(11, "notes"), "١١ ملاحظة");
-    assert.equal(countPhrase(1214, "notes"), "١٬٢١٤ ملاحظة");
+    assert.equal(countPhrase(3, "notes"), "3 ملاحظات");
+    assert.equal(countPhrase(10, "notes"), "10 ملاحظات");
+    assert.equal(countPhrase(11, "notes"), "11 ملاحظة");
+    assert.equal(countPhrase(1214, "notes"), "1,214 ملاحظة");
   });
 
   it("the dual and few forms never glue a number to a singular", () => {
     setLang("ar");
     setNumeralLocale("ar");
     assert.equal(countPhrase(2, "readMinutes"), "دقيقتا قراءة");
-    assert.equal(countPhrase(5, "readMinutes"), "٥ دقائق قراءة");
+    assert.equal(countPhrase(5, "readMinutes"), "5 دقائق قراءة");
   });
 });
 
