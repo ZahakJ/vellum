@@ -71,6 +71,17 @@ export interface BufferBridge {
    *  discarding a byte: the text stays in the buffer and the pane offers to
    *  take the note back. */
   setWritable(path: string, writable: boolean): void;
+  /** Write ONE note's unsaved text now and resolve when it has landed. The
+   *  rename path needs this: a rename moves the file the server has, and a
+   *  note typed into seconds ago is not that file yet — the autosave timer
+   *  then wrote the text to the OLD name, resurrecting it, while the new name
+   *  carried the empty file the move had picked up. */
+  flush(path: string): Promise<void>;
+  /** The live text of an open note, or null when no editor holds it. The
+   *  reading view prefers this to the server's copy: the reader who just
+   *  pressed Ctrl+E on a note they were typing into wants the words they
+   *  typed, not the autosave the disk is still waiting for. */
+  liveText(path: string): string | null;
 }
 
 const IDLE: BufferBridge = {
@@ -81,6 +92,8 @@ const IDLE: BufferBridge = {
   requestStats: () => {},
   rebase: () => {},
   setWritable: () => {},
+  flush: () => Promise.resolve(),
+  liveText: () => null,
 };
 
 let bridge: BufferBridge = IDLE;
@@ -115,4 +128,12 @@ export function rebaseFromPeer(path: string, mtimeMs: number): void {
 
 export function setBufferWritable(path: string, writable: boolean): void {
   bridge.setWritable(path, writable);
+}
+
+export function flushBufferPath(path: string): Promise<void> {
+  return bridge.flush(path);
+}
+
+export function liveNoteText(path: string): string | null {
+  return bridge.liveText(path);
 }

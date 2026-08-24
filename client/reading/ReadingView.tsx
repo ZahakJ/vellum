@@ -15,6 +15,7 @@ import { numberRendered, useHeadingNumberTick } from "./headingNumbers.ts";
 import { noteAnchors } from "../../shared/anchors.ts";
 import { flashElement, takePendingLine } from "../landing.ts";
 import { renderNoteContent } from "./renderNote.ts";
+import { liveNoteText } from "../editor/bufferBridge.ts";
 import { applyNoteLayoutTo } from "../textLayout.ts";
 import "./reading.css";
 
@@ -96,7 +97,13 @@ export default function ReadingView({ path }: { path: string }) {
     const host = hostRef.current;
     if (!host) return;
     let disposed = false;
-    getNote(path)
+    // THE OPEN DOCUMENT OUTRANKS THE DISK. If this note is open in an editor
+    // (the reader just pressed Ctrl+E on it), its buffer is the truth, and the
+    // server's copy may be an autosave behind — which is how a freshly typed
+    // note read as empty the moment reading mode was entered.
+    const live = liveNoteText(path);
+    const load = live !== null ? Promise.resolve({ content: live }) : getNote(path);
+    load
       .then((note) => {
         if (disposed || !hostRef.current) return;
         const el = renderNoteContent(note.content, {

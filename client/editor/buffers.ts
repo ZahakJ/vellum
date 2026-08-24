@@ -423,6 +423,8 @@ registerBufferBridge({
     if (writable && buf.dirty) void save(path);
   },
   requestStats: publishStats,
+  flush: (path) => save(path),
+  liveText: (path) => buffers.get(path)?.state.doc.toString() ?? null,
   adoptExternal: async (path) => {
     const buf = buffers.get(path);
     // Dirty means a genuine conflict, and it is the save path's precondition

@@ -44,7 +44,7 @@ import {
   isKnownThemeChoice,
   syncCustomThemes,
 } from "./design/customThemes.ts";
-import { remapBufferPath } from "./editor/bufferBridge.ts";
+import { flushBufferPath, remapBufferPath } from "./editor/bufferBridge.ts";
 import { isPublishedContent } from "./publish.ts";
 import {
   activeTabOf,
@@ -1765,6 +1765,14 @@ export const useStore = create<State>()((set, get) => {
     renameNote: (path, toPath) =>
       guarded(`renaming ${path}`, async () => {
         const oldTitle = noteTitleOf(path);
+        // THE TEXT GOES FIRST. A rename moves the file the server has, and a
+        // note typed into seconds ago is not that file yet: the move carried
+        // an empty file to the new name while the pending autosave, still
+        // aimed at the old one, resurrected it there with everything the
+        // reader had written — a note that looked lost until someone looked
+        // in the trash. Flushing before the move makes the file being moved
+        // the one on the screen.
+        await flushBufferPath(path);
         await api.renameNote(path, toPath);
         get().remapPath(path, toPath);
         await get().loadTree();
