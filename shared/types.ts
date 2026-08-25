@@ -2,6 +2,8 @@
 
 import type { AttachmentMode } from "./attachments.ts";
 import type { BookHighlight, BookState } from "./bookAnchor.ts";
+import type { FolderIcon } from "./folderIcons.ts";
+import type { TrackerRating, TrackerStatus } from "./tracker.ts";
 
 export interface TreeNode {
   name: string;          // file or folder basename, e.g. "Ideas.md" or "projects"
@@ -194,6 +196,62 @@ export interface AuthorSiteCard {
   image?: string;
 }
 
+/** One PUBLIC FOLDER as the owner writes it in settings.json: a page of their
+ *  own making on the public site, outside the tag system. Notes join it by
+ *  naming its `slug` in their `folders:` frontmatter — nothing here reaches
+ *  into the vault, and nothing in the vault can invent one of these. */
+export interface PublicFolderRef {
+  /** Stable row id: React keys and the reorder buttons. NOT the identity — the
+   *  slug is what the URL, the frontmatter and every link use — so renaming a
+   *  slug is a real rename and this value simply comes along. */
+  id: string;
+  /** URL segment (`/folder/<slug>`) and the word frontmatter names.
+   *  `^[a-z0-9][a-z0-9-]*$`, ≤ 60. */
+  slug: string;
+  /** What the folder is CALLED — the card, the page heading, the nav chip. */
+  title: string;
+  /** One glyph from the closed set in shared/folderIcons.ts. */
+  icon: FolderIcon;
+  /** One line under the title on the card and the folder page. ≤ 200. */
+  description?: string;
+  /** Taken down without being deleted (the NavItem precedent): the folder
+   *  keeps its title, glyph and members and reaches no visitor at all. */
+  hidden?: boolean;
+}
+
+/** settings.publicFolders — ONE option with sub-options, the `attachments`
+ *  shape. `enabled` is the master switch; `nav` and `home` decide where the
+ *  folders SHOW; `folders` is the list itself, which survives the master being
+ *  turned off (turning the feature off is a take-down, not a delete). */
+export interface PublicFoldersSettings {
+  /** The master switch. Absent = off: an upgraded instance publishes nothing
+   *  new until the owner asks for it. */
+  enabled?: boolean;
+  /** Folder chips at the START of the topic nav row. Default false. */
+  nav?: boolean;
+  /** The folders band on the blog home. Default TRUE — a folder nobody can
+   *  find is not a folder, so the discovery surface is the one that is on. */
+  home?: boolean;
+  /** The folders, in the order the owner arranged them. ≤ 12. */
+  folders?: PublicFolderRef[];
+}
+
+/** What a VISITOR receives for one public folder: the reference minus the
+ *  bookkeeping, plus the one fact only the server can supply — how many posts
+ *  this session can actually see in it. A hidden folder never becomes one. */
+export interface PublicFolderCard {
+  id: string;
+  slug: string;
+  title: string;
+  icon: FolderIcon;
+  description?: string;
+  /** Published posts carrying this slug that THIS session may see (the
+   *  languageFilter and EXCLUDE_TAGS apply, exactly as they do to /api/posts).
+   *  Zero is a real answer and still renders: an empty folder on a live site is
+   *  an invitation, not a bug. */
+  count: number;
+}
+
 export interface MeData {
   admin: boolean;      // this session may mutate the vault
   public: boolean;     // reads are open without a session (PUBLIC != false)
@@ -274,6 +332,18 @@ export interface MeData {
   bannerFallback?: "generated" | "none"; // BANNER_FALLBACK — blog list/article hero for notes without a banner
   shareButtons?: boolean; // blog article share row (settings.shareButtons, default ON; absent = on)
   home?: HomeSettings; // settings.home — what "/" renders for blog visitors (absent = note mode)
+  /** settings.publicFolders, resolved into ready-to-render cards. Present only
+   *  in blog mode, only when the feature is enabled, and only when at least one
+   *  visible folder survives — so a site that never turned this on ships a
+   *  byte-identical payload. Counts are scoped to this session. */
+  publicFolders?: PublicFolderCard[];
+  /** Where those cards may be drawn: the two sub-options, resolved. Sent
+   *  beside the cards rather than folded into them because they describe the
+   *  SITE, not a folder — and because the folder PAGE (`/folder/<slug>`) works
+   *  regardless of either: turning off the home band hides a door, it does not
+   *  unpublish the room behind it. */
+  publicFoldersHome?: boolean;
+  publicFoldersNav?: boolean;
   logo?: string;       // settings.logo — site logo image (banner-style value)
   favicon?: boolean;   // settings.favicon set — /favicon.ico serves it (client repoints its icon link)
   /** settings.fonts names at least one catalog face → the client links the
@@ -295,6 +365,13 @@ export interface MeData {
    *  i.e. exactly the behaviour that shipped before this existed. */
   textDirection?: TextDirectionSetting;
   textAlign?: TextAlignSetting;
+  /** settings.folderIcons — the vault tree's per-folder marks, folder path →
+   *  glyph. Sent outside the blog-only block (an admin has the sidebar in
+   *  every layout) but ADMIN SESSIONS ONLY: the keys are vault folder paths,
+   *  and a visitor's tree has no folders in it — publishedTree() gives them a
+   *  flat published-note list, which is precisely the promise that stops
+   *  vault paths reaching them. Absent when nothing is marked. */
+  folderIcons?: Record<string, FolderIcon>;
 }
 
 // ── Visibility impact (ADMIN ONLY) ──────────────────────────────────────────
@@ -371,6 +448,12 @@ export interface PostMeta {
   words: number;          // prose word count
   readingMinutes: number; // ceil(words / 200)
   tags: string[];         // EXCLUDE_TAGS filtered
+  /** Frontmatter `folders:` — the public-folder slugs this post belongs to.
+   *  Absent when the note names none, which is almost every note. Carried on
+   *  the post rather than fetched per folder because the blog already holds the
+   *  whole post list client-side: the folder page is one `.filter()` over it,
+   *  exactly as the topic page is. */
+  folders?: string[];
   /** Frontmatter `banner:` resolved: an https URL, or a vault-relative
    *  attachment path (fetch via /api/file?path=). Absent when unset. */
   banner?: string;
@@ -386,6 +469,39 @@ export interface PostMeta {
 export interface PageMeta {
   path: string;  // vault-relative note path
   title: string; // basename without .md, bidi controls stripped
+}
+
+// GET /api/trackers → TrackerMeta[]: every ```tracker fence in the vault, one
+// row per fence (a note may hold several), newest-touched first. The shelf a
+// ```tracker-board fence draws.
+//
+// Scoped EXACTLY like /api/posts, and for the same reason: a visitor session
+// sees published notes only, with the language filter applied and templates
+// out (a stencil would list as a book you are 0% through). An admin sees the
+// whole vault. Publishing your gaming shelf is the point of the feature, so
+// the endpoint has to be trustworthy about which half of it is public.
+export interface TrackerMeta {
+  path: string;      // the note the fence lives in
+  title: string;     // the tracker's own title ("Elden Ring")
+  noteTitle: string; // the note's title — the card's tooltip, since one note may hold many
+  kind: string | null;   // as authored ("game", "مسلسل"); null when the fence names none
+  icon: FolderIcon;      // derived from the kind, never authored
+  percent: number | null;
+  done: number | null;
+  total: number | null;
+  unit: string | null;   // the author's own word; the card falls back to the kind's default
+  status: TrackerStatus;
+  rating: TrackerRating | null;
+  /** The cover attachment, RESOLVED to a vault path (fetch via
+   *  /api/file?path=), or null. Resolved server-side through the same ladder
+   *  embeds use, so the board does not spend one /api/resolve per card — and
+   *  scoped to the session, so a visitor never gets a path they may not
+   *  fetch. */
+  cover: string | null;
+  /** The note's mtime in epoch ms — the board's sort key. NOT the post date:
+   *  `date:` in frontmatter is when the thing was started, and a shelf sorts
+   *  by what you touched last. */
+  updatedMs: number;
 }
 
 // Instance settings (VELLUM_DATA/settings.json) — admin-editable at runtime,
@@ -470,6 +586,12 @@ export interface SettingsData {
    *  /favicon.ico. Absent → the built-in glyph. */
   favicon?: string;
   home?: HomeSettings;
+  /** The owner's own navigation collections on the stock blog: a master switch,
+   *  two placement sub-options and the folder list. Membership is declared by
+   *  each note's `folders:` frontmatter, so nothing here duplicates the vault.
+   *  Designed mode ignores this key entirely — that shell composes its own
+   *  navigation from NavItems (see docs/blog-mode.md). */
+  publicFolders?: PublicFoldersSettings;
   /** Site logo image (https URL or vault path) shown in place of the
    *  site-name text where a logo fits (masthead, sidebar, dashboard hero). */
   logo?: string;
@@ -516,6 +638,12 @@ export interface SettingsData {
    *  EXCLUDE_TAGS and the language filter keep matching the canonical tag.
    *  Shape and resolution live in `shared/tagLabels.ts` (`TagLabelMap`). */
   tagLabels?: Record<string, Record<string, string>>;
+  /** Per-folder marks for the vault tree: vault-relative FOLDER path → one
+   *  glyph from the closed set in `shared/folderIcons.ts`. A folder with no
+   *  entry wears nothing, which is the default and the majority. Lives here
+   *  rather than in a sidecar file for the reason CONTRACTS.md:2918-2938
+   *  gives: a handful of short strings, rewritten whole, on no hot path. */
+  folderIcons?: Record<string, FolderIcon>;
 }
 
 export interface AttachmentSettings {
@@ -602,6 +730,10 @@ export interface EffectiveSettings {
   templatesFolderDetected: boolean;
   defaultTemplate: string | null;
   home: Required<Pick<HomeSettings, "mode">> & Omit<HomeSettings, "mode">;
+  /** Public folders with every default filled in — what the settings editor
+   *  prefills from, so an unset key and an explicitly-default one look the
+   *  same to the panel (there is no env counterpart to inherit from). */
+  publicFolders: Required<Omit<PublicFoldersSettings, "folders">> & { folders: PublicFolderRef[] };
   /** Always resolved: the attachment mode in force and the folder it uses. */
   attachments: Required<AttachmentSettings>;
   gitSync: GitSyncEffective;
@@ -619,6 +751,8 @@ export interface EffectiveSettings {
    *  guess whether an empty field means "tags" or "the one in your vault". */
   tagsFolderDetected: boolean;
   tagLabels: Record<string, Record<string, string>>;
+  /** The stored folder→glyph map, `{}` when nothing is marked. */
+  folderIcons: Record<string, FolderIcon>;
 }
 
 /** PATCH /api/settings body: only the named keys change; null (or "") clears
@@ -647,6 +781,15 @@ export interface SettingsPatch {
     banner?: string | null;
   } | null;
   logo?: string | null;
+  /** Public folders. Sub-keys merge like `attachments`; `folders` is REPLACED
+   *  WHOLE, on the tagLabels terms — the editor holds the entire list on
+   *  screen, so a merging patch would make deleting a row impossible. */
+  publicFolders?: {
+    enabled?: boolean | null;
+    nav?: boolean | null;
+    home?: boolean | null;
+    folders?: PublicFolderRef[] | null;
+  } | null;
   /** Where new attachments go. Either half may be set alone; null clears the
    *  whole key back to the pre-setting behaviour. */
   attachments?: {
@@ -684,6 +827,10 @@ export interface SettingsPatch {
   textAlign?: TextAlignSetting | null;
   tagsFolder?: string | null;
   tagLabels?: Record<string, Record<string, string>> | null;
+  /** Folder glyphs, replaced WHOLE like `tagLabels` above and for the same
+   *  reason: the picker writes the map the client is holding, so a merging
+   *  PATCH would make "None" impossible — the cleared row would come back. */
+  folderIcons?: Record<string, FolderIcon> | null;
 }
 
 // GET /api/tag-labels → TagLabelsResponse. The DISPLAY names of the vault's

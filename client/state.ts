@@ -5,7 +5,7 @@
 // (bumped when the open note changed on disk, so the Editor remounts).
 
 import { create } from "zustand";
-import type { AuthorSiteCard, Backlink, HomeSettings, PublicThemeInfo, PublishedCounts, TreeNode } from "../shared/types.ts";
+import type { AuthorSiteCard, Backlink, HomeSettings, PublicFolderCard, PublicThemeInfo, PublishedCounts, TreeNode } from "../shared/types.ts";
 import * as api from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import { collectNotes, resolveLink, setAliasTable } from "./editor/links.ts";
@@ -20,6 +20,13 @@ import { setDateCalendar } from "./dates.ts";
 import { setSiteTextLayout } from "./textLayout.ts";
 import { loadTagLabels } from "./tagLabels.ts";
 import { DEFAULT_DATE_CALENDAR, isDateCalendar, type DateCalendar } from "../shared/dates.ts";
+// TYPE ONLY, and it has to stay that way. shared/folderIcons.ts carries the
+// twenty drawings, and this module is in the entry closure that EVERY session
+// downloads — the anonymous blog reader included. Importing one validator from
+// it put four kilobytes of path data into that download to render pages with
+// no folder glyphs on them (check-bundle caught it at +6.5 kB on the entry).
+// A type import is erased; nothing here needs a value from that module.
+import type { FolderIcon } from "../shared/folderIcons.ts";
 import {
   DEFAULT_TEXT_ALIGN,
   DEFAULT_TEXT_DIRECTION,
@@ -113,6 +120,16 @@ export function sidebarIsDrawer(): boolean {
 }
 const PANEL_COLLAPSED_KEY = "vellum.panelCollapsed";
 const ZEN_KEY = "vellum.zen";
+
+/** The empty folder→glyph map, shared. One frozen object rather than a fresh
+ *  `{}` per loadMe: TreeRow is memoized over 1.4k rows, and the overwhelming
+ *  majority of vaults mark nothing at all — those vaults should never see the
+ *  store's `folderIcons` identity change and so never re-key a single row. */
+const NO_FOLDER_ICONS: Record<string, FolderIcon> = Object.freeze({});
+
+/** The empty public-folder list, shared. Same argument as NO_FOLDER_ICONS: a
+ *  site with the feature off must never see this array's identity change. */
+const NO_PUBLIC_FOLDERS: PublicFolderCard[] = Object.freeze([]) as unknown as PublicFolderCard[];
 
 /** Which physical edge the notes sidebar sits on, once everything is settled.
  *  PHYSICAL, not logical: a reader who asks for "the left" means the left of
@@ -237,6 +254,14 @@ export interface State {
   homeNote: string | null;
   /** The author's other sites, enriched server-side; blog home renders them. */
   authorSites: AuthorSiteCard[];
+  /** settings.publicFolders — the owner's own collections, as cards the blog
+   *  renders (home band, nav chips, article chips, `/folder/<slug>` page).
+   *  Empty unless the instance is in blog mode AND the feature is on: the
+   *  server sends nothing otherwise, and the two booleans below say only WHERE
+   *  the cards may be drawn — the folder page itself works either way. */
+  publicFolders: PublicFolderCard[];
+  publicFoldersHome: boolean;
+  publicFoldersNav: boolean;
   /** Instance branding from SITE_NAME (wordmark, titles, login modal). */
   siteName: string;
   /** THIS SESSION'S chrome language — not necessarily the site's. "ar"
@@ -347,6 +372,17 @@ export interface State {
    *  the settings panel re-render when it moves. */
   textDirection: TextDirection;
   textAlign: TextAlign;
+  /** settings.folderIcons — vault-relative FOLDER path → one glyph from the
+   *  closed set. Read per row by the sidebar tree, which is why the identity
+   *  of this object matters: TreeRow is memoized over 1.4k rows and reads
+   *  `s.folderIcons[node.path]` (a string or undefined), so a map that is
+   *  rebuilt on every loadMe would be fine, but a map rebuilt on every RENDER
+   *  would not. It is replaced only when /api/me answers or the picker saves;
+   *  the empty case is one shared frozen object, so a vault with no marks
+   *  never allocates. */
+  folderIcons: Record<string, FolderIcon>;
+  /** Store a fresh folder→glyph map (the tree picker, post-PATCH). */
+  setFolderIcons(icons: Record<string, FolderIcon>): void;
   /** Merge a fresh home config into the store (the dashboard's banner save). */
   setHome(home: HomeSettings | null): void;
 
@@ -1010,6 +1046,9 @@ export const useStore = create<State>()((set, get) => {
     publicReads: true,
     homeNote: null,
     authorSites: [],
+    publicFolders: NO_PUBLIC_FOLDERS,
+    publicFoldersHome: false,
+    publicFoldersNav: false,
     siteName: "Vellum",
     language: "en",
     siteLanguage: "en",
@@ -1096,6 +1135,12 @@ export const useStore = create<State>()((set, get) => {
     dateCalendar: DEFAULT_DATE_CALENDAR,
     textDirection: DEFAULT_TEXT_DIRECTION,
     textAlign: DEFAULT_TEXT_ALIGN,
+    folderIcons: NO_FOLDER_ICONS,
+    // Normalized to the shared empty object, not stored as a fresh `{}`:
+    // clearing the last folder's mark must leave the tree's 1.4k memoized rows
+    // reading the same identity they read before anything was marked.
+    setFolderIcons: (icons) =>
+      set({ folderIcons: Object.keys(icons).length > 0 ? icons : NO_FOLDER_ICONS }),
     setHome: (home) => set({ home }),
     bannerModalOpen: false,
     settingsOpen: false,
@@ -1162,6 +1207,17 @@ export const useStore = create<State>()((set, get) => {
         const calendar: DateCalendar = isDateCalendar(me.dateCalendar) ? me.dateCalendar : DEFAULT_DATE_CALENDAR;
         const noteDir: TextDirection = isTextDirection(me.textDirection) ? me.textDirection : DEFAULT_TEXT_DIRECTION;
         const noteAlign: TextAlign = isTextAlign(me.textAlign) ? me.textAlign : DEFAULT_TEXT_ALIGN;
+        // Taken as sent, not re-validated. Both ends of a bad row are already
+        // inert: an unknown glyph draws NOTHING (FolderGlyph.tsx), and a key
+        // that is not a folder path matches no row in the tree. Re-checking it
+        // here would cost the entry bundle the whole glyph module (see the
+        // type-only import at the top of this file) to defend against a state
+        // that has no symptom. The empty case shares one object — see
+        // NO_FOLDER_ICONS.
+        const icons =
+          me.folderIcons && Object.keys(me.folderIcons).length > 0
+            ? me.folderIcons
+            : NO_FOLDER_ICONS;
         setDateCalendar(calendar);
         setSiteTextLayout(noteDir, noteAlign);
         applyLanguage(language, locale); // before set(): re-renders already see t() in the new language
@@ -1181,6 +1237,13 @@ export const useStore = create<State>()((set, get) => {
           authProtected: me.protected ?? false,
           homeNote: me.homeNote ?? null,
           authorSites: me.authorSites ?? [],
+          // One shared empty array when the feature is off (the overwhelming
+          // majority), for the reason NO_FOLDER_ICONS gives one line up: the
+          // blog band and the nav row both read this on every render and a
+          // fresh `[]` per loadMe would re-run their memos for nothing.
+          publicFolders: me.publicFolders?.length ? me.publicFolders : NO_PUBLIC_FOLDERS,
+          publicFoldersHome: me.publicFoldersHome === true,
+          publicFoldersNav: me.publicFoldersNav === true,
           publishedCounts: me.published ?? null,
           siteName: me.siteName?.trim() || "Vellum",
           language,
@@ -1198,6 +1261,7 @@ export const useStore = create<State>()((set, get) => {
           dateCalendar: calendar,
           textDirection: noteDir,
           textAlign: noteAlign,
+          folderIcons: icons,
         });
         // The tag-label map is scoped by session (a visitor is told about
         // visible tags only), so it is refetched on every /api/me — which is

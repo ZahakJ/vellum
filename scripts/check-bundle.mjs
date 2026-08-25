@@ -113,7 +113,17 @@ function keyFor(src) {
 
 const entry = closure("index.html");
 const blog = closure(keyFor("blog/BlogShell.tsx") ?? "blog/BlogShell.tsx", new Set(entry));
-const app = APP_SHELL_ROOTS.reduce((acc, key) => closure(key, acc), new Set(entry));
+// THROUGH keyFor(), for the reason its comment gives one screen up — and this
+// line did not, which made the admin budget quietly stop measuring the
+// sidebar. The moment a second chunk statically imports anything OUT of the
+// sidebar chunk (the folder-icon picker's own lazy chunk imports FolderGlyph
+// from it), rollup promotes it to a shared "_Sidebar-<hash>.js" with no `src`
+// field — `closure("components/Sidebar.tsx")` then finds no manifest entry,
+// adds nothing, and returns quietly. The admin first paint dropped 57 kB and
+// twelve files between two builds that differed by one lazy() call, and the
+// gate reported OK. A budget that can be satisfied by making a surface
+// unfindable is not a budget.
+const app = APP_SHELL_ROOTS.reduce((acc, key) => closure(keyFor(key) ?? key, acc), new Set(entry));
 
 // ── the budgets, and why they are the numbers they are ──────────────────────
 //
@@ -175,8 +185,23 @@ const app = APP_SHELL_ROOTS.reduce((acc, key) => closure(key, acc), new Set(entr
 // the first lift, which is what kept this bump at ~4 kB instead of ~7. The
 // by-language dictionary split (below) remains the scheduled recovery of
 // ~32 kB from every one of these numbers.
+// RE-BASELINED for the TRACKER's dictionary keys, and for no other byte of it.
+// 510.2 kB actual against a 510 kB ceiling — a 0.2 kB overshoot, and worth
+// naming precisely because of how small it is. The tracker's own code is not
+// in this number at all: `client/reading/tracker.ts` and its stylesheet (14 kB
+// together) are a DYNAMIC import from the fence branch of render.ts, because a
+// progress card is drawn on the few notes that carry one and nothing is owed
+// by the reader of a note that does not. What did land here is ~2 kB of
+// `client/i18n.ts` — the status names, the seven kind labels, the seven
+// countPhrase units and the board's empty state — and the dictionary is the
+// one module in the product that ships whole to every surface. That is the
+// debt named at length below, arriving one release later with three features'
+// keys in it rather than one. 512 is the new actual plus ~0.35%, TIGHTER than
+// any previous re-baseline in this file: the ratchet is kept, and the
+// by-language split remains the ~32 kB recovery that makes this line stop
+// moving.
 const AUDIENCES = [
-  { name: "entry (everyone)", keys: entry, budget: 510 * 1024 },
+  { name: "entry (everyone)", keys: entry, budget: 512 * 1024 },
   // RE-BASELINED for the DICTIONARY, and this one deserves naming as a debt
   // rather than a measurement. `client/i18n.ts` is a single object read by
   // `t()` on every surface, so it lands whole in every first paint — and this
@@ -206,8 +231,38 @@ const AUDIENCES = [
   // with the dictionary keys that name them.
   // Moves with the entry above (the blog closure contains it): same causes,
   // same recovery path, actual 673.4 kB at the book-tabs re-baseline.
-  { name: "anonymous blog reader", keys: blog, budget: 688 * 1024 },
-  { name: "admin first paint", keys: app, budget: 1096 * 1024 },
+  //
+  // RE-BASELINED for CUSTOM PUBLIC FOLDERS (682.1 kB actual at the previous
+  // commit → 698.2 kB, budget = actual + ~1.7%). Measured, per file, against a
+  // build of the parent commit rather than described:
+  //
+  //   +3.9 kB  BlogShell chunk — the folder page, the home band, the folder
+  //            chips in the nav and the article footer, and the slug rules
+  //            (shared/publicFolders.ts).
+  //   +3.5 kB  blog.css — the band, the folder-page header and the chips.
+  //   +3.4 kB  FolderGlyph — the twenty path tables (shared/folderIcons.ts).
+  //   +2.7 kB  the dictionary's share of this feature's ~35 new keys.
+  //
+  // WHY NO SPLIT TAKES ANY OF IT OFF. Every one of those bytes renders on the
+  // FIRST paint of a blog home that has folders: the band is above the fold,
+  // the nav chips are in the chrome, and a lazily-imported glyph table would
+  // paint the row twice. The recovery here is the same scheduled one the entry
+  // budget names — splitting the dictionary by language would return ~32 kB to
+  // this number, which is more than this whole feature costs.
+  //
+  // The remaining ~2.4 kB of this round's growth is feature A's dictionary
+  // keys (the twenty glyph names and the tree picker's strings), which reach a
+  // blog reader only because `t()` reads one object on every surface.
+  { name: "anonymous blog reader", keys: blog, budget: 710 * 1024 },
+  // RE-BASELINED for PER-FOLDER TREE ICONS (1089.4 kB actual → 1099.4 kB,
+  // budget = actual + ~1.1%), and the growth here is almost all feature A's:
+  // +3.4 kB FolderGlyph (now a shared chunk, since the sidebar and the blog
+  // both draw marks), +1.2 kB Sidebar (the glyph slot, the context-menu item
+  // and the picker's mount), and the dictionary's share of both features'
+  // keys. A folder mark is drawn on the first paint of the tree, so none of it
+  // is splittable either; the dictionary split is the recovery for this number
+  // as much as for the two above it.
+  { name: "admin first paint", keys: app, budget: 1112 * 1024 },
 ];
 
 // ── things that must never be in a first paint ──────────────────────────────

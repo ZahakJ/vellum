@@ -78,6 +78,7 @@ import {
   search,
   searchMatches,
   tags,
+  trackers,
   visibleNotesUnder,
   whenIndexed,
   wikilinkRegex,
@@ -119,7 +120,7 @@ import {
   saveCustomFont,
   sniffFontFormat,
 } from "./customFonts.ts";
-import { fontSlots, patchSettings, setAdminTheme, settingsAssetPaths, settingsResponse } from "./settings.ts";
+import { fontSlots, moveFolderIcons, patchSettings, setAdminTheme, settingsAssetPaths, settingsResponse } from "./settings.ts";
 // Localised tag labels: display names for canonical tags, plus the query
 // rewrite that makes search answer to both spellings.
 import { expandTagQuery, visibleTagLabels } from "./tagLabels.ts";
@@ -642,7 +643,17 @@ api.post("/folder/move", async (c) => {
   const body = await jsonBody(c);
   const from = requiredString(body, "path");
   const to = requiredString(body, "toPath");
-  return c.json(await moveFolderWithLinkRewrite(from, to));
+  const result = await moveFolderWithLinkRewrite(from, to);
+  // A FOLDER'S GLYPH IS PART OF THE FOLDER. settings.folderIcons is keyed by
+  // path, and this route is where a folder's path changes — rename and move
+  // are the same operation here (Sidebar's renameTo dispatches both to it).
+  // Without this, renaming `Games` to `Play` left the mark on a key nothing
+  // matches: the glyph vanished and came back only if the owner happened to
+  // rename it back. The subtree comes along; a marked child keeps its mark.
+  // AFTER the move, never before — a refusal (into its own descendant, onto
+  // an existing name) must not have moved anything, settings included.
+  moveFolderIcons(from, to);
+  return c.json(result);
 });
 
 // Delete a folder and everything under it. Default is Obsidian's safe move to
@@ -657,6 +668,12 @@ api.delete("/folder", async (c) => {
   const folderPath = requiredQuery(c.req.query("path"), "path");
   const permanent = TRUTHY_QUERY.has((c.req.query("permanent") ?? "").toLowerCase());
   const result = await deleteFolder(folderPath, { permanent });
+  // The glyph goes with the folder, at both speeds. A trashed folder that is
+  // fished back out of `.trash/` by hand comes back unmarked, and that is the
+  // right trade: the alternative is a settings.json that accumulates a mark
+  // for every folder the vault has ever had, forever, and hits its cap on a
+  // vault the owner would describe as small.
+  moveFolderIcons(folderPath, null);
   await whenIndexed();
   return c.json(result);
 });
@@ -848,7 +865,12 @@ api.post("/publish", async (c) => {
 // Surgical single-key frontmatter setter (admin-only via the auth guard).
 // Same machinery as /api/publish: line edit, watcher-echo suppression,
 // immediate reindex. Keys are allowlisted; values are single-line strings.
-const FRONTMATTER_KEYS = new Set(["banner"]);
+// `folders` joins `banner` here so a note's PUBLIC FOLDER membership can be set
+// the same surgical way its cover is — one line rewritten, every other byte of
+// the file untouched. Today the owner types the line; the allowlist is what
+// lets a folder picker in the properties card write it tomorrow without
+// re-opening this route's security question.
+const FRONTMATTER_KEYS = new Set(["banner", "folders"]);
 const FRONTMATTER_VALUE_MAX = 500;
 
 api.post("/frontmatter", async (c) => {
@@ -1565,6 +1587,17 @@ api.get("/posts", (c) => {
     for (const post of list) post.commentCount = counts.get(post.path) ?? 0;
   }
   return c.json(list);
+});
+
+// The shelf: every ```tracker fence this session may see (a ```tracker-board
+// draws it). Scoped by trackers() exactly as posts() scopes the feed —
+// published notes only for a visitor, the language filter at this request's
+// scope, templates out of both lists — because publishing a reading or gaming
+// shelf is the point of the feature and the endpoint is what makes leaving one
+// on a public note safe.
+api.get("/trackers", (c) => {
+  const limited = isPublishLimited(c);
+  return c.json(trackers(limited, languageScope(c, limited).lang));
 });
 
 // -------------------------------------------------------------------- design

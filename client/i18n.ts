@@ -65,6 +65,36 @@ const DICT = {
   newNoteHere: { en: "New note here", ar: "ملاحظة جديدة هنا" },
   rename: { en: "Rename", ar: "إعادة تسمية" },
   delete: { en: "Delete", ar: "حذف" },
+  // ── Folder glyphs ────────────────────────────────────────────────────────
+  // The context menu's row, the popover it opens, and the twenty names. The
+  // names are NOT decoration: the grid is twenty icon-only buttons, so each
+  // one's accessible name is the only thing a screen reader has to pick by,
+  // and each one's tooltip is the only thing a sighted reader has when the
+  // drawing is ambiguous (a pawn IS a chess piece; nobody has to agree).
+  folderIcon: { en: "Folder icon", ar: "أيقونة المجلد" },
+  folderIconFor: { en: "Icon for “{name}”", ar: "أيقونة “{name}”" },
+  folderIconNone: { en: "No icon", ar: "بلا أيقونة" },
+  folderIconBook: { en: "Book", ar: "كتاب" },
+  folderIconQuill: { en: "Quill", ar: "ريشة" },
+  folderIconFlask: { en: "Flask", ar: "دورق" },
+  folderIconStar: { en: "Star", ar: "نجمة" },
+  folderIconCompass: { en: "Compass", ar: "بوصلة" },
+  folderIconMap: { en: "Map", ar: "خريطة" },
+  folderIconLeaf: { en: "Leaf", ar: "ورقة شجر" },
+  folderIconMoon: { en: "Moon", ar: "هلال" },
+  folderIconHeart: { en: "Heart", ar: "قلب" },
+  folderIconMusic: { en: "Music", ar: "موسيقى" },
+  folderIconCamera: { en: "Camera", ar: "كاميرا" },
+  folderIconCode: { en: "Code", ar: "شيفرة" },
+  folderIconScroll: { en: "Scroll", ar: "مخطوطة" },
+  folderIconGamepad: { en: "Games", ar: "ألعاب" },
+  folderIconFilm: { en: "Film", ar: "فيلم" },
+  folderIconTelescope: { en: "Telescope", ar: "تلسكوب" },
+  folderIconArchive: { en: "Archive", ar: "أرشيف" },
+  folderIconSparkle: { en: "Sparkle", ar: "بريق" },
+  folderIconGlobe: { en: "Globe", ar: "كرة أرضية" },
+  folderIconChess: { en: "Chess", ar: "شطرنج" },
+  folderIconFailed: { en: "Setting the folder icon failed", ar: "فشل تعيين أيقونة المجلد" },
   // A note deletes at the same two speeds as a folder — the first dialog
   // promises .trash, the second is the erase — so these read as the folder's
   // pair does, one line apart in the same menu.
@@ -585,6 +615,70 @@ const DICT = {
     ar: "الحقل الفارغ يرث إعداد الخادم الافتراضي ويعرضه باهتًا.",
   },
   groupHome: { en: "Home page", ar: "الصفحة الرئيسية" },
+  // ── Public folders: one option, its list, and two placement sub-options ──
+  groupPublicFolders: { en: "Custom public folders", ar: "مجلدات عامة مخصصة" },
+  publicFoldersNote: {
+    en: "Your own collections on the public site, beside the topics your notes tag themselves with.",
+    ar: "مجموعاتك الخاصة على الموقع العام، إلى جانب المواضيع التي تسمّي بها ملاحظاتك نفسها.",
+  },
+  rowPublicFolders: { en: "Custom public folders", ar: "مجلدات عامة مخصصة" },
+  hintPublicFolders: {
+    en: "Off by default. Turning it off is a take-down: the folders keep their titles and members.",
+    ar: "معطّلة افتراضيًا. إيقافها إخفاء لا حذف: تحتفظ المجلدات بعناوينها وبمحتواها.",
+  },
+  publicFoldersOffNotice: {
+    en: "Custom folders are off, so none of them reaches a visitor.",
+    ar: "المجلدات المخصصة معطّلة، فلا يصل أيٌّ منها إلى الزائر.",
+  },
+  rowPublicFoldersList: { en: "Folders", ar: "المجلدات" },
+  hintPublicFoldersList: {
+    en: "Each one becomes a page at /folder/<slug>. The order here is the order readers see.",
+    ar: "يصير كل مجلد صفحة على /folder/<slug>. والترتيب هنا هو ما يراه القارئ.",
+  },
+  publicFoldersFrontmatter: {
+    en: "A note joins a folder from its own frontmatter: folders: my-slug (or a list).",
+    ar: "تنضم الملاحظة إلى مجلد من ترويستها: folders: my-slug (أو قائمة).",
+  },
+  rowPublicFoldersHome: { en: "Show on home page", ar: "إظهارها في الصفحة الرئيسية" },
+  hintPublicFoldersHome: {
+    en: "A band of folder cards under your writings.",
+    ar: "شريط من بطاقات المجلدات أسفل كتاباتك.",
+  },
+  rowPublicFoldersNav: { en: "Show in navigation", ar: "إظهارها في شريط التنقل" },
+  hintPublicFoldersNav: {
+    en: "Folder chips lead the topics row, each wearing its own mark.",
+    ar: "تتصدر رقاقات المجلدات صف المواضيع، وكلٌّ منها بعلامته.",
+  },
+  publicFoldersEmpty: {
+    en: "No folders yet. Add one to give your readers a collection of their own.",
+    ar: "لا توجد مجلدات بعد. أضف واحدًا لتمنح قراءك مجموعة خاصة.",
+  },
+  publicFolderIcon: { en: "Mark", ar: "العلامة" },
+  publicFolderTitle: { en: "Title", ar: "العنوان" },
+  publicFolderTitlePlaceholder: { en: "Games", ar: "ألعاب" },
+  publicFolderSlug: { en: "Address", ar: "العنوان الشبكي" },
+  // The slug is LATIN by construction (the set is [a-z0-9-]), so the Arabic
+  // placeholder shows the same specimen and names it as one — an example in a
+  // script the field cannot accept would be a placeholder that lies.
+  publicFolderSlugPlaceholder: { en: "games", ar: "مثال: games" },
+  publicFolderDesc: { en: "Description", ar: "الوصف" },
+  publicFolderDescPlaceholder: { en: "One line under the title", ar: "سطر واحد تحت العنوان" },
+  publicFolderHidden: { en: "Hidden", ar: "مخفي" },
+  publicFolderVisible: { en: "Visible", ar: "ظاهر" },
+  publicFolderUp: { en: "Move this folder up", ar: "تحريك هذا المجلد لأعلى" },
+  publicFolderDown: { en: "Move this folder down", ar: "تحريك هذا المجلد لأسفل" },
+  publicFolderRemove: { en: "Remove this folder", ar: "حذف هذا المجلد" },
+  publicFolderAdd: { en: "Add a folder", ar: "إضافة مجلد" },
+  errFoldersMax: { en: "{max} folders at most.", ar: "{max} مجلدات كحد أقصى." },
+  errFolderTitle: { en: "Every folder needs a title.", ar: "كل مجلد يحتاج عنوانًا." },
+  errFolderSlug: {
+    en: "“{slug}” is not a valid address — lowercase letters, digits and hyphens only.",
+    ar: "«{slug}» عنوان غير صالح — حروف لاتينية صغيرة وأرقام وشرطات فقط.",
+  },
+  errFolderDupSlug: {
+    en: "Two folders share the address “{slug}”.",
+    ar: "مجلدان يتشاركان العنوان «{slug}».",
+  },
   // Named after the switch that turns these two rows on, in the panel's own
   // off-note idiom: they are read by the blog shell and by nothing else, and
   // an app-layout instance opens the home note at "/" instead.
@@ -1174,6 +1268,9 @@ const DICT = {
   slashTaskList: { en: "Task list", ar: "قائمة مهام" },
   slashMathBlock: { en: "Math block", ar: "كتلة معادلات" },
   slashMathDetail: { en: "$$ display math $$", ar: "$$ معادلة مستقلة $$" },
+  slashTracker: { en: "Tracker", ar: "متتبّع" },
+  slashTrackerBoard: { en: "Tracker board", ar: "لوحة المتتبّعات" },
+  slashTrackerBoardDetail: { en: "Every tracker in the vault", ar: "كل المتتبّعات في الخزانة" },
   // ── Aliases (a note's other names) ──────────────────────────────────────
   // Frontmatter `aliases:` makes one note answer to several names. Every
   // string here exists to say WHICH name was involved: Obsidian resolves an
@@ -1225,6 +1322,16 @@ const DICT = {
   errAuthorSite: { en: "Not a valid site line: {url}", ar: "سطر موقع غير صالح: {url}" },
   errAuthorSitesMax: { en: "Six sites at most.", ar: "ستة مواقع كحد أقصى." },
   authorSitesEffect: { en: "{count} card(s) will appear on the blog home.", ar: "ستظهر {count} بطاقة/بطاقات في صفحة المدونة الرئيسية." },
+  // ── Public folders (the owner's own collections) ────────────────────────
+  // "Collections", not "Folders": the word FOLDER already means a directory in
+  // this product's vault, and a reader who meets it on the public site would
+  // reasonably expect to be looking at the author's file tree. The URL keeps
+  // /folder/ because it is an address the site has to be able to keep forever.
+  blogFolders: { en: "Collections", ar: "المجموعات" },
+  blogFolderEmpty: {
+    en: "Nothing in this collection yet.",
+    ar: "لا شيء في هذه المجموعة بعد.",
+  },
   blogLatest: { en: "Latest", ar: "الأحدث" },
   blogLatestWritings: { en: "Latest writings", ar: "أحدث الكتابات" },
   blogMostDiscussed: { en: "Most discussed", ar: "الأكثر نقاشًا" },
@@ -3086,6 +3193,35 @@ const DICT = {
   bookKeyLibrary: { en: "Back to the library", ar: "العودة إلى المكتبة" },
   bookKeyClose: { en: "Close the book", ar: "إغلاق الكتاب" },
   bookKeyHelp: { en: "This list", ar: "هذه القائمة" },
+  // ── Trackers (```tracker, ```tracker-board) ──────────────────────────────
+  // A card in a note is CONTENT, but everything around the author's own words
+  // — the status chip, the kind, the units, the empty shelf — is chrome, and
+  // an Arabic reader must not meet an English word on their own note.
+  trackerStatusPlanned: { en: "Planned", ar: "مُخطط" },
+  trackerStatusActive: { en: "Active", ar: "جارٍ" },
+  trackerStatusDone: { en: "Done", ar: "مكتمل" },
+  trackerStatusPaused: { en: "Paused", ar: "متوقف مؤقتًا" },
+  trackerStatusDropped: { en: "Dropped", ar: "متروك" },
+  trackerKindBook: { en: "Book", ar: "كتاب" },
+  trackerKindGame: { en: "Game", ar: "لعبة" },
+  trackerKindFilm: { en: "Film", ar: "فيلم" },
+  trackerKindShow: { en: "Series", ar: "مسلسل" },
+  trackerKindCourse: { en: "Course", ar: "دورة" },
+  trackerKindProject: { en: "Project", ar: "مشروع" },
+  trackerKindHabit: { en: "Habit", ar: "عادة" },
+  trackerProgress: { en: "Progress", ar: "التقدم" },
+  trackerPercent: { en: "{percent}%", ar: "{percent}٪" },
+  trackerComplete: { en: "Complete", ar: "اكتمل" },
+  trackerRating: { en: "Rated {value} out of {max}", ar: "التقييم {value} من {max}" },
+  trackerStarted: { en: "Started {date}", ar: "بدأ في {date}" },
+  trackerFinished: { en: "Finished {date}", ar: "انتهى في {date}" },
+  trackerStepUp: { en: "Nudge progress up", ar: "زيادة التقدم" },
+  trackerStepDown: { en: "Nudge progress down", ar: "إنقاص التقدم" },
+  trackerBoardEmpty: {
+    en: "Nothing on the shelf yet. Open a fence like this in any note and it appears here.",
+    ar: "لا شيء على الرف بعد. افتح كتلة كهذه في أي ملاحظة لتظهر هنا.",
+  },
+  trackerBoardFailed: { en: "The shelf could not be read.", ar: "تعذّرت قراءة الرف." },
 } satisfies Record<string, Entry>;
 
 export type I18nKey = keyof typeof DICT;
@@ -3162,7 +3298,7 @@ export function tf(key: I18nKey, vars: Record<string, string | number>): string 
 // the dates use — a card that reads "٩ يناير ٢٠٢٦" must not finish with
 // "3 دقائق قراءة".
 
-type CountUnit =
+export type CountUnit =
   | "notes"
   | "files"
   | "trashItems"
@@ -3175,7 +3311,18 @@ type CountUnit =
   | "foldedLines"
   | "readMinutes"
   | "changes"
-  | "unsaved";
+  | "unsaved"
+  // A tracker's default unit, one per kind (client/reading/tracker.ts). They
+  // are count units and not dictionary strings because they always arrive with
+  // a number in front of them — "62 / 130 pages", "١٣٠ صفحات" — and Arabic
+  // agreement is exactly what a bare noun would get wrong.
+  | "pages"
+  | "hours"
+  | "minutes"
+  | "episodes"
+  | "lessons"
+  | "tasks"
+  | "days";
 
 const UNITS: Record<CountUnit, { en: [string, string]; ar: { one: string; two: string; few: string; many: string } }> = {
   // What a bulk tab-close is about to FLUSH. It is a count with a consequence
@@ -3230,6 +3377,15 @@ const UNITS: Record<CountUnit, { en: [string, string]; ar: { one: string; two: s
     en: ["change", "changes"],
     ar: { one: "تغيير واحد", two: "تغييران", few: "تغييرات", many: "تغييرًا" },
   },
+  // The tracker units. Each one lands after a fraction ("62 / 130 pages"), so
+  // the singular forms are the ones a lone total takes.
+  pages: { en: ["page", "pages"], ar: { one: "صفحة واحدة", two: "صفحتان", few: "صفحات", many: "صفحة" } },
+  hours: { en: ["hour", "hours"], ar: { one: "ساعة واحدة", two: "ساعتان", few: "ساعات", many: "ساعة" } },
+  minutes: { en: ["minute", "minutes"], ar: { one: "دقيقة واحدة", two: "دقيقتان", few: "دقائق", many: "دقيقة" } },
+  episodes: { en: ["episode", "episodes"], ar: { one: "حلقة واحدة", two: "حلقتان", few: "حلقات", many: "حلقة" } },
+  lessons: { en: ["lesson", "lessons"], ar: { one: "درس واحد", two: "درسان", few: "دروس", many: "درسًا" } },
+  tasks: { en: ["task", "tasks"], ar: { one: "مهمة واحدة", two: "مهمتان", few: "مهام", many: "مهمة" } },
+  days: { en: ["day", "days"], ar: { one: "يوم واحد", two: "يومان", few: "أيام", many: "يومًا" } },
 };
 
 /** "3 notes" / "3 ملاحظات" — a number with its correctly-agreed unit. */

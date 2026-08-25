@@ -8,6 +8,7 @@
 
 import matter from "gray-matter";
 import { isTexPath } from "../shared/noteFormat.ts";
+import { folderSlug } from "../shared/publicFolders.ts";
 import { findTexFrontmatter } from "../shared/tex.ts";
 import { publishFlag, readFrontmatter, setFrontmatterLine, setPublishFlag, yamlQuote } from "./publish.ts";
 
@@ -133,6 +134,59 @@ export function parseAliases(fm: Record<string, unknown>): string[] {
   const text = scalar(raw);
   if (text === null) return out;
   for (const part of text.split(",")) push(part);
+  return out;
+}
+
+// --------------------------------------------------------------- folders
+
+/** The PUBLIC FOLDERS a note belongs to — frontmatter `folders:`.
+ *
+ *  THE SAME THREE SPELLINGS `parseAliases` ABOVE ACCEPTS, and deliberately so:
+ *  an author who has learned that `aliases: a, b` works does not want to
+ *  discover that `folders: games, books` does not. YAML gives three values for
+ *  what reads as one list, and all three arrive from real vaults:
+ *
+ *    folders: [games, books]   → an array
+ *    folders:                  → an array (block list)
+ *      - games
+ *    folders: games, books     → the STRING "games, books"
+ *    folders: games            → the STRING "games"
+ *
+ *  `folder:` (singular) is read too, for the reason `alias:` is: one folder is
+ *  the common case and the plural key reads wrong when you are writing it.
+ *
+ *  Every value goes through `folderSlug()`, so this is a MEMBERSHIP CLAIM and
+ *  not a folder definition: a slug no settings.json declares matches nothing
+ *  and costs nothing, which is what lets an author write the frontmatter first
+ *  and make the folder afterwards. Duplicates collapse; unusable values drop.
+ *
+ *  Called with the frontmatter of EITHER format — the indexer hands it what
+ *  `readNoteFrontmatter()` returned, so a `.tex` note joins a folder from its
+ *  `%---` comment block exactly as a markdown note does from its `---` one. */
+export function parseFolders(fm: Record<string, unknown>): string[] {
+  const raw = fm.folders ?? fm.folder;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (value: unknown): void => {
+    const slug = folderSlug(value);
+    if (slug === null || seen.has(slug)) return;
+    seen.add(slug);
+    out.push(slug);
+  };
+  if (Array.isArray(raw)) {
+    // A LIST ITEM IS NEVER SPLIT — the asymmetry parseAliases explains. A slug
+    // cannot contain a comma anyway, so splitting an item could only ever
+    // manufacture two wrong slugs out of one refused value.
+    for (const item of raw) push(item);
+    return out;
+  }
+  if (typeof raw === "string") {
+    for (const part of raw.split(",")) push(part);
+    return out;
+  }
+  // A bare number is a legal slug ("2026" on a year folder) and YAML hands it
+  // over as a number; anything else — a map, a date, a boolean — is not a name.
+  if (typeof raw === "number" && Number.isFinite(raw)) push(String(raw));
   return out;
 }
 

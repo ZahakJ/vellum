@@ -16,9 +16,9 @@ import { Hono } from "hono";
 import type { Context, MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { getConnInfo } from "@hono/node-server/conninfo";
-import type { MeData } from "../shared/types.ts";
+import type { MeData, PublicFolderCard } from "../shared/types.ts";
 import type { FilterLang } from "./indexer.ts";
-import { isNoteVisibleToVisitor, publishedCounts, resolveLink } from "./indexer.ts";
+import { isNoteVisibleToVisitor, publicFolderCounts, publishedCounts, resolveLink } from "./indexer.ts";
 import { languageScope } from "./language.ts";
 import { currentVisibility, isReducingReach } from "./visibility.ts";
 import { commentsEnabled } from "./comments.ts";
@@ -719,6 +719,21 @@ authRoutes.get("/me", (c) => {
   if (noteDir !== "auto") me.textDirection = noteDir;
   const noteAlign = textAlign();
   if (noteAlign !== "start") me.textAlign = noteAlign;
+  // The vault tree's per-folder glyphs. OUTSIDE the public-layout gate below:
+  // this describes the SIDEBAR, which an admin has in blog and designed mode
+  // too, so it must not travel only with the blog copy.
+  //
+  // ADMIN ONLY, though — and deliberately narrower than the rest of this
+  // payload. The keys are vault folder PATHS, and a visitor's tree has no
+  // folders in it at all: publishedTree() (api.ts:493) hands them a flat
+  // curated list of published notes, "no folder structure", for the same
+  // reason /published and /attachments withhold vault paths. Sending the map
+  // to a visitor would name every marked folder — published or not — to
+  // decorate rows they will never see. `admin` is exactly the sessions that
+  // GET the folder tree, so it is exactly the gate this field wants.
+  if (admin && settings.folderIcons && Object.keys(settings.folderIcons).length > 0) {
+    me.folderIcons = settings.folderIcons;
+  }
   // The theme a session with no stored pick lands on: a pinned
   // settings.defaultTheme/DEFAULT_THEME, or — by default — the theme the admin
   // is editing in, mirrored from their browser. Resolved here so no client
@@ -829,6 +844,41 @@ authRoutes.get("/me", (c) => {
       const { note, ...rest } = settings.home;
       const shaped = note && (admin || homeNoteVisible(note, scope.lang)) ? { ...rest, note } : rest;
       if (Object.keys(shaped).length > 0) me.home = shaped;
+    }
+    // THE OWNER'S OWN COLLECTIONS, as ready-made cards. Inside this block on
+    // purpose: public folders are a STOCK BLOG feature (designed mode composes
+    // its own navigation from NavItems, and app mode has the vault tree), so
+    // the app-layout payload must not grow a field describing a shell it is
+    // not serving.
+    //
+    // The visitor never learns of a hidden folder, and never learns of one at
+    // all while the master switch is off — a take-down is a take-down. The
+    // COUNTS are this session's own (`isPublishLimited` + the language scope),
+    // for the reason publicFolderCounts states: a card's number is a promise
+    // about the page behind it.
+    const pf = settings.publicFolders;
+    const visible = pf?.enabled === true ? (pf.folders ?? []).filter((f) => !f.hidden) : [];
+    if (visible.length > 0) {
+      const counts = publicFolderCounts(
+        visible.map((f) => f.slug),
+        isPublishLimited(c),
+        scope.lang,
+      );
+      me.publicFolders = visible.map((folder): PublicFolderCard => {
+        const card: PublicFolderCard = {
+          id: folder.id,
+          slug: folder.slug,
+          title: folder.title,
+          icon: folder.icon,
+          count: counts.get(folder.slug) ?? 0,
+        };
+        if (folder.description) card.description = folder.description;
+        return card;
+      });
+      // The two placement sub-options, defaults resolved here so no client has
+      // to know which way each one falls (home on, nav off).
+      me.publicFoldersHome = pf?.home !== false;
+      me.publicFoldersNav = pf?.nav === true;
     }
   }
   return c.json(me);

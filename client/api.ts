@@ -23,6 +23,7 @@ import type {
   SettingsResponse,
   TagCount,
   TagLabelsResponse,
+  TrackerMeta,
   TrashEntry,
   TreeNode,
   UploadResult,
@@ -394,6 +395,14 @@ export function getMe(): Promise<MeData> {
 /** Published notes as blog posts, newest first (blog mode's list). */
 export function getPosts(): Promise<PostMeta[]> {
   return request<PostMeta[]>("/api/posts");
+}
+
+/** Every ```tracker fence this session may see, newest-touched first — the
+ *  shelf a ```tracker-board draws. Scoped server-side exactly like /api/posts
+ *  (published only for a visitor, language filter applied, templates out), so
+ *  a board on a PUBLISHED note is safe to leave in place. */
+export function getTrackers(): Promise<TrackerMeta[]> {
+  return request<TrackerMeta[]>("/api/trackers");
 }
 
 /**

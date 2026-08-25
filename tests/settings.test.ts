@@ -9,7 +9,13 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, beforeEach, describe, it } from "node:test";
-import { effectiveSettings, getSettings, patchSettings, setAdminTheme } from "../server/settings.ts";
+import {
+  effectiveSettings,
+  getSettings,
+  moveFolderIcons,
+  patchSettings,
+  setAdminTheme,
+} from "../server/settings.ts";
 import { initSite } from "../server/site.ts";
 import { initVault, VaultError } from "../server/vault.ts";
 import { makeDir, makeVault, removeVault } from "./helpers/vault.ts";
@@ -53,6 +59,8 @@ beforeEach(() => {
     favicon: null,
     logo: null,
     home: null,
+    folderIcons: null,
+    publicFolders: null,
   });
 });
 
@@ -342,6 +350,236 @@ describe("per-key validators", () => {
   it("still tolerates surrounding whitespace on a good folder", () => {
     patchSettings({ attachments: { folder: "media/uploads\n" } });
     assert.equal(getSettings().attachments?.folder, "media/uploads");
+  });
+});
+
+// A folder's glyph is stored as `folderIcons[<folder path>] = <icon>`, which
+// makes this key two validators wearing one name: the KEY is a vault path (the
+// same boundary `templatesFolder` guards — an absolute path or a traversal
+// must be a 400, never a silent rewrite) and the VALUE is a closed enum (a
+// glyph no build can draw would leave a folder looking unmarked forever).
+describe("folderIcons", () => {
+  it("stores a clean folder path against a known glyph", () => {
+    patchSettings({ folderIcons: { "attachments": "camera", "notes/games": "gamepad" } });
+    assert.deepEqual(getSettings().folderIcons, {
+      attachments: "camera",
+      "notes/games": "gamepad",
+    });
+    assert.deepEqual(effectiveSettings().folderIcons, {
+      attachments: "camera",
+      "notes/games": "gamepad",
+    });
+  });
+
+  it("answers {} in `effective` when nothing is marked", () => {
+    assert.deepEqual(effectiveSettings().folderIcons, {});
+  });
+
+  it("refuses a glyph outside the closed set", () => {
+    assert.match(refuse({ folderIcons: { games: "bookshelf" } }), /must be one of/);
+    assert.match(refuse({ folderIcons: { games: 7 } }), /must be one of/);
+    assert.match(refuse({ folderIcons: { games: null } }), /must be one of/);
+  });
+
+  it("refuses a key that is not a vault-relative folder path", () => {
+    // An absolute path is REFUSED, not rewritten — the whole argument in
+    // vaultRel()'s comment. `/etc` silently becoming `etc` would mark a
+    // different folder from the one the caller named.
+    assert.match(refuse({ folderIcons: { "/etc": "book" } }), /folderIcons/);
+    assert.match(refuse({ folderIcons: { "../outside": "book" } }), /folderIcons/);
+    assert.match(refuse({ folderIcons: { "": "book" } }), /folderIcons/);
+    assert.match(refuse({ folderIcons: { "   ": "book" } }), /folderIcons/);
+  });
+
+  it("refuses a key that names a note", () => {
+    assert.match(refuse({ folderIcons: { "Home.md": "book" } }), /names a note/);
+  });
+
+  it("stores the key the way the TREE spells it", () => {
+    // A trailing slash and surrounding whitespace are how a folder path gets
+    // typed, not what it is. The stored key has to match `TreeNode.path`
+    // exactly or the row it was meant for never finds its glyph.
+    patchSettings({ folderIcons: { " notes/games/ ": "gamepad" } });
+    assert.deepEqual(getSettings().folderIcons, { "notes/games": "gamepad" });
+  });
+
+  it("caps the map, like every other bulk key", () => {
+    const big: Record<string, string> = {};
+    for (let i = 0; i < 201; i++) big[`folder-${i}`] = "star";
+    assert.match(refuse({ folderIcons: big }), /too many folders/);
+    const atCap: Record<string, string> = {};
+    for (let i = 0; i < 200; i++) atCap[`folder-${i}`] = "star";
+    patchSettings({ folderIcons: atCap });
+    assert.equal(Object.keys(getSettings().folderIcons ?? {}).length, 200);
+  });
+
+  it("is REPLACED whole, so the picker's “no icon” can actually clear a row", () => {
+    patchSettings({ folderIcons: { a: "book", b: "leaf" } });
+    patchSettings({ folderIcons: { a: "book" } });
+    assert.deepEqual(getSettings().folderIcons, { a: "book" }, "a merging patch resurrected “b”");
+    patchSettings({ folderIcons: {} });
+    assert.equal(getSettings().folderIcons, undefined, "an empty map removes the key entirely");
+    patchSettings({ folderIcons: { a: "book" } });
+    patchSettings({ folderIcons: null });
+    assert.equal(getSettings().folderIcons, undefined);
+  });
+
+  it("drops unreadable rows on READ rather than losing the good ones", () => {
+    const file = path.join(data, "settings.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        folderIcons: { good: "book", bad: "bookshelf", "../nope": "leaf", alsoGood: "moon" },
+      }),
+    );
+    assert.deepEqual(getSettings().folderIcons, { good: "book", alsoGood: "moon" });
+  });
+
+  it("carries a folder's glyph through a rename, subtree and all", () => {
+    patchSettings({
+      folderIcons: { Games: "gamepad", "Games/Finished": "star", Reading: "book" },
+    });
+    moveFolderIcons("Games", "Play");
+    assert.deepEqual(getSettings().folderIcons, {
+      Play: "gamepad",
+      "Play/Finished": "star",
+      Reading: "book",
+    });
+  });
+
+  it("carries it through a MOVE into another folder", () => {
+    patchSettings({ folderIcons: { Games: "gamepad" } });
+    moveFolderIcons("Games", "Archive/Games");
+    assert.deepEqual(getSettings().folderIcons, { "Archive/Games": "gamepad" });
+  });
+
+  it("prunes the folder and its subtree on delete", () => {
+    patchSettings({ folderIcons: { Games: "gamepad", "Games/Finished": "star", Reading: "book" } });
+    moveFolderIcons("Games", null);
+    assert.deepEqual(getSettings().folderIcons, { Reading: "book" });
+    moveFolderIcons("Reading", null);
+    assert.equal(getSettings().folderIcons, undefined, "the last mark removes the key");
+  });
+
+  it("does not rewrite the file when nothing under the path is marked", () => {
+    patchSettings({ folderIcons: { Reading: "book" } });
+    const file = path.join(data, "settings.json");
+    const before = readFileSync(file, "utf8");
+    // A rename of an unmarked folder is the overwhelmingly common case, and it
+    // must not bump the mtime — that invalidates the read cache for every
+    // other reader on the instance, on every folder rename.
+    moveFolderIcons("Somewhere/Else", "Elsewhere");
+    assert.equal(readFileSync(file, "utf8"), before);
+  });
+
+  it("is a no-op on a prefix that merely LOOKS like the folder", () => {
+    // "Games" must not drag "GamesArchive" along with it: the boundary is the
+    // slash, not the string.
+    patchSettings({ folderIcons: { Games: "gamepad", GamesArchive: "archive" } });
+    moveFolderIcons("Games", "Play");
+    assert.deepEqual(getSettings().folderIcons, { Play: "gamepad", GamesArchive: "archive" });
+  });
+});
+
+describe("publicFolders", () => {
+  const folder = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id: "a1",
+    slug: "games",
+    title: "Games",
+    icon: "gamepad",
+    ...over,
+  });
+
+  it("stores the list and normalizes each row", () => {
+    patchSettings({
+      publicFolders: {
+        enabled: true,
+        folders: [folder({ slug: "  Games  ", title: " Games ", description: " Play " })],
+      },
+    });
+    assert.deepEqual(getSettings().publicFolders, {
+      enabled: true,
+      folders: [{ id: "a1", slug: "games", title: "Games", icon: "gamepad", description: "Play" }],
+    });
+  });
+
+  it("refuses an unknown sub-key, naming it", () => {
+    assert.match(refuse({ publicFolders: { nope: 1 } }), /Unknown settings key: publicFolders\.nope/);
+    assert.match(refuse({ publicFolders: JSON.parse('{"__proto__": 1}') }), /Unknown settings key: publicFolders\./);
+  });
+
+  it("refuses two folders with one slug — a slug is a URL", () => {
+    assert.match(
+      refuse({ publicFolders: { folders: [folder(), folder({ id: "b2", title: "Gaming" })] } }),
+      /two folders with the slug "games"/,
+    );
+  });
+
+  it("refuses a slug the URL cannot carry, a missing title and an unknown icon", () => {
+    assert.match(refuse({ publicFolders: { folders: [folder({ slug: "not a slug" })] } }), /slug/);
+    assert.match(refuse({ publicFolders: { folders: [folder({ title: "  " })] } }), /title/);
+    assert.match(refuse({ publicFolders: { folders: [folder({ icon: "bookshelf" })] } }), /icon/);
+    assert.match(
+      refuse({ publicFolders: { folders: [folder({ description: "x".repeat(201) })] } }),
+      /description/,
+    );
+  });
+
+  it("caps the list", () => {
+    const many = Array.from({ length: 13 }, (_, i) => folder({ id: `i${i}`, slug: `f${i}` }));
+    assert.match(refuse({ publicFolders: { folders: many } }), /too many folders/);
+  });
+
+  it("stores a sub-value only when it differs from its default", () => {
+    // `home` defaults to TRUE, the other two to false: storing the default
+    // would pin the behaviour absence already gives.
+    patchSettings({ publicFolders: { enabled: false, nav: false, home: true } });
+    assert.equal(getSettings().publicFolders, undefined);
+    patchSettings({ publicFolders: { home: false } });
+    assert.deepEqual(getSettings().publicFolders, { home: false });
+  });
+
+  it("keeps the list when the master switch goes off — a take-down is not a delete", () => {
+    patchSettings({ publicFolders: { enabled: true, folders: [folder()] } });
+    patchSettings({ publicFolders: { enabled: false } });
+    assert.equal(getSettings().publicFolders?.enabled, undefined);
+    assert.equal(getSettings().publicFolders?.folders?.length, 1);
+  });
+
+  it("replaces the list WHOLE rather than merging it", () => {
+    patchSettings({ publicFolders: { folders: [folder(), folder({ id: "b2", slug: "books", title: "Books" })] } });
+    patchSettings({ publicFolders: { folders: [folder()] } });
+    assert.deepEqual(getSettings().publicFolders?.folders?.map((f) => f.slug), ["games"]);
+    // …and an empty list clears the key rather than storing `[]`.
+    patchSettings({ publicFolders: { folders: [] } });
+    assert.equal(getSettings().publicFolders, undefined);
+  });
+
+  it("fills every default in effectiveSettings", () => {
+    assert.deepEqual(effectiveSettings().publicFolders, {
+      enabled: false,
+      nav: false,
+      home: true,
+      folders: [],
+    });
+  });
+
+  it("drops a bad row on READ without losing the good ones", () => {
+    const file = path.join(data, "settings.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        publicFolders: {
+          enabled: true,
+          folders: [
+            { id: "a1", slug: "games", title: "Games", icon: "gamepad" },
+            { id: "b2", slug: "books", title: "Books", icon: "bookshelf" },
+            { id: "c3", slug: "games", title: "Again", icon: "book" },
+          ],
+        },
+      }),
+    );
+    assert.deepEqual(getSettings().publicFolders?.folders?.map((f) => f.slug), ["games"]);
   });
 });
 

@@ -82,6 +82,7 @@ that is the pre-existing pattern, and the door is now open.
   (`server/graphCache.ts`); `/api/tree` is memoized the same way (`server/treeCache.ts`).
 - `GET  /api/backlinks?path=` → `Backlink[]`
 - `GET  /api/tags` → `TagCount[]` (from `#tag` inline + frontmatter `tags:`)
+- `GET  /api/trackers` → `TrackerMeta[]` — every ```` ```tracker ```` fence this session may see, newest-touched first (the shelf a ```` ```tracker-board ```` draws). Scoped EXACTLY like `/api/posts`: a visitor gets published notes only with the language filter applied, an admin gets the whole vault, and templates are out of both. Covers are resolved server-side, per session, so the board spends no `/api/resolve` per card and a visitor is never handed a path they may not fetch. See "Trackers".
 - `GET  /api/aliases` → `AliasesResponse` (`{ alias, path, title }[]`, sorted by alias) — the name table the client cannot derive, since a tree carries filenames and an alias is frontmatter. Visitor-scoped exactly as resolution is.
 - `GET  /api/events` → SSE stream of `VaultEvent` (chokidar watcher; debounced 100ms; events named `message`, JSON data)
 - `POST /api/upload` (admin) multipart `file` + optional `dir` → `UploadResult` — see "Attachments"
@@ -5339,6 +5340,96 @@ English one a settings row gives the same tag.
   `settings.json` the first time the panel was saved, and the page would stop being the source
   of truth for its own name.
 
+### Folder glyphs (`shared/folderIcons.ts`, `settings.folderIcons`)
+
+A folder in the vault tree may wear ONE mark from a closed set of twenty. The same set serves the
+public site's custom folders, which is why it lives in `shared/` as path DATA rather than as JSX.
+
+- **`FolderIcon` is a closed union, never a free-text name.** The rule `shared/designChrome.ts`
+  set for the site designer: a typed icon name that nothing draws gives the author a blank space
+  and no feedback. `FOLDER_ICONS` (the picker's order), `FOLDER_ICON_PATHS` (`d` strings on a
+  0 0 24 24 grid for stroke 1.7 / fill none / currentColor), `isFolderIcon()`, `folderIconKey()`
+  (a stored key normalized to the path `TreeNode.path` uses), `cleanFolderIcons()` (the read-side
+  cleaner), `FOLDER_ICONS_MAX` = 200. `client/components/FolderGlyph.tsx` is the only renderer and
+  imports NOTHING else — it ships in the blog chunk as well as the admin one.
+- **`settings.folderIcons` is `folder path → icon`, replaced WHOLE.** The `tagLabels` contract, for
+  a sharper reason: the picker's "no icon" cell CLEARS a row, and a merging PATCH can add a key
+  but never remove one. Each key goes through `folderIconKey()` and then `vaultRel()` — an
+  absolute path, a `..`, a drive letter and a note path are all 400s, never rewrites (see the
+  absolute-path rule below). An unknown glyph is a 400. A READ drops bad rows silently instead.
+- **The server re-keys the map when a folder moves.** `moveFolderIcons(from, to)` runs inside
+  `POST /api/folder/move` (rename and move are one route) and with `to = null` inside
+  `DELETE /api/folder`; the subtree travels with the folder, and the boundary is the SLASH, so
+  `Games` never drags `GamesArchive`. It is a silent no-op when nothing under the path is marked
+  — a folder rename must not bump `settings.json`'s mtime and invalidate the read cache for every
+  other reader on the instance. Doing this in the client instead would have meant a second tab
+  PATCHing yesterday's map back over a rename it never saw.
+- **`MeData.folderIcons` is ADMIN-ONLY, and outside the public-layout block.** Outside because an
+  admin has the sidebar in blog and designed mode too; admin-only because the keys are vault
+  folder paths and a visitor's tree has NO folders in it — `publishedTree()` gives them a flat
+  published-note list, which is the same promise that keeps vault paths out of `/published` and
+  `/attachments`.
+- **Class names:** `.s-tree__glyph` is REUSED for the mark (the tree's icon-slot metrics are
+  already decided in `attachments.css`); the folder-row hover that lights it lives in `app.css`
+  beside the picker's own `.s-tree-iconpick`, `__title`, `__grid`, `__cell`, `__cell--on`,
+  `__cell--none`.
+
+### Public folders (`shared/publicFolders.ts`, `settings.publicFolders`)
+
+The owner's OWN collections on the stock blog, outside the tag system. A tag is what a note says
+about itself; a folder is what the owner says about a group of notes — so a folder has a title, a
+mark and a description, and a tag has none of those.
+
+- **The shapes.** `PublicFolderRef { id; slug; title; icon: FolderIcon; description?; hidden? }`
+  stored; `PublicFolderCard { id; slug; title; icon; description?; count }` served;
+  `PublicFoldersSettings { enabled?; nav?; home?; folders? }` — ONE option with sub-options, the
+  `attachments` shape. Defaults: `enabled` false, `nav` false, `home` TRUE (the discovery surface
+  is the one that is on). `PUBLIC_FOLDERS_MAX` = 12, slug ≤ 60, title ≤ 60, description ≤ 200.
+- **The SLUG is the identity, the id is bookkeeping.** `slug` is `^[a-z0-9][a-z0-9-]*$` because it
+  is a URL segment AND the word an author types into frontmatter — one character set that survives
+  both without escaping. `id` exists for React keys and the reorder buttons and for nothing else.
+  Two rows with one slug is a 400 on write and a dropped row on read: `/folder/games` can only
+  answer with one page.
+- **`publicFolders.folders` is REPLACED WHOLE; the three switches MERGE.** The `tagLabels` rule for
+  the list (the editor holds every row on screen, so a merging patch makes deletion impossible),
+  the `attachments` rule for the flags (per-sub-key allowlist, a sub-value equal to its default is
+  DELETED rather than pinned). Unlike `tagLabels`, a bad ROW is a 400 naming the field — this is
+  twelve rows typed one at a time, not a bulk map, and a folder that quietly failed to save is a
+  page that quietly does not exist.
+- **Membership is FRONTMATTER, and it is tolerant.** `folders:` (and `folder:`) accept a flow
+  list, a block list, a comma scalar and a bare scalar — the `parseAliases` tolerance, because an
+  author who learned it there will spell this the same way. It goes through
+  `readNoteFrontmatter()`, so a `.tex` note joins from its `%---` comment block. Every value is
+  normalized by `folderSlug()`; a slug no settings.json declares matches nothing and costs nothing,
+  which is what lets an author write the frontmatter before making the folder. `NoteRecord.folders`
+  is populated at BOTH index literals (the normal path and the oversized-note path);
+  `PostMeta.folders` is set only when non-empty. `folders` is on `FRONTMATTER_KEYS`, so the
+  surgical one-line writer may set it.
+- **`MeData.publicFolders` rides the BLOG-ONLY block of `/api/me`.** Public folders are a stock
+  blog feature — designed mode composes navigation from NavItems, app mode has the vault tree — so
+  the app-layout payload must not grow a field describing a shell it is not serving. Hidden folders
+  are filtered out server-side and nothing is sent at all while the master switch is off: a
+  take-down is a take-down. `count` is scoped through `isPublishLimited` + the language scope,
+  because a card's number is a promise about the page behind it. `publicFoldersHome` /
+  `publicFoldersNav` travel beside the cards: they hide DOORS, never the folder page itself.
+- **`/folder/<slug>` is parsed AFTER the note check**, with the topic route and under the same
+  rule — a published note at `folder/games.md` keeps its own deep link. `client/router.ts` excludes
+  the prefix from the app shell's missing-note probe, exactly as it excludes `/topic/`. An
+  undeclared slug renders the shell's MISSING page, not an empty list: a hidden folder, a deleted
+  one and a typo are the same event to a reader, and inventing a heading from the slug would claim
+  the collection exists. Folder pages stay OUT of the sitemap, for the topic pages' reason.
+- **Folder chips never fold into "More ▾".** `NavTopics` treats them as fixed leading items:
+  topics are discovered and may fold, a declared collection is the site's own structure. The
+  measurement twin (`NavTopics.tsx`) carries the same chips in the same order and `lead` counts
+  them — a chip in the row that is not in the twin makes every width after it belong to the wrong
+  element, which is this file's one known trap.
+- **Class names:** `.s-blog-folders`, `__grid`, `__card`, `__glyph`, `__body`, `__title`, `__desc`,
+  `__count` (the home band); `.s-blog-heading--folders`; `.s-blog-folderhead`, `__glyph`, `__text`,
+  `__title`, `__desc`, `__count` (the folder page); `.s-blog-nav__link--folder`, `.s-blog-nav__glyph`,
+  `.s-blog-chip--folder`, `.s-blog-chip__glyph` (the chips); `.s-pfolders`, `__card`, `__main`,
+  `__extra`, `__glyph`, `__move`, `__del`, `__add`, `__empty` (the settings editor). No literal
+  colours anywhere in them — there is no scrim on any of these surfaces.
+
 ## Fenced code is a CHARACTER and a LENGTH (shared/fences.ts)
 
 Four separate line-walkers each carried the same four characters of regex and the same wrong
@@ -6826,6 +6917,74 @@ exactly one snippet field selecting the first header cell; from there every
 Tab is the table's (three fields would feed Tab to the snippet walker
 instead of the cell walker).
 
+## Trackers (`shared/tracker.ts`, `client/reading/tracker.ts`, `client/editor/tracker.ts`)
+
+A ```` ```tracker ```` fence is a progress card; a ```` ```tracker-board ```` fence is the shelf
+of every card in the vault. They are the FIRST fence languages with a rendering of their own, and
+they follow the rules the earlier block citizens already set rather than inventing new ones.
+
+**The model is pure, and that is load-bearing twice.** `shared/tracker.ts` has no CodeMirror, no
+DOM, no CSS and no React — the split `tableModel.ts` and `calloutDefs.ts` already made. Two
+consumers need it that way: `node --test` (tests/tracker.test.ts) and `server/indexer.ts`, which
+must see the `cover:` a fence names. Syntax is tolerant and line-based, deliberately not YAML: one
+`key: value` per line, unknown keys ignored, `notes: |` block scalars, and progress written any of
+`62/130`, `62 of 130`, `45%`, `45`, `٦٢/١٣٠`. **A body with neither a title nor a progress parses
+to null and the fence falls back to a plain code block** — the `$$`-math rule: unparseable content
+reads as its own source rather than disappearing into an empty card. `status: done` with no
+numbers is 100%; an absent status is derived from the progress.
+
+**One renderer, five surfaces.** `client/reading/tracker.ts` draws the card for the reading view,
+the blog article, a transclusion, a hover preview and the editor's block widget — the editor calls
+`renderTrackerFence()` in `reading/render.ts` exactly as the table widget calls `renderMarkdown()`.
+Classes are `s-rv-tracker*` / `s-rv-board*` in `client/reading/tracker.css` (imported by the module
+that draws with it, as `tex.css` is), plus the wrapper rules `.cm-s-tracker` in `preview.css`.
+
+**The decision is synchronous; the drawing is not.** The PARSER is a static import (whether a fence
+is a card at all must be settled before anything paints, or an unparseable body would paint a card
+and then turn back into a code block); the renderer and its stylesheet — 14 kB that only a note
+carrying a tracker needs — arrive through a dynamic `import("./tracker.ts")` into a
+`.s-rv-tracker-pending` host already in the tree, the shape KaTeX has here already
+(`s-rv-math-pending` → `hydrateMath`). The placeholder is the card's own box at the card's own
+height, and its rules are stated identically in `reading.css` AND `preview.css`, because
+`reading.css` travels with the reading view and the blog article while the editor has neither.
+`hooks.onResize` fires when the card lands, which is what tells CodeMirror's height map.
+
+The card is grid-laid with logical properties throughout. **Its direction is its TITLE's**, set
+explicitly rather than by `dir="auto"`: the first strong character in the subtree belongs to the
+localized kind label ("Book"), so an Arabic book on an English instance came out left-to-right
+with its bar filling away from its own title. `:dir(rtl)` flips the fill's gradient, for the same
+reason an ancestor `[dir]` selector cannot be used.
+
+**Live preview follows the reveal-on-caret rule.** Caret outside the fence → ONE
+`Decoration.replace({block:true})` over the whole block, markers included, from the `blockHiding`
+StateField; caret inside → the source, with its `cm-s-codeblock` line class back (the class is
+suppressed only while the block is replaced, since it would be dressing lines nobody sees). The
+`codeSpans` push is unconditional either way: whatever it looks like, a fence's contents are code
+and the inline scans must not run inside it.
+
+**The stepper is a DOCUMENT EDIT.** The admin-only − / + buttons dispatch one change over the
+fence body through `setTrackerProgress()` — one dispatch, one undo step, the `toggleTask`
+precedent. The note is the only store; editing the number by hand does what the button does.
+`setTrackerProgress` is byte-disciplined: exactly one line changes and inside it only the number,
+so spacing, the key's spelling, the unit suffix and CRLF endings all survive. Reading view and
+every public surface are inert — a visitor has no write path, and buttons that cannot work are
+furniture that lies.
+
+**The cover is the fourth attachment route, and it was invisible to the other three.** A cover
+name lives inside a code fence, so neither `parseLinks()` nor `parseAssets()` can see it. Tracker
+covers are collected into BOTH `allowedAttachments()` and `collectAttachmentTargets()` in
+`server/indexer.ts` (`trackerCovers()`), by the same path-then-basename ladder embeds take.
+Without it a published shelf renders its art for the owner and 404s for every visitor — the
+silent public-site breakage that walk already carries a comment about.
+
+**The board's scope is `posts()`' scope.** `trackers(visitor, lang)` iterates `publishedSet` for a
+visitor and every note for an admin, applies the language filter to the visitor only, and skips
+`isTemplateNote()` for BOTH — a stencil on the shelf is a book nobody started, and that is the
+same lie in the admin's list as on the public page. `NoteRecord.trackers` is filled at both record
+literals (the oversized-note path carries none: it never read a body). `NoteRecord.mtimeMs` is the
+board's sort key and is NOT `dateMs`: a shelf answers "what did I touch last", not "when was this
+written".
+
 ## Tests (`npm test`) — the release gate
 
 `node --test` over `tests/*.test.ts`. No new dependencies, no test framework, no fixtures on disk
@@ -6890,6 +7049,12 @@ What the suite covers, and why each file exists:
 - `tests/excerpt.test.ts` — excerpts and search snippets through `posts()`/`search()`: no raw
   markdown, no de-hashed tag words in the prose, no template furniture as an opening paragraph,
   word-boundary truncation, HTML escaped before `<mark>`.
+- `tests/tracker.test.ts` — the tracker parser (every progress and rating form, the status
+  synonyms people actually type, Eastern Arabic digits, block-scalar notes, the null that makes an
+  unparseable fence fall back to a code block), `setTrackerProgress`'s byte discipline (one line
+  changes, CRLF and spacing survive, up-then-down is the original body), the fence scan against
+  the nested-fence trap, and `trackers()`' scope through a fixture vault: published-only for a
+  visitor, the whole vault for an admin, templates off both shelves.
 - `tests/paths.test.ts` — traversal, dotfiles/`.trash`/`.obsidian`, encoded separators, NUL bytes,
   unicode normalisation and symlinks.
 - `tests/settings.test.ts` — the PATCH allowlist as a security boundary: unknown keys, prototype

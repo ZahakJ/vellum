@@ -5,7 +5,7 @@ import { closesFence, fenceOpener, type Fence } from "../shared/fences.ts";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import MiniSearch from "minisearch";
-import type { AliasEntry, Backlink, GraphData, GraphEdge, PageMeta, PostMeta, SearchHit, SearchMatch, TagCount, VaultEvent } from "../shared/types.ts";
+import type { AliasEntry, Backlink, GraphData, GraphEdge, PageMeta, PostMeta, SearchHit, SearchMatch, TagCount, TrackerMeta, VaultEvent } from "../shared/types.ts";
 import { stripBidiControls } from "../shared/bidi.ts";
 import { isNotePath, isTexPath, noteCandidates, noteTitleOf, stripNoteExt } from "../shared/noteFormat.ts";
 import { markdownAnchors, type NoteAnchor } from "../shared/anchors.ts";
@@ -13,7 +13,8 @@ import { countNoteWords, countWords, readingMinutes } from "../shared/wordCount.
 import { cleanLabelEntry, tagKey, type TagLabelMap } from "../shared/tagLabels.ts";
 import { pageFlag } from "./pages.ts";
 import { publishFlag, readFrontmatter } from "./publish.ts";
-import { parseAliases, readNoteFrontmatter } from "./noteFrontmatter.ts";
+import { parseAliases, parseFolders, readNoteFrontmatter } from "./noteFrontmatter.ts";
+import { scanTrackers, type Tracker } from "../shared/tracker.ts";
 import { readTexNote } from "./texNote.ts";
 import { excludedTags } from "./site.ts";
 // Cyclic with this module (settings.ts → site.ts → here) and inert: every
@@ -48,6 +49,29 @@ interface NoteRecord {
    *  the note has no such key, which is every note but a handful. Display
    *  only — nothing here ever changes what a tag IS. */
   labels: Record<string, string> | null;
+  /** Frontmatter `folders:` — the PUBLIC FOLDER slugs this note claims
+   *  membership of (shared/publicFolders.ts). Slugs only, already normalized;
+   *  a slug no settings.json declares simply matches nothing, which is what
+   *  lets an author write the frontmatter before making the folder. Empty for
+   *  almost every note, and kept on every record rather than gated on the
+   *  setting for the reason `labels` gives: the setting is edited at runtime,
+   *  and a gate here would need a full reindex to take effect. */
+  folders: string[];
+  /** Every ```tracker fence in this note, parsed (shared/tracker.ts). Empty
+   *  for almost every note.
+   *
+   *  Two things need it and neither can re-read the file: `trackers()` builds
+   *  the board's list from it, and `allowedAttachments()` reads the COVER out
+   *  of it. That second one is the whole reason it is a record field rather
+   *  than something the route parses on demand — a cover name lives inside a
+   *  code fence, which `parseLinks()` and `parseAssets()` both skip, so
+   *  without this the art on a published shelf renders for the owner and
+   *  404s for every visitor. */
+  trackers: Tracker[];
+  /** File mtime in epoch ms — what the tracker board sorts by. `dateMs` below
+   *  is the POST date (frontmatter first, birthtime second), which is when a
+   *  thing was written; a shelf answers "what did I touch last". */
+  mtimeMs: number;
   /** frontmatter `publish` is exactly true / "true" */
   published: boolean;
   /** frontmatter `page` is exactly true / "true" — a STATIC PAGE (About,
@@ -490,6 +514,15 @@ export async function indexFile(relPath: string): Promise<void> {
     assets: parts.assets,
     tags: parseTags(parts.tagSource, parts.frontmatter),
     labels: labelsOfFm(fm),
+    // `parts.fm` is already format-correct (readNoteFrontmatter's two branches
+    // live in markdownParts/texParts), so a `.tex` note joins a public folder
+    // from its `%---` comment block exactly as a markdown note does.
+    folders: parseFolders(fm),
+    // The fence walk is shared/fences.ts', so a ```tracker shown INSIDE a
+    // ```markdown block is documentation, not a tracker — the same rule the
+    // outline and the anchor table keep.
+    trackers: scanTrackers(parts.body),
+    mtimeMs: stat.mtimeMs,
     published: publishFlag(fm),
     page: pageFlag(fm),
     banner: typeof fm.banner === "string" && fm.banner.trim() ? fm.banner.trim() : null,
@@ -761,6 +794,15 @@ async function indexOversized(relPath: string, abs: string, stat: { size: number
     excerptSource: null,
     tags: parseTags("", frontmatter),
     labels: labelsOfFm(fm),
+    // The head carried the whole frontmatter block (readNoteFrontmatter above
+    // read BOTH formats out of it), so an oversized note is a member of its
+    // folders exactly as a normal one is.
+    folders: parseFolders(fm),
+    // No body was read at all (metadata-only), so this note contributes no
+    // trackers and no tracker covers — the same silence it keeps about links
+    // and assets, and for the same reason.
+    trackers: [],
+    mtimeMs: stat.mtimeMs,
     published: publishFlag(fm),
     page: pageFlag(fm),
     banner: typeof fm.banner === "string" && fm.banner.trim() ? fm.banner.trim() : null,
@@ -1439,6 +1481,12 @@ function allowedAttachments(): Set<string> {
       // A published note's banner attachment is visitor-visible too.
       const banner = resolveBanner(record);
       if (banner && attachmentPaths.has(banner)) allowed.add(banner);
+      // THE FOURTH ROUTE, and the one that is invisible to every markdown
+      // scanner: a ```tracker fence's `cover:`. It is inside a code block, so
+      // neither `record.links` nor `record.assets` can hold it, and a shelf
+      // published with its art would have shown the owner the covers and the
+      // reader a row of holes. Same ladder the embeds take.
+      for (const cover of trackerCovers(record)) allowed.add(cover);
     }
     allowedAttachmentsCache = allowed;
   }
@@ -1476,6 +1524,31 @@ function collectAttachmentTargets(record: NoteRecord, add: (att: string) => void
   // is published, and deleting it blanks the post's header either way.
   const banner = resolveBanner(record);
   if (banner && attachmentPaths.has(banner)) add(banner);
+  // And a tracker's cover, by the same argument the banner makes — see the
+  // twin of this loop in allowedAttachments(). These two walks must never
+  // drift; a file the publish allowlist serves but the delete dialog cannot
+  // see is the whole bug this function was factored out to prevent.
+  for (const cover of trackerCovers(record)) add(cover);
+}
+
+/** The attachment paths a note's ```tracker fences name as covers, resolved.
+ *  One implementation, two callers (the allowlist and the reference map), for
+ *  the reason collectAttachmentTargets() itself exists. */
+function trackerCovers(record: NoteRecord): string[] {
+  const out: string[] = [];
+  for (const tracker of record.trackers) {
+    if (tracker.cover === null) continue;
+    // Path first, then the basename fallback resolveEmbed() gives wikilinks —
+    // exactly what `assets` does above, so `cover: art.jpg` finds the file
+    // wherever the vault keeps its attachments.
+    if (attachmentPaths.has(tracker.cover)) {
+      out.push(tracker.cover);
+      continue;
+    }
+    const byName = resolveEmbed(path.posix.basename(tracker.cover), false, null);
+    if (byName && attachmentPaths.has(byName)) out.push(byName);
+  }
+  return out;
 }
 
 /** attachment path -> the notes that embed or link it. Built lazily over
@@ -1718,9 +1791,42 @@ function postMeta(record: NoteRecord): PostMeta {
     readingMinutes: readingMinutes(record.post.words),
     tags: record.tags.filter((t) => !hidden.has(t.toLowerCase())),
   };
+  // Assigned only when non-empty, like every other optional field on this
+  // shape: almost no note names a folder, and an empty array on every post
+  // would be bytes on the wire saying nothing.
+  if (record.folders.length > 0) meta.folders = [...record.folders];
   const banner = resolveBanner(record);
   if (banner) meta.banner = banner;
   return meta;
+}
+
+/** How many posts THIS session can see in each public folder — slug → count.
+ *
+ *  Scoped exactly like posts(): published only, templates out, the
+ *  languageFilter applied for visitors. It has to be, because the number on a
+ *  folder card is a promise about the page behind it — a card saying "9" that
+ *  opens onto 2 posts is the language filter leaking a count of notes the
+ *  reader may not have. Only the slugs asked for are counted, so a note
+ *  claiming a folder nobody declared adds nothing anywhere. */
+export function publicFolderCounts(
+  slugs: readonly string[],
+  visitor: boolean,
+  lang: FilterLang,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const slug of slugs) counts.set(slug, 0);
+  if (counts.size === 0) return counts;
+  for (const notePath of publishedSet) {
+    const record = notes.get(notePath);
+    if (!record || record.folders.length === 0) continue;
+    if (visitor && languageHidden(record, lang)) continue;
+    if (isTemplateNote(notePath)) continue;
+    for (const slug of record.folders) {
+      const current = counts.get(slug);
+      if (current !== undefined) counts.set(slug, current + 1);
+    }
+  }
+  return counts;
 }
 
 /** Published notes as blog posts, newest first (visitor-safe: published only,
@@ -1762,6 +1868,49 @@ export function pages(visitor: boolean, lang: FilterLang): PageMeta[] {
     out.push({ path: record.path, title: record.title });
   }
   return out.sort((a, b) => a.title.localeCompare(b.title) || a.path.localeCompare(b.path));
+}
+
+/** Every ```tracker fence this session may see, newest-touched first.
+ *
+ *  The scope is posts()' scope, deliberately and line for line: a visitor gets
+ *  the published set with the language filter applied, an admin gets the whole
+ *  vault unfiltered, and TEMPLATES ARE OUT of both. That last one is not a
+ *  detail — a template carrying a tracker skeleton would show up on the shelf
+ *  as a book you are 0% through, in the admin's own list as much as the
+ *  public one, which is the same lie posts() refuses to tell about a stencil.
+ *
+ *  The cover is resolved HERE, through the ladder embeds use, so the board
+ *  spends no /api/resolve per card — and it is resolved against the SESSION's
+ *  scope, so a visitor is never handed a path they would be 404'd for. */
+export function trackers(visitor: boolean, lang: FilterLang): TrackerMeta[] {
+  const out: TrackerMeta[] = [];
+  const paths = visitor ? publishedSet : notes.keys();
+  for (const notePath of paths) {
+    const record = notes.get(notePath);
+    if (!record || record.trackers.length === 0) continue;
+    if (visitor && languageHidden(record, lang)) continue;
+    if (isTemplateNote(notePath)) continue;
+    for (const tracker of record.trackers) {
+      out.push({
+        path: record.path,
+        title: tracker.title,
+        noteTitle: record.title,
+        kind: tracker.kind,
+        icon: tracker.icon,
+        percent: tracker.percent,
+        done: tracker.done,
+        total: tracker.total,
+        unit: tracker.unit,
+        status: tracker.status,
+        rating: tracker.rating,
+        cover: tracker.cover === null ? null : resolveEmbed(tracker.cover, visitor, lang),
+        updatedMs: record.mtimeMs,
+      });
+    }
+  }
+  return out.sort(
+    (a, b) => b.updatedMs - a.updatedMs || a.path.localeCompare(b.path) || a.title.localeCompare(b.title),
+  );
 }
 
 /** True when this note is a published static page — the designed shell's

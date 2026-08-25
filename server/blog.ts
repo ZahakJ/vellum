@@ -170,9 +170,12 @@ function w3cDate(iso: string): string | null {
  * timeline. A sitemap is not a timeline — it is the list of URLs this site
  * serves, and About is one of them. Nothing is dropped here.
  *
- * Topic pages (`/topic/<tag>`) are deliberately absent: every one of them is
- * an index over URLs this file already names, so listing them inflates the
- * document without adding a document. `<changefreq>` and `<priority>` are
+ * Topic pages (`/topic/<tag>`) and public-folder pages (`/folder/<slug>`) are
+ * deliberately absent: every one of them is an index over URLs this file
+ * already names, so listing them inflates the document without adding a
+ * document. That a folder page is hand-declared while a topic page is
+ * discovered changes nothing about the argument — an index is an index.
+ * `<changefreq>` and `<priority>` are
  * absent for the same kind of reason — no major crawler has used either for
  * years, and a field nobody reads is a claim nobody checks.
  */

@@ -8,7 +8,8 @@
 // language, languageFilter, languageToggle, excludeTags, commentsEnabled, shareButtons,
 // favicon, logo, home { mode, note, banner }, attachments { mode, folder },
 // templatesFolder, defaultTemplate, dateCalendar, textDirection, textAlign,
-// tagsFolder, tagLabels.
+// tagsFolder, tagLabels, folderIcons,
+// publicFolders { enabled, nav, home, folders }.
 // Unknown keys in the file are preserved verbatim on every write so external
 // tooling (or future settings) can share the file safely; unknown keys in a
 // PATCH are a 400 (strict allowlist).
@@ -32,9 +33,27 @@ import type {
   FontSlotsEffective,
   HomeSettings,
   LanguageFilterMode,
+  PublicFolderRef,
+  PublicFoldersSettings,
   SettingsData,
   SettingsResponse,
 } from "../shared/types.ts";
+// Public folders: the shapes are in types.ts, the RULES are here — one copy,
+// shared with the settings editor's inline validation so a green field and a
+// 400 can never disagree about what a legal folder is.
+import {
+  cleanPublicFolder,
+  folderId,
+  folderRowError,
+  FOLDER_DESC_MAX,
+  FOLDER_SLUG_MAX,
+  FOLDER_TITLE_MAX,
+  PUBLIC_FOLDERS_MAX,
+  // Aliased: `FolderProblem` is already taken by the ATTACHMENTS folder
+  // validator two imports up, and two different "which folder rule broke"
+  // unions in one file is exactly the confusion an alias costs nothing to end.
+  type FolderProblem as PublicFolderProblem,
+} from "../shared/publicFolders.ts";
 import { FOLLOW_THEME, THEMES as THEME_IDS } from "../shared/themes.ts";
 // Localization: the calendar, the note-layout pair and the tag-label map.
 // Shapes and validators live in shared/, so the client's editor and this
@@ -58,6 +77,16 @@ import {
   TAG_LABEL_MAX,
   type TagLabelMap,
 } from "../shared/tagLabels.ts";
+// The folder glyph set: one closed enum shared by the vault tree and the
+// public site, so a PATCH cannot store a mark no renderer can draw.
+import {
+  cleanFolderIcons,
+  FOLDER_ICONS,
+  FOLDER_ICONS_MAX,
+  folderIconKey,
+  isFolderIcon,
+  type FolderIcon,
+} from "../shared/folderIcons.ts";
 import { isCustomThemeId } from "../shared/customTheme.ts";
 // The design store owns the custom themes `defaultTheme` may now name. The
 // import is one-way (designs.ts asks site.ts for dataDir, never this module).
@@ -118,6 +147,16 @@ const FOLDER_MAX = 180; // attachments.folder — a vault-relative directory
 const AUTHOR_SITES_MAX = 6;      // cards, not a blogroll
 const AUTHOR_SITE_URL_MAX = 300;
 const AUTHOR_SITE_TITLE_MAX = 80; // same budget as siteName
+
+/** Why a public-folder row was refused, as the tail of the 400. Named per
+ *  FIELD rather than as one "malformed row" sentence: the editor has four
+ *  inputs per row and the owner has to be told which one to fix. */
+const FOLDER_PROBLEMS: Record<PublicFolderProblem, string> = {
+  slug: `needs a slug of lowercase letters, digits and hyphens (≤ ${FOLDER_SLUG_MAX} characters) — it is the /folder/<slug> URL`,
+  title: `needs a title (≤ ${FOLDER_TITLE_MAX} characters)`,
+  icon: "names an icon that is not in the folder glyph set",
+  description: `has a description that is too long (${FOLDER_DESC_MAX} characters max)`,
+};
 
 /** Why a folder value was refused, as the tail of the 400 message. */
 const FOLDER_PROBLEM: Record<FolderProblem, string> = {
@@ -426,6 +465,35 @@ export function getSettings(): SettingsData {
     if (typeof h.banner === "string" && h.banner.trim() !== "") hs.banner = h.banner.trim();
     if (Object.keys(hs).length > 0) out.home = hs;
   }
+  // ── Public folders ───────────────────────────────────────────────────────
+  // Sub-object, read like `attachments` above: each sub-key on its own, a
+  // malformed one simply absent. The LIST drops bad rows in silence rather
+  // than losing the whole key with them — twelve folders is a page of the
+  // owner's site, and one row naming a glyph this build does not have must not
+  // take the other eleven off the air.
+  const publicFolders = raw.publicFolders;
+  if (typeof publicFolders === "object" && publicFolders !== null && !Array.isArray(publicFolders)) {
+    const p = publicFolders as Record<string, unknown>;
+    const pf: PublicFoldersSettings = {};
+    if (typeof p.enabled === "boolean") pf.enabled = p.enabled;
+    if (typeof p.nav === "boolean") pf.nav = p.nav;
+    if (typeof p.home === "boolean") pf.home = p.home;
+    if (Array.isArray(p.folders)) {
+      const list: PublicFolderRef[] = [];
+      const seen = new Set<string>();
+      for (const entry of p.folders) {
+        if (list.length >= PUBLIC_FOLDERS_MAX) break;
+        const folder = cleanPublicFolder(entry, folderId);
+        // A duplicate slug is dropped rather than kept: two rows answering the
+        // same URL is a page that renders one of them at random.
+        if (folder === null || seen.has(folder.slug)) continue;
+        seen.add(folder.slug);
+        list.push(folder);
+      }
+      if (list.length > 0) pf.folders = list;
+    }
+    if (Object.keys(pf).length > 0) out.publicFolders = pf;
+  }
   // Backup & sync (gitSync.ts validates; malformed values drop on read).
   const gitSync = readGitSyncSettings(raw.gitSync);
   if (gitSync) out.gitSync = gitSync;
@@ -448,6 +516,14 @@ export function getSettings(): SettingsData {
   if (raw.tagLabels !== undefined) {
     const labels = cleanTagLabels(raw.tagLabels);
     if (Object.keys(labels).length > 0) out.tagLabels = labels;
+  }
+  // Folder glyphs. Invalid rows are dropped rather than fatal for the reason
+  // every read in this function is: a hand-edited file naming a glyph this
+  // build does not have costs that one folder its mark, not the instance its
+  // sidebar.
+  if (raw.folderIcons !== undefined) {
+    const icons = cleanFolderIcons(raw.folderIcons);
+    if (Object.keys(icons).length > 0) out.folderIcons = icons;
   }
   return out;
 }
@@ -518,6 +594,15 @@ export function effectiveSettings(): EffectiveSettings {
       ...(s.home?.note ?? envHomeNote() ? { note: s.home?.note ?? envHomeNote() ?? undefined } : {}),
       ...(s.home?.banner ? { banner: s.home.banner } : {}),
     },
+    // Every default filled in. `home` defaults to TRUE (the band is the
+    // discovery surface); the other two default to off, so an instance that
+    // never touched this key reads back as "the feature is not on".
+    publicFolders: {
+      enabled: s.publicFolders?.enabled ?? false,
+      nav: s.publicFolders?.nav ?? false,
+      home: s.publicFolders?.home ?? true,
+      folders: (s.publicFolders?.folders ?? []).map((folder) => ({ ...folder })),
+    },
     // The stored token is never part of this: gitSyncEffective() answers
     // `tokenSet` (and the non-secret username) and nothing more.
     gitSync: gitSyncEffective(),
@@ -533,6 +618,7 @@ export function effectiveSettings(): EffectiveSettings {
     tagsFolder: tagsFolder(),
     tagsFolderDetected: s.tagsFolder === undefined && detectTagsFolder() !== null,
     tagLabels: s.tagLabels ?? {},
+    folderIcons: s.folderIcons ?? {},
   };
 }
 
@@ -1002,6 +1088,92 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     if (Object.keys(current).length === 0) delete raw.home;
     else raw.home = current;
   },
+  // ── Public folders ───────────────────────────────────────────────────────
+  // The `attachments`/`home` shape: null deletes the whole key, sub-keys merge
+  // with what is stored, an unknown sub-key is a 400 naming it, and a sub-value
+  // equal to its default is DELETED rather than pinned.
+  //
+  // The LIST is the exception, and it is replaced WHOLE on the tagLabels terms:
+  // the editor holds every row on screen, so a merging patch would make
+  // deleting one impossible. Unlike tagLabels a bad row here is a 400 rather
+  // than a silent drop — this list is twelve rows the owner typed one at a
+  // time, and a folder that quietly failed to save is a page that quietly does
+  // not exist.
+  publicFolders: (raw, value) => {
+    if (value === null) {
+      delete raw.publicFolders;
+      return;
+    }
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new VaultError(400, 'Settings key "publicFolders" must be an object or null');
+    }
+    const p = value as Record<string, unknown>;
+    const current =
+      typeof raw.publicFolders === "object" && raw.publicFolders !== null && !Array.isArray(raw.publicFolders)
+        ? { ...(raw.publicFolders as Record<string, unknown>) }
+        : {};
+    for (const key of Object.keys(p)) {
+      if (key !== "enabled" && key !== "nav" && key !== "home" && key !== "folders") {
+        throw new VaultError(400, `Unknown settings key: publicFolders.${key}`);
+      }
+    }
+    // The three switches, each with its own default. `home` defaults to true,
+    // so storing `true` there would pin the value absence already gives.
+    const flag = (key: "enabled" | "nav" | "home", fallback: boolean): void => {
+      if (!(key in p)) return;
+      const v = p[key];
+      if (v === null) {
+        delete current[key];
+        return;
+      }
+      if (typeof v !== "boolean") {
+        throw new VaultError(400, `Settings key "publicFolders.${key}" must be a boolean or null`);
+      }
+      if (v === fallback) delete current[key];
+      else current[key] = v;
+    };
+    flag("enabled", false);
+    flag("nav", false);
+    flag("home", true);
+    if ("folders" in p) {
+      const list = p.folders;
+      if (list === null) delete current.folders;
+      else if (!Array.isArray(list)) {
+        throw new VaultError(400, 'Settings key "publicFolders.folders" must be an array or null');
+      } else {
+        if (list.length > PUBLIC_FOLDERS_MAX) {
+          throw new VaultError(
+            400,
+            `Settings key "publicFolders.folders" holds too many folders (${PUBLIC_FOLDERS_MAX} max)`,
+          );
+        }
+        const folders: PublicFolderRef[] = [];
+        const seen = new Set<string>();
+        for (const entry of list) {
+          const problem = folderRowError(entry);
+          if (problem !== null) {
+            throw new VaultError(400, `Settings publicFolders entry ${FOLDER_PROBLEMS[problem]}`);
+          }
+          const folder = cleanPublicFolder(entry, folderId) as PublicFolderRef;
+          // TWO ROWS, ONE URL. `/folder/games` can only render one of them, so
+          // the second one is refused at the door rather than shadowing the
+          // first for however long it takes the owner to notice.
+          if (seen.has(folder.slug)) {
+            throw new VaultError(
+              400,
+              `Settings publicFolders has two folders with the slug "${folder.slug}" — a slug is a URL and only one page can answer it`,
+            );
+          }
+          seen.add(folder.slug);
+          folders.push(folder);
+        }
+        if (folders.length === 0) delete current.folders;
+        else current.folders = folders;
+      }
+    }
+    if (Object.keys(current).length === 0) delete raw.publicFolders;
+    else raw.publicFolders = current;
+  },
   // ── Backup & sync ────────────────────────────────────────────────────────
   gitSync: (raw, value) => {
     const next = cleanGitSyncPatch(value, raw.gitSync);
@@ -1131,7 +1303,106 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     if (Object.keys(map).length === 0) delete raw.tagLabels;
     else raw.tagLabels = map;
   },
+  // REPLACED WHOLE, on the tagLabels terms above and for a sharper reason:
+  // the picker's "None" cell CLEARS a folder's mark, and a merging PATCH
+  // makes that impossible — the cleared row would come straight back on the
+  // next read. The client sends the map it is holding; this is that map.
+  //
+  // Unlike tagLabels, a bad row here is a 400 rather than a silent drop. The
+  // whole map is written by ONE picker click, so there is no "forty good rows
+  // and one bad one" to protect: a refusal names the row and the click is
+  // simply not applied, which is better than a folder quietly not taking the
+  // glyph the owner just chose.
+  folderIcons: (raw, value) => {
+    if (value === null) {
+      delete raw.folderIcons;
+      return;
+    }
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new VaultError(400, 'Settings key "folderIcons" must be an object or null');
+    }
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length > FOLDER_ICONS_MAX) {
+      throw new VaultError(
+        400,
+        `Settings key "folderIcons" holds too many folders (${FOLDER_ICONS_MAX} max)`,
+      );
+    }
+    const map: Record<string, FolderIcon> = {};
+    for (const [rawPath, icon] of entries) {
+      const key = folderIconKey(rawPath);
+      if (key === null) {
+        throw new VaultError(
+          400,
+          `Settings folderIcons key ${JSON.stringify(rawPath)} is not a vault-relative folder path`,
+        );
+      }
+      // …and the half of the refusal that needs the vault root: an absolute
+      // path, a traversal, an ignored dot-directory. Same helper the
+      // folder-shaped string keys use, so `{"/etc": "book"}` cannot be
+      // rewritten into `etc` here any more than it can there.
+      const rel = vaultRel(key, "folderIcons");
+      if (isNotePath(rel)) {
+        throw new VaultError(
+          400,
+          `Settings folderIcons key ${JSON.stringify(rawPath)} names a note, not a folder`,
+        );
+      }
+      if (!isFolderIcon(icon)) {
+        throw new VaultError(
+          400,
+          `Settings folderIcons value for ${JSON.stringify(rawPath)} must be one of: ${FOLDER_ICONS.join(", ")}`,
+        );
+      }
+      map[rel] = icon;
+    }
+    if (Object.keys(map).length === 0) delete raw.folderIcons;
+    else raw.folderIcons = map;
+  },
 };
+
+/** Carry (or retire) a folder's glyph when the folder itself moves.
+ *
+ *  WHY THIS IS A SERVER SEAM AND NOT A CLIENT CHORE. `folderIcons` is keyed by
+ *  PATH, and a path is not stable: /api/folder/move renames and moves, and it
+ *  is not the only door — a rename can arrive from git sync, from the desktop
+ *  app, from a second browser. Doing the re-key where the move actually
+ *  happens is the only version that is right for all of them. Doing it in the
+ *  client would also mean an owner who renamed `Games` while a colleague's tab
+ *  was open would have that tab PATCH yesterday's map back over it.
+ *
+ *  The subtree moves with the folder: marking `Games` and then dragging it
+ *  into `Archive` must not orphan `Games/Finished`. Pass `to === null` for a
+ *  delete, which prunes the folder and everything under it.
+ *
+ *  Silent no-op when nothing is marked (the overwhelmingly common case) — it
+ *  does not touch the file, so it cannot bump an mtime that would invalidate
+ *  the read cache for every other reader on every folder rename. */
+export function moveFolderIcons(from: string, to: string | null): void {
+  const stored = getSettings().folderIcons;
+  if (!stored) return;
+  const source = folderIconKey(from);
+  if (source === null) return;
+  const prefix = `${source}/`;
+  const target = to === null ? null : folderIconKey(to);
+  const next: Record<string, FolderIcon> = {};
+  let changed = false;
+  for (const [key, icon] of Object.entries(stored)) {
+    const under = key === source || key.startsWith(prefix);
+    if (!under) {
+      next[key] = icon;
+      continue;
+    }
+    changed = true;
+    if (target === null) continue; // deleted: the mark goes with the folder
+    next[key === source ? target : `${target}/${key.slice(prefix.length)}`] = icon;
+  }
+  if (!changed) return;
+  const raw = { ...readRaw() };
+  if (Object.keys(next).length === 0) delete raw.folderIcons;
+  else raw.folderIcons = next;
+  persist(raw);
+}
 
 /** Apply a partial update (null clears a key back to its env default) and
  *  persist atomically. Throws VaultError(400) on anything malformed — the
