@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { chmodSync, lstatSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import { after, describe, it } from "node:test";
-import { VaultError, initVault, isIgnoredSegment, readNote, writeNote } from "../server/vault.ts";
+import { VaultError, initVault, isIgnoredSegment, noteMtime, readNote, writeNote } from "../server/vault.ts";
 import { makeVault, removeVault } from "./helpers/vault.ts";
 
 const root = makeVault({
@@ -144,11 +144,52 @@ describe("the write precondition", () => {
   });
 
   it("is opt-in: a writer that passes no base mtime is unconditional", async () => {
-    // The publish toggle, the banner setter, the section writer and the rename
-    // link-rewrite each derive a whole file from the one they are replacing,
-    // and keep the old behaviour on purpose.
+    // BACKWARD COMPATIBILITY IS THE POINT, not an accident of the signature.
+    // An older client, a shell script, a `curl` in somebody's cron, and the
+    // rename/folder-move link rewrites (which cannot fail half-way through a
+    // gesture that has already moved the file) all write with no base, and all
+    // keep last-writer-wins. The precondition is opt-in BY THE PRESENCE OF THE
+    // FIELD — there is no flag to forget to set and no default to argue about.
     await writeNote("Note.md", "# a\n");
     const out = await writeNote("Note.md", "# b\n");
     assert.equal(out.content, "# b\n");
+  });
+});
+
+describe("the disk state a woken client compares against", () => {
+  // `GET /api/note/state` answers "is what I am holding still the file?" for a
+  // client's open tabs, and `noteMtime` is the whole of its answer. Two
+  // servers over one vault is why it exists: each watcher announces to its own
+  // subscribers, so a client of server A can hold a buffer for days across a
+  // write made through server B and never be told.
+
+  it("reports the same mtime the write handed back", async () => {
+    // THIS IS THE LOAD-BEARING AGREEMENT. The probe's number is compared
+    // against a number `writeNote` produced, so if the two ever came from
+    // different stats the feature would either cry wolf on every save or go
+    // silent altogether.
+    const written = await writeNote("Note.md", "# probed\n");
+    assert.equal(await noteMtime("Note.md"), written.mtimeMs);
+    const read = await readNote("Note.md");
+    assert.equal(read.mtimeMs, written.mtimeMs);
+  });
+
+  it("answers null for a note that is not there, rather than throwing", async () => {
+    // A tab open on a note somebody deleted is an ordinary state, and the
+    // client reads null as "not mine to adopt": blanking the reader's document
+    // is not what "the file is gone" should mean.
+    assert.equal(await noteMtime("NoSuchNote.md"), null);
+  });
+
+  it("moves when the file moves, so a stale hold is detectable at all", async () => {
+    const first = await writeNote("Note.md", "# one\n");
+    // Somebody else — the other server, Obsidian, a git pull.
+    await writeNote("Note.md", "# two\n");
+    const now = await noteMtime("Note.md");
+    assert.notEqual(now, first.mtimeMs);
+    // And the write precondition agrees with the probe about which of the two
+    // versions the caller is holding.
+    await assert.rejects(() => writeNote("Note.md", "# one, later\n", first.mtimeMs));
+    assert.equal((await writeNote("Note.md", "# three\n", now!)).content, "# three\n");
   });
 });

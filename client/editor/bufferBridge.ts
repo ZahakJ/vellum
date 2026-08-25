@@ -62,6 +62,14 @@ export interface BufferBridge {
   /** Publish the stats for `path` now, so the bar is right BEFORE the first
    *  keystroke rather than after it. */
   requestStats(path: string): void;
+  /** THIS CLIENT HAS BEEN AWAY — its SSE stream dropped and came back, or its
+   *  window was hidden and is visible again. Re-ask the disk about the open
+   *  notes, because nothing replays the events it missed, and with two servers
+   *  over one vault a client can miss them without ever going away: each
+   *  watcher announces to its own subscribers only. Clean buffers that are
+   *  stale reload silently; a dirty one raises the conflict strip now rather
+   *  than at the next autosave. */
+  revalidate(): Promise<void>;
   /** A PEER window saved this note. Re-base our precondition to the mtime the
    *  server handed them, so our next save is not refused for a change we
    *  already know about — and so a 409 keeps meaning "somebody we have not
@@ -90,6 +98,7 @@ const IDLE: BufferBridge = {
   adoptExternal: () => Promise.resolve(false),
   remap: () => {},
   requestStats: () => {},
+  revalidate: () => Promise.resolve(),
   rebase: () => {},
   setWritable: () => {},
   flush: () => Promise.resolve(),
@@ -120,6 +129,12 @@ export function remapBufferPath(from: string, to: string): void {
 
 export function requestDocStats(path: string): void {
   bridge.requestStats(path);
+}
+
+/** Re-check the open notes against the disk. A no-op until the editor chunk
+ *  has arrived, which is correct: nothing is open, so nothing can be stale. */
+export function revalidateBuffers(): Promise<void> {
+  return bridge.revalidate();
 }
 
 export function rebaseFromPeer(path: string, mtimeMs: number): void {

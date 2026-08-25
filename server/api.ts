@@ -25,6 +25,8 @@ import type {
   FrontmatterResult,
   LanguageFilterMode,
   NoteData,
+  NoteState,
+  NoteStatesResponse,
   PublicThemeInfo,
   PublishedPaths,
   PublishResult,
@@ -148,6 +150,7 @@ import {
   listTrash,
   listVaultFiles,
   noteExists,
+  noteMtime,
   normalizeRel,
   onEvent,
   purgeFromTrash,
@@ -527,6 +530,54 @@ api.get("/note", async (c) => {
   return c.json(await readNote(notePath));
 });
 
+/** How many notes one revalidation may ask about. The caller is a client's set
+ *  of OPEN TABS, not its vault: a request naming more than this is a bug or an
+ *  abuse, and either way `/api/tree` is the route for "tell me about
+ *  everything". */
+const NOTE_STATE_MAX = 64;
+
+// "IS WHAT I AM HOLDING STILL THE FILE?" — asked about the open tabs, answered
+// in one round trip, without their bodies.
+//
+// THE INCIDENT THIS EXISTS FOR: one vault, two servers — the desktop app's
+// child server and a systemd instance behind the web admin. A note was
+// published from the web; the desktop app had been running for days with that
+// note's buffer loaded from BEFORE the publish. Each server watches the vault
+// for its OWN subscribers, so the "changed" frame that would have refreshed
+// the desktop buffer was addressed to a stream that had long since dropped,
+// and EventSource replays nothing it missed. The write precondition
+// (`writeNote`, below in this file at `PUT /api/note`) still refused the stale
+// save — nothing was lost — but the client had no way to LEARN it was stale
+// until it tried to write, which is the worst possible moment to find out.
+//
+// So the client re-asks on every wake: an SSE reconnect, or the window
+// becoming visible again. Clean buffers reload silently; a dirty one gets the
+// conflict strip there and then.
+api.get("/note/state", async (c) => {
+  const asked = c.req.queries("path") ?? [];
+  if (asked.length === 0) throw new VaultError(400, 'Query parameter "path" is required');
+  if (asked.length > NOTE_STATE_MAX) {
+    throw new VaultError(400, `Too many paths (${NOTE_STATE_MAX} max)`);
+  }
+  const limited = isPublishLimited(c);
+  const states: NoteState[] = [];
+  for (const asking of asked) {
+    const notePath = normalizeRel(asking);
+    // A visitor learns nothing here that /api/note would not already tell
+    // them, and learns it the same way: an unpublished note is not "hidden",
+    // it is ABSENT. `null` is also what a deleted note answers, so the two
+    // are indistinguishable to a caller who was never allowed to tell them
+    // apart.
+    if (limited && !isNotePublished(notePath)) {
+      states.push({ path: notePath, mtimeMs: null });
+      continue;
+    }
+    states.push({ path: notePath, mtimeMs: await noteMtime(notePath).catch(() => null) });
+  }
+  const response: NoteStatesResponse = { states };
+  return c.json(response);
+});
+
 /** The optional `baseMtimeMs` write precondition off a request body. Validated
  *  here; enforced by `writeNote`, next to the write it guards. Only the
  *  editor's buffer registry sends it — the publish toggle, the banner setter,
@@ -852,7 +903,16 @@ api.post("/publish", async (c) => {
     // The synthetic event below is the whole story — swallow the watcher's
     // redundant echo of this write so listeners don't see the toggle twice.
     suppressWatcherEcho(note.path);
-    await writeNote(note.path, updated);
+    // THE READ-MODIFY-WRITE CARRIES ITS OWN PRECONDITION. This route derives a
+    // whole file from the one it is about to replace, and its read is three
+    // statements up — a window of MILLISECONDS, not the days a client's buffer
+    // can hold — so it was left unconditional for a long time. That was an
+    // argument about how likely the race is, not about what happens when it
+    // lands: with a second server writing the same vault, the loser is a
+    // frontmatter line silently reverting, which is exactly this feature's
+    // incident. `note.mtimeMs` is free (readNote stat'd the file already) and
+    // turns "unlikely" into "impossible".
+    await writeNote(note.path, updated, note.mtimeMs);
     // Broadcast BEFORE reindexing so the SSE visitor filter can observe the
     // publish state both before and after (created/deleted transitions).
     emitEvent({ kind: "changed", path: note.path });
@@ -898,7 +958,10 @@ api.post("/frontmatter", async (c) => {
   const updated = setNoteFrontmatterLine(note.path, note.content, key, line);
   if (updated !== note.content) {
     suppressWatcherEcho(note.path);
-    await writeNote(note.path, updated);
+    // Same precondition as /api/publish, for the same reason: a line edit
+    // derived from a file somebody else replaced mid-request writes back every
+    // byte of the version it read, banner line included.
+    await writeNote(note.path, updated, note.mtimeMs);
     emitEvent({ kind: "changed", path: note.path });
   }
   await indexFile(note.path);
@@ -944,7 +1007,8 @@ api.post("/alias", async (c) => {
   const updated = addNoteAlias(note.path, note.content, alias);
   if (updated !== note.content) {
     suppressWatcherEcho(note.path);
-    await writeNote(note.path, updated);
+    // Same precondition as /api/publish and /api/frontmatter.
+    await writeNote(note.path, updated, note.mtimeMs);
     emitEvent({ kind: "changed", path: note.path });
   }
   await indexFile(note.path);
@@ -2079,6 +2143,18 @@ async function renameWithLinkRewrite(from: string, to: string): Promise<void> {
         // The `renamed` event already told everyone this file moved; a second
         // `changed` for the same gesture is noise.
         suppressWatcherEcho(toPath);
+        // THE LINK REWRITES STAY UNCONDITIONAL, and that is a decision rather
+        // than an oversight — the one exception to "every read-modify-write
+        // carries its base" that /api/publish and /api/frontmatter now follow.
+        // A rename has ALREADY moved the file by the time this loop runs, so a
+        // 409 here cannot be reported as "try again": it would abort a gesture
+        // half-applied, leaving a vault whose links point at a name that no
+        // longer exists. It also touches notes the reader never named, where a
+        // refusal is a message about a file they are not looking at. The
+        // failure it accepts in exchange is bounded and self-repairing — one
+        // `[[wikilink]]` spelling lost to a concurrent edit of the SAME line of
+        // the SAME third-party note, which the next rename of that target
+        // rewrites correctly anyway.
         await writeNote(toPath, rewritten);
       }
     } catch (err) {
@@ -2121,6 +2197,8 @@ async function renameWithLinkRewrite(from: string, to: string): Promise<void> {
       // above already caught it.
       if (isTexPath(at)) rewritten = rewriteTexNoteMacros(rewritten, oldTitle, newTitle, titleChanged);
       if (rewritten !== note.content) {
+        // Unconditional, per the paragraph above: the rename is already done,
+        // and a refusal here would abort it half-applied.
         await writeNote(at, rewritten);
         await indexFile(at);
       }
@@ -2204,6 +2282,8 @@ async function moveFolderWithLinkRewrite(from: string, to: string): Promise<Move
       // notes outside it get their own `changed`, which is what tells an open
       // editor to reload a body that changed underneath it.
       if (map.has(before)) suppressWatcherEcho(after);
+      // Unconditional, for the reason the rename rewrite gives: the folder has
+      // already moved, so a 409 could only abort a gesture half-applied.
       await writeNote(after, next);
       rewritten.push(after);
     } catch (err) {

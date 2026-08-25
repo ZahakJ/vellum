@@ -508,6 +508,21 @@ export async function noteExists(rel: string): Promise<boolean> {
   return exists(safeAbs(assertMarkdown(rel)));
 }
 
+/** The mtime of one note, or null when it is not there.
+ *
+ *  `readNote` is the wrong tool for the question "is the copy I am holding
+ *  still the file?": it ships the body back, and the caller asking already has
+ *  a body. Revalidation asks this about every open tab at once, on every wake,
+ *  so it must cost a `stat` and not a read. */
+export async function noteMtime(rel: string): Promise<number | null> {
+  const abs = safeAbs(assertMarkdown(rel));
+  try {
+    return (await fs.stat(abs)).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
 export async function createNote(rel: string): Promise<NoteData> {
   const relPath = assertMarkdown(rel);
   const abs = safeAbs(relPath);

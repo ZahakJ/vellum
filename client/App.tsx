@@ -32,12 +32,23 @@ import { promptNewNote } from "./prompts.ts";
 import { insertTemplateCommand, newNoteFromTemplateCommand } from "./templateActions.ts";
 import { applyUrl, installRouter, syncUrl } from "./router.ts";
 import { recentSelfWrite, sidebarIsDrawer, useStore } from "./state.ts";
-import { adoptExternalChange, flushAllBuffers, unsavedPaths } from "./editor/bufferBridge.ts";
+import {
+  adoptExternalChange,
+  flushAllBuffers,
+  revalidateBuffers,
+  unsavedPaths,
+} from "./editor/bufferBridge.ts";
 import { dismissToasts, toast } from "./toast.ts";
 
 /** Writes made by our own autosave echo back through the watcher; ignore
  *  "changed" events arriving within this window of a local save. */
 const SELF_SAVE_WINDOW_MS = 1500;
+/** The floor between two wake-up revalidations. An alt-tab raises `focus` and
+ *  `visibilitychange` within a frame of each other, and a reader flicking
+ *  between two windows raises them again a second later; the probe is cheap
+ *  but it is not free, and nothing about a vault changes twice in two seconds
+ *  that the SSE stream is not already carrying. */
+const WAKE_THROTTLE_MS = 2000;
 
 /** How long zen's ✕ lingers before fading out (any mouse move brings it back). */
 const ZEN_HINT_MS = 2000;
@@ -425,8 +436,46 @@ export default function App() {
         }
       }
     };
-    return subscribeEvents(onEvent);
+    // A STREAM THAT DROPPED AND CAME BACK IS A GAP IN WHAT WE KNOW. EventSource
+    // reconnects on its own and replays nothing, so every "changed" sent while
+    // it was away is gone — and the buffers here still describe files that may
+    // have moved on. Re-ask, before the reader types into one of them.
+    return subscribeEvents(onEvent, () => void revalidateBuffers());
   }, [admin, language]);
+
+  // WAKING UP: the window was hidden and is visible again.
+  //
+  // The incident this exists for: one vault, TWO SERVERS — the desktop app's
+  // child server beside a systemd instance behind the web admin. A note was
+  // published from the web; the desktop app had been running for days with
+  // that note's buffer loaded from before the publish. Each server's watcher
+  // announces to its OWN subscribers, so the frame that would have refreshed
+  // the desktop buffer went to a stream that had long since dropped. The write
+  // precondition still refuses the stale save — nothing is lost — but the
+  // client had no way to LEARN it was stale until it tried to write, which is
+  // the worst moment to find out.
+  //
+  // `visibilitychange` is the event that actually fires when a laptop lid
+  // opens or a backgrounded tab is picked up again; `focus` catches the case
+  // where the window never went hidden and the reader simply came back to it
+  // from another app. Both are throttled together — they fire in quick
+  // succession on a single alt-tab, and this must not become a poll.
+  useEffect(() => {
+    let last = 0;
+    const wake = (): void => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - last < WAKE_THROTTLE_MS) return;
+      last = now;
+      void revalidateBuffers();
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
+  }, []);
 
   // Zen's only visible chrome is a faint ✕. It shows on entry (so the way out
   // is never a secret), fades after a beat, and any mouse movement brings it

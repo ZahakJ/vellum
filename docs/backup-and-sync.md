@@ -135,6 +135,43 @@ committed is dropped from the index (`git rm --cached`); and the same eviction r
 matched last. A sync never stages your credentials. Note that files already pushed stay in the
 remote's *history* — if that happened, rotate the token and rewrite the history in a terminal.
 
+## Two servers, one vault
+
+It is a perfectly ordinary thing to end up with **two Vellum servers over the same folder** — the
+desktop app runs a server of its own, and plenty of people also keep one running as a systemd
+service so they can reach the vault from a browser. A `git pull`, Obsidian, Syncthing or a text
+editor writing into the same folder is the same situation with a different second writer.
+
+**The guarantee: a note you did not save cannot be overwritten by a copy somebody was still
+holding.** Every save the editor makes carries the modification time of the file it was loaded
+from, and the server refuses the write — `409`, nothing touched — if the file on disk is no longer
+that one. Nothing is lost when this happens: your text stays in the editor, autosave stops so the
+next keystroke cannot clobber the newer version, and a strip above the note offers the two ways
+out — **Keep my version** (write yours over the newer file) or **Use the disk version** (take
+theirs, undoably).
+
+The reason this needed saying out loud is a real incident. A note was published from the browser;
+the desktop app had been open for days with that note loaded from *before* the publish. Each
+server watches the vault for its own connected clients, so the "this file changed" message never
+reached the sleeping desktop app — and a browser's event stream replays nothing it missed while
+the laptop was shut. The refusal above is what kept the note safe. What was missing was any way to
+find out *before* trying to save.
+
+So Vellum now **re-checks when it wakes up**: when its connection to the server comes back, or when
+you return to a window that had been hidden, it asks the server for the current state of the notes
+you have open. Ones you have not touched reload silently; one with unsaved edits gets the same
+resolution strip immediately, while you are looking at it, instead of interrupting you later.
+
+Two things worth knowing about the arrangement:
+
+- **Nothing is locked.** Neither server owns the vault, and either can be stopped at any time.
+- **Scripts and older clients still work.** A write with no modification time attached — `curl`, a
+  script of your own, an older desktop build — behaves exactly as it always did: last writer wins.
+  The check is opt-in, and only clients that can handle a refusal ask for one.
+
+If you run two servers, point both at the same vault directory and give them **different data
+directories** (`VELLUM_DATA`) unless you also want them to share sessions and settings.
+
 ## Things worth knowing
 
 - Every git invocation is an `execFile` with a fixed argument array. No shell is involved

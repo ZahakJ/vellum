@@ -30,9 +30,10 @@
 
 import { Annotation, EditorState, type Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { flushNoteBeacon, getNote, isStaleWriteError, putNote } from "../api.ts";
+import { flushNoteBeacon, getNote, getNoteStates, isStaleWriteError, putNote } from "../api.ts";
 import type { NoteData } from "../../shared/types.ts";
-import { markSelfWrite } from "../state.ts";
+import { markSelfWrite, recentSelfWrite } from "../state.ts";
+import { revalidationFor } from "./revalidate.ts";
 import { DOC_STATS_EVENT, registerBufferBridge, type DocStats } from "./bufferBridge.ts";
 import { countWords, noteProse } from "../../shared/wordCount.ts";
 import { announceWrite } from "../windows/coherence.ts";
@@ -41,6 +42,13 @@ import { claim, holdsLease, unclaim } from "../windows/lease.ts";
 /** The autosave debounce. Unchanged from the value Editor.tsx carried; it is
  *  quoted in CONTRACTS and in the durability chapter's argument. */
 export const AUTOSAVE_MS = 600;
+
+/** How long after one of THIS client's own writes a wake-up probe still treats
+ *  a moved file as ours. Generous on purpose: erring long costs one delayed
+ *  revalidation (the next wake, or the save precondition, catches it anyway),
+ *  while erring short offers the reader a conflict with themselves — which is
+ *  the failure `client/state.ts::markSelfWrite` was written to end. */
+const SELF_WRITE_MS = 5_000;
 
 /** Marks a transaction as the echo of a sibling view's edit. Forwarding a
  *  change into the other panes showing one note is how they stay one document;
@@ -113,6 +121,11 @@ export interface Buffer {
   views: Set<EditorView>;
   refs: number;
   saveTimer: number;
+  /** A write is in flight right now. The wake-up probe reads it: our own save
+   *  moves the file's mtime, and the probe can see the NEW one before the
+   *  response that re-bases us has come back — which would read as somebody
+   *  else's edit and offer the reader a conflict with themselves. */
+  saving: boolean;
 }
 
 const buffers = new Map<string, Buffer>();
@@ -190,6 +203,7 @@ export function acquire(
         views: new Set(),
         refs: 0,
         saveTimer: 0,
+        saving: false,
       };
       buffers.set(path, buf);
       loading.delete(path);
@@ -327,6 +341,7 @@ export async function save(path: string, explicit = false): Promise<void> {
   // Claimed BEFORE the request, so the watcher's echo of our own write is not
   // read as somebody editing the file in Obsidian.
   markSelfWrite(path);
+  buf.saving = true;
   try {
     const written = await putNote(path, content, buf.baseMtimeMs);
     buf.baseMtimeMs = written.mtimeMs;
@@ -356,7 +371,71 @@ export async function save(path: string, explicit = false): Promise<void> {
     // next edit reschedules the save. Rethrowing instead would leave an
     // unhandled rejection and tell the reader nothing.
     onSaveError(path, err);
+  } finally {
+    buf.saving = false;
   }
+}
+
+/** RE-ASK THE DISK ABOUT EVERY OPEN NOTE. Called when this client WAKES — its
+ *  SSE stream reconnected, or its window became visible again — because both
+ *  mean it has been out of the room, and neither the browser nor the server
+ *  replays what it missed. With two servers over one vault it can also have
+ *  been awake the whole time and still missed the news: each watcher announces
+ *  to its own subscribers only.
+ *
+ *  Scoped to the OPEN buffers, never the vault: this is "is what I am holding
+ *  still the file?", and a client with three tabs must not walk 1,400 notes to
+ *  answer it. Clean buffers reload silently; a dirty one gets the conflict
+ *  strip here and now, rather than at the next autosave, when the reader is
+ *  mid-sentence.
+ *
+ *  Every failure is a NON-EVENT. The probe is a courtesy — the write
+ *  precondition is still the thing that actually stops a clobber — so a
+ *  network error, an expired session or a note that vanished between the two
+ *  requests leaves the buffer exactly as it was. */
+export async function revalidateOpen(): Promise<void> {
+  const paths = [...buffers.keys()];
+  if (paths.length === 0) return;
+  const states = await getNoteStates(paths).catch(() => null);
+  if (states === null) return;
+  await Promise.all(
+    states.map(async (state) => {
+      const buf = buffers.get(state.path);
+      if (!buf) return;
+      const verdict = revalidationFor({
+        baseMtimeMs: buf.baseMtimeMs,
+        diskMtimeMs: state.mtimeMs,
+        dirty: buf.dirty,
+        diverged: buf.diverged !== null,
+        // BOTH halves of "we did this". `saving` catches the request in
+        // flight; `recentSelfWrite` catches the publish toggle, the banner
+        // setter and the section writer, which move the file through routes
+        // this registry never hears about (client/state.ts).
+        selfWriting: buf.saving || recentSelfWrite(state.path, SELF_WRITE_MS),
+      });
+      if (verdict === "skip") return;
+      const disk = await getNote(state.path).catch(() => null);
+      if (disk === null) return;
+      // Re-read the buffer: the two fetches above are awaits, and the reader
+      // may have typed, closed the tab or hit a 409 of their own meanwhile.
+      const now = buffers.get(state.path);
+      if (!now || now.diverged !== null) return;
+      if (verdict === "adopt") {
+        // `adoptExternal` refuses a dirty buffer itself, which is the right
+        // answer if a keystroke landed while we were asking.
+        adoptExternal(state.path, disk);
+        return;
+      }
+      if (!now.dirty) {
+        // It went clean while we asked (the autosave landed). Nothing to
+        // resolve; take the new text instead of manufacturing a choice.
+        adoptExternal(state.path, disk);
+        return;
+      }
+      now.diverged = disk;
+      onDiverge(state.path, disk);
+    }),
+  );
 }
 
 /** Take the reader's side of a divergence: their text wins, and the write is
@@ -431,6 +510,7 @@ registerBufferBridge({
     if (writable && buf.dirty) void save(path);
   },
   requestStats: publishStats,
+  revalidate: revalidateOpen,
   flush: (path) => save(path),
   liveText: (path) => buffers.get(path)?.state.doc.toString() ?? null,
   adoptExternal: async (path) => {

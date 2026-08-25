@@ -39,6 +39,29 @@ export interface NoteData {
   mtimeMs: number;
 }
 
+/** ONE NOTE'S DISK STATE, AND NOTHING ELSE — the cheap half of `NoteData`.
+ *
+ *  A client that has been asleep (a laptop lid, a backgrounded tab, a desktop
+ *  app left running for days) misses every SSE frame while it is away, and
+ *  EventSource replays nothing on reconnect. It therefore wakes holding
+ *  buffers whose `baseMtimeMs` describes a file that has since moved — and
+ *  when a SECOND server writes the same vault (the desktop app's child server
+ *  beside a systemd instance), even a client that never slept can miss the
+ *  news, because the two watchers announce to their own subscribers only.
+ *
+ *  `GET /api/note/state` answers "is what I hold still the file?" for the open
+ *  tabs in one round trip, without shipping their bodies back. `mtimeMs` is
+ *  null when the note is not there — deleted, or (for a visitor-scoped
+ *  session) not theirs to know about, which are deliberately the same answer. */
+export interface NoteState {
+  path: string;
+  mtimeMs: number | null;
+}
+
+export interface NoteStatesResponse {
+  states: NoteState[];
+}
+
 export interface SearchHit {
   path: string;
   title: string;         // basename without .md

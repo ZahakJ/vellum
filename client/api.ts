@@ -13,6 +13,8 @@ import type {
   GraphData,
   MeData,
   NoteData,
+  NoteState,
+  NoteStatesResponse,
   PostMeta,
   PublicThemeInfo,
   PublishedPaths,
@@ -154,6 +156,28 @@ export function getTree(): Promise<TreeNode> {
 
 export function getNote(path: string): Promise<NoteData> {
   return request<NoteData>(`/api/note?path=${encodeURIComponent(path)}`);
+}
+
+/** How many open notes one revalidation may ask about. Mirrors the server's
+ *  own ceiling; a reader with more tabs than this gets the first 64 checked,
+ *  which is 64 more than the zero this had before it existed. */
+export const NOTE_STATE_MAX = 64;
+
+/** "Is what I am holding still the file?", asked about several notes at once.
+ *
+ *  The wake-up probe: an SSE reconnect or a window becoming visible again
+ *  means this client has been out of the room, and a `changed` frame it missed
+ *  is never replayed. Cheap on purpose — `mtimeMs` and nothing else, so
+ *  checking every open tab costs one small response rather than every open
+ *  note's body. */
+export async function getNoteStates(paths: string[]): Promise<NoteState[]> {
+  if (paths.length === 0) return [];
+  const query = paths
+    .slice(0, NOTE_STATE_MAX)
+    .map((p) => `path=${encodeURIComponent(p)}`)
+    .join("&");
+  const res = await request<NoteStatesResponse>(`/api/note/state?${query}`);
+  return res.states;
 }
 
 /** A note's anchor table — markdown headings and LaTeX `\label`s in one list,
@@ -605,7 +629,15 @@ export function logout(): Promise<{ ok: true }> {
  *  EventSource cannot carry custom headers, so visitor preview rides on a
  *  query param instead — honored server-side only for /api/events and only
  *  with a valid admin session, the same gating as the header. */
-export function subscribeEvents(cb: (ev: VaultEvent) => void): () => void {
+export function subscribeEvents(
+  cb: (ev: VaultEvent) => void,
+  /** Called each time the stream comes back after having DROPPED — never on
+   *  the first connect. A gap in this stream is a gap in what this client
+   *  knows about the vault: EventSource reconnects on its own and replays
+   *  nothing, so every frame sent while it was away is simply gone. The caller
+   *  uses it to re-ask about what it is holding. */
+  onReconnect?: () => void,
+): () => void {
   // EventSource cannot carry custom headers, so BOTH session dimensions ride
   // on query params here — the preview flag and the reader language, each
   // honored server-side only on this route and under the same gate its header
@@ -625,8 +657,18 @@ export function subscribeEvents(cb: (ev: VaultEvent) => void): () => void {
       console.error("vellum: bad SSE payload", err);
     }
   };
+  // Dropped-and-came-back, told apart from connected-for-the-first-time. The
+  // browser gives no event for "you missed some": `onerror` fires when the
+  // stream breaks and `onopen` when it is back, and the pair of them is the
+  // only notice a client gets that its picture of the vault has a hole in it.
+  let dropped = false;
   source.onerror = () => {
-    // EventSource reconnects on its own; nothing to do.
+    dropped = true;
+  };
+  source.onopen = () => {
+    if (!dropped) return;
+    dropped = false;
+    onReconnect?.();
   };
   return () => source.close();
 }

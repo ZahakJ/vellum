@@ -52,7 +52,16 @@ that is the pre-existing pattern, and the door is now open.
 
 - `GET  /api/tree` → `TreeNode` (root folder node, path ""). Admin: notes **and** attachments (see "Attachments in the tree"). Visitor: the flat published-note list, notes only.
 - `GET  /api/note?path=a/b.md` → `NoteData`
-- `PUT  /api/note?path=` body `{ content: string }` → `NoteData` (writes file; creates parent dirs)
+- `GET  /api/note/state?path=&path=…` → `{ states: NoteState[] }` — the mtime of each named note
+  and nothing else (`mtimeMs: null` = not there, which is also what a visitor-scoped session is
+  told about a note it may not know exists). Max 64 paths, because the caller is a client's OPEN
+  TABS and not its vault; more is a 400 and `/api/tree` is the route for "everything". This is
+  the wake-up probe — see "Revalidate on wake" under "The open document".
+- `PUT  /api/note?path=` body `{ content: string, baseMtimeMs?: number }` → `NoteData` (writes
+  file; creates parent dirs). `baseMtimeMs` is the OPTIONAL write precondition: given, and the
+  file's current mtime differs, the write is refused **409 `{ error, code: "stale" }`** and
+  nothing is touched. Omitted (older clients, `curl`, scripts) → last-writer-wins, unchanged. See
+  "The write precondition".
 - `POST /api/note` body `{ path: string }` → `NoteData` (create empty; 409 if exists)
 - `POST /api/rename` body `{ path, toPath }` → `{ ok: true }` (also rewrites `[[wikilinks]]` in other notes that pointed at the old name)
 - `POST /api/alias` body `{ path, alias }` → `{ ok: true, path, alias }` (admin-only; merges one name into the note's `aliases:`, preserving every other byte — the write behind "keep the old title" after a rename)
@@ -354,9 +363,30 @@ and so it is testable without standing a server up (`tests/durability.test.ts`).
   because the file it leaves is neither version.
 - **A file that is GONE is written, not refused.** Recreating is kinder than refusing to save work
   into a note somebody else deleted, and the caller learns of the deletion from the watcher anyway.
-- **Opt-in, deliberately.** Only the buffer registry sends `baseMtimeMs`. The publish toggle, the
-  banner setter, the section writer and the rename link-rewrite each derive a whole file from the one
-  they are about to replace, and keep last-write-wins.
+- **Opt-in, deliberately** — by the PRESENCE OF THE FIELD, so there is no flag to forget to set and
+  no default to argue about. A write with no `baseMtimeMs` (an older client, a script, `curl`) keeps
+  last-writer-wins exactly as it always did; that is the compatibility promise, and
+  `tests/durability.test.ts` pins it.
+- **The server's own read-modify-write routes send one too.** `POST /api/publish`,
+  `POST /api/frontmatter` and `POST /api/alias` each `readNote` → edit one line → `writeNote`, and
+  they now pass the `mtimeMs` that read handed them. It costs nothing — the stat has already
+  happened — and it closes the last door THIS incident could come back through: the loser of that
+  race is a frontmatter line silently reverting, which is precisely what happened. "The window is
+  only milliseconds" was an argument about how LIKELY the race is, never about what it costs when
+  it lands, and a vault with two servers over it runs that race for real.
+- **The rename and folder-move link rewrites stay unconditional, and they are the one exception.**
+  By the time those loops run the file has ALREADY moved, so a 409 cannot be reported as "try
+  again": it would abort a gesture half-applied and leave links pointing at a name that no longer
+  exists. They also touch notes the reader never named, where a refusal is a message about a file
+  they are not looking at. What that accepts in exchange is bounded and self-repairing — one
+  `[[wikilink]]` spelling lost to a concurrent edit of the same line of the same third-party note,
+  which the next rename of that target rewrites correctly anyway. The seams say so in prose, so the
+  next reader knows it was decided rather than missed.
+- **The section writer (`client/sectionActions.ts::applyNoteContent`) keeps last-write-wins**,
+  because when an editor holds the note it does not write at all: it dispatches ONE transaction
+  into the buffer (undoable, and the autosave carries it to disk under the precondition), and the
+  `putNote` arm is reached only when nothing holds the path — where the content came from a
+  `getNote` a moment earlier.
 - **A refused save loses nothing.** The buffer keeps the reader's text, stops autosaving so the next
   keystroke's timer cannot clobber the newer version, holds the disk version in `diverged`, and says
   so. `keepMine()` re-bases onto the disk version and saves; `takeDisk()` replaces the document
@@ -364,6 +394,57 @@ and so it is testable without standing a server up (`tests/durability.test.ts`).
   the pane work, which is where there is room to show both.
 - **A failed save that is NOT a conflict is still said out loud.** The buffer stays dirty on purpose:
   the text is here, the tab still shows its dot, and the next edit reschedules the write.
+
+### Revalidate on wake (`GET /api/note/state`, `client/editor/revalidate.ts`)
+
+**The precondition is a net; this is what stops anyone hanging in it for days.** A client learns
+that a file moved from ONE channel — the SSE stream — and that channel has two holes in it that no
+amount of care at the write seam can close:
+
+- **A stream that dropped and came back replays nothing.** `EventSource` reconnects on its own and
+  the server has no `Last-Event-ID` history, so every frame sent while a laptop lid was shut is
+  simply gone.
+- **Two servers over one vault is two watchers, each announcing to its own subscribers.** A client
+  of the desktop app's child server is told nothing about a write made through the systemd
+  instance's web admin, and it does not have to have been asleep for that to be true.
+
+**THE INCIDENT, named because the code names it.** A note was published from the web (prod wrote
+`publish: true`); the desktop app had been running for days with that note's buffer loaded from
+before the publish. Nothing was overwritten — the precondition refused the stale save — but the
+only way the client could have DISCOVERED it was stale was by trying to write, which is the worst
+moment to find out: mid-sentence, with a choice to make about a note the reader stopped thinking
+about a week ago.
+
+So a client that WAKES re-asks. Two triggers, both meaning "I have been out of the room": the SSE
+stream reconnecting after a drop (`subscribeEvents(cb, onReconnect)` — first connect is not a
+reconnect), and `visibilitychange`/`focus` bringing the window back, throttled together at 2s
+because one alt-tab raises both.
+
+- **Scoped to the OPEN BUFFERS, never the vault.** The question is "is what I am holding still the
+  file?", and a reader with three tabs must not walk 1,400 notes to answer it. One request, mtimes
+  only — the bodies are fetched afterwards and only for the notes that actually moved.
+- **The decision is a pure function** (`revalidationFor`, its own file, no imports at all) so it can
+  be read in one screen and tested without a browser: `skip` | `adopt` | `diverge`. Clean and stale
+  → adopt silently through `adoptExternal`, which goes through the document's history like any
+  other external change. Dirty and stale → `diverged` and the conflict strip, NOW rather than at
+  the next autosave. Already diverged → skip: the reader is being asked a question and the version
+  they are choosing against must not change underneath the answer.
+- **Gone is not stale.** `mtimeMs: null` is skipped. Deletion is the watcher's story (the shell
+  closes the tab on `deleted`), adopting an absent file would blank the reader's document, and a
+  visitor-scoped session is told `null` for a note it may not know exists — so the route reveals
+  nothing `/api/note` would not.
+- **Strict inequality, not "is the disk newer".** A restored backup, a `git checkout` of an older
+  revision and a clock that stepped back all leave a file that is not the one we loaded, which is
+  the whole question — and it is the same comparison `writeNote` makes, deliberately.
+- **It must not report this client to itself.** Our own write moves the mtime and the probe can
+  observe the new one before the response that re-bases us lands. Both halves are checked: the
+  buffer's `saving` flag for a request in flight, and `recentSelfWrite` (`client/state.ts`) for the
+  publish toggle, the banner setter and the section writer, which move the file through routes the
+  registry never hears about. Erring long costs one delayed revalidation; erring short offers the
+  writer a conflict with themselves, which is the failure `markSelfWrite` was written to end.
+- **Every failure is a NON-EVENT.** A network error, an expired session, a note that vanished
+  between the two requests — the buffer is left exactly as it was. This is a courtesy that spares
+  the reader a surprise; the precondition is still the thing that stops the clobber.
 
 ### `POST /api/note/flush`, and closing a tab
 
