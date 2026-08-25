@@ -12,6 +12,7 @@ import { applyNoteLayoutTo } from "../textLayout.ts";
 import { useStore } from "../state.ts";
 import PostList from "./PostList.tsx";
 import AuthorSites from "./AuthorSites.tsx";
+import PublicFolders from "./PublicFolders.tsx";
 import "../reading/reading.css";
 
 export default function BlogHome({
@@ -89,6 +90,8 @@ export default function BlogHome({
       ) : (
         <PostList posts={listed} locale={locale} />
       )}
+      <PublicFolders />
+
       <AuthorSites />
     </div>
   );

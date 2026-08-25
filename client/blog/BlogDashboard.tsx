@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import AuthorSites from "./AuthorSites.tsx";
+import PublicFolders from "./PublicFolders.tsx";
 import type { PostMeta } from "../../shared/types.ts";
 import { bannerSrc, generatedBannerCss } from "../banner.ts";
 import { useBannerSrc } from "../components/BannerImg.tsx";
@@ -268,6 +269,8 @@ export default function BlogDashboard({
           </section>
         )}
       </div>
+
+      <PublicFolders />
 
       <AuthorSites />
 

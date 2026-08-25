@@ -1834,3 +1834,225 @@
     block-size: 240px;
   }
 }
+
+/* ── Public folders — the owner's own collections ────────────────────────────
+   Feature B. Deliberately NOT the cover-forward tile the band above it draws:
+   an author's other site is a picture, and a folder is a DOOR. So there is no
+   scrim here, and therefore no literal text colour either — every value below
+   is a theme token, and the two box-shadows are shadows (rgba black, the same
+   idiom the whole file uses for depth) rather than colours.
+
+   Logical properties throughout, so Arabic mirrors for free: the glyph leads
+   the card on the reading direction's own edge. */
+.s-blog-folders {
+  margin-block-start: 72px;
+}
+.s-blog-heading--folders {
+  margin-block-end: 20px;
+}
+.s-blog-folders__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+.s-blog-folders__card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  text-decoration: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.s-blog-folders__card:hover,
+.s-blog-folders__card:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 1px 10px rgba(0, 0, 0, 0.22);
+}
+.s-blog-folders__card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+/* The mark: a soft accent square, the glyph in gold. --accent on --accent-soft
+   is the one pairing the contrast gate solves for in every theme. */
+.s-blog-folders__glyph {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 46px;
+  block-size: 46px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
+  transition: transform 150ms ease;
+}
+.s-blog-folders__card:hover .s-blog-folders__glyph,
+.s-blog-folders__card:focus-visible .s-blog-folders__glyph {
+  transform: scale(1.06);
+}
+.s-blog-folders__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-inline-size: 0;
+}
+.s-blog-folders__title {
+  font-family: var(--font-serif);
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+}
+.s-blog-folders__desc {
+  font-family: var(--font-serif);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  /* A sentence the reader READS — --text-muted, never --text-faint. */
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* The count as a quiet pill, on --bg-hover like every other chip on this page.
+   --text-muted, because a count is text: --text-faint measures 2.7:1 on that
+   ground in twelve of the fifteen themes and may not be used there. */
+.s-blog-folders__count {
+  margin-block-start: 2px;
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+/* ONE folder: a full-width band, the authorSites :only-child trick. A lone
+   card stranded in a twelve-column grid reads as a leftover; at full width it
+   reads as the page's own closing statement. */
+.s-blog-folders__card:only-child {
+  gap: 20px;
+  padding: 26px 28px;
+}
+.s-blog-folders__card:only-child .s-blog-folders__glyph {
+  inline-size: 64px;
+  block-size: 64px;
+}
+/* THE MARK GROWS WITH ITS TILE. FolderGlyph sizes its svg by ATTRIBUTE (28 on
+   this card) and an attribute is not a rule, so the lone band used to hold the
+   grid card's small mark inside a 64px tile — measured at 28px in a 64px box,
+   it read as a glyph that had failed to load rather than a feature band. */
+.s-blog-folders__card:only-child .s-blog-folders__glyph svg {
+  inline-size: 44px;
+  block-size: 44px;
+}
+.s-blog-folders__card:only-child .s-blog-folders__title {
+  font-size: 1.4rem;
+}
+.s-blog-folders__card:only-child .s-blog-folders__desc {
+  font-size: 1rem;
+  font-style: italic;
+  -webkit-line-clamp: 3;
+}
+@media (prefers-reduced-motion: reduce) {
+  .s-blog-folders__card,
+  .s-blog-folders__glyph {
+    transition: none;
+  }
+  .s-blog-folders__card:hover .s-blog-folders__glyph,
+  .s-blog-folders__card:focus-visible .s-blog-folders__glyph {
+    transform: none;
+  }
+}
+@media (max-width: 640px) {
+  .s-blog-folders__grid {
+    grid-template-columns: 1fr;
+  }
+}
+/* A coarse pointer gets a ≥44px target — the card is one already, and so is
+   the glyph inside it; nothing here shrinks below the floor. */
+
+/* THE FOLDER PAGE (/folder/<slug>) — its own header, above the ordinary post
+   list. The topic page heads with the section eyebrow because a tag has no
+   identity of its own; a folder has a title, a mark and a sentence. */
+.s-blog-folderhead {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  margin-block-end: 26px;
+  padding-block-end: 20px;
+  border-block-end: 1px solid var(--border);
+}
+.s-blog-folderhead__glyph {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 56px;
+  block-size: 56px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.s-blog-folderhead__text {
+  min-inline-size: 0;
+}
+.s-blog-folderhead__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(1.6rem, 3.4vw, 2rem);
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text);
+}
+.s-blog-folderhead__desc {
+  margin: 8px 0 0;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 1.02rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.s-blog-folderhead__count {
+  margin: 10px 0 0;
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+@media (max-width: 560px) {
+  .s-blog-folderhead {
+    gap: 14px;
+  }
+  .s-blog-folderhead__glyph {
+    inline-size: 44px;
+    block-size: 44px;
+  }
+}
+
+/* Folder chips — the nav row and the article footer. Both wear the glyph
+   exactly where a topic chip wears its `#`, which is what makes the two runs
+   readable as two runs without a second colour. */
+.s-blog-nav__link--folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.s-blog-nav__glyph,
+.s-blog-chip__glyph {
+  display: inline-flex;
+  align-items: center;
+  /* Full opacity over the token, never a fade: opacity is invisible to the
+     contrast gate (DESIGN.md), and this glyph carries the accent channel. */
+  color: var(--accent);
+}
+.s-blog-chip--folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}

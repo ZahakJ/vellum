@@ -21,9 +21,11 @@
 // panel would be a menu inside a menu.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { PublicFolderCard } from "../../shared/types.ts";
+import FolderGlyph from "../components/FolderGlyph.tsx";
 import { t } from "../i18n.ts";
 import { useStore } from "../state.ts";
-import { topicUrl } from "./nav.ts";
+import { folderUrl, topicUrl } from "./nav.ts";
 import { isLabelled as tagIsLabelled, label as tagLabel, useTagLabels } from "../tagLabels.ts";
 import { NavLink } from "./util.tsx";
 
@@ -32,12 +34,20 @@ const GAP = 4;
 
 export default function NavTopics({
   topics,
+  folders,
+  activeFolder,
   activeTag,
   isHome,
   expandAll,
   routeKey,
 }: {
   topics: string[];
+  /** The owner's PUBLIC FOLDERS, when the "show in navigation" sub-option is
+   *  on (empty otherwise). They are FIXED leading items, never folded into
+   *  "More ▾": a declared collection is the site's own structure, and a
+   *  structure that disappears at 900px is not one. Topics still fold. */
+  folders: PublicFolderCard[];
+  activeFolder: string | null;
   activeTag: string | null;
   isHome: boolean;
   /** Burger panel open: show every topic, no overflow menu. */
@@ -79,9 +89,20 @@ export default function NavTopics({
     const measure = (): void => {
       const kids = [...twin.children] as HTMLElement[];
       if (kids.length < 2) return; // home + more always present
-      const homeW = kids[0].getBoundingClientRect().width;
+      // THE TWIN'S SHAPE IS THE ARITHMETIC'S SHAPE. Home, then one chip per
+      // folder, then the topics, then the "More ▾" summary — and `lead` is
+      // what keeps the two in step. Adding a row item without adding it here
+      // (and to the twin below) is the one way this file breaks: the widths
+      // then belong to the wrong elements and the fit is silently wrong.
+      const lead = 1 + folders.length;
+      if (kids.length < lead + 1) return;
+      const leadW =
+        kids
+          .slice(0, lead)
+          .reduce((sum, k) => sum + k.getBoundingClientRect().width, 0) +
+        GAP * (lead - 1);
       const moreW = kids[kids.length - 1].getBoundingClientRect().width;
-      const items = kids.slice(1, -1).map((k) => k.getBoundingClientRect().width);
+      const items = kids.slice(lead, -1).map((k) => k.getBoundingClientRect().width);
       // One pixel of headroom: sub-pixel widths must not round into a wrap.
       const avail = row.clientWidth - 1;
       if (avail <= 0) {
@@ -89,7 +110,7 @@ export default function NavTopics({
         return;
       }
       const chosen: number[] = [];
-      let used = homeW;
+      let used = leadW;
       let n = 0;
       while (n < items.length && used + GAP + items[n] <= avail) {
         used += GAP + items[n];
@@ -132,7 +153,7 @@ export default function NavTopics({
     const ro = new ResizeObserver(measure);
     ro.observe(row);
     return () => ro.disconnect();
-  }, [topics, language, tagLabelsVersion]);
+  }, [topics, folders, language, tagLabelsVersion]);
 
   // A shrunk topic list renders once with the previous measurement's indices
   // (the layout effect re-measures right after), so clamp rather than hand
@@ -162,6 +183,25 @@ export default function NavTopics({
     </NavLink>
   );
 
+  // A FOLDER CHIP IS NOT A TOPIC CHIP, and the row has to say so without a
+  // second colour: the topic chips are words, and a folder wears its glyph
+  // where a `#` would be. Same link furniture otherwise, so the two sit on one
+  // baseline and the active state is the one the reader already knows.
+  const folderItem = (folder: PublicFolderCard) => (
+    <NavLink
+      key={folder.id}
+      url={folderUrl(folder.slug)}
+      className={`s-blog-nav__link s-blog-nav__link--folder${
+        folder.slug === activeFolder ? " s-blog-nav__link--active" : ""
+      }`}
+    >
+      <span className="s-blog-nav__glyph" aria-hidden="true">
+        <FolderGlyph icon={folder.icon} size={14} />
+      </span>
+      <bdi>{folder.title}</bdi>
+    </NavLink>
+  );
+
   return (
     <div className="s-blog-nav__links" ref={rowRef}>
       <NavLink
@@ -170,6 +210,7 @@ export default function NavTopics({
       >
         {t("home")}
       </NavLink>
+      {folders.map(folderItem)}
       {shown.map(navItem)}
       {overflow.length > 0 && (
         <details
@@ -190,6 +231,17 @@ export default function NavTopics({
           nothing else. */}
       <div className="s-blog-nav__measure" aria-hidden="true" ref={measureRef}>
         <span className="s-blog-nav__link">{t("home")}</span>
+        {/* THE FOLDER CHIPS' TWIN. `lead` above counts these, so a chip added
+            to the row and not to this clone makes every width after it belong
+            to the wrong element. */}
+        {folders.map((folder) => (
+          <span key={folder.id} className="s-blog-nav__link s-blog-nav__link--folder">
+            <span className="s-blog-nav__glyph">
+              <FolderGlyph icon={folder.icon} size={14} />
+            </span>
+            <bdi>{folder.title}</bdi>
+          </span>
+        ))}
         {/* The twin measures what is DRAWN, so it measures the label: an
             Arabic label is a different width from its Latin canonical tag,
             and measuring the wrong string is how the row ends up one topic

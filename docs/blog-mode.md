@@ -52,6 +52,61 @@ usual burger panel, which shows every topic at once.
 Topic names are the [localised label](arabic-and-rtl.md#localised-tag-labels) where one exists;
 the URL stays the canonical slug.
 
+## Custom public folders
+
+Topics are what your notes say about *themselves*. **Public folders** are what *you* say about a
+group of them: your own collections — Games, Reading, Field notes — declared once in Settings and
+joined by the notes that belong in them.
+
+Turn them on in **Settings → Publishing & comments → Custom public folders**. Each folder gets a
+title, an address (the `/folder/<slug>` URL), one mark from the same closed glyph set the vault
+tree uses, and an optional line of description. Up to twelve, in whatever order you arrange them —
+that order is the order readers meet them.
+
+A note joins a folder from its own frontmatter, and every spelling YAML gives you works:
+
+```yaml
+---
+title: Elden Ring, finished
+publish: true
+folders: [games, long-reads]
+---
+```
+
+```yaml
+folders: games          # one folder
+folder: games           # the singular key reads too
+folders: games, books   # a comma list
+folders:                # a block list
+  - games
+  - books
+```
+
+A `.tex` note declares it in [its own comment block](latex.md), like every other frontmatter key.
+Addresses are lowercase letters, digits and hyphens; case, padding and a pasted `/folder/games/`
+are all forgiven. A slug no folder declares simply matches nothing — which is what lets you write
+the frontmatter first and make the folder afterwards.
+
+Two sub-options decide where folders *show*:
+
+- **Show on home page** (on by default) — a band of folder cards under your writings, on either
+  home. An empty folder still shows: a collection you have made and not filled yet is an
+  invitation, not a bug.
+- **Show in navigation** (off by default) — folder chips lead the topics row, each wearing its
+  own mark instead of a `#`, and they never fold into "More ▾": a declared collection is the
+  site's own structure.
+
+Every folder page works either way — the two switches hide doors, not the rooms behind them. Each
+one lists its posts exactly as a topic page does, under a header carrying the folder's mark, title,
+description and count. Individual folders can be **hidden** without being deleted: the folder keeps
+its title, mark and members and reaches no visitor at all, and un-hiding restores it whole.
+
+Folder pages stay out of the sitemap for the same reason topic pages do — each is an index over
+URLs the file already names.
+
+> Public folders are a **stock blog** feature. The [designed site](designer.md) composes its own
+> navigation from nav items and ignores this setting; carrying folders into that shell is deferred.
+
 ## Hover previews
 
 Resting the pointer on any post link — a list entry, a dashboard card, a related or prev/next
@@ -117,8 +172,8 @@ and speak only in published notes — unpublished paths are indistinguishable fr
   visitor-visible published note, newest first, each with a `<lastmod>` taken from the note's own
   date (frontmatter `date`/`created`/`published`, else the file's birthtime). Static pages
   (`page: true`) are listed here even though the feed drops them — an About page is not an
-  article, but it is a URL this site serves. Topic pages are not: each one is an index over URLs
-  already in the file. Capped at the protocol's 50,000 URLs, newest kept, with an XML comment
+  article, but it is a URL this site serves. Topic pages and public-folder pages are not: each
+  one is an index over URLs already in the file. Capped at the protocol's 50,000 URLs, newest kept, with an XML comment
   saying so if your vault ever gets there.
 - **Robots** at `/robots.txt` — `Allow: /`, `Disallow: /api/`, and a `Sitemap:` line pointing at
   the sitemap above.

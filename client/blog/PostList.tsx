@@ -4,11 +4,12 @@
 
 import type { PostMeta } from "../../shared/types.ts";
 import { bannerSrc, generatedBannerCss } from "../banner.ts";
+import FolderGlyph from "../components/FolderGlyph.tsx";
 import { countPhrase, t } from "../i18n.ts";
 import { MetaSep } from "../metaSep.tsx";
 import { notePathToUrl } from "../router.ts";
 import { useStore } from "../state.ts";
-import { topicUrl } from "./nav.ts";
+import { folderUrl, topicUrl } from "./nav.ts";
 import { isLabelled as tagIsLabelled, label as tagLabel, useTagLabels } from "../tagLabels.ts";
 import { formatDate, isRtlText, NavLink } from "./util.tsx";
 
@@ -33,6 +34,38 @@ export function TagChips({ tags }: { tags: string[] }) {
         >
           <span className="s-blog-chip__hash">#</span>
           {tagLabel(tag)}
+        </NavLink>
+      ))}
+    </span>
+  );
+}
+
+/** The PUBLIC FOLDERS a post belongs to, as chips beside its tags.
+ *
+ *  RESOLVED AGAINST THE SITE, never rendered from the frontmatter alone: a note
+ *  may name any slug it likes (that is what lets an author write the membership
+ *  before the folder exists), so a slug the settings no longer declare — or one
+ *  the owner has hidden — draws nothing. The chip carries the folder's TITLE
+ *  and its glyph, because those are the words the reader met on the home band;
+ *  the slug is an address and stays in the href. */
+export function FolderChips({ slugs }: { slugs: string[] }) {
+  const folders = useStore((s) => s.publicFolders);
+  useStore((s) => s.language);
+  const mine = folders.filter((f) => slugs.includes(f.slug));
+  if (mine.length === 0) return null;
+  return (
+    <span className="s-blog-chips">
+      {mine.map((folder) => (
+        <NavLink
+          key={folder.id}
+          url={folderUrl(folder.slug)}
+          className="s-blog-chip s-blog-chip--folder"
+          dir="auto"
+        >
+          <span className="s-blog-chip__glyph" aria-hidden="true">
+            <FolderGlyph icon={folder.icon} size={13} />
+          </span>
+          {folder.title}
         </NavLink>
       ))}
     </span>

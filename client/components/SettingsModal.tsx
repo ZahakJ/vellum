@@ -37,7 +37,19 @@ import {
   type FolderProblem,
 } from "../../shared/attachments.ts";
 import type { AboutInfo, CustomFontInfo, FontCatalogEntry, VisibilityImpact } from "../../shared/types.ts";
-import type { SettingsPatch, SettingsResponse } from "../../shared/types.ts";
+import type { PublicFolderRef, SettingsPatch, SettingsResponse } from "../../shared/types.ts";
+import { FOLDER_ICONS, type FolderIcon } from "../../shared/folderIcons.ts";
+import { folderIconLabel } from "../folderIconLabels.ts";
+import FolderGlyph from "./FolderGlyph.tsx";
+import {
+  folderId,
+  folderSlug,
+  suggestSlug,
+  FOLDER_DESC_MAX,
+  FOLDER_SLUG_MAX,
+  FOLDER_TITLE_MAX,
+  PUBLIC_FOLDERS_MAX,
+} from "../../shared/publicFolders.ts";
 import {
   ApiError,
   deleteCustomFont,
@@ -54,6 +66,7 @@ import { bannerSrc } from "../banner.ts";
 // instance's own locale and numerals, before the reader commits to it.
 import { siteDateIn } from "../dates.ts";
 import "../styles/localization.css";
+import "../styles/publicfolders.css";
 import { useBannerSrc } from "./BannerImg.tsx";
 import { refreshTemplateSettings } from "../templates.ts";
 import { clearFontFaces, faceStack, loadFontFaces } from "../fontFaces.ts";
@@ -164,6 +177,16 @@ interface Form {
    *  that is being typed (its key is still empty). Never touched by `field()`,
    *  which is for string controls. */
   tagLabels: TagLabelRow[];
+  // ── Public folders ───────────────────────────────────────────────────────
+  // One master switch, two placement sub-options and the list. Like sync and
+  // typography these prefill from `effective`: there is no env counterpart, so
+  // "inherit" would name a fallback that does not exist. The LIST is rows, not
+  // a string, for the reason `tagLabels` is (a table editor cannot hold a
+  // half-typed row in a map) — and never touched by `field()`.
+  publicFoldersOn: string;   // "on" | "off"
+  publicFoldersHome: string; // "on" | "off"
+  publicFoldersNav: string;  // "on" | "off"
+  publicFolderRows: PublicFolderRef[];
 }
 
 /** One row of the tag-label editor. `tag` is the CANONICAL tag; the other two
@@ -251,7 +274,36 @@ function formFrom(s: SettingsResponse): Form {
     // the first time the panel was saved, and the page would stop being the
     // source of truth for its own name.
     tagLabels: labelRows(s.tagLabels),
+    publicFoldersOn: s.effective.publicFolders.enabled ? "on" : "off",
+    publicFoldersHome: s.effective.publicFolders.home ? "on" : "off",
+    publicFoldersNav: s.effective.publicFolders.nav ? "on" : "off",
+    // Copied, never shared: the editor mutates rows and `initial` is the
+    // snapshot the Save diff is measured against.
+    publicFolderRows: s.effective.publicFolders.folders.map((folder) => ({ ...folder })),
   };
+}
+
+/** Editor rows → the wire list. Rows the reader added and never typed into
+ *  drop out (the tagLabels rule), and every field is trimmed here so the diff
+ *  below compares what will actually be STORED rather than what was typed. */
+function folderList(rows: PublicFolderRef[]): PublicFolderRef[] {
+  const out: PublicFolderRef[] = [];
+  for (const row of rows) {
+    const title = row.title.trim();
+    const slug = folderSlug(row.slug);
+    const desc = (row.description ?? "").trim();
+    if (title === "" && slug === null && desc === "") continue; // an untouched new row
+    const folder: PublicFolderRef = {
+      id: row.id,
+      slug: slug ?? row.slug.trim().toLowerCase(),
+      title,
+      icon: row.icon,
+    };
+    if (desc !== "") folder.description = desc;
+    if (row.hidden) folder.hidden = true;
+    out.push(folder);
+  }
+  return out;
 }
 
 const FONT_KEYS = ["fontProse", "fontUi", "fontMono", "fontArabic", "fontSizeAdjust"] as const;
@@ -441,6 +493,39 @@ function validate(f: Form): Partial<Record<keyof Form, string>> {
     const key = problem && FOLDER_ERRORS[problem];
     if (key) errors.attachFolder = t(key);
   }
+  // Public folders, judged by the SAME slug rule the server uses
+  // (shared/publicFolders.ts) so the inline error and the 400 cannot disagree.
+  // One message per table, not per row: the row that broke is named in it.
+  const rows = folderList(f.publicFolderRows);
+  if (rows.length > PUBLIC_FOLDERS_MAX) {
+    errors.publicFolderRows = tf("errFoldersMax", { max: localeNum(PUBLIC_FOLDERS_MAX) });
+  } else {
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (row.title === "") {
+        errors.publicFolderRows = t("errFolderTitle");
+        break;
+      }
+      if (row.title.length > FOLDER_TITLE_MAX) {
+        errors.publicFolderRows = maxChars(FOLDER_TITLE_MAX);
+        break;
+      }
+      if (folderSlug(row.slug) === null) {
+        errors.publicFolderRows = tf("errFolderSlug", { slug: row.slug || row.title });
+        break;
+      }
+      if (seen.has(row.slug)) {
+        // A slug IS a URL, and only one page can answer one URL.
+        errors.publicFolderRows = tf("errFolderDupSlug", { slug: row.slug });
+        break;
+      }
+      seen.add(row.slug);
+      if ((row.description ?? "").length > FOLDER_DESC_MAX) {
+        errors.publicFolderRows = maxChars(FOLDER_DESC_MAX);
+        break;
+      }
+    }
+  }
   return errors;
 }
 
@@ -542,6 +627,174 @@ function TagLabelEditor({
         onClick={() => onChange([...rows, { tag: "", en: "", ar: "" }])}
       >
         {t("tagLabelsAdd")}
+      </button>
+    </div>
+  );
+}
+
+/** THE PUBLIC-FOLDERS TABLE.
+ *
+ *  A list of the owner's own collections: a glyph, a title, the slug that
+ *  becomes `/folder/<slug>`, one line of description, a hide switch, and the
+ *  two buttons that move a row. It is the same kind of control as the tag-label
+ *  table above and for the same reason — the values are a LIST the reader adds
+ *  to, reorders and deletes from, and a textarea of `slug | title | icon` lines
+ *  would be a syntax to learn on top of a feature to learn.
+ *
+ *  Four deliberate details:
+ *   · THE SLUG IS `dir="ltr"`, the title and description `dir="auto"`. A slug
+ *     is machine text — a URL segment and a frontmatter value — and must never
+ *     be reordered by an RTL panel; a title is prose in its own language.
+ *   · THE SLUG FILLS ITSELF FROM THE TITLE while it is still empty. The shared
+ *     TextInput has no `onBlur` (and growing one for a single row is worse
+ *     than doing this on change), so the suggestion runs as the title is
+ *     typed and stops the moment the reader touches the slug field — which is
+ *     also what makes an Arabic title leave the field empty rather than
+ *     filling it with hyphens.
+ *   · REORDER IS TWO BUTTONS, not a drag. The row order is the order the
+ *     folders appear in the nav and on the home band, and ↑/↓ is reachable
+ *     from a keyboard and from a finger with no gesture to discover.
+ *   · HIDE IS NOT DELETE. A hidden folder keeps its title, glyph, slug and
+ *     members and reaches no visitor — the lossless take-down NavItems have.
+ */
+function PublicFolderEditor({
+  rows,
+  disabled,
+  onChange,
+}: {
+  rows: PublicFolderRef[];
+  disabled: boolean;
+  onChange: (rows: PublicFolderRef[]) => void;
+}) {
+  const set = (i: number, patch: Partial<PublicFolderRef>): void => {
+    onChange(rows.map((row, n) => (n === i ? { ...row, ...patch } : row)));
+  };
+  const move = (i: number, delta: number): void => {
+    const to = i + delta;
+    if (to < 0 || to >= rows.length) return;
+    const next = [...rows];
+    const [row] = next.splice(i, 1);
+    next.splice(to, 0, row);
+    onChange(next);
+  };
+  const iconOptions = FOLDER_ICONS.map((icon) => ({
+    value: icon,
+    label: folderIconLabel(icon),
+  }));
+  return (
+    <div className="s-pfolders">
+      {rows.length === 0 ? (
+        <p className="s-pfolders__empty">{t("publicFoldersEmpty")}</p>
+      ) : (
+        rows.map((row, i) => (
+          <div className="s-pfolders__card" key={row.id}>
+            <div className="s-pfolders__main">
+              {/* The chosen glyph, drawn beside the list that names it: the
+                  Select renders text rows, and a folder mark that can only be
+                  read as the word "gamepad" is not a mark. */}
+              <span className="s-pfolders__glyph" aria-hidden="true">
+                <FolderGlyph icon={row.icon} size={18} />
+              </span>
+              <Select
+                label={t("publicFolderIcon")}
+                value={row.icon}
+                disabled={disabled}
+                options={iconOptions}
+                onChange={(v) => set(i, { icon: v as FolderIcon })}
+              />
+              <TextInput
+                value={row.title}
+                onChange={(v) =>
+                  set(i, {
+                    title: v,
+                    ...(row.slug.trim() === "" ? { slug: suggestSlug(v) } : {}),
+                  })
+                }
+                placeholder={t("publicFolderTitlePlaceholder")}
+                label={t("publicFolderTitle")}
+                disabled={disabled}
+                dir="auto"
+                maxLength={FOLDER_TITLE_MAX}
+              />
+              <TextInput
+                value={row.slug}
+                onChange={(v) => set(i, { slug: v })}
+                placeholder={t("publicFolderSlugPlaceholder")}
+                label={t("publicFolderSlug")}
+                disabled={disabled}
+                dir="ltr"
+                maxLength={FOLDER_SLUG_MAX}
+              />
+            </div>
+            <div className="s-pfolders__extra">
+              <TextInput
+                value={row.description ?? ""}
+                onChange={(v) => set(i, { description: v })}
+                placeholder={t("publicFolderDescPlaceholder")}
+                label={t("publicFolderDesc")}
+                disabled={disabled}
+                dir="auto"
+                maxLength={FOLDER_DESC_MAX}
+              />
+              <Toggle
+                label={t("publicFolderHidden")}
+                onLabel={t("publicFolderHidden")}
+                offLabel={t("publicFolderVisible")}
+                value={row.hidden === true}
+                disabled={disabled}
+                onChange={(on) => set(i, { hidden: on ? true : undefined })}
+              />
+              <button
+                type="button"
+                className="s-pfolders__move"
+                title={t("publicFolderUp")}
+                aria-label={t("publicFolderUp")}
+                disabled={disabled || i === 0}
+                onClick={() => move(i, -1)}
+              >
+                {/* Geometry, not a glyph: an SVG arrow takes no bidi and needs
+                    no mirroring rule (the tag table's ✕ makes the same call). */}
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+                  <path d="M8 12V4M4 8l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className="s-pfolders__move"
+                title={t("publicFolderDown")}
+                aria-label={t("publicFolderDown")}
+                disabled={disabled || i === rows.length - 1}
+                onClick={() => move(i, 1)}
+              >
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+                  <path d="M8 4v8M4 8l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className="s-pfolders__del"
+                title={t("publicFolderRemove")}
+                aria-label={t("publicFolderRemove")}
+                disabled={disabled}
+                onClick={() => onChange(rows.filter((_, n) => n !== i))}
+              >
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+                  <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        ))
+      )}
+      <button
+        type="button"
+        className="s-pfolders__add"
+        disabled={disabled || rows.length >= PUBLIC_FOLDERS_MAX}
+        onClick={() =>
+          onChange([...rows, { id: folderId(), slug: "", title: "", icon: "book" }])
+        }
+      >
+        {t("publicFolderAdd")}
       </button>
     </div>
   );
@@ -690,6 +943,26 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
   const nextLabels = labelMap(f.tagLabels);
   if (JSON.stringify(nextLabels) !== JSON.stringify(labelMap(initial.tagLabels))) {
     patch.tagLabels = Object.keys(nextLabels).length > 0 ? nextLabels : null;
+  }
+  // ── Public folders ───────────────────────────────────────────────────────
+  // The whole sub-object travels whenever any part of it moved: the three
+  // switches merge server-side, and the LIST is replaced whole (the tagLabels
+  // rule — the editor holds every row on screen, so a merging patch would make
+  // deleting one impossible). The list is sent even when the master switch is
+  // going OFF: turning the feature off is a take-down, not a delete.
+  const nextFolders = folderList(f.publicFolderRows);
+  if (
+    f.publicFoldersOn !== initial.publicFoldersOn ||
+    f.publicFoldersHome !== initial.publicFoldersHome ||
+    f.publicFoldersNav !== initial.publicFoldersNav ||
+    JSON.stringify(nextFolders) !== JSON.stringify(folderList(initial.publicFolderRows))
+  ) {
+    patch.publicFolders = {
+      enabled: f.publicFoldersOn === "on",
+      home: f.publicFoldersHome === "on",
+      nav: f.publicFoldersNav === "on",
+      folders: nextFolders.length > 0 ? nextFolders : null,
+    };
   }
   return patch;
 }
@@ -2082,6 +2355,10 @@ export default function SettingsModal() {
   /** The master switch is off: every control below it in Backup & sync is
    *  inert, and says so. */
   const syncOff = form?.syncEnabled !== "on";
+  /** The public-folders master switch is off: the table and the two placement
+   *  toggles are inert, and say so. Read from the FORM like `syncOff`, so
+   *  flipping the master lights the section up before the save. */
+  const foldersOff = form?.publicFoldersOn !== "on";
   /** settings.home.mode and the home banner are read by the BLOG shell only —
    *  server/auth.ts sends `me.home` inside `if (publicLayout() === "blog")`,
    *  and BlogDashboard mounts from BlogShell. PUBLIC_LAYOUT defaults to "app",
@@ -2693,6 +2970,71 @@ export default function SettingsModal() {
                         })}
                       </Consequence>
                     )}
+                  </Row>
+                  {/* ── CUSTOM PUBLIC FOLDERS ───────────────────────────
+                      ONE option with sub-options, the Backup tab's idiom: a
+                      master switch on its own row, then everything it governs
+                      `off` and `disabled` beneath it. The label is spelled out
+                      literally on its own line because scripts/settings-index
+                      parses this file AS TEXT (map-vault §2) — a label built
+                      from a variable is a row the settings search cannot find. */}
+                  <div className="s-smodal__sub">{t("groupPublicFolders")}</div>
+                  <p className="s-smodal__note">{t("publicFoldersNote")}</p>
+                  <Row label={t("rowPublicFolders")} hint={t("hintPublicFolders")}>
+                    <Toggle
+                      label={t("rowPublicFolders")}
+                      onLabel={t("on")}
+                      offLabel={t("off")}
+                      value={form.publicFoldersOn === "on"}
+                      onChange={(on) =>
+                        setForm((f) => (f ? { ...f, publicFoldersOn: on ? "on" : "off" } : f))
+                      }
+                    />
+                  </Row>
+                  {foldersOff && <p className="s-smodal__offnote">{t("publicFoldersOffNotice")}</p>}
+                  <Row
+                    label={t("rowPublicFoldersList")}
+                    hint={t("hintPublicFoldersList")}
+                    error={errors.publicFolderRows}
+                    off={foldersOff}
+                    wide
+                  >
+                    <PublicFolderEditor
+                      rows={form.publicFolderRows}
+                      disabled={foldersOff}
+                      onChange={(rows) =>
+                        setForm((f) => (f ? { ...f, publicFolderRows: rows } : f))
+                      }
+                    />
+                  </Row>
+                  {/* WHERE THE NOTES COME FROM, said once and in the place the
+                      question occurs: a table of folders with no members is a
+                      navigation to nothing, and nothing else on this panel
+                      explains that membership is declared in the note. */}
+                  <p className="s-smodal__offnote">{t("publicFoldersFrontmatter")}</p>
+                  <Row label={t("rowPublicFoldersHome")} hint={t("hintPublicFoldersHome")} off={foldersOff}>
+                    <Toggle
+                      label={t("rowPublicFoldersHome")}
+                      onLabel={t("on")}
+                      offLabel={t("off")}
+                      disabled={foldersOff}
+                      value={form.publicFoldersHome === "on"}
+                      onChange={(on) =>
+                        setForm((f) => (f ? { ...f, publicFoldersHome: on ? "on" : "off" } : f))
+                      }
+                    />
+                  </Row>
+                  <Row label={t("rowPublicFoldersNav")} hint={t("hintPublicFoldersNav")} off={foldersOff}>
+                    <Toggle
+                      label={t("rowPublicFoldersNav")}
+                      onLabel={t("on")}
+                      offLabel={t("off")}
+                      disabled={foldersOff}
+                      value={form.publicFoldersNav === "on"}
+                      onChange={(on) =>
+                        setForm((f) => (f ? { ...f, publicFoldersNav: on ? "on" : "off" } : f))
+                      }
+                    />
                   </Row>
                   <div className="s-smodal__sub">{t("groupHome")}</div>
                   <p className="s-smodal__note">{t("homeNote")}</p>

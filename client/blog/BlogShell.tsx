@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { stripBidiControls } from "../../shared/bidi.ts";
-import type { PostMeta } from "../../shared/types.ts";
+import type { PostMeta, PublicFolderCard } from "../../shared/types.ts";
 import { getNote, getPosts } from "../api.ts";
 import { useBannerSrc } from "../components/BannerImg.tsx";
 import { installHoverCards } from "../hovercard.ts";
@@ -21,6 +21,7 @@ import { choiceGroup, counterpartChoice } from "../themes.ts";
 import BackToTop from "./BackToTop.tsx";
 import BlogArticle from "./BlogArticle.tsx";
 import BlogDashboard from "./BlogDashboard.tsx";
+import BlogFolder from "./BlogFolder.tsx";
 import BlogHome from "./BlogHome.tsx";
 import BlogSearch from "./BlogSearch.tsx";
 import BlogSearchOverlay from "./BlogSearchOverlay.tsx";
@@ -38,9 +39,17 @@ function noteTitle(path: string): string {
   return stripBidiControls(noteTitleOf(path));
 }
 
+/** What the nav gets when the "show in navigation" sub-option is off. A shared
+ *  frozen array, not a fresh `[]`: NavTopics measures its row in a layout
+ *  effect keyed on this list, and a new identity per render would re-measure
+ *  the nav on every keystroke in the search box. */
+const NO_FOLDERS: PublicFolderCard[] = Object.freeze([]) as unknown as PublicFolderCard[];
+
 type Route =
   | { kind: "home" }
   | { kind: "topic"; tag: string }
+  // A PUBLIC FOLDER page — the owner's own collection (settings.publicFolders).
+  | { kind: "folder"; slug: string }
   | { kind: "article"; path: string }
   // A path the tree cannot answer, waiting on /api/note (see parseRoute).
   | { kind: "probe"; path: string }
@@ -61,6 +70,17 @@ function parseRoute(pathname: string): Route {
     try {
       const tag = decodeURIComponent(pathname.slice("/topic/".length)).replace(/\/+$/, "");
       if (tag !== "") return { kind: "topic", tag };
+    } catch {
+      // malformed percent-encoding — nothing to show
+    }
+  }
+  // Public folders sit AFTER the note check with the topics, under the same
+  // rule: a published note at `folder/games.md` keeps its own deep link, and
+  // only when nothing in the vault answers does /folder/ mean the collection.
+  if (pathname.startsWith("/folder/")) {
+    try {
+      const slug = decodeURIComponent(pathname.slice("/folder/".length)).replace(/\/+$/, "");
+      if (slug !== "") return { kind: "folder", slug };
     } catch {
       // malformed percent-encoding — nothing to show
     }
@@ -139,6 +159,11 @@ export default function BlogShell() {
   const languageFallback = useStore((s) => s.languageFallback);
   const tree = useStore((s) => s.tree);
   const homeMode = useStore((s) => s.home?.mode ?? "note");
+  // The owner's own collections. Read here rather than inside NavTopics so the
+  // document title can name one, and so the nav's measurement twin re-runs
+  // when the list changes (NavTopics.tsx:191-205 — the known trap).
+  const folders = useStore((s) => s.publicFolders);
+  const foldersInNav = useStore((s) => s.publicFoldersNav);
   const logo = useStore((s) => s.logo);
   // Same ladder as every other typed image reference (client/banner.ts): an
   // unresolvable value leaves the masthead on its wordmark rather than on a
@@ -245,7 +270,8 @@ export default function BlogShell() {
       const same =
         next.kind === r.kind &&
         (next.kind !== "article" || next.path === (r as { path: string }).path) &&
-        (next.kind !== "topic" || next.tag === (r as { tag: string }).tag);
+        (next.kind !== "topic" || next.tag === (r as { tag: string }).tag) &&
+        (next.kind !== "folder" || next.slug === (r as { slug: string }).slug);
       return same ? r : next;
     });
   }, [tree]);
@@ -276,10 +302,16 @@ export default function BlogShell() {
       document.title = `${title} · ${siteName}`;
     } else if (route.kind === "topic") {
       document.title = `${route.tag} · ${siteName}`;
+    } else if (route.kind === "folder") {
+      // The folder's TITLE, not its slug — the slug is an address and the
+      // title is what the owner called the room. An unknown slug has no title
+      // to print, so the address is the honest fallback.
+      const folder = folders.find((f) => f.slug === route.slug);
+      document.title = `${folder ? folder.title : route.slug} · ${siteName}`;
     } else {
       document.title = tagline ? `${siteName} — ${tagline}` : siteName;
     }
-  }, [route, siteName, tagline]);
+  }, [route, siteName, tagline, folders]);
 
   // Route change closes the burger row (NavTopics closes its own menu off the
   // routeKey below).
@@ -413,6 +445,8 @@ export default function BlogShell() {
           </button>
           <NavTopics
             topics={topics}
+            folders={foldersInNav ? folders : NO_FOLDERS}
+            activeFolder={route.kind === "folder" ? route.slug : null}
             activeTag={activeTag}
             isHome={route.kind === "home"}
             expandAll={menuOpen}
@@ -461,6 +495,8 @@ export default function BlogShell() {
           )
         ) : route.kind === "topic" ? (
           <BlogTopic tag={route.tag} posts={posts} locale={locale} />
+        ) : route.kind === "folder" ? (
+          <BlogFolder slug={route.slug} posts={posts} locale={locale} />
         ) : route.kind === "article" ? (
           <BlogArticle key={route.path} path={route.path} posts={posts} locale={locale} />
         ) : route.kind === "probe" ? null : (

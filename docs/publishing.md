@@ -82,6 +82,11 @@ Two settings can *narrow* what visitors see further, without unpublishing anythi
 surfaces, and the [language filter](arabic-and-rtl.md#language-filter) hides notes not written in
 a chosen language. Both are curation. `publish: false` is the switch with teeth.
 
+One frontmatter key *widens* rather than narrows: `folders:` names the
+[public folders](blog-mode.md#custom-public-folders) a published note belongs to — your own
+collections on the blog, beside the topics its tags create. It changes nothing about whether the
+note is published, and it is inert until you declare a folder with that address in Settings.
+
 ## Preview as visitor
 
 As the signed-in admin you can **preview as visitor** at any time — the eye icon in the status

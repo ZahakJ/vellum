@@ -173,6 +173,10 @@ export function applyUrl(initial = false): boolean {
     if (
       location.pathname !== "/" &&
       !location.pathname.startsWith("/topic/") &&
+      // …and public-folder pages, for the same reason: `/folder/games` is a
+      // blog-shell route, so an ADMIN who opens that URL must not have it
+      // probed as a note and reported missing.
+      !location.pathname.startsWith("/folder/") &&
       probeNote(location.pathname)
     ) {
       return true;

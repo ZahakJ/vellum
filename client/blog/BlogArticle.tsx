@@ -17,7 +17,7 @@ import { applyNoteLayoutTo } from "../textLayout.ts";
 import { notePathToUrl } from "../router.ts";
 import { useStore } from "../state.ts";
 import { toast } from "../toast.ts";
-import { TagChips } from "./PostList.tsx";
+import { FolderChips, TagChips } from "./PostList.tsx";
 import { formatDate, isRtlText, NavLink } from "./util.tsx";
 import { numberRendered } from "../reading/headingNumbers.ts";
 import "../reading/reading.css";
@@ -244,8 +244,13 @@ export default function BlogArticle({
       <div className="s-blog-article__body" ref={bodyRef} />
 
       <footer className="s-blog-article__foot">
-        {meta && meta.tags.length > 0 && (
+        {/* The piece's PLACE, then its subjects. A folder is the owner's own
+            shelf and a tag is the note's own word about itself, so the coarser
+            one leads — and the chips are visually distinct (a glyph where the
+            `#` sits), which is what stops the two runs reading as one. */}
+        {meta && ((meta.folders?.length ?? 0) > 0 || meta.tags.length > 0) && (
           <div className="s-blog-article__tags">
+            {meta.folders && meta.folders.length > 0 && <FolderChips slugs={meta.folders} />}
             <TagChips tags={meta.tags} />
           </div>
         )}

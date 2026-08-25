@@ -1,0 +1,163 @@
+/* The public-folders table in the settings panel (Publishing tab).
+ *
+ * Its own sheet rather than a block in settings.css for the reason
+ * localization.css next door gives: one feature, one file, imported by the one
+ * component that draws it — so a reader looking for "why does the folder row
+ * wrap at 700px" has one place to look.
+ *
+ * A folder is FOUR fields and four buttons, which is more than a settings row's
+ * two columns can hold on one line. So each folder is a small CARD of two
+ * lines: identity (glyph, icon list, title, slug) above, then the description
+ * and the row's own controls. Logical properties throughout — in Arabic the
+ * glyph leads on the right and the buttons trail on the left, with no rule of
+ * their own.
+ */
+
+.s-pfolders {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.s-pfolders__empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.s-pfolders__card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+.s-pfolders__main {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.s-pfolders__extra {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+/* The chosen mark, beside the list that names it. --text-muted rather than
+   --text-faint: it sits on --bg-raised beside four controls, and this glyph is
+   the one thing on the row that says which folder you are editing. */
+.s-pfolders__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 28px;
+  block-size: 28px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.s-pfolders__move,
+.s-pfolders__del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 28px;
+  block-size: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+
+/* SIZED IN CSS, not only by the svg's own attributes: the button is a flex
+   container, so the icon is a flex ITEM and was shrunk to 6×12 — an arrow
+   squashed to half its width reads as a stray tick. (The tag-label table's ✕
+   states the same rule for the same reason.) */
+.s-pfolders__move svg,
+.s-pfolders__del svg {
+  display: block;
+  flex: none;
+  inline-size: 12px;
+  block-size: 12px;
+}
+
+.s-pfolders__move:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.s-pfolders__del:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--bg-hover);
+}
+
+.s-pfolders__move:disabled,
+.s-pfolders__del:disabled,
+.s-pfolders__add:disabled {
+  cursor: default;
+  /* The row at the top of the list has nowhere to go, and a button that looks
+     live and does nothing is worse than one that says so. */
+  color: var(--text-faint);
+  border-color: var(--border);
+}
+
+.s-pfolders__add {
+  align-self: start;
+  margin-block-start: 2px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.s-pfolders__add:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Narrow, or any coarse pointer: the two grids become one column each and
+   every target clears the 44px floor the rest of the shell keeps. */
+@media (max-width: 700px), (pointer: coarse) {
+  .s-pfolders__main,
+  .s-pfolders__extra {
+    grid-template-columns: 1fr;
+  }
+  .s-pfolders__extra {
+    grid-auto-flow: row;
+  }
+  .s-pfolders__move,
+  .s-pfolders__del,
+  .s-pfolders__add {
+    min-block-size: 44px;
+    min-inline-size: 44px;
+  }
+  .s-pfolders__glyph {
+    inline-size: 32px;
+    block-size: 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-pfolders__move,
+  .s-pfolders__del,
+  .s-pfolders__add {
+    transition: none;
+  }
+}
