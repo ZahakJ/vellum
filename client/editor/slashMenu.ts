@@ -94,6 +94,25 @@ function slashItems(): SlashItem[] {
       apply: snippet("| ${Column 1} | Column 2 |\n| --- | --- |\n|  |  |"),
     },
     {
+      // A tracker sits above the task list on purpose: it is the row someone
+      // opens this menu hoping to find, and its skeleton is the documentation
+      // (the fence's keys are the fields, in the order the card reads them).
+      label: "Tracker",
+      displayLabel: "slashTracker",
+      detail: "```tracker",
+      boost: 6.5,
+      apply: snippet(
+        "```tracker\ntitle: ${Title}\nkind: ${book}\nprogress: ${0}/${100}\nstatus: ${active}\n```",
+      ),
+    },
+    {
+      label: "Tracker board",
+      displayLabel: "slashTrackerBoard",
+      detailKey: "slashTrackerBoardDetail",
+      boost: 6.4,
+      apply: snippet("```tracker-board\nstatus: ${active}\n```"),
+    },
+    {
       label: "Task list",
       displayLabel: "slashTaskList",
       detail: "- [ ]",

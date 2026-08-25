@@ -689,6 +689,27 @@ span.s-rv-math-live {
   white-space: pre-wrap;
 }
 
+/* ── Trackers: the box the card lands in ───────────────────────────────── */
+
+/* The tracker RENDERER and its stylesheet are a dynamic import (see
+   trackerBlock in render.ts), so these two rules — and only these two — stay
+   in the first-paint sheet. The pending box is the card's own outline at the
+   card's own height, so the swap moves nothing: an empty rectangle that grows
+   is worse than a placeholder that fits, and the reading column must not jump
+   under someone's eyes while they read the paragraph above it. */
+.s-rv-tracker-pending {
+  display: block;
+  margin-block: 1.2em;
+  min-block-size: 140px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+.s-rv-tracker-host {
+  display: contents;
+}
+
 /* ── Footnotes ─────────────────────────────────────────────────────────── */
 
 .s-rv-fnref a {

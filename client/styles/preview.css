@@ -424,6 +424,49 @@
   height: auto;
 }
 
+/* ── Trackers (```tracker / ```tracker-board block widgets) ────────────── */
+
+/* The card itself is drawn by the READING renderer and styled entirely by
+   client/reading/tracker.css — this wrapper only gives the block widget its
+   air. Padding rather than margin for .cm-s-htmlblock's reason: CodeMirror
+   sizes a block widget by its border box, and a collapsing margin is height
+   the height map never hears about. */
+.s-editor .cm-s-tracker {
+  padding: 0.2em 0;
+  max-width: 100%;
+}
+
+/* Inside the editor the card's own outer margin is doubled up with the
+   padding above; the reading view and the blog keep theirs. The placeholder
+   below is in this list too — a box with margins the card it becomes does not
+   have is a jump at the moment of the swap, which is precisely what the
+   placeholder exists to prevent. */
+.s-editor .cm-s-tracker .s-rv-tracker,
+.s-editor .cm-s-tracker .s-rv-board,
+.s-editor .cm-s-tracker .s-rv-tracker-pending {
+  margin-block: 0;
+}
+
+/* The box the card lands in, restated for THIS surface — deliberately at the
+   same specificity and with identical declarations to its twin in reading.css,
+   so whichever sheet a surface has loaded, the box is the same box.
+   reading.css travels with the reading view and the blog article, not with the
+   editor (the same reason tables.css exists), and without these rules the
+   editor's placeholder would be a zero-height box whose card then shoves the
+   document down under the caret. */
+.s-rv-tracker-pending {
+  display: block;
+  margin-block: 1.2em;
+  min-block-size: 140px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+.s-rv-tracker-host {
+  display: contents;
+}
+
 /* ── Empty-note placeholder ────────────────────────────────────────────── */
 
 .s-editor .cm-placeholder {

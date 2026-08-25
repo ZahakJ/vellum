@@ -36,6 +36,10 @@ import {
   calloutGroup,
   calloutIconSvg,
 } from "../editor/calloutDefs.ts";
+import { parseBoard, parseTracker } from "../../shared/tracker.ts";
+// The DRAWING half is loaded on demand (see trackerBlock); only its types are
+// imported here, and types are erased.
+import type { TrackerHooks } from "./tracker.ts";
 
 /** "rtl" or "ltr" from the first strongly directional character, null when
  *  the text has none (digits, punctuation, an empty quote). The same test the
@@ -709,6 +713,69 @@ function propsCard(yaml: string): HTMLElement | null {
   });
 }
 
+// ── Trackers (```tracker, ```tracker-board) ─────────────────────────────────
+
+/** One tracker fence, drawn — or null when the body parses to nothing and the
+ *  caller should fall back to a plain code block.
+ *
+ *  THE DECISION IS SYNCHRONOUS; THE DRAWING IS NOT. Whether this fence is a
+ *  card at all has to be settled here and now, or an unparseable body would
+ *  paint a card and then turn back into a code block in front of the reader —
+ *  so the PARSER (shared/tracker.ts, small and shared with the indexer) is a
+ *  static import. The renderer and its stylesheet are 14 kB that only a note
+ *  with a tracker in it needs, and most notes have none, so they arrive
+ *  through a dynamic import into a host element that is already in the tree.
+ *  This is the shape KaTeX already has here (`s-rv-math-pending` → hydrateMath)
+ *  and it is what keeps the anonymous blog reader's budget where it is.
+ *
+ *  The author's `notes:` are rendered HERE rather than inside tracker.ts,
+ *  which is what keeps that module free of the markdown pipeline: it draws a
+ *  card, it does not parse prose. */
+function trackerBlock(
+  lang: string,
+  src: string,
+  ctx: Ctx,
+  hooks?: Partial<TrackerHooks>,
+): HTMLElement | null {
+  const host = document.createElement("div");
+  // The host is the card's own box while the module is in flight, so the
+  // swap costs no layout jump — and `onResize` fires after it either way,
+  // because the editor's height map has to hear about the real height.
+  host.className = "s-rv-tracker-pending";
+  const mount = (card: HTMLElement): void => {
+    host.className = "s-rv-tracker-host";
+    host.replaceChildren(card);
+    hooks?.onResize?.();
+  };
+  if (lang === "tracker-board") {
+    const filter = parseBoard(src);
+    void import("./tracker.ts").then((mod) => {
+      mount(mod.renderTrackerBoard(filter, { notePath: ctx.notePath, ...hooks }));
+    });
+    return host;
+  }
+  const tracker = parseTracker(src);
+  if (!tracker) return null;
+  const notesHtml = tracker.notes === null ? undefined : renderInline(tracker.notes, ctx, true);
+  void import("./tracker.ts").then((mod) => {
+    mount(mod.renderTrackerCard(tracker, { notePath: ctx.notePath, notesHtml, ...hooks }));
+  });
+  return host;
+}
+
+/** The editor's live-preview widget draws its tracker through THIS — the same
+ *  entry the reading view's fence branch takes, one function later. The card
+ *  in the editor and the card on the blog are the same card, which is the rule
+ *  tables.ts wrote down (CONTRACTS: "One renderer, four surfaces"). */
+export function renderTrackerFence(
+  lang: "tracker" | "tracker-board",
+  src: string,
+  opts: RenderOptions,
+  hooks: Partial<TrackerHooks>,
+): HTMLElement | null {
+  return trackerBlock(lang, src, makeCtx(opts), hooks);
+}
+
 // ── Block renderer ──────────────────────────────────────────────────────────
 
 function renderBlocks(lines: string[], ctx: Ctx, root: HTMLElement): void {
@@ -734,6 +801,18 @@ function renderBlocks(lines: string[], ctx: Ctx, root: HTMLElement): void {
         i++;
       }
       i++; // past the closing fence (or the end)
+      // ```tracker / ```tracker-board — the first fence languages with a
+      // rendering of their own (shared/tracker.ts is the model). A tracker
+      // whose body parses to nothing falls through to the plain code block
+      // below, which is the $$-math rule: unparseable content must read as
+      // its own source rather than disappear into an empty card.
+      if (lang === "tracker" || lang === "tracker-board") {
+        const block = trackerBlock(lang, buf.join("\n"), ctx);
+        if (block) {
+          root.appendChild(block);
+          continue;
+        }
+      }
       const pre = document.createElement("pre");
       pre.className = "s-rv-pre";
       const code = document.createElement("code");
@@ -1175,9 +1254,11 @@ export function onRootClick(ev: MouseEvent): void {
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
-/** Render a whole note to a detached element tree (class "s-rv"). */
-export function renderMarkdown(md: string, opts: RenderOptions): HTMLElement {
-  const ctx: Ctx = {
+/** The render context every entry point starts from. Factored out because the
+ *  tracker fence has a second door (renderTrackerFence, for the editor widget)
+ *  and two hand-built contexts would drift on the next field added to Ctx. */
+function makeCtx(opts: RenderOptions): Ctx {
+  return {
     ...opts,
     depth: opts.embedded ? 1 : 0,
     ancestors: new Set([...(opts.ancestors ?? []), opts.notePath]),
@@ -1185,6 +1266,11 @@ export function renderMarkdown(md: string, opts: RenderOptions): HTMLElement {
     footnotes: [],
     assignIds: !opts.embedded,
   };
+}
+
+/** Render a whole note to a detached element tree (class "s-rv"). */
+export function renderMarkdown(md: string, opts: RenderOptions): HTMLElement {
+  const ctx = makeCtx(opts);
   const root = document.createElement("div");
   root.className = "s-rv";
   renderNote(md, ctx, root);

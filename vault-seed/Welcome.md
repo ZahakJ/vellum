@@ -22,6 +22,7 @@ way your own notes eventually will:
 - [[Graph View]] — your vault as a constellation
 - [[Search & Tags]] — full-text search and #tags
 - [[Embeds & Transclusion]] — pull images, PDFs, and whole notes into a note
+- [[Trackers]] — a progress card for anything you are part-way through
 - [[Command Palette]] — do everything from the keyboard
 - [[Hosting Your Own Vault]] — point Vellum at your real notes
 

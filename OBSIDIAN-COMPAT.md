@@ -45,6 +45,14 @@ config dir (must be ignored everywhere: tree, index, graph, watcher).
   as a client-side renderer sharing the resolve logic. Reading view is the default for
   non-admin visitors (see C1).
 
+- **Trackers are a Vellum extension, and they degrade honestly.** A ` ```tracker ` fence renders
+  as a progress card here (see [docs/trackers.md](docs/trackers.md)); opened in Obsidian, the same
+  note shows a labelled code block whose every line is readable — `title: Elden Ring`,
+  `progress: 62/130`. Nothing is converted and nothing is hidden, which is the same bargain
+  templates make (`client/templates.ts`): a feature the other app does not have must leave the
+  file saying exactly what it said. The same is true of ` ```tracker-board `, which degrades to
+  its own (usually empty) fence.
+
 ## B3. Obsidian niceties
 
 - Daily note command (palette + Ctrl/Cmd+D): opens/creates `daily/YYYY-MM-DD.md`.

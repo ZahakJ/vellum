@@ -52,6 +52,8 @@ import {
   findCallouts,
 } from "./callouts.ts";
 import { blockMathDecos, inlineMathDecos } from "./math.ts";
+import { trackerBlockDeco, trackerFenceSpan } from "./tracker.ts";
+import { trackerFenceKind } from "../../shared/tracker.ts";
 import { sanitizeHtml, sanitizeStyle } from "../reading/rawHtml.ts";
 import { isNotePath } from "../../shared/noteFormat.ts";
 
@@ -330,10 +332,24 @@ function buildDecorations(view: EditorView, revealActive: boolean): DecorationSe
             }
             return;
           case "FencedCode":
-          case "CodeBlock":
-            lineClass(node.from, node.to, "cm-s-codeblock");
+          case "CodeBlock": {
+            // A tracker fence with the caret outside it is REPLACED by a card
+            // (blockHiding, below), so painting its lines as a code block
+            // would be dressing lines nobody sees — and the moment the caret
+            // lands inside, the fence is source again and gets the class like
+            // any other. The codeSpans push stays either way: whatever the
+            // block looks like, its contents are code and inline scans
+            // (`#tags`, `[[links]]`, `==marks==`) must not run inside it.
+            const first = doc.lineAt(node.from).number;
+            const last = doc.lineAt(node.to).number;
+            let replaced = trackerFenceKind(doc.line(first).text) !== null;
+            for (let n = first; replaced && n <= last; n++) {
+              if (active.has(n)) replaced = false;
+            }
+            if (!replaced) lineClass(node.from, node.to, "cm-s-codeblock");
             codeSpans.push({ from: node.from, to: node.to });
             return;
+          }
 
           case "Blockquote":
             if (calloutStarts.has(node.from)) return; // callouts style themselves
@@ -1094,6 +1110,19 @@ function buildBlockDecorations(state: EditorState): DecorationSet {
       const lastLine = doc.lineAt(node.to).number;
       if (anyActiveBetween(firstLine, lastLine)) return false;
       const open = doc.line(firstLine);
+      // ```tracker / ```tracker-board: ONE block replace over the whole fence,
+      // markers included, carrying the reading renderer's card — instead of
+      // the two marker replaces below. A body that parses to nothing answers
+      // null and falls through to them, so an unfinished fence still reads as
+      // its own source.
+      const span = trackerFenceSpan(state, firstLine, lastLine);
+      if (span) {
+        const deco = trackerBlockDeco(state, span, notePath);
+        if (deco) {
+          decos.push(deco);
+          return false;
+        }
+      }
       if (/^\s*(```|~~~)/.test(open.text)) {
         decos.push(Decoration.replace({ block: true }).range(open.from, open.to));
       }

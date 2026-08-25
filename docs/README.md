@@ -20,6 +20,7 @@
 | [The editor & reading view](editor.md) | Live preview, wikilinks, selection, rendering, navigation |
 | [Templates, banners & notes](templates-and-notes.md) | `banner:`, Obsidian-compatible templates, sections, attachments, trash |
 | [LaTeX notes](latex.md) | `.tex` as a first-class note, `vellum.sty`, and exactly what renders |
+| [Trackers](trackers.md) | The `tracker` fence, the board, and what a visitor sees of your shelf |
 | [Keymap](keymap.md) | Every binding, and why the awkward ones are where they are |
 
 ## Publishing
