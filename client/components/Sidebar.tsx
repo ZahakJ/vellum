@@ -2,14 +2,14 @@
 // full-text search with <mark> snippets, and a tag list. Inline rename via
 // double-click; context menu for new note / new folder / rename / delete.
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   DragEvent as ReactDragEvent,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
 } from "react";
 import type { AttachmentKind, SearchHit, SearchMatch, TagCount, TreeNode } from "../../shared/types.ts";
-import { getGraph, getTags, search, searchMatches } from "../api.ts";
+import { getGraph, getTags, patchSettings, search, searchMatches } from "../api.ts";
 import {
   dragFileCount,
   dragHasFiles,
@@ -58,6 +58,15 @@ import {
   confirmDeleteNote,
 } from "./deleteFlow.ts";
 import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
+// Per-folder glyphs. The MARK is static — it paints on the tree's first frame,
+// so it has to be in this chunk. The PICKER is not: it opens from a context
+// menu, which is interaction time, and a lazy() boundary is what keeps its
+// twenty labels and its popover out of the admin first paint that
+// check-bundle measures (the same argument client/landing.ts makes above).
+import FolderGlyph from "./FolderGlyph.tsx";
+import type { IconPickState } from "./FolderIconPicker.tsx";
+import type { FolderIcon } from "../../shared/folderIcons.ts";
+import { toast } from "../toast.ts";
 import "../styles/move.css";
 import { isNotePath, noteLabelOf } from "../../shared/noteFormat.ts";
 
@@ -86,6 +95,11 @@ function loadShowAttachments(): boolean {
 
 /** Margin the context menu keeps from every viewport edge. */
 const MENU_EDGE = 8;
+
+// Mount-gated on `iconPick`, with its own <Suspense> — the App.tsx rule: a
+// boundary tears down everything under it, and this one wraps nothing but the
+// popover, so the tree behind it never blinks while the chunk lands.
+const FolderIconPicker = lazy(() => import("./FolderIconPicker.tsx"));
 
 // How long a collapsed folder has to be hovered, mid-drag, before it opens —
 // "spring-loaded folders", the thing that makes a deep destination reachable
@@ -490,6 +504,8 @@ export default function Sidebar() {
   const [tagCursor, setTagCursor] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  /** The open folder-icon popover (feature A). Null = closed. */
+  const [iconPick, setIconPick] = useState<IconPickState | null>(null);
   const [showAttachments, setShowAttachments] = useState(loadShowAttachments);
   // The open lightbox: the viewable attachments of ONE folder plus the
   // position inside it, so ← / → walk that folder and nothing else.
@@ -743,6 +759,27 @@ export default function Sidebar() {
       window.removeEventListener("keydown", onKey, true);
     };
   }, [menu]);
+
+  // Pick (or clear) a folder's glyph. The map is REPLACED whole, which is what
+  // makes "no icon" possible at all — a merging PATCH could add a key but
+  // never remove one, so the cleared folder's mark would come back on the next
+  // read. The store is updated from the server's own answer rather than
+  // optimistically: this is one small PATCH on an explicit click, and a row
+  // that shows a glyph the disk does not have is the worse failure.
+  const chooseFolderIcon = useCallback((path: string, icon: FolderIcon | null) => {
+    setIconPick(null);
+    const next: Record<string, FolderIcon> = { ...useStore.getState().folderIcons };
+    if (icon === null) delete next[path];
+    else next[path] = icon;
+    void (async () => {
+      try {
+        const saved = await patchSettings({ folderIcons: next });
+        useStore.getState().setFolderIcons(saved.effective.folderIcons);
+      } catch {
+        toast(t("folderIconFailed"), "error");
+      }
+    })();
+  }, []);
 
   const commitRename = useCallback((node: TreeNode, rawName: string) => {
     setRenaming(null);
@@ -1686,6 +1723,34 @@ export default function Sidebar() {
               {t("rename")}
             </button>
           )}
+          {/* A folder's own property, edited at the folder — beside Rename,
+              which is the other verb that belongs to this row rather than to
+              the instance. Never the vault ROOT: its key would be the empty
+              path, which is not a folder anything can be keyed by. Notes and
+              attachments never get one (DESIGN.md's no-icon-clutter rule for
+              files stands; only folders were exempted). */}
+          {menu.node.type === "folder" && menu.node.path !== "" && (
+            <button
+              type="button"
+              className="s-menu__item"
+              role="menuitem"
+              onClick={() => {
+                const node = menu.node;
+                const fromKeyboard = menu.fromKeyboard === true;
+                setMenu(null);
+                setIconPick({
+                  path: node.path,
+                  name: node.name,
+                  current: useStore.getState().folderIcons[node.path] ?? null,
+                  x: menu.x,
+                  y: menu.y,
+                  fromKeyboard,
+                });
+              }}
+            >
+              {t("folderIcon")}
+            </button>
+          )}
           {/* The keyboard and touch route to the same operation the drag
               performs. It is not a convenience: HTML5 drag does not exist on a
               touch screen and cannot be reached from the keyboard at all, so
@@ -1768,6 +1833,21 @@ export default function Sidebar() {
             </button>
           )}
         </div>
+      )}
+
+      {iconPick && (
+        <Suspense fallback={null}>
+          <FolderIconPicker
+            state={iconPick}
+            onPick={(icon) => chooseFolderIcon(iconPick.path, icon)}
+            onClose={() => {
+              // Same courtesy the context menu does: a popover a keyboard
+              // reader opened must put them back on the tree, not on <body>.
+              if (iconPick.fromKeyboard) treeRef.current?.focus();
+              setIconPick(null);
+            }}
+          />
+        </Suspense>
       )}
 
       {viewer && (
@@ -1984,6 +2064,12 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
     (s) => node.type === "file" && (s.publishedPaths?.has(node.path) ?? false),
   );
   const isFolder = node.type === "folder";
+  // MEMO DISCIPLINE. The selector returns a STRING or undefined, never the map
+  // — 1.4k rows subscribing to an object identity would each re-render on
+  // every /api/me, and a selector that built `{ icon }` per call would
+  // re-render on every store change of any kind. Read here rather than
+  // threaded from Sidebar so an icon change repaints one row.
+  const folderIcon = useStore((s) => (node.type === "folder" ? s.folderIcons[node.path] : undefined));
   const attachment = node.attachment;
   const [isOpen, setIsOpen] = useState(
     () => isFolder && (expandedMap.get(node.path) ?? defaultOpen(depth)),
@@ -2238,6 +2324,18 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
             aria-hidden="true"
           >
             ›
+          </span>
+        )}
+        {/* The folder's own mark, in the attachment glyph's slot and at its
+            size: chevron, glyph, name. A folder without one is not padded to
+            match — the glyph sits in the row's flex flow, so unmarked folders
+            keep the alignment they have always had and marked ones step in by
+            one slot. That is the same mixed-row look the attachment rows
+            already have under their notes, and it is what makes the mark read
+            as a mark rather than as a column. */}
+        {isFolder && folderIcon && (
+          <span className="s-tree__glyph">
+            <FolderGlyph icon={folderIcon} />
           </span>
         )}
         {attachment && <AttachmentGlyph kind={attachment.kind} />}

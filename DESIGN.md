@@ -58,6 +58,16 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 - Tree: 13px UI font, 26px row height (44px on a coarse pointer), rows full-width hover --bg-hover rounded 4px, 8px left pad
   per depth. Folders: chevron (▸ rotates 90° when open, 150ms) + name; files: no icon clutter —
   just the name minus `.md`; active note row: --accent-soft bg + --accent 2px left bar. Smooth.
+- **A folder MAY carry one 14px glyph, and a file never may.** The owner assigns it from the
+  folder's own context menu ("Folder icon"), out of a closed set of twenty (shared/folderIcons.ts)
+  — the shape of the thing, currentColor, the tree's own stroke. It sits in the attachment
+  glyph's slot, between the chevron and the name, at --text-faint full opacity, --accent on
+  hover. Unmarked folders are not padded to match: the mark steps its row in by one slot, the
+  way an attachment row already sits under its notes. The no-icon-clutter rule above is
+  unchanged for FILES — a vault has hundreds of notes and a dozen folders, and a mark that
+  everything wears is not a mark. Marks are stored in settings.json (`folderIcons`, keyed by
+  folder path, re-keyed by the server when a folder is renamed or moved) and reach only admin
+  sessions, because a visitor's sidebar has no folders in it at all.
 - Attachments (non-`.md` files) sit under a folder's notes with a 14px type glyph in the
   chevron's slot and their extension kept in the label; notes keep the no-icon rule above. The
   row reads at --text-muted like a note row (--text on hover): a FILENAME is text, and the

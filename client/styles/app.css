@@ -777,6 +777,26 @@ select:focus,
   }
 }
 
+/* --------------------------------------------------- folder glyphs (A) -- */
+
+/* A folder may wear ONE mark from the closed set in shared/folderIcons.ts.
+   The mark reuses `.s-tree__glyph` (attachments.css:38-48) rather than getting
+   a box of its own — the metrics of the tree's icon slot are already decided,
+   and a second 16px inline-flex rule would be the same rule twice. What is new
+   is the hover: attachments.css lights the glyph on `--att` rows only, and a
+   folder row is not one. Full-token `--text-faint` at rest, no opacity fade —
+   the composited value is invisible to a token-reading contrast gate and
+   lands under the 3:1 non-text floor. */
+.s-tree__item--folder:hover .s-tree__glyph {
+  color: var(--accent);
+}
+
+/* The PICKER's own styles are not here: they live in styles/foldericons.css,
+   which FolderIconPicker.tsx imports, so they travel with the lazy chunk that
+   popover is in. app.css is in the entry closure that every session downloads,
+   an anonymous blog reader included — 1.4 kB of rules for a control only an
+   admin can open, and only by right-clicking a folder, does not belong there. */
+
 /* ----------------------------------------------------------------- tabs -- */
 
 /* THE NOTE SITS EVENLY BETWEEN WHATEVER BOUNDS IT — in every fold state.

@@ -1,0 +1,124 @@
+/* The folder-icon picker (feature A) — the popover the tree's context menu
+ * opens on "Folder icon".
+ *
+ * ITS OWN SHEET, and that is a bundle decision. app.css is in the entry
+ * closure every session downloads, blog readers included; these rules style a
+ * control that only an admin can open, and only by right-clicking a folder.
+ * FolderIconPicker.tsx imports this file and Sidebar.tsx reaches that
+ * component through lazy(), so the CSS travels with the chunk — the same
+ * arrangement attachments.css and move.css already have.
+ *
+ * The MARK a folder wears is not styled here: it reuses `.s-tree__glyph`
+ * (attachments.css) and its hover lives in app.css beside the rest of the
+ * tree, because that one paints on the first frame.
+ */
+
+/* The picker: a small anchored popover, opened from the folder's context menu
+   and painted on the same terms (bg-raised over a hairline, the menu's own
+   elevation shadow and pop-in). Not a modal — the row it is about has to stay
+   readable behind it. */
+.s-tree-iconpick {
+  position: fixed;
+  z-index: 300;
+  padding: 8px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  /* The shell's one elevation idiom: a black-alpha drop, not a token. Every
+     raised surface here uses it (.s-menu, .s-modal, .s-skip) because a shadow
+     is depth rather than colour and must read the same in all fifteen themes. */
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
+  animation: s-pop-in 0.12s ease;
+}
+
+/* The folder being marked, said out loud: the popover can sit far from its
+   row, and twenty glyphs with no subject is a quiz. */
+.s-tree-iconpick__title {
+  max-inline-size: 180px;
+  padding-inline: 3px;
+  padding-block-end: 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.786rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.s-tree-iconpick__grid {
+  display: grid;
+  grid-template-columns: repeat(5, 32px);
+  gap: 3px;
+}
+
+.s-tree-iconpick__cell {
+  inline-size: 32px;
+  block-size: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+
+.s-tree-iconpick__cell:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* The current choice: soft ground plus a ring, so it survives beside a hover
+   on a neighbour instead of the two reading as the same state. */
+.s-tree-iconpick__cell--on,
+.s-tree-iconpick__cell--on:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* "No icon" is a full-width row under a hairline, not a twenty-first glyph:
+   clearing a mark is a different KIND of act from choosing one, and an empty
+   cell in a grid of drawings is a riddle. */
+.s-tree-iconpick__cell--none {
+  grid-column: 1 / -1;
+  inline-size: auto;
+  block-size: auto;
+  min-block-size: 28px;
+  margin-block-start: 5px;
+  padding-block-start: 7px;
+  border-block-start: 1px solid var(--border);
+  border-radius: 0;
+  font-size: 0.857rem;
+  color: var(--text-muted);
+}
+
+.s-tree-iconpick__cell--none.s-tree-iconpick__cell--on,
+.s-tree-iconpick__cell--none.s-tree-iconpick__cell--on:hover {
+  /* The ring belongs to a square cell; on the wide row it would draw a box
+     around the hairline as well. The soft ground alone says "current". */
+  box-shadow: none;
+  color: var(--accent);
+}
+
+/* The shell's promise: every target is ≥44px on a coarse pointer. A grid of
+   32px squares is exactly the half-promise the context menu's 33.6px rows
+   were before their own rule went in above. */
+@media (pointer: coarse) {
+  .s-tree-iconpick__grid {
+    grid-template-columns: repeat(5, 44px);
+    gap: 4px;
+  }
+
+  .s-tree-iconpick__cell {
+    inline-size: 44px;
+    block-size: 44px;
+  }
+
+  .s-tree-iconpick__cell--none {
+    inline-size: auto;
+    block-size: auto;
+    min-block-size: 44px;
+  }
+}
+

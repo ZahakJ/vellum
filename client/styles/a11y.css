@@ -73,6 +73,10 @@
 .s-tree__item:focus-visible,
 .s-tab:focus-visible,
 .s-menu__item:focus-visible,
+/* The folder-icon grid is a roving tab stop: exactly one cell is reachable by
+   Tab and the arrows move it, so the ring is the ONLY thing telling a keyboard
+   reader which of twenty-one glyphs is about to be chosen. */
+.s-tree-iconpick__cell:focus-visible,
 .s-toc__item:focus-visible,
 .s-backlink:focus-visible,
 .s-search-hit:focus-visible,
