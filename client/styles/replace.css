@@ -1,0 +1,413 @@
+/* ── Search & replace, and the operator card ────────────────────────────────
+   Both live under the sidebar's search box, so both borrow its grammar: the
+   raised field, the 8px gutter the results list uses, the hairline separators
+   the whole shell is built from — never a `·`.
+
+   The panel REPLACES the results list rather than stacking under it. A dry run
+   of four hundred lines squeezed below a tree and above a tag cloud is a dry
+   run nobody reads, and reading it is the entire point of the feature.
+
+   Every colour is a token and every edge is logical, so the whole thing mirrors
+   in Arabic. The one deliberately non-logical thing is the `dir="ltr"` on an
+   operator example in the card: `tag:recipes` is ASCII in both languages.
+
+   Coarse pointers get 44px on every target here — the checkboxes included,
+   which is what makes the per-line selection usable at all with a thumb. */
+
+.s-replace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 8px 8px;
+  overflow: hidden;
+}
+
+.s-replace__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 6px;
+}
+
+.s-replace__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 0.929rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.s-replace__field {
+  display: block;
+  padding: 0 4px 6px;
+}
+
+.s-replace__label {
+  display: block;
+  font-size: 0.786rem;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+}
+
+.s-replace__input {
+  width: 100%;
+  background: var(--bg);
+}
+
+.s-replace__opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 2px 4px 6px;
+}
+
+.s-replace__opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.786rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.s-replace__opt:hover {
+  color: var(--text);
+}
+
+.s-replace__opt input {
+  accent-color: var(--accent);
+}
+
+/* The rule the tool stands on, and the scope sentence under it. Muted, not
+   faint: this is text a reader has to READ before pressing the button, and
+   --text-faint is a non-text token. */
+.s-replace__rule {
+  margin: 0 4px 4px;
+  font-size: 0.786rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.s-replace__bulk {
+  display: flex;
+  gap: 12px;
+  padding: 0 4px 4px;
+}
+
+.s-replace__bulkbtn {
+  font-size: 0.714rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.s-replace__bulkbtn:hover {
+  color: var(--accent);
+}
+
+.s-replace__results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+
+.s-replace__none {
+  margin: 10px 4px;
+  font-size: 0.857rem;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+.s-replace__warn {
+  margin: 6px 4px;
+  font-size: 0.786rem;
+  line-height: 1.5;
+  color: var(--danger);
+}
+
+.s-replace-file {
+  border-radius: var(--radius);
+  margin-bottom: 2px;
+}
+
+.s-replace-file__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: var(--radius);
+}
+
+.s-replace-file__head:hover {
+  background: var(--bg-hover);
+}
+
+.s-replace-file__pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.s-replace-file__pick input {
+  accent-color: var(--accent);
+  flex: none;
+}
+
+.s-replace-file__path {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.857rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The count is the disclosure: it says how many and opens the lines. */
+.s-replace-file__count {
+  flex: none;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  font-size: 0.714rem;
+  color: var(--text-muted);
+}
+
+.s-replace-file__count:hover {
+  color: var(--accent);
+}
+
+.s-replace-file__lines {
+  padding: 2px 0 6px;
+  margin-inline-start: 20px;
+  border-inline-start: 1px solid var(--border);
+}
+
+.s-replace-file__more {
+  margin: 4px 0 0 8px;
+  font-size: 0.714rem;
+  color: var(--text-muted);
+}
+
+.s-replace-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.s-replace-line:hover {
+  background: var(--bg-hover);
+}
+
+.s-replace-line input {
+  accent-color: var(--accent);
+  flex: none;
+  margin-top: 2px;
+}
+
+.s-replace-line__no {
+  flex: none;
+  min-width: 20px;
+  text-align: end;
+  font-size: 0.714rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.s-replace-line__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-family: var(--font-mono);
+  font-size: 0.714rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* BEFORE is what leaves, AFTER is what lands. The pair reads top-to-bottom in
+   both directions, so nothing here depends on which way the script runs. */
+.s-replace-line__before {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--danger);
+}
+
+.s-replace-line__after {
+  color: var(--text);
+}
+
+.s-replace__foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.s-replace__summary {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.786rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-replace__run {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 0.857rem;
+  cursor: pointer;
+}
+
+.s-replace__run:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.s-replace__run:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── the operator card ───────────────────────────────────────────────────── */
+
+.s-searchhelp {
+  position: absolute;
+  inset-inline: 8px;
+  z-index: 60;
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 35%);
+}
+
+.s-searchhelp__title {
+  margin: 0 0 8px;
+  font-size: 0.714rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.s-searchhelp__rows {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.s-searchhelp__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.s-searchhelp__ex {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.714rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.s-searchhelp__what {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.714rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.s-searchhelp__note {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.714rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.s-searchhelp__note + .s-searchhelp__note {
+  padding-top: 4px;
+  border-top: none;
+}
+
+@media (max-width: 700px), (pointer: coarse) {
+  /* ON A PHONE THE WHOLE PANEL SCROLLS, not a box inside it. Two fields, two
+     checkboxes and two rule sentences are most of a 390px drawer, so a results
+     list with its own scrollport gets one row of height and the dry run — the
+     entire point of the tool — becomes unreadable at exactly the size where a
+     misfire is hardest to notice. One column, one scroll. */
+  .s-replace {
+    overflow-y: auto;
+  }
+
+  .s-replace__results {
+    flex: none;
+    min-height: 0;
+    overflow-y: visible;
+  }
+
+  /* The button follows the list rather than pinning over it: a sticky footer
+     inside a drawer that is itself the scrollport just covers the last row. */
+  .s-replace__foot {
+    flex-wrap: wrap;
+  }
+
+  /* A dry run is reviewed with a thumb exactly when it matters most. */
+  .s-replace__opt,
+  .s-replace-file__head,
+  .s-replace-line,
+  .s-replace__bulkbtn {
+    min-height: 44px;
+  }
+
+  .s-replace__opt input,
+  .s-replace-file__pick input,
+  .s-replace-line input {
+    width: 22px;
+    height: 22px;
+  }
+
+  .s-replace-file__count {
+    min-width: 44px;
+    height: 44px;
+    border-radius: var(--radius);
+  }
+
+  .s-replace__run {
+    min-height: 44px;
+  }
+
+  .s-replace__close {
+    width: 44px;
+    height: 44px;
+  }
+}

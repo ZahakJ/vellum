@@ -27,6 +27,11 @@ import type {
   NoteData,
   NoteState,
   NoteStatesResponse,
+  NoteWriteResult,
+  PropertyValue,
+  TagRenamePreview,
+  ReplaceResult,
+  TagRenameResult,
   PublicThemeInfo,
   PublishedPaths,
   PublishResult,
@@ -69,10 +74,13 @@ import {
   notesAffectedByFolderMove,
   notesLinkingTo,
   notesReferencing,
+  notesWithTag,
+  resolveLink,
   posts,
   publishedNotes,
   publishedPaths,
   registerAttachment,
+  replaceCandidates,
   resolveBannerRef,
   resolveCitekey,
   resolveEmbed,
@@ -91,10 +99,27 @@ import { invalidateTree, treeBody } from "./treeCache.ts";
 import { designRoutes } from "./designRoutes.ts";
 import { bookRoutes } from "./bookRoutes.ts";
 import { staticPagesActive } from "./pages.ts";
-import { gitStatus, initRepo, syncNow } from "./gitSync.ts";
+import { gitStatus, initRepo, noteHistory, noteRevisionBlob, snapshotNow, syncNow } from "./gitSync.ts";
 import { dirOf, rewriteDestinations, rewriteForMove } from "./moveLinks.ts";
-import { yamlQuote } from "./publish.ts";
-import { addNoteAlias, setNoteFrontmatterLine, setNotePublishFlag } from "./noteFrontmatter.ts";
+// The three v1.8 bulk verbs: the engine, the tag surgeon, the heading detector.
+import { applyBulk, previewBulk, undoBulk } from "./bulkRewrite.ts";
+import {
+  makeBodyTest,
+  previewReplace,
+  replaceTransform,
+  screenTargets,
+  type ReplaceSpec,
+  type ReplaceTarget,
+} from "./searchReplace.ts";
+import { isTagName, rewriteTag } from "./tagRewrite.ts";
+import {
+  anchorsOfContent,
+  forgetRename,
+  observeWrite,
+  rewriteHeadingLinks,
+} from "./headingRepair.ts";
+import { addNoteAlias, setNotePublishFlag } from "./noteFrontmatter.ts";
+import { frontmatterKeyRefusal, setNoteProperty } from "./frontmatterEdit.ts";
 import {
   buildFaceListCss,
   buildFontCss,
@@ -122,10 +147,20 @@ import {
   saveCustomFont,
   sniffFontFormat,
 } from "./customFonts.ts";
-import { fontSlots, moveFolderIcons, patchSettings, setAdminTheme, settingsAssetPaths, settingsResponse } from "./settings.ts";
+import {
+  fontSlots,
+  moveFolderIcons,
+  patchSettings,
+  renameTagLabels,
+  restoreTagLabels,
+  setAdminTheme,
+  settingsAssetPaths,
+  settingsResponse,
+} from "./settings.ts";
 // Localised tag labels: display names for canonical tags, plus the query
 // rewrite that makes search answer to both spellings.
-import { expandTagQuery, visibleTagLabels } from "./tagLabels.ts";
+import { canonicalTag, expandTagQuery, tagsFolder, visibleTagLabels } from "./tagLabels.ts";
+import { tagKey } from "../shared/tagLabels.ts";
 import {
   attachmentsDir,
   customCssPath,
@@ -137,10 +172,12 @@ import {
   visitorTheme,
 } from "./site.ts";
 import { FOLLOW_THEME } from "../shared/themes.ts";
+import { SEED_GUIDE, seedAvailable, seedVault } from "./seed.ts";
 import {
   VaultError,
   createFolder,
   createNote,
+  assertNotePath,
   deleteAttachment,
   deleteFolder,
   deleteNote,
@@ -152,7 +189,7 @@ import {
   noteExists,
   noteMtime,
   normalizeRel,
-  onEvent,
+  onEventCoalesced,
   purgeFromTrash,
   readNote,
   renameNote,
@@ -609,14 +646,75 @@ api.put("/note", async (c) => {
   // reverse edit emitted "changed" where the contract requires "created".
   // This is the editor's own save path, i.e. the common case.
   const existed = await noteExists(path);
+  // The anchor table as the INDEX still has it — i.e. before this write. It is
+  // read here, three statements early, because `indexFile()` below replaces it;
+  // it costs nothing (the record is in memory) and it is the entire input to
+  // heading-rename detection. See server/headingRepair.ts for why the write
+  // path is the seam and the editor is not.
+  const anchorsBefore = noteAnchors(path);
   suppressWatcherEcho(path);
   const written = await writeNote(path, body.content, baseMtime(body));
   emitEvent({ kind: existed ? "changed" : "created", path: written.path });
   // Index now rather than after the watcher debounce, so an immediately
   // following rename/search sees this note's links.
   await indexFile(written.path);
-  return c.json(written);
+  const result: NoteWriteResult = { ...written };
+  if (existed) {
+    const offer = await headingRepairOffer(written.path, anchorsBefore, body.content);
+    if (offer) result.headingRepair = offer;
+  }
+  return c.json(result);
 });
+
+/** Which notes could carry a `[[…#anchor]]` into `relPath`, minus the note
+ *  itself. Its own buffer is open in the editor that just saved it, and
+ *  rewriting the file underneath that buffer is exactly the divergence
+ *  client/editor/buffers.ts spends a whole module avoiding. */
+function headingLinkSources(relPath: string): string[] {
+  return notesLinkingTo(relPath).filter((source) => source !== relPath);
+}
+
+/** One note's `[[…#from]]` links into `relPath`, rewritten or merely counted.
+ *  `to === null` counts: the same walk, the same matcher, no edit — so the
+ *  number in the offer and the number in the toast cannot disagree. */
+function headingLinkPass(
+  relPath: string,
+  text: string,
+  from: { id: string; title: string },
+  to: { id: string; title: string } | null,
+): { text: string; count: number } {
+  return rewriteHeadingLinks(
+    text,
+    (target) => resolveLink(target, false, null) === relPath,
+    from,
+    to ?? from,
+  );
+}
+
+/** The write path's one extra question: "did that rename a heading other notes
+ *  link into?" — asked after every save, and answered `null` for the ninety-nine
+ *  saves in a hundred that renamed nothing. Detection is free (both anchor
+ *  tables are already in hand); the reads below happen only once a rename is on
+ *  the table. */
+async function headingRepairOffer(
+  relPath: string,
+  before: ReturnType<typeof noteAnchors>,
+  content: string,
+): Promise<NoteWriteResult["headingRepair"] | null> {
+  const rename = observeWrite(relPath, before, content);
+  if (rename === null) return null;
+  const from = { id: rename.from, title: rename.fromTitle };
+  let links = 0;
+  for (const source of headingLinkSources(relPath)) {
+    try {
+      links += headingLinkPass(relPath, (await readNote(source)).content, from, null).count;
+    } catch {
+      // A note the index still names and the disk no longer has contributes
+      // nothing — it is not a reason to withhold the offer for the rest.
+    }
+  }
+  return links === 0 ? null : { ...rename, links };
+}
 
 /** The same write, reachable by `navigator.sendBeacon`.
  *
@@ -629,7 +727,12 @@ api.put("/note", async (c) => {
  *
  *  Everything else about it is identical, including the precondition: a
  *  last-gasp save that clobbers a newer version is still a clobber, and the
- *  reader who caused it is by definition not there to be asked. */
+ *  reader who caused it is by definition not there to be asked.
+ *
+ *  One deliberate difference: it does NOT look for a renamed heading. The
+ *  offer that would raise is a toast with a button, and this route runs while
+ *  the page is being torn down — there is nobody left to press it, and a
+ *  `sendBeacon` has no response to carry it in either. */
 api.post("/note/flush", async (c) => {
   const body = await jsonBody(c);
   const path = requiredString(body, "path");
@@ -650,6 +753,41 @@ api.post("/note", async (c) => {
   const created = await createNote(path);
   await indexFile(path);
   return c.json(created);
+});
+
+/** THE STARTER VAULT, ON A CLICK.
+ *
+ *  Boot used to copy `vault-seed/` into any vault directory that held no
+ *  markdown — including one the reader had made themselves and pointed us at
+ *  (server/seed.ts argues the case). Taking that away without giving the offer
+ *  a door would leave a first-run reader looking at an empty tree with a guide
+ *  they can never find, so here is the door: the empty state asks, this
+ *  answers, and the reader gets the same five notes they used to be given
+ *  without being asked.
+ *
+ *  GET reports whether the offer is even available (a seed to copy, and
+ *  nothing of the reader's to copy it over). Both are admin-only in the shape
+ *  every owner-surface uses — a 404 to a visitor, never a 403, so an anonymous
+ *  caller learns nothing about the instance. */
+api.get("/seed", (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  return c.json({ available: seedAvailable(getVaultRoot()), guide: SEED_GUIDE });
+});
+
+api.post("/seed", async (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  const guide = seedVault(getVaultRoot());
+  if (guide === null) {
+    // Not an error the reader caused: the vault filled up between the offer
+    // and the answer (another window, a sync), and the honest answer is that
+    // there is nothing left to seed rather than five files over their notes.
+    throw new VaultError(409, "This vault already has notes in it", "seedNotEmpty");
+  }
+  // The watcher will find the files on its own debounce; the index must not
+  // wait for it, because the client opens the guide on this response.
+  await indexUnder("");
+  emitEvent({ kind: "created", path: guide });
+  return c.json({ guide });
 });
 
 api.post("/rename", async (c) => {
@@ -922,40 +1060,114 @@ api.post("/publish", async (c) => {
   return c.json(result);
 });
 
-// Surgical single-key frontmatter setter (admin-only via the auth guard).
-// Same machinery as /api/publish: line edit, watcher-echo suppression,
-// immediate reindex. Keys are allowlisted; values are single-line strings.
-// `folders` joins `banner` here so a note's PUBLIC FOLDER membership can be set
-// the same surgical way its cover is — one line rewritten, every other byte of
-// the file untouched. Today the owner types the line; the allowlist is what
-// lets a folder picker in the properties card write it tomorrow without
-// re-opening this route's security question.
-const FRONTMATTER_KEYS = new Set(["banner", "folders"]);
+// Surgical frontmatter property setter (admin-only via the auth guard).
+// Same machinery as /api/publish: byte-surgical edit, watcher-echo
+// suppression, immediate reindex.
+//
+// THE ALLOWLIST BECAME A POLICY (v1.8 spec K). Two keys — `banner`, `folders` —
+// was the right shape while this product owned both of them; it is the wrong
+// shape for a properties card, whose whole job is the keys VELLUM DOES NOT KNOW
+// ABOUT. A vault imported from Obsidian carries `cssclasses`, `rating`,
+// `status`, `source`, whatever the author invented, and a card that can show
+// them but not edit them is the Obsidian complaint verbatim.
+//
+// So: arbitrary keys, guarded by SHAPE rather than by name — a single-line
+// identifier, capped, no control characters, nothing that could smuggle a
+// second YAML line into the block (server/frontmatterEdit.ts owns that half,
+// including the `.tex` comment-block rule that a non-ASCII key would break the
+// whole block) — with one closed set of exceptions:
+//
+//   publish             has its own route, which broadcasts, re-filters the SSE
+//                       visitor stream and re-counts the public site. Reaching
+//                       it through here would set the flag and tell nobody.
+//   id / uuid / guid    machine bookkeeping. Another tool's primary key is not
+//   dg-* / dg_*         a property the reader meant to retype, and rewriting
+//                       one silently breaks whatever syncs against it.
+//
+// The card renders exactly that set faint and read-only (isMachineKey,
+// client/editor/noteMeta.ts), so the refusal below is the second gate, not the
+// first — which is the arrangement every mutating surface in this product uses.
+const PROTECTED_KEYS = /^(?:publish|id|uuid|guid|dg[-_].*)$/i;
 const FRONTMATTER_VALUE_MAX = 500;
+/** A property, not a database: chips a reader can actually read. */
+const FRONTMATTER_LIST_MAX = 64;
+
+/** One line, no control characters, capped — the discipline every frontmatter
+ *  write in this file has applied since v1.2, in one place now that the values
+ *  arriving here come from a card instead of from two hard-coded callers. */
+function frontmatterText(raw: unknown, what: string): string {
+  if (typeof raw !== "string") throw new VaultError(400, `${what} must be a string`);
+  const value = raw.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+  if (value.length > FRONTMATTER_VALUE_MAX) {
+    throw new VaultError(400, `${what} too long (${FRONTMATTER_VALUE_MAX} characters max)`);
+  }
+  return value;
+}
+
+/** The wire's `value` → the typed value the writer spells. A bare string (or
+ *  `null`) is the pre-v1.8 shape and still means "text" (or "remove"). */
+function frontmatterValue(raw: unknown): PropertyValue | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === "string") {
+    const text = frontmatterText(raw, 'Body field "value"');
+    return text === "" ? null : { kind: "text", text };
+  }
+  if (typeof raw !== "object") {
+    throw new VaultError(400, 'Body field "value" must be a string, an object or null');
+  }
+  const v = raw as Record<string, unknown>;
+  switch (v.kind) {
+    case "text": {
+      const text = frontmatterText(v.text, 'Property field "text"');
+      return text === "" ? null : { kind: "text", text };
+    }
+    case "bool":
+      if (typeof v.bool !== "boolean") {
+        throw new VaultError(400, 'Property field "bool" must be a boolean');
+      }
+      return { kind: "bool", bool: v.bool };
+    case "date": {
+      const date = frontmatterText(v.date, 'Property field "date"');
+      if (date === "") return null;
+      // It is written UNQUOTED, so it has to be a date YAML reads as one.
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        throw new VaultError(400, "A date property must be spelled YYYY-MM-DD");
+      }
+      return { kind: "date", date };
+    }
+    case "list": {
+      if (!Array.isArray(v.items)) {
+        throw new VaultError(400, 'Property field "items" must be an array');
+      }
+      if (v.items.length > FRONTMATTER_LIST_MAX) {
+        throw new VaultError(400, `Too many values (${FRONTMATTER_LIST_MAX} max)`);
+      }
+      const items: string[] = [];
+      for (const item of v.items) {
+        const text = frontmatterText(item, "A list value");
+        if (text !== "") items.push(text);
+      }
+      return { kind: "list", items };
+    }
+    default:
+      throw new VaultError(400, `Unknown property kind: ${String(v.kind)}`);
+  }
+}
 
 api.post("/frontmatter", async (c) => {
   const body = await jsonBody(c);
   const notePath = requiredString(body, "path");
   const key = requiredString(body, "key");
-  if (!FRONTMATTER_KEYS.has(key)) {
+  if (PROTECTED_KEYS.test(key)) {
     throw new VaultError(400, `Frontmatter key not editable: ${key}`);
   }
-  let value: string | null = null;
-  if (body.value !== undefined && body.value !== null) {
-    if (typeof body.value !== "string") {
-      throw new VaultError(400, 'Body field "value" must be a string or null');
-    }
-    // Single line, no control chars — a frontmatter line edit must never be
-    // able to smuggle extra YAML lines into the block.
-    value = body.value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
-    if (value.length > FRONTMATTER_VALUE_MAX) {
-      throw new VaultError(400, `Value too long (${FRONTMATTER_VALUE_MAX} characters max)`);
-    }
-    if (value === "") value = null;
-  }
+  const value = frontmatterValue(body.value);
   const note = await readNote(notePath);
-  const line = value === null ? null : `${key}: ${yamlQuote(value)}`;
-  const updated = setNoteFrontmatterLine(note.path, note.content, key, line);
+  // Shape guard second, so a key that names a protected machine field answers
+  // the same way whatever its spelling looks like.
+  const refusal = frontmatterKeyRefusal(note.path, key);
+  if (refusal !== null) throw new VaultError(400, refusal);
+  const updated = setNoteProperty(note.path, note.content, key, value);
   if (updated !== note.content) {
     suppressWatcherEcho(note.path);
     // Same precondition as /api/publish, for the same reason: a line edit
@@ -1014,6 +1226,287 @@ api.post("/alias", async (c) => {
   await indexFile(note.path);
   return c.json({ ok: true, path: note.path, alias });
 });
+
+// ==================================================== bulk rewrites (v1.8)
+//
+// Three routes over one engine (server/bulkRewrite.ts), and one route to take
+// any of them back. Everything here is ADMIN-ONLY at both gates a mutating
+// owner surface uses: the auth guard 401s every non-GET, and the GET dry-run
+// answers a visitor 404 rather than 403 — the preview names vault paths, which
+// is exactly what /attachments and /published withhold.
+//
+// Every one of them is a DRY RUN FIRST. Nothing in this product may rewrite two
+// hundred files on a click without having shown, in a number the reader can
+// read, what it is about to do — and the number has to come from the writer
+// itself, not from a second estimate that can drift away from it.
+
+/** Take back a bulk edit — the Undo button on the toast every route below
+ *  raises. `410` means the offer has expired (the bundle's TTL, or four more
+ *  bulk edits since), which the client says in words rather than as an error. */
+api.post("/bulk/undo", async (c) => {
+  const body = await jsonBody(c);
+  const undoId = requiredString(body, "undoId");
+  return c.json(await undoBulk(undoId));
+});
+
+// ------------------------------------------------- heading-link repair
+//
+// The offer that raised this ride on PUT /api/note's own response — the seam
+// argued in server/headingRepair.ts. This is where it is taken.
+//
+// The client sends what it was offered, and the server checks the offer against
+// the note as it stands NOW: `to` must be a real anchor in the file. That guard
+// is what keeps this from being "rewrite any wikilink tail in the vault to any
+// string" — a route the auth guard would happily allow an admin to misuse by
+// accident (a stale toast from a note they have since edited again).
+
+api.post("/links/heading-repair", async (c) => {
+  const body = await jsonBody(c);
+  const notePath = normalizeRel(requiredString(body, "path"));
+  assertNotePath(notePath);
+  const fromId = requiredString(body, "from").trim();
+  const fromTitle = typeof body.fromTitle === "string" ? body.fromTitle.trim() : fromId;
+  const toId = requiredString(body, "to").trim();
+  if (fromId === "" || toId === "") {
+    throw new VaultError(400, 'Body fields "from" and "to" must not be blank');
+  }
+
+  // The anchor being repaired TO has to exist in the note right now. A stale
+  // offer (the reader kept typing, or renamed the heading again) is refused
+  // rather than applied to a heading that is no longer there.
+  const target = anchorsOfContent(notePath, (await readNote(notePath)).content).find(
+    (a) => a.id.toLowerCase() === toId.toLowerCase(),
+  );
+  if (target === undefined) {
+    throw new VaultError(409, `No such heading in ${notePath}: ${toId}`, "headingGone");
+  }
+
+  const from = { id: fromId, title: fromTitle };
+  const to = { id: target.id, title: target.title };
+  const sources = headingLinkSources(notePath);
+  const result = await applyBulk(sources, (_p, content) => {
+    const next = headingLinkPass(notePath, content, from, to);
+    return next.count === 0 ? null : next;
+  });
+  // The chain is spent: the links now name the heading where it stands, and a
+  // second Undo-then-repair round should start from today's text.
+  forgetRename(notePath);
+  return c.json(result);
+});
+
+// --------------------------------------------------------- tag rename/merge
+//
+// Obsidian's sixth most-wanted feature, 811 likes and eight years old. A tag is
+// the one piece of a vault's vocabulary its keeper changes their mind about, and
+// there has never been a safe way to change it: find-and-replace over YAML eats
+// quote styles and block lists, and doing it by hand over four hundred notes is
+// not a thing anybody does twice.
+//
+// Renaming ONTO a tag that already exists is a MERGE, and the routes say so
+// rather than refusing it — merging `#ml` into `#machine-learning` is half of
+// what people are asking for. The dialog states it in words, because a merge is
+// the one operation here that renaming back does not undo (the two tags are one
+// tag afterwards, and nothing recorded which note carried which). The undo
+// bundle does undo it, for as long as it lives.
+
+/** Where a tag's own page lives, when the vault keeps such pages. The path IS
+ *  the tag (server/indexer.ts's tagPageLabels derives one from the other), so a
+ *  renamed tag has to take its page with it — leaving `tags/software.md` behind
+ *  after `software` became `code` leaves a page defining labels for a tag no
+ *  note carries, and the Arabic chip the page was written for silently reverts. */
+function tagPagePath(tag: string): string {
+  return `${tagsFolder()}/${tag}.md`;
+}
+
+/** The tag-page move a rename implies: `[from, to]`, or null when there is no
+ *  page to move (the usual case) or when the destination is already taken —
+ *  which is what a MERGE means for pages, and two pages cannot be merged by a
+ *  file rename. The old page is then left where it is, and the answer says so. */
+async function tagPageMove(from: string, to: string): Promise<[string, string] | null> {
+  const source = tagPagePath(from);
+  if (!(await noteExists(source))) return null;
+  const dest = tagPagePath(to);
+  if (await noteExists(dest)) return null;
+  return [source, dest];
+}
+
+/** Canonicalise and screen the pair. Shared by the dry run and the apply, so
+ *  the two cannot end up describing different operations — the preview promise
+ *  this whole section rests on. */
+function tagRenamePair(rawFrom: string, rawTo: string): { from: string; to: string } {
+  const from = tagKey(rawFrom);
+  const to = tagKey(rawTo);
+  if (!isTagName(from)) throw new VaultError(400, `Not a tag: ${from}`, "badTag");
+  if (!isTagName(to)) throw new VaultError(400, `Not a tag: ${to}`, "badTag");
+  if (from === to) throw new VaultError(400, "That is the name it already has", "sameTag");
+  // Renaming a tag INTO its own subtree (`zettel` → `zettel/seed`) would remap
+  // the children twice on the way past themselves; there is no sane answer, so
+  // it is refused before anything is read.
+  if (to.startsWith(`${from}/`) || from.startsWith(`${to}/`)) {
+    throw new VaultError(400, "A tag cannot be renamed into its own subtree", "nestedTag");
+  }
+  return { from, to };
+}
+
+api.get("/tags/rename-preview", async (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  const { from, to } = tagRenamePair(
+    requiredQuery(c.req.query("from"), "from"),
+    requiredQuery(c.req.query("to"), "to"),
+  );
+  const preview = await previewBulk(notesWithTag(from), (relPath, content) =>
+    rewriteTag(relPath, content, from, to),
+  );
+  const move = await tagPageMove(from, to);
+  const result: TagRenamePreview = {
+    from,
+    to,
+    // The destination already exists in the vault: two topics are becoming one.
+    merge: notesWithTag(to).length > 0,
+    notes: preview.notes,
+    edits: preview.edits,
+    files: preview.files.map((f) => ({ path: f.path, count: f.count })),
+    page: move === null ? null : move[1],
+  };
+  return c.json(result);
+});
+
+api.post("/tags/rename", async (c) => {
+  const body = await jsonBody(c);
+  const { from, to } = tagRenamePair(requiredString(body, "from"), requiredString(body, "to"));
+
+  const candidates = notesWithTag(from);
+  // THE PAGE MOVES FIRST, and the order is the undo's. A tag page that carries
+  // its own tag is rewritten by the pass below like any other note, and the
+  // undo bundle records the path it wrote to — so if the file were renamed
+  // afterwards, the bundle would name a path that no longer exists and the undo
+  // would silently skip the one file the reader is most likely to look at.
+  let moved: [string, string] | null = await tagPageMove(from, to);
+  if (moved !== null) {
+    try {
+      await renameWithLinkRewrite(moved[0], moved[1]);
+    } catch (err) {
+      console.error(`vellum: moving the tag page ${moved[0]} failed`, err);
+      moved = null;
+    }
+  }
+  const page = moved;
+  const paths = candidates.map((p) => (page !== null && p === page[0] ? page[1] : p));
+
+  // A TAG'S LABEL IS PART OF THE TAG, exactly as a folder's glyph is part of the
+  // folder (settings.moveFolderIcons, one noun over). Re-keyed BEFORE the files
+  // so a rewrite that then fails part-way leaves settings describing the name
+  // the surviving notes are moving toward, not one nothing carries.
+  const labelsBefore = renameTagLabels(from, to);
+  const result = await applyBulk(
+    paths,
+    (relPath, content) => rewriteTag(relPath, content, from, to),
+    {
+      revert: async () => {
+        if (labelsBefore !== null) restoreTagLabels(labelsBefore);
+        if (page !== null) await renameWithLinkRewrite(page[1], page[0]);
+      },
+    },
+  );
+  await whenIndexed();
+  const answer: TagRenameResult = { ...result, from, to, page: page === null ? null : page[1] };
+  return c.json(answer);
+});
+
+// ------------------------------------------------- vault-wide search & replace
+//
+// The 650-like request, and the one Obsidian answers with "open the folder in
+// VS Code". It is last in this section on purpose: it is the scariest verb in
+// the product, and it rides on everything above it — the same dry-run-first
+// rule, the same engine, the same undo, plus one guard only it needs.
+//
+// THE FIND FIELD AND THE SCOPE ARE THE SAME BOX. `q` is whatever the reader
+// typed into the sidebar's search — its operators (shared/searchQuery.ts)
+// narrow which notes are considered, exactly as they narrow the results the
+// reader is already looking at. `find` is sent SEPARATELY and used verbatim,
+// because a regular expression is not a search query: `\d+:\d+` run through
+// the operator tokenizer would lose its middle to a `path:`-shaped rule. The
+// client pre-fills it from the same parser and the reader may edit it.
+//
+// See server/searchReplace.ts for why matching here is exact — no folding, no
+// case-insensitivity — and why frontmatter is out of reach.
+
+function replaceSpec(source: {
+  find?: string | undefined;
+  replace?: string | undefined;
+  regex?: unknown;
+}): ReplaceSpec {
+  return {
+    find: source.find ?? "",
+    replace: source.replace ?? "",
+    regex: source.regex === true || source.regex === "1" || source.regex === "true",
+  };
+}
+
+api.get("/replace/preview", async (c) => {
+  // 404, not 403 — the preview names vault paths and quotes their lines, which
+  // is exactly what every other admin GET withholds from a visitor.
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  const spec = replaceSpec({
+    find: c.req.query("find"),
+    replace: c.req.query("replace") ?? "",
+    regex: c.req.query("regex"),
+  });
+  const paths = replaceCandidates(c.req.query("q") ?? "", makeBodyTest(spec), { canonicalTag });
+  return c.json(await previewReplace(paths, spec));
+});
+
+api.post("/replace", async (c) => {
+  const body = await jsonBody(c);
+  const spec = replaceSpec({
+    find: requiredString(body, "find"),
+    replace: typeof body.replace === "string" ? body.replace : "",
+    regex: body.regex,
+  });
+  const targets = readReplaceTargets(body.files);
+  if (targets.length === 0) throw new VaultError(400, "Nothing selected", "nothingSelected");
+
+  // THE SNAPSHOT COMES FIRST, and it is the reason this release shipped git
+  // history before it shipped the tools that need it. A commit taken after the
+  // rewrite records the damage; taken before, it is the way back that survives
+  // the undo bundle expiring, the tab closing and the reader going to bed. A
+  // repository that is not there, or a tree with nothing to commit, is not an
+  // error — the checkbox was an offer, not a precondition.
+  let snapshot: string | null = null;
+  if (body.snapshot === true) {
+    try {
+      snapshot = (await snapshotNow()).sha;
+    } catch (err) {
+      console.error("vellum: the snapshot before a vault-wide replace failed", err);
+    }
+  }
+
+  const { paths, selection, conflicts } = await screenTargets(targets);
+  const result = await applyBulk(paths, replaceTransform(spec, selection));
+  await whenIndexed();
+  const answer: ReplaceResult = { ...result, conflicts, snapshot };
+  return c.json(answer);
+});
+
+/** The apply's `files` array, screened. Every field is checked here rather
+ *  than trusted: this body decides which paths get written and which LINES of
+ *  them, and it arrives from a browser. */
+function readReplaceTargets(value: unknown): ReplaceTarget[] {
+  if (!Array.isArray(value)) throw new VaultError(400, 'Body field "files" must be an array');
+  const out: ReplaceTarget[] = [];
+  for (const raw of value.slice(0, 5_000)) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const entry = raw as Record<string, unknown>;
+    if (typeof entry.path !== "string" || typeof entry.mtimeMs !== "number") continue;
+    const relPath = normalizeRel(entry.path);
+    assertNotePath(relPath);
+    const lines = Array.isArray(entry.lines)
+      ? entry.lines.filter((n): n is number => typeof n === "number" && Number.isInteger(n) && n > 0)
+      : null;
+    out.push({ path: relPath, mtimeMs: entry.mtimeMs, lines });
+  }
+  return out;
+}
 
 api.get("/resolve", (c) => {
   const name = requiredQuery(c.req.query("name"), "name");
@@ -1559,10 +2052,21 @@ api.delete("/comments/:id", (c) => {
 // Arabic reader typing «برمجيات» finds the notes tagged `#software` — without
 // the index ever learning about a display setting (see server/tagLabels.ts for
 // why the rewrite lives on the query and not in minisearch's `tags` field).
+// SEARCH OPERATORS ride the same route (v1.8, parity #7). `tag:`, `path:`,
+// `is:published`, `is:page`, `before:`/`after:`, `linkto:`/`linkfrom:` are
+// peeled off inside `search()` (server/searchQuery.ts) — there is no second
+// endpoint and no mode flag, because the reader types them into the box they
+// already have. What this route contributes is the VOCABULARY: both hooks let
+// the localised spelling of a tag reach its canonical form, one for the
+// operator and one for the loose words, and neither is applied to the other's
+// half (see SearchOptions).
 api.get("/search", (c) => {
   const limited = isPublishLimited(c);
   return c.json(
-    search(expandTagQuery(c.req.query("q") ?? ""), limited, languageScope(c, limited).lang),
+    search(c.req.query("q") ?? "", limited, languageScope(c, limited).lang, {
+      canonicalTag,
+      expandTerms: expandTagQuery,
+    }),
   );
 });
 
@@ -1577,9 +2081,10 @@ api.get("/search/matches", (c) => {
   return c.json(
     searchMatches(
       normalizeRel(c.req.query("path") ?? ""),
-      expandTagQuery(c.req.query("q") ?? ""),
+      c.req.query("q") ?? "",
       limited,
       languageScope(c, limited).lang,
+      { expandTerms: expandTagQuery },
     ),
   );
 });
@@ -1966,6 +2471,61 @@ api.post("/sync/now", async (c) => {
   return c.json(await syncNow("manual"));
 });
 
+// A LOCAL commit, and nothing else. Deliberately NOT behind
+// assertCredentialed(): that gate exists because a sync can send the whole
+// vault to an address the caller chose, and this one moves no bytes off the
+// machine at all — it writes a commit into a repository that is already on the
+// operator's disk. Holding it to the "everyone is admin is not good enough"
+// bar would put a password between the reader and the safety point they are
+// making BEFORE the scary edit, which is the one moment the product must not
+// argue with them.
+api.post("/sync/snapshot", async (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  return c.json(await snapshotNow());
+});
+
+// -------------------------------------------------------------- note history
+// The read half of Backup & sync: `git log` over one note, and one revision's
+// bytes. Admin-eyes-only and 404 to a visitor exactly as /api/settings is — a
+// stranger learning that a published essay had eleven drafts, when each one
+// landed and what its commit message said is a leak of the author's process
+// even where the note itself is public.
+//
+// Both routes are READ-ONLY git. Restoring a revision is not here: it goes
+// through PUT /api/note like every other write in this product, precondition
+// and all, so it is an ordinary edit — undoable, autosave-aware, and itself a
+// revision the next snapshot records.
+//
+// A vault that is not a git repository is NOT an error. It is the commonest
+// state a first-run instance is in, and the honest answer is `repo: false` so
+// the panel can offer the door (turn Backup & sync on) instead of printing an
+// empty list under a heading that promises history.
+
+api.get("/history", async (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  const rel = assertNotePath(c.req.query("path") ?? "");
+  // safeAbs is the containment check, and it is run for its THROW: `..`
+  // segments are a 400, an ignored path (.git, .trash, any dotfile) and
+  // anything that leaves the vault through a symlink are a 404. A path that
+  // cannot be reached through the note API must not be reachable through its
+  // history either — the vault root is the boundary in both directions.
+  safeAbs(rel);
+  const limit = Number.parseInt(c.req.query("limit") ?? "", 10);
+  return c.json(await noteHistory(rel, Number.isFinite(limit) ? limit : undefined));
+});
+
+api.get("/history/blob", async (c) => {
+  if (isPublishLimited(c)) throw new VaultError(404, "Not found");
+  // The path here is the one the LISTING gave for that revision — a note that
+  // has been renamed lives under its old name in its older commits, so this is
+  // not always the note's path today. It gets the identical treatment either
+  // way: a note path, inside the vault, not ignored.
+  const rel = assertNotePath(c.req.query("path") ?? "");
+  safeAbs(rel);
+  const sha = (c.req.query("sha") ?? "").trim();
+  return c.json(await noteRevisionBlob(rel, sha));
+});
+
 // ---------------------------------------------------------------- SSE events
 
 /** Map a vault event to the events a publish-limited visitor may see: only events
@@ -1981,6 +2541,10 @@ api.post("/sync/now", async (c) => {
  *  leak — an anonymous stream received the full vault path of a hidden note
  *  the moment it was created, edited or deleted, unprompted. */
 async function visitorEvents(event: VaultEvent, lang: FilterLang): Promise<VaultEvent[]> {
+  // A bulk frame names no note, so there is nothing in it to filter and
+  // nothing in it to leak — and a visitor's post list is exactly as stale
+  // after a storm as an admin's tree is. It goes through untouched.
+  if (event.kind === "bulk") return [event];
   if (event.dir) {
     // Visitors have no folder structure, so the dir event itself is nothing
     // to them — but the notes a folder DELETE takes away are: with the event
@@ -2062,7 +2626,12 @@ api.get("/events", (c) => {
   const lang = languageScope(c, limited).lang;
   return streamSSE(c, async (stream) => {
     let live = true;
-    const unsubscribe = onEvent((event) => {
+    // COALESCED, not raw: a `git pull` is one "bulk" frame here instead of a
+    // thousand named ones (server/vault.ts). The index still gets every event
+    // — it subscribes with plain onEvent — because it needs the paths; this
+    // subscriber answers an event by refetching, so one instruction to refetch
+    // everything is strictly more than the thousand it replaces.
+    const unsubscribe = onEventCoalesced((event) => {
       if (!live) return;
       const deliver = async (): Promise<void> => {
         const visible = limited ? await visitorEvents(event, lang) : [event];
@@ -2071,7 +2640,23 @@ api.get("/events", (c) => {
           await stream.writeSSE({ event: "message", data: JSON.stringify(out) });
         }
       };
-      deliver().catch(() => {});
+      deliver().catch((err: unknown) => {
+        // A WRITE THAT FAILED MEANS THIS CLIENT IS NO LONGER RECEIVING — and
+        // swallowing it (which is what `.catch(() => {})` did) left the socket
+        // open, the 15 s pings still going out, and the client convinced it
+        // was subscribed while every vault event went into the floor. Silent,
+        // permanent, and indistinguishable from a quiet vault.
+        //
+        // So the stream ENDS. EventSource reconnects on its own, and the
+        // client treats a reconnect as a gap it has to re-read (client/api.ts
+        // ::subscribeEvents onReconnect → revalidateBuffers), which is exactly
+        // the recovery this failure needs.
+        if (!live) return;
+        live = false;
+        console.error("events: dropping a stream whose delivery failed:", err);
+        unsubscribe();
+        void stream.close();
+      });
     });
     stream.onAbort(() => {
       live = false;

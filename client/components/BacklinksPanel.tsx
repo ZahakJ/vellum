@@ -3,7 +3,7 @@
 // edge reopens it. Clicking an entry opens that note AND lands on the mention
 // (client/landing.ts); resting the pointer on a card previews the note.
 
-import { useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { Backlink } from "../../shared/types.ts";
 import { localeNum, t } from "../i18n.ts";
@@ -11,9 +11,19 @@ import { localeNum, t } from "../i18n.ts";
 // panel is part of the admin-first-paint budget check-bundle measures, and
 // landing/hovering is interaction-time code. The reading view's static import
 // of the same module keeps it a single instance.
+import { lazySurface } from "../lazySurface.tsx";
 import TocPanel from "../reading/TocPanel.tsx";
 import { hasPanelPreference, useStore } from "../state.ts";
 import LocalGraph from "./LocalGraph.tsx";
+
+// NOTE HISTORY IS LAZY, and it is the only one of the three stacked sections
+// that is. It carries a markdown renderer (the revision viewer draws the whole
+// note), a stylesheet and a modal, none of which a visitor can ever reach —
+// both history routes 404 to one — and most admin sessions never open the
+// section either, because it starts collapsed. `lazySurface` rather than bare
+// `lazy()` so a redeploy that rotates the chunk hash mid-session gets the
+// reload card instead of blanking the panel.
+const HistoryPanel = lazySurface(() => import("./HistoryPanel.tsx"));
 
 const WIKILINK_SPLIT_RE =
   /(!?\[\[[^\]|#]+(?:#[^\]|]*)?(?:\|[^\]]*)?\]\])/g;
@@ -140,6 +150,12 @@ export default function BacklinksPanel() {
       >
         <TocPanel />
         <LocalGraph />
+        {/* Its own boundary, and a null fallback: the section is a collapsed
+            header row until somebody opens it, so a skeleton where a one-line
+            header is about to be would be the only thing that flickered. */}
+        <Suspense fallback={null}>
+          <HistoryPanel />
+        </Suspense>
         <header className="s-panel-header">
           <span className="s-panel-title">{t("backlinks")}</span>
           <span className="s-panel-count">{localeNum(backlinks.length)}</span>

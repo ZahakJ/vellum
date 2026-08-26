@@ -40,6 +40,9 @@ import type {
   GitSyncResult,
   GitSyncSettings,
   GitSyncStatus,
+  NoteHistoryResponse,
+  NoteRevision,
+  NoteRevisionBlob,
 } from "../shared/types.ts";
 import { getSettings } from "./settings.ts";
 import { dataDir } from "./site.ts";
@@ -633,6 +636,147 @@ export async function gitStatus(): Promise<GitSyncStatus> {
   return base;
 }
 
+// ------------------------------------------------------------------- history
+//
+// THE READ HALF OF THE SAME REPOSITORY. Backup & sync has been committing the
+// whole vault since v1.6 and there was no way to look at what it kept: the
+// safety net existed and nothing in the product could reach it, which is the
+// locked-fire-exit shape the trash browser was built to fix one floor down.
+// Bulk-edit tools (search & replace, tag rename) are what a note-taker most
+// wants and least trusts, and the reason is that a bad vault-wide edit is
+// unrecoverable — so the undo of last resort ships FIRST, and the scary tools
+// stand on top of it.
+//
+// Everything here is READ-ONLY git: `log`, `cat-file`, `show`. No index is
+// touched, nothing is staged, nothing is fetched, so none of it can collide
+// with a sync in flight and none of it needs the `busy` lock. Restoring is not
+// in this module at all — it goes through PUT /api/note like every other write
+// in the product, precondition and all, so a restore is an ordinary edit that
+// the ordinary machinery (autosave conflict, undo, the next snapshot) already
+// understands.
+
+/** How many revisions one listing may carry, and the ceiling a caller may ask
+ *  for. A note edited every day for four years has ~1,400 commits; the panel
+ *  shows a timeline, not an archive, and `truncated` says when there is more. */
+const HISTORY_DEFAULT = 100;
+const HISTORY_MAX = 500;
+
+/** A commit subject is written by whoever made the commit — us, or the
+ *  operator from a terminal, or a merge from a machine we know nothing about.
+ *  It reaches a client, so it is scrubbed (control characters, anything
+ *  token-shaped) and capped. */
+const SUBJECT_MAX = 200;
+
+/** Bytes of one revision this will hand back. Well under `MAX_BUFFER`, and the
+ *  point is not the buffer: the answer is JSON in a modal, and a 40MB pasted
+ *  dataset in a note is not something a reader can read there anyway. */
+const BLOB_MAX_BYTES = 2 * 1024 * 1024;
+
+/** True when the vault is a git work tree we may answer about. Exported so the
+ *  API can give the "Backup is off — turn it on" answer instead of an error. */
+export async function isGitRepo(): Promise<boolean> {
+  return (await repoRoot()) !== null;
+}
+
+/** A full object name and nothing else. The blob route puts this straight into
+ *  `<sha>:<path>`, which git parses as a revision spec — so it may never carry
+ *  a `^`, a `~`, a `:` or a `@{…}`, all of which mean something there. */
+export function isFullSha(value: string): boolean {
+  return /^[0-9a-f]{40}$/.test(value) || /^[0-9a-f]{64}$/.test(value); // sha-1 and sha-256 repos
+}
+
+function parseCount(value: string): number | null {
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) ? n : null; // git prints "-" for a binary blob
+}
+
+/** Parse one `-z` numstat record: `added\tremoved\tpath` for an ordinary
+ *  change, and `added\tremoved\t` followed by NUL-separated old and new names
+ *  for a rename. The `-z` spelling exists precisely so this is unambiguous —
+ *  the human form prints `dir/{old => new}/note.md`, which no parser should
+ *  ever be asked to take apart. */
+function parseNumstat(parts: string[]): { added: number | null; removed: number | null; path: string | null } {
+  const head = (parts[0] ?? "").replace(/^\n+/, "");
+  const cols = head.split("\t");
+  if (cols.length < 3) return { added: null, removed: null, path: null };
+  const added = parseCount(cols[0]);
+  const removed = parseCount(cols[1]);
+  // Third column empty ⇒ rename: the two names follow as their own NUL fields,
+  // and the one this revision's blob lives under is the NEW one.
+  const path = cols[2] !== "" ? cols[2] : (parts[2] ?? parts[1] ?? null);
+  return { added, removed, path: path === null || path === "" ? null : path };
+}
+
+/** Every commit that touched one note, newest first, across renames.
+ *
+ *  `--follow` is the whole reason a rename in this product does not throw the
+ *  note's past away, and it is also why each entry carries its own `path`: an
+ *  older revision of a note that has since moved is a blob under the OLD name,
+ *  and `git show <sha>:<current path>` would simply miss.
+ *
+ *  `--` before the path so a note called `-x.md` is a pathspec rather than an
+ *  option, and the pathspec is passed VERBATIM: git's own globbing is off for
+ *  a literal path, and the caller has already run it through the vault's
+ *  containment checks. */
+export async function noteHistory(relPath: string, limit = HISTORY_DEFAULT): Promise<NoteHistoryResponse> {
+  if (!(await isGitRepo())) return { repo: false, revisions: [], truncated: false };
+  const max = Math.max(1, Math.min(HISTORY_MAX, Math.trunc(limit) || HISTORY_DEFAULT));
+  // One extra, so "there is more" is a fact rather than a guess at the boundary.
+  const out = await gitTry([
+    "log",
+    "--follow",
+    "-z",
+    "--numstat",
+    `--max-count=${max + 1}`,
+    "--format=%x1e%H%x1f%h%x1f%aI%x1f%s",
+    "--",
+    relPath,
+  ]);
+  if (out === null) return { repo: true, revisions: [], truncated: false };
+  const revisions: NoteRevision[] = [];
+  for (const chunk of out.split("\x1e")) {
+    if (chunk === "") continue;
+    const parts = chunk.split("\0");
+    const [sha, short, iso, subject] = (parts[0] ?? "").split("\x1f");
+    if (!sha || !isFullSha(sha)) continue;
+    const stat = parseNumstat(parts.slice(1));
+    revisions.push({
+      sha,
+      short: short ?? sha.slice(0, 7),
+      iso: iso ?? "",
+      subject: scrub(subject ?? "").slice(0, SUBJECT_MAX),
+      path: stat.path ?? relPath,
+      added: stat.added,
+      removed: stat.removed,
+    });
+  }
+  const truncated = revisions.length > max;
+  return { repo: true, revisions: revisions.slice(0, max), truncated };
+}
+
+/** One revision's bytes. Admin-only at the route; here the two guarantees are
+ *  that the sha is a bare object name (see `isFullSha`) and that the size is
+ *  checked BEFORE the content is read, so a note somebody pasted a database
+ *  into cannot be turned into a 40MB JSON body by asking for its history. */
+export async function noteRevisionBlob(relPath: string, sha: string): Promise<NoteRevisionBlob> {
+  if (!isFullSha(sha)) throw new VaultError(400, "Not a commit id");
+  if (!(await isGitRepo())) throw new VaultError(404, "The vault is not a git repository");
+  const spec = `${sha}:${relPath}`;
+  const size = await gitTry(["cat-file", "-s", spec]);
+  if (size === null) throw new VaultError(404, "No such revision of that note");
+  const bytes = Number.parseInt(size.trim(), 10);
+  if (Number.isFinite(bytes) && bytes > BLOB_MAX_BYTES) {
+    throw new VaultError(413, `That revision is too large to open here (${bytes} bytes)`);
+  }
+  let content: string;
+  try {
+    content = await git(["show", spec]);
+  } catch (err) {
+    throw new VaultError(404, gitMessage(err));
+  }
+  return { sha, path: relPath, content };
+}
+
 // ---------------------------------------------------------------------- init
 
 /** VELLUM_DATA's path RELATIVE to the vault, or null when it sits outside it
@@ -835,10 +979,49 @@ export async function initRepo(): Promise<GitSyncStatus> {
   return gitStatus();
 }
 
+/** A local commit and nothing else — no fetch, no merge, no push.
+ *
+ *  This is "Snapshot now" in the palette, and it is the move that makes the
+ *  scary tools safe: the bulk editors (search & replace, tag rename) offer a
+ *  snapshot before they run, and a reader about to try something is owed a
+ *  point to come back to WITHOUT waiting on a network that may not be there.
+ *  It is `syncNow()` with the two network halves removed, and it goes through
+ *  exactly the same `protectDataDir()` → `stageAll()` gate, because the one
+ *  thing that must never differ between the two paths is what gets committed.
+ *
+ *  It does NOT record `lastResult`: the badge's sentence answers "is my
+ *  writing somewhere else yet", and a local commit is not an answer to that
+ *  question. Nothing is pushed, so nothing about the remote has changed. */
+export async function snapshotNow(): Promise<{ committed: boolean; sha: string | null }> {
+  if (busy) throw new VaultError(409, "A sync is already running");
+  busy = true;
+  try {
+    if ((await repoRoot()) === null) {
+      throw new VaultError(400, "The vault is not a git repository yet — initialize it first");
+    }
+    await protectDataDir();
+    await stageAll();
+    // Non-zero exit (→ null through gitTry) means the index holds changes.
+    if ((await gitTry(["diff", "--cached", "--quiet"])) !== null) return { committed: false, sha: null };
+    await commit("snapshot");
+    return { committed: true, sha: (await gitTry(["rev-parse", "--short", "HEAD"]))?.trim() ?? null };
+  } catch (err) {
+    if (err instanceof VaultError) throw err;
+    throw new VaultError(500, gitMessage(err));
+  } finally {
+    busy = false;
+  }
+}
+
 /** Commit the staged tree. Supplies a fallback identity only when the machine
- *  has none configured — otherwise the operator's own git identity is used. */
-async function commit(): Promise<void> {
-  const message = `vellum sync: ${new Date().toISOString()}`;
+ *  has none configured — otherwise the operator's own git identity is used.
+ *
+ *  The `kind` reaches the subject line, and therefore the history timeline the
+ *  reader reads: "vellum snapshot: …" for a point somebody deliberately made
+ *  before an edit they were unsure of, "vellum sync: …" for the unattended
+ *  backup. One row of that list has to be findable a week later. */
+async function commit(kind: "sync" | "snapshot" = "sync"): Promise<void> {
+  const message = `vellum ${kind}: ${new Date().toISOString()}`;
   const email = await gitTry(["config", "--get", "user.email"]);
   const identity =
     email !== null && email.trim() !== ""
@@ -945,6 +1128,14 @@ export async function syncNow(trigger: SyncTrigger = "manual"): Promise<GitSyncS
     await git(["push", "--set-upstream", "origin", branch], { network: true });
     pushed = true;
 
+    // The commit this pass made, named. Read AFTER the commit (so `head`
+    // above, sampled for the push comparison, is the wrong one when this pass
+    // committed) and never fatal: a backup that worked must not be reported as
+    // a failure because `rev-parse` did — hence gitTry, and hence the `?`.
+    const sha = committed
+      ? ((await gitTry(["rev-parse", "--short", "HEAD"]))?.trim() ?? undefined)
+      : undefined;
+
     lastResult = {
       at: startedAt,
       ok: true,
@@ -956,6 +1147,7 @@ export async function syncNow(trigger: SyncTrigger = "manual"): Promise<GitSyncS
       committed,
       pushed,
       remoteAdvanced,
+      sha,
     };
     loggedFailure = null;
   } catch (err) {

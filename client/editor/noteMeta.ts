@@ -6,6 +6,7 @@ import { bannerSrc, resolveBanner } from "../banner.ts";
 import { localeNum, t, tf } from "../i18n.ts";
 import { layoutBadge, siteTextLayout } from "../textLayout.ts";
 import { parseNoteLayout, resolveNoteLayout } from "../../shared/textLayout.ts";
+import { uncomment } from "../../shared/yaml.ts";
 
 export interface BannerElOpts {
   /** The note the value was written in — the third rung of the resolution
@@ -109,33 +110,69 @@ function missingBannerCard(value: string, className: string): HTMLElement {
 /** Inline #tag matcher (unicode letters, digits, _, /, -). */
 export const TAG_RE = /(^|[\s([{])#([\p{L}\p{N}_][\p{L}\p{N}_/-]*)/gu;
 
-/** Parse simple `key: value` / list frontmatter into display rows. */
-export function parseProps(yaml: string): { key: string; values: string[] }[] {
-  const rows: { key: string; values: string[] }[] = [];
+/** One frontmatter property as the card reads it. */
+export interface PropRow {
+  key: string;
+  /** The values, unquoted — what the card prints. */
+  values: string[];
+  /** The value is a LIST in the file: `[a, b]` or `- item` lines. The card's
+   *  editor needs the distinction the printed values throw away — a one-item
+   *  list and a scalar look identical once they are on screen, and writing the
+   *  wrong one back is how `tags: [x]` becomes `tags: x`. */
+  list: boolean;
+  /** The value EXACTLY as the file spells it, comment stripped: quotes and
+   *  all. It is what tells `true` (a boolean) from `"true"` (a note whose
+   *  author meant the word), and `2026-01-02` (a date) from a quoted string
+   *  that happens to look like one. Empty for a block list's key line. */
+  raw: string;
+}
+
+/** Parse simple `key: value` / list frontmatter into display rows.
+ *
+ *  The key charset is UNICODE (`\p{L}\p{N}_.-`), not `\w`: v1.8 made the card
+ *  editable, so a reader can now ADD a property — and an Arabic instance whose
+ *  owner types an Arabic key would have watched the row vanish on save, the
+ *  value written correctly to a file the card could no longer read. */
+export function parseProps(yaml: string): PropRow[] {
+  const rows: PropRow[] = [];
   const lines = yaml.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const m = /^([\w-]+):\s*(.*)$/.exec(lines[i]);
+    const m = /^([\p{L}\p{N}_][\p{L}\p{N}_.-]*):[ \t]*(.*)$/u.exec(lines[i]);
     if (!m) continue;
-    const inline = m[2].trim();
+    const raw = uncomment(m[2].trim());
     const values: string[] = [];
     const clean = (s: string) => s.trim().replace(/^["'#]+|["']+$/g, "");
-    if (inline.startsWith("[")) {
-      for (const part of inline.replace(/^\[|\]$/g, "").split(",")) {
+    let list = false;
+    if (raw.startsWith("[")) {
+      list = true;
+      for (const part of raw.replace(/^\[|\]$/g, "").split(",")) {
         if (clean(part)) values.push(clean(part));
       }
-    } else if (inline) {
-      values.push(clean(inline));
+    } else if (raw) {
+      values.push(clean(raw));
     } else {
       for (let j = i + 1; j < lines.length; j++) {
         const item = /^[ \t]*-[ \t]+(.+)$/.exec(lines[j]);
         if (!item) break;
-        if (clean(item[1])) values.push(clean(item[1]));
+        list = true;
+        // A BLOCK LIST'S ITEMS GET THE SAME COMMENT TREATMENT AS AN INLINE
+        // VALUE, and until v1.8 they did not. Display-only, the difference
+        // was a card that printed `alpha  # why` as a tag; the moment the
+        // card became editable it was a corruption, because adding one chip
+        // hands the WHOLE list back to POST /api/frontmatter — which wrote
+        // the reader's own comment into the value, quoted, and lost it as a
+        // comment for good. That is the one thing this release promises the
+        // frontmatter writer will never do (server/frontmatterEdit.ts), and
+        // the promise was being broken one layer above it.
+        const text = clean(uncomment(item[1].trim()));
+        if (text) values.push(text);
       }
     }
-    rows.push({ key: m[1], values });
+    rows.push({ key: m[1], values, list, raw });
   }
   return rows;
 }
+
 
 // ── Properties card (shared DOM builder: live preview + reading view) ───────
 
@@ -184,6 +221,19 @@ export interface PropsCardOpts {
   /** Optional trailing header action (the editor's "Set banner…" button).
    *  Must carry `data-tag` (or stop propagation) so it doesn't toggle. */
   action?: HTMLElement;
+  /** EDITING IS INJECTED, NOT BUILT IN (v1.8 spec K, Obsidian parity #1).
+   *
+   *  The card has two callers: the live-preview editor and the reading-view
+   *  renderer, and only the first of them may write — a reading pane is a
+   *  reading pane, and a visitor's copy of it must not so much as ship the
+   *  code for an input. So the whole editing layer lives in
+   *  client/editor/propsEdit.ts, imported by the EDITOR chunk alone and handed
+   *  in here as two callbacks. The reading view passes neither, rollup never
+   *  reaches the module from that side, and the first-paint chunk stays the
+   *  size it was. */
+  editRow?: (row: PropRow, valueEl: HTMLElement, rowEl: HTMLElement) => void;
+  /** The "Add property" line under the last row. */
+  footer?: () => HTMLElement | null;
 }
 
 /** Frontmatter → collapsible properties card. Collapsed (the default) it is a
@@ -281,11 +331,11 @@ export function buildPropsCard(yaml: string, opts: PropsCardOpts): HTMLElement |
 
   const body = document.createElement("div");
   body.className = `${p}__body`;
-  for (const { key, values } of ordered) {
+  for (const entry of ordered) {
+    const { key, values } = entry;
+    const machine = isMachineKey(key, values);
     const row = document.createElement("div");
-    row.className = isMachineKey(key, values)
-      ? `${p}__row ${p}__row--machine`
-      : `${p}__row`;
+    row.className = machine ? `${p}__row ${p}__row--machine` : `${p}__row`;
     const k = document.createElement("span");
     k.className = `${p}__key`;
     // Key and values are note-derived text inside chrome, so each takes its
@@ -310,8 +360,18 @@ export function buildPropsCard(yaml: string, opts: PropsCardOpts): HTMLElement |
       });
     }
     row.appendChild(v);
+    // MACHINE ROWS ARE READ-ONLY, and that is a product rule rather than a
+    // shortcut: `id`, `uuid` and the `dg-*` sync fields are another tool's
+    // primary keys, and a reader who retypes one has not edited a property —
+    // they have broken whatever syncs against it. They already render faint
+    // (DESIGN.md's one sanctioned use of --text-faint on text); now they also
+    // decline the caret. The server refuses the same set (server/api.ts
+    // PROTECTED_KEYS), because a rule enforced only in the DOM is a rule.
+    if (!machine) opts.editRow?.(entry, v, row);
     body.appendChild(row);
   }
+  const foot = opts.footer?.();
+  if (foot) body.appendChild(foot);
   box.appendChild(body);
   return box;
 }

@@ -16,6 +16,9 @@ import {
   setPublishFlag,
   yamlQuote,
 } from "../server/publish.ts";
+import { frontmatterKeyRefusal, setNoteProperty } from "../server/frontmatterEdit.ts";
+import type { PropertyValue } from "../shared/types.ts";
+import { readNoteFrontmatter } from "../server/noteFrontmatter.ts";
 import { pick, rng } from "./helpers/vault.ts";
 
 /** Split a string into lines that KEEP their terminators, so a comparison of
@@ -335,4 +338,315 @@ describe("publish flag", () => {
     assert.equal(setPublishFlag(off, true), on);
     assert.equal(otherLines(off, "publish").join(""), otherLines(src, "publish").join(""));
   });
+});
+
+// ═══════════════════════════════════════ the properties editor (v1.8, K)
+//
+// setNoteProperty() is the write behind the editable properties card, and the
+// release's story rests on it: "Obsidian's properties editor corrupts YAML
+// round-trips; Vellum's frontmatter writer is byte-surgical and
+// property-tested." These are the tests that make that a claim rather than a
+// boast. The five rails are named in server/frontmatterEdit.ts's header; each
+// one has cases here, and the property test at the bottom asserts the first
+// of them — only the edited key's lines change — over generated notes.
+
+describe("setNoteProperty — the shapes a real vault contains", () => {
+  const NOTE = [
+    "---",
+    "title: A note        # the working title",
+    "tags: [alpha, beta]",
+    "aliases:",
+    "  - Second name",
+    '  - "Third, name"',
+    "weight: 3",
+    "created: 2026-01-02",
+    "# a standalone comment",
+    "odd:   'single quoted'",
+    "---",
+    "# Body",
+    "",
+    "text",
+    "",
+  ].join("\n");
+
+  it("keeps a trailing YAML comment when the value under it changes", () => {
+    const out = setNoteProperty("n.md", NOTE, "title", { kind: "text", text: "A new title" });
+    assert.ok(out.includes("title: A new title        # the working title"));
+    assert.equal(readFrontmatter(out).title, "A new title");
+  });
+
+  it("preserves quote style — plain stays plain, single stays single", () => {
+    const plain = setNoteProperty("n.md", NOTE, "title", { kind: "text", text: "Plain again" });
+    assert.ok(plain.includes("title: Plain again "), "a plain scalar must not acquire quotes");
+    const single = setNoteProperty("n.md", NOTE, "odd", { kind: "text", text: "it's fine" });
+    assert.ok(single.includes("odd:   'it''s fine'"), "single quotes and their spacing survive");
+    assert.equal(readFrontmatter(single).odd, "it's fine");
+  });
+
+  it("quotes a plain value that would otherwise change YAML type", () => {
+    const out = setNoteProperty("n.md", NOTE, "title", { kind: "text", text: "no" });
+    assert.equal(readFrontmatter(out).title, "no", "a note titled 'no' is not `false`");
+    assert.ok(out.includes('title: "no"'));
+  });
+
+  it("keeps a NUMBER plain when the value it replaces was already one", () => {
+    const out = setNoteProperty("n.md", NOTE, "weight", { kind: "text", text: "4" });
+    assert.ok(out.includes("weight: 4"), "an unquoted number must not acquire quotes");
+    assert.equal(readFrontmatter(out).weight, 4);
+  });
+
+  it("writes booleans and dates unquoted, so YAML reads them back typed", () => {
+    const bool = setNoteProperty("n.md", NOTE, "draft", { kind: "bool", bool: true });
+    assert.ok(bool.includes("draft: true"));
+    assert.equal(readFrontmatter(bool).draft, true);
+    const date = setNoteProperty("n.md", NOTE, "created", { kind: "date", date: "2026-08-24" });
+    assert.ok(date.includes("created: 2026-08-24"));
+    assert.ok(readFrontmatter(date).created instanceof Date);
+  });
+
+  it("edits a BLOCK list by the line, leaving the survivors byte-identical", () => {
+    const out = setNoteProperty("n.md", NOTE, "aliases", {
+      kind: "list",
+      items: ["Third, name", "Fourth"],
+    });
+    assert.ok(out.includes('  - "Third, name"\n  - Fourth\n'), out);
+    assert.ok(!out.includes("Second name"), "the removed item's line is gone");
+    assert.deepEqual(readFrontmatter(out).aliases, ["Third, name", "Fourth"]);
+    // The block list did NOT collapse onto its key line — the failure that
+    // orphans `- item` lines and takes `publish: true` down with the block.
+    assert.ok(out.includes("aliases:\n"));
+  });
+
+  it("appends one block item and touches nothing else in the list", () => {
+    const out = setNoteProperty("n.md", NOTE, "aliases", {
+      kind: "list",
+      items: ["Second name", "Third, name", "Fourth"],
+    });
+    assert.ok(out.includes('aliases:\n  - Second name\n  - "Third, name"\n  - Fourth\n'));
+  });
+
+  it("keeps a FLOW list flow, and keeps each surviving item's own spelling", () => {
+    const out = setNoteProperty("n.md", NOTE, "tags", { kind: "list", items: ["alpha", "gamma"] });
+    assert.ok(out.includes("tags: [alpha, gamma]"));
+    assert.deepEqual(readFrontmatter(out).tags, ["alpha", "gamma"]);
+  });
+
+  it("an emptied list stays a list — removing the key is a different verb", () => {
+    const emptied = setNoteProperty("n.md", NOTE, "tags", { kind: "list", items: [] });
+    assert.ok(emptied.includes("tags: []"));
+    const removed = setNoteProperty("n.md", NOTE, "tags", null);
+    assert.ok(!removed.includes("tags:"));
+  });
+
+  it("never touches the standalone comment, the body, or any other key", () => {
+    for (const key of ["title", "tags", "weight", "created", "odd"]) {
+      const out = setNoteProperty("n.md", NOTE, key, { kind: "text", text: "x" });
+      assert.ok(out.includes("# a standalone comment"), `${key} ate the comment`);
+      assert.ok(out.endsWith("---\n# Body\n\ntext\n"), `${key} touched the body`);
+    }
+  });
+
+  it("appends an unknown key rather than refusing it — the whole point", () => {
+    const out = setNoteProperty("n.md", NOTE, "cssclasses", { kind: "list", items: ["wide"] });
+    assert.ok(out.includes("cssclasses: [wide]"));
+    assert.deepEqual(readFrontmatter(out).cssclasses, ["wide"]);
+  });
+
+  it("removing the last property removes the fence pair (rail 5)", () => {
+    assert.equal(setNoteProperty("n.md", "---\nonly: x\n---\nbody\n", "only", null), "body\n");
+    assert.equal(
+      setNoteProperty("n.md", "---\r\nonly: x\r\n---\r\nbody\r\n", "only", null),
+      "body\r\n",
+    );
+  });
+
+  it("a block-list item's OWN trailing comment survives the list growing", () => {
+    // The card's "add a value" hands the whole list back. Rail 4 keeps the
+    // bytes of every item whose text is still in the array — comment and all
+    // — so appending `gamma` must not rewrite the line `alpha` lives on.
+    const src = "---\ntags:\n  - alpha            # a comment inside a block list\n  - beta\n---\nbody\n";
+    const out = setNoteProperty("n.md", src, "tags", { kind: "list", items: ["alpha", "beta", "gamma"] });
+    assert.ok(out.includes("  - alpha            # a comment inside a block list"), out);
+    assert.ok(out.includes("  - gamma"), out);
+    assert.deepEqual(readFrontmatter(out).tags, ["alpha", "beta", "gamma"]);
+  });
+
+  it("takes the blank line the fence was wearing with it", () => {
+    // The shape every hand-written note actually has. Keeping the blank line
+    // left the file opening on an empty line — found by the v1.8 browser
+    // verification, where the card's × on the last property produced
+    // "\n# Solo\n\nBody.\n".
+    assert.equal(setNoteProperty("n.md", "---\nonly: x\n---\n\n# Solo\n\nBody.\n", "only", null), "# Solo\n\nBody.\n");
+    assert.equal(
+      setNoteProperty("n.md", "---\r\nonly: x\r\n---\r\n\r\n# Solo\r\n", "only", null),
+      "# Solo\r\n",
+    );
+    // A SECOND blank line is the author's own spacing and stays.
+    assert.equal(setNoteProperty("n.md", "---\nonly: x\n---\n\n\n# Solo\n", "only", null), "\n# Solo\n");
+  });
+
+  it("keeps the fences when a COMMENT is all that would be left", () => {
+    const src = "---\n# why this note exists\nonly: x\n---\nbody\n";
+    assert.equal(setNoteProperty("n.md", src, "only", null), "---\n# why this note exists\n---\nbody\n");
+  });
+
+  it("sees the EMPTY block another tool left behind instead of prepending a second", () => {
+    // "---\n---\n" is what Obsidian leaves when its card deletes the last
+    // property. setFrontmatterLine() cannot see it (a documented bug above);
+    // this writer can, so the note never grows a stray `---` rule.
+    assert.equal(
+      setNoteProperty("n.md", "---\n---\nbody\n", "title", { kind: "text", text: "A" }),
+      "---\ntitle: A\n---\nbody\n",
+    );
+  });
+
+  it("creates a minimal block for a note that has no frontmatter", () => {
+    assert.equal(
+      setNoteProperty("n.md", "# Note\n", "status", { kind: "text", text: "draft" }),
+      "---\nstatus: draft\n---\n# Note\n",
+    );
+    assert.equal(setNoteProperty("n.md", "# Note\n", "status", null), "# Note\n");
+  });
+
+  it("never touches an INDENTED key of the same name", () => {
+    const src = "---\nmeta:\n  status: old\n---\nbody\n";
+    assert.equal(
+      setNoteProperty("n.md", src, "status", { kind: "text", text: "new" }),
+      "---\nmeta:\n  status: old\nstatus: new\n---\nbody\n",
+    );
+  });
+
+  it("survives malformed YAML — the edit is textual, never a re-serialization", () => {
+    const src = "---\ntags: [unclosed\ntitle: 'mismatched\"\n---\nbody\n";
+    assert.equal(
+      setNoteProperty("n.md", src, "status", { kind: "text", text: "ok" }),
+      "---\ntags: [unclosed\ntitle: 'mismatched\"\nstatus: ok\n---\nbody\n",
+    );
+  });
+
+  it("writes a .tex note's COMMENT block, so the file still compiles", () => {
+    const src = "%---\n% title: T\n%---%\n\\documentclass{article}\n";
+    const out = setNoteProperty("n.tex", src, "tags", { kind: "list", items: ["a", "b"] });
+    assert.equal(out, "%---\n% title: T\n% tags: [a, b]\n%---%\n\\documentclass{article}\n");
+    assert.deepEqual(readNoteFrontmatter("n.tex", out).tags, ["a", "b"]);
+    assert.equal(
+      setNoteProperty("n.tex", out, "tags", null),
+      src,
+      "removal puts the block back exactly as it was",
+    );
+  });
+
+  it("refuses a key whose SHAPE would break the block it is written into", () => {
+    // A `.tex` frontmatter fence is recognised by shared/tex.ts only when every
+    // line is an ASCII `key:` or `- item`. An Arabic key in a comment block
+    // would make the whole block stop being frontmatter — the note would lose
+    // every property it has, `publish:` included.
+    assert.equal(frontmatterKeyRefusal("n.md", "عنوان"), null, "markdown takes Arabic keys");
+    assert.notEqual(frontmatterKeyRefusal("n.tex", "عنوان"), null);
+    assert.notEqual(frontmatterKeyRefusal("n.md", "two words"), null);
+    assert.notEqual(frontmatterKeyRefusal("n.md", "a\nb: c"), null);
+    assert.notEqual(frontmatterKeyRefusal("n.md", "-dash"), null);
+    assert.throws(() => setNoteProperty("n.md", NOTE, "a: b", { kind: "text", text: "x" }));
+  });
+
+  it("round-trips an Arabic value without quoting it into a different string", () => {
+    const out = setNoteProperty("n.md", NOTE, "المصدر", { kind: "text", text: "مقدمة ابن خلدون" });
+    assert.equal(readFrontmatter(out)["المصدر"], "مقدمة ابن خلدون");
+    assert.ok(out.includes("# a standalone comment"));
+  });
+});
+
+describe("setNoteProperty — property: only the edited key's line changes", () => {
+  // Single-line keys only: a multi-line value is its own set of cases above,
+  // and `otherLines()` cannot express "the item lines under this key".
+  const KEYS = ["title", "status", "weight", "banner"] as const;
+  // Entries, not lines: a `- item` and an indented key belong to the key above
+  // them, and a generator that scatters them loose makes notes whose YAML was
+  // already broken — which tests the parser's opinion of garbage rather than
+  // this writer's surgery.
+  const FM_ENTRIES = [
+    ["title: A note"],
+    ["tags: [alpha, beta]"],
+    ["created: 2026-01-02"],
+    ["aliases:", "  - Second name", '  - "Third, name"'],
+    ["id: 01JQ8Z"],
+    ["banner: old.png"],
+    ["publish: false"],
+    ["meta:", "  indented: value"],
+    ["# a comment line"],
+    ['quoted: "a: colon, and #hash"'],
+    ["arabic: مذكرة"],
+    ["empty:"],
+    ["weight: 3"],
+    ["blurb: |", "  a folded", "  scalar"],
+  ];
+  const BODY_LINES = ["# Heading", "", "Prose with a [[wikilink]].", "---", "status: nope", "> quote"];
+  const VALUES: PropertyValue[] = [
+    { kind: "text", text: "a plain value" },
+    { kind: "text", text: 'has "quotes" and: colons' },
+    { kind: "text", text: "مذكرة جديدة" },
+    { kind: "bool", bool: true },
+    { kind: "date", date: "2026-08-24" },
+    { kind: "list", items: ["one", "two, three"] },
+  ];
+
+  for (let seed = 1; seed <= 120; seed++) {
+    it(`seed ${seed}`, () => {
+      const next = rng(seed);
+      const nl = next() < 0.3 ? "\r\n" : "\n";
+      const key = pick(next, KEYS);
+      const value = pick(next, VALUES);
+      const fm: string[] = [];
+      const used: string[][] = [];
+      const fmCount = 1 + Math.floor(next() * (FM_ENTRIES.length - 1));
+      for (let i = 0; i < fmCount; i++) {
+        const candidate = pick(next, FM_ENTRIES);
+        if (used.includes(candidate)) continue;
+        used.push(candidate);
+        fm.push(...candidate);
+      }
+      const body: string[] = [];
+      const bodyCount = Math.floor(next() * BODY_LINES.length);
+      for (let i = 0; i < bodyCount; i++) body.push(pick(next, BODY_LINES));
+      if (body[0]?.startsWith("---")) body.unshift("Intro.");
+      const bodyText = `${body.join(nl)}${next() < 0.5 ? nl : ""}`;
+      const src = `---${nl}${fm.join(nl)}${nl}---${nl}${bodyText}`;
+
+      const out = setNoteProperty("n.md", src, key, value);
+
+      // 1. The body survives byte for byte — its own `---` rules and the line
+      //    that merely LOOKS like the key included.
+      assert.ok(out.endsWith(bodyText), "the body was modified");
+
+      // 2. Every frontmatter line that is not this key's survives, in order.
+      assert.deepEqual(otherLines(out, key), otherLines(src, key), "collateral damage");
+
+      // 3. The key appears exactly once in the block…
+      const outFm = out.slice(0, out.length - bodyText.length);
+      const keyLines = linesWithEndings(outFm).filter((l) => l.startsWith(`${key}:`));
+      assert.equal(keyLines.length, 1);
+
+      // 4. …and YAML reads back exactly what was asked for — asserted only
+      //    where the generated block was parseable to begin with. The corpus
+      //    deliberately contains lines that break YAML (a stray indent, an
+      //    empty key), because rails 1-3 above are exactly the promise that
+      //    holds on a note whose frontmatter is already broken; what a parser
+      //    says about such a note is not this writer's business.
+      const plain = out.replace(/\r\n/g, "\n");
+      if (Object.keys(readFrontmatter(src.replace(/\r\n/g, "\n"))).length > 0) {
+        const read = readFrontmatter(plain)[key];
+        if (value.kind === "text") assert.equal(read, value.text);
+        else if (value.kind === "bool") assert.equal(read, value.bool);
+        else if (value.kind === "list") assert.deepEqual(read, value.items);
+        else assert.ok(read instanceof Date);
+      }
+
+      // 5. Idempotent, and removal is clean.
+      assert.equal(setNoteProperty("n.md", out, key, value), out);
+      const removed = setNoteProperty("n.md", out, key, null);
+      assert.ok(removed.endsWith(bodyText), "removal damaged the body");
+      const removedFm = removed.slice(0, removed.length - bodyText.length);
+      assert.equal(linesWithEndings(removedFm).filter((l) => l.startsWith(`${key}:`)).length, 0);
+    });
+  }
 });

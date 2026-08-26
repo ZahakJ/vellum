@@ -1,0 +1,339 @@
+/* ── Note history ────────────────────────────────────────────────────────────
+   The timeline in the right panel, and the revision it opens.
+
+   The section is a sibling of the outline and the local graph above it, so it
+   borrows their grammar exactly: the 300px fixed inner width that makes the
+   panel's collapse CLIP rather than reflow, the chevron-plus-title header, the
+   hairline under the block. The revision viewer is a sibling of the trash
+   browser — raised ground, serif small-caps heading, one scrolling body — and
+   sits at the same z-index for the same reason: above the mobile sidebar
+   drawer (400), below .s-confirm-overlay (500).
+
+   Every colour is a token, every edge logical, so the whole thing mirrors in
+   Arabic. Every target clears 44px on a coarse pointer, including the rows —
+   a timeline is read on a phone at exactly the moment something has gone
+   wrong. */
+
+.s-history {
+  flex: none;
+  width: 300px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.s-history__header {
+  border-bottom: none;
+  padding-inline-start: 8px;
+}
+
+.s-history__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 2px;
+  border-radius: 4px;
+  text-align: start;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.s-history__toggle:hover {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.s-history__toggle .s-panel-count {
+  margin-inline-start: auto;
+}
+
+.s-history__body {
+  padding: 0 8px 10px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+/* A sentence is text: --text-muted, never the non-text floor. */
+.s-history__note {
+  margin: 0;
+  padding: 8px 8px 10px;
+  font-size: 0.857rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.s-history__note--foot {
+  padding-top: 2px;
+  color: var(--text-muted);
+}
+
+/* An empty state with a DOOR. "Backup is off" and nothing to press is the
+   shape this release exists to stop shipping. */
+.s-history__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding-bottom: 6px;
+}
+
+.s-history__door {
+  margin-inline-start: 8px;
+  padding: 5px 10px;
+  font-family: var(--font-ui);
+  font-size: 0.857rem;
+  color: var(--accent);
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.s-history__door:hover,
+.s-history__door:focus-visible {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.s-history__list {
+  margin: 0;
+  padding: 2px 0 0;
+  list-style: none;
+}
+
+.s-histrow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 8px;
+  text-align: start;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.s-histrow:hover {
+  background: var(--bg-hover);
+}
+
+/* The WHEN is the column a reader scans, so it keeps its own width and does
+   not give it up to a long commit subject. */
+.s-histrow__when {
+  flex: none;
+  font-family: var(--font-ui);
+  font-size: 0.786rem;
+  color: var(--text-muted);
+}
+
+.s-histrow__subject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-serif);
+  font-size: 0.929rem;
+  color: var(--text);
+}
+
+/* +12 −3. Two numbers, marked by the accent and the danger hue rather than by
+   a word, because the row has already given the subject every pixel it can. */
+.s-histrow__stat {
+  flex: none;
+  display: inline-flex;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 0.714rem;
+}
+
+.s-histrow__plus {
+  color: color-mix(in srgb, var(--accent) 75%, var(--text-muted));
+}
+
+.s-histrow__minus {
+  color: color-mix(in srgb, var(--danger) 65%, var(--text-muted));
+}
+
+/* ── The revision viewer ───────────────────────────────────────────────────*/
+
+.s-revision-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 420;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.s-revision {
+  width: min(760px, calc(100vw - 32px));
+  margin-top: 10vh;
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.s-revision__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* A glyph is UI, so --text-faint is its floor by the 3:1 non-text rule. */
+.s-revision__glyph {
+  display: inline-flex;
+  align-items: center;
+  padding-top: 3px;
+  color: var(--text-faint);
+}
+
+.s-revision__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.s-revision__title {
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  color: color-mix(in srgb, var(--accent) 40%, var(--text));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-revision__meta {
+  font-family: var(--font-ui);
+  font-size: 0.786rem;
+  color: var(--text-muted);
+}
+
+.s-revision__close {
+  flex: none;
+  border: none;
+  background: none;
+  padding: 0 4px;
+  font-size: 1.286rem;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.s-revision__close:hover {
+  color: var(--text);
+}
+
+.s-revision__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 24px 24px;
+  background: var(--bg);
+}
+
+/* The revision is READ here, so it takes the reading column's measure — the
+   same 760px box the editor and the reading view set, minus this panel's own
+   padding. Nothing inside sets a second one. */
+.s-revision__content {
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.s-revision__note {
+  margin: 0;
+  padding: 20px 0 8px;
+  text-align: center;
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+
+.s-revision__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* The one act this surface exists for, so it is the one lit control on it. */
+.s-revision__restore {
+  padding: 7px 14px;
+  font-family: var(--font-ui);
+  font-size: 0.929rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.s-revision__restore:hover:not(:disabled),
+.s-revision__restore:focus-visible:not(:disabled) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.s-revision__restore:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Every target clears the 44px floor DESIGN.md sets for a coarse pointer, and
+   these are read on a phone at exactly the moment something has gone wrong. */
+@media (max-width: 700px), (pointer: coarse) {
+  .s-history__toggle,
+  .s-histrow,
+  .s-history__door {
+    min-height: 44px;
+  }
+
+  .s-histrow {
+    align-items: center;
+  }
+
+  .s-revision {
+    width: 100vw;
+    max-height: 100vh;
+    margin-top: 0;
+    border-radius: 0;
+    border: none;
+  }
+
+  .s-revision__close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .s-revision__restore {
+    min-height: 44px;
+    flex: 1;
+  }
+
+  .s-revision__body {
+    padding-inline: 18px;
+  }
+}

@@ -29,6 +29,11 @@ const root = makeVault({
   "Block list.md": `---\npublish: true\ntags:\n  - zeta\n  - eta\nother: x\n---\nbody\n`,
   "Private.md": note({ tags: "[secret]" }, "unpublished #hidden\n"),
   "Fence.md": note({ publish: "true" }, "```sh\n#define MACRO 1\n```\n"),
+  // A reader's own asides, in all three spellings the writer supports.
+  "Commented.md":
+    `---\npublish: true\ntags:\n  - theta            # why this one\n  - iota\n---\nbody\n`,
+  "Commented flow.md": `---\npublish: true\ntags: [kappa, lambda]   # the pair\n---\nbody\n`,
+  "Hash inside quotes.md": `---\npublish: true\ntags: ["mu#nu"]\n---\nbody\n`,
   "Color.md": note({ publish: "true" }, "The accent is #c9a227 in the dark themes.\n"),
 });
 
@@ -101,6 +106,23 @@ describe("frontmatter tags:", () => {
   it("reads a block list and stops at the next key", () => {
     assert.ok(count.has("zeta") && count.has("eta"));
     assert.ok(!count.has("x"), "the next frontmatter key was swallowed as a tag");
+  });
+
+  it("drops a trailing # comment rather than filing it as part of the tag", () => {
+    // Found by the v1.8 browser verification: the sidebar was showing a pill
+    // reading "alpha # a comment inside a block list". A tag the author never
+    // wrote is a topic page nobody asked for.
+    assert.ok(count.has("theta"), [...count.keys()].filter((k) => k.startsWith("theta")).join("|"));
+    assert.ok(count.has("iota"));
+    assert.ok(count.has("kappa") && count.has("lambda"));
+    assert.ok(
+      ![...count.keys()].some((k) => /\s/.test(k) || k.includes("why") || k.includes("pair")),
+      `a comment reached the tag list: ${[...count.keys()].join(", ")}`,
+    );
+  });
+
+  it("keeps a # that lives INSIDE quotes — that one is the tag", () => {
+    assert.ok(count.has("mu#nu"), [...count.keys()].join(", "));
   });
 });
 
