@@ -1,6 +1,6 @@
 {
   "name": "vellum",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "A self-hosted, clone-and-run Obsidian-style markdown vault: live-preview editor, wikilinks, backlinks, graph view, full-text search.",
   "private": true,
   "type": "module",
