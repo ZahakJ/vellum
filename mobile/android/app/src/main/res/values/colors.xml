@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The iron-gall ground and gold leaf, straight out of client/styles/tokens.css
+     :root. The window wears them so the system bars, the letterbox behind the
+     WebView and the moment before the first paint are all the same colour as the
+     page — not a white flash with a dark app arriving late. -->
+<resources>
+    <color name="iron_gall">#16130e</color>
+    <color name="gold_leaf">#c9a227</color>
+    <color name="parchment_ink">#eae2d0</color>
+</resources>

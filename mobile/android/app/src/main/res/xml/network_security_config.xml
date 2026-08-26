@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Two departures from Android's defaults, both of them about the same person: a
+  self-hoster whose vault runs on a machine they own. Lint objects to both
+  (InsecureBaseConfiguration, AcceptsUserCertificates) and lint is right to ask;
+  the answers are below, and the `tools:ignore` is the record that they were
+  given rather than a warning swept up.
+
+  cleartextTrafficPermitted="true"
+    A Vellum server on a home network is reached at http://192.168.1.x:5173 or
+    http://vault.lan, because there is no certificate authority on earth that
+    will issue for those names. Refusing cleartext would not make that setup
+    safer; it would make the app useless to it, and push the owner into a
+    browser with no gate at all. What keeps this narrow is not the transport
+    policy — it is that the app talks to exactly ONE host, the one its owner
+    typed and this app verified, and that a host reached over https can never be
+    downgraded to http by a link (VellumPlugin.shouldOverrideLoad compares the
+    scheme, not only the name).
+
+  <certificates src="user" />
+    The other half of the same story: a self-hoster with a private CA, or a
+    Tailscale/step-ca certificate installed on their own phone, should have their
+    own server trusted by their own app. Android stopped honouring the user store
+    by default in API 24; for an app whose entire job is reaching one personal
+    server, that default is aimed at the wrong threat.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config
+        cleartextTrafficPermitted="true"
+        tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" tools:ignore="AcceptsUserCertificates" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

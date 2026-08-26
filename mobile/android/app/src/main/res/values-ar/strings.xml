@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- The launcher label stays "Vellum" in both languages, the way the web
+     client's wordmark does; what gets localized is the sentence — the entry in
+     the system share sheet, which is prose about an errand. -->
+<resources>
+    <string name="title_activity_share">التقاط إلى ڤيلوم</string>
+</resources>

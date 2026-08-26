@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The FileProvider grant list, and it is NOT dead template weight.
+
+  Capacitor's BridgeWebChromeClient hands a camera capture back to the page
+  through `${applicationId}.fileprovider` — the path taken when a page runs
+  `<input type="file" capture>`. The served Vellum app has attachment upload, so
+  a reader tapping "attach" and choosing the camera lands exactly here. Delete
+  this and that flow dies with a FileUriExposedException, in the release build,
+  on someone else's phone.
+
+  Two directories, both belonging to this app, both temporary: the photo the
+  camera just took, on its way into a note.
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <external-path name="captured_media" path="." />
+    <cache-path name="captured_media_cache" path="." />
+</paths>

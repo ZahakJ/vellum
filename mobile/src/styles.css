@@ -1,0 +1,488 @@
+/* Vellum for Android — the shell's two screens.
+ *
+ * ONE ROOM, DELIBERATELY. The web client ships fifteen themes because a vault
+ * is somewhere you live; this is a doorway you pass through, and a doorway that
+ * changed colour with the phone's light sensor would be a doorway pretending to
+ * be a room. So: iron-gall, always. No `prefers-color-scheme` block, and that
+ * is a decision rather than an omission.
+ *
+ * The values are lifted verbatim from client/styles/tokens.css `:root` so the
+ * connection screen and the vault behind it are the same object. If those move,
+ * these move.
+ *
+ * Every inset is LOGICAL (`padding-inline`, `inset-inline-start`, `text-align:
+ * start`) because the app speaks Arabic, and `dir="rtl"` has to mirror the
+ * whole screen without a single `[dir]` override below. */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #16130e;
+  --bg-raised: #1e1a13;
+  --bg-hover: #29231a;
+  --text: #eae2d0;
+  --text-muted: #a99f89;
+  --text-faint: #6e6656;
+  --accent: #c9a227;
+  --accent-soft: rgba(201, 162, 39, 0.14);
+  --border: #2f2920;
+  --danger: #c4574a;
+  --focus-ring: #c9a227;
+  --selection-bg: rgba(201, 162, 39, 0.24);
+
+  --radius: 6px;
+
+  --font-ui-system: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif-system: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+  --font-ui: var(--font-ui-system);
+  --font-serif: var(--font-serif-system);
+
+  /* Capacitor's SystemBars plugin sets these four on <html> once it has real
+     insets. The env() fallbacks keep the layout honest for the frame before
+     that, and anywhere the plugin declines to speak. */
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-right: env(safe-area-inset-right, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-inset-left: env(safe-area-inset-left, 0px);
+
+  /* Coarse pointer, every target, no exceptions — the same floor DESIGN.md
+     sets for the web client's shell. */
+  --target: 48px;
+}
+
+/* Arabic gets the app's own Arabic stacks. It also gets out of the way of the
+   Latin wordmark treatment: small caps and letterspacing are typographic
+   nonsense in an Arabic script, and applying them anyway is how a bilingual
+   interface tells one of its languages it is a guest. */
+:root:lang(ar) {
+  --font-ui-system: "Noto Sans Arabic", "Geeza Pro", "Droid Arabic Kufi", Tahoma, system-ui, sans-serif;
+  --font-serif-system: "Noto Naskh Arabic", Amiri, "Scheherazade New", "Traditional Arabic", Georgia, serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  /* The shell never scrolls sideways, and a rubber-band overscroll that
+     reveals a white gutter would break the one room in one gesture. */
+  overscroll-behavior: none;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--selection-bg);
+}
+
+/* A single warm pool of light behind the wordmark. Not a gradient background —
+   a candle. It is `fixed` so the keyboard opening does not drag the light up
+   the screen with the content. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 60% at 50% 0%, rgba(201, 162, 39, 0.07), transparent 62%);
+}
+
+#app {
+  position: relative;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-block: calc(var(--safe-area-inset-top) + 40px) calc(var(--safe-area-inset-bottom) + 28px);
+  padding-inline: calc(var(--safe-area-inset-left) + 24px) calc(var(--safe-area-inset-right) + 24px);
+}
+
+.sheet {
+  width: 100%;
+  max-width: 440px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* ─────────────────────────────────────────────────────────────── wordmark ── */
+
+.wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: 0.42em;
+  font-family: var(--font-serif);
+  font-size: 30px;
+  font-weight: 400;
+  margin: 0;
+  color: var(--text);
+  font-variant-caps: small-caps;
+  letter-spacing: 0.16em;
+  /* Small caps put optical weight low; the trailing letterspace would otherwise
+     push the word off-centre by one space. */
+  padding-inline-end: 0.16em;
+}
+
+:root:lang(ar) .wordmark {
+  font-variant-caps: normal;
+  letter-spacing: normal;
+  padding-inline-end: 0;
+}
+
+.wordmark .star {
+  color: var(--accent);
+  /* Sized in em so it tracks the wordmark at every size the shell uses it, and
+     nudged down off the baseline because the star's optical centre sits above
+     the x-height of the small caps beside it. */
+  width: 0.78em;
+  height: 0.78em;
+  flex: none;
+  transform: translateY(0.02em);
+}
+
+.lede {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.masthead {
+  margin-block-end: 40px;
+}
+
+/* ──────────────────────────────────────────────────────────────── the form ── */
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-block-end: 7px;
+}
+
+:root:lang(ar) label {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 12px;
+}
+
+input[type="text"],
+input[type="url"],
+textarea {
+  display: block;
+  width: 100%;
+  min-height: var(--target);
+  padding: 12px 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-ui);
+  /* 16px exactly: anything smaller and the WebView zooms the page on focus,
+     which on a fixed-height shell means the layout never comes back. */
+  font-size: 16px;
+  line-height: 1.5;
+  text-align: start;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+textarea {
+  min-height: 132px;
+  resize: none;
+  font-family: var(--font-serif);
+  line-height: 1.6;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-faint);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  line-height: 1.45;
+}
+
+/* ────────────────────────────────────────────────────────────────  buttons ── */
+
+button {
+  font-family: inherit;
+  font-size: 15px;
+  min-height: var(--target);
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 140ms ease, opacity 140ms ease, border-color 140ms ease;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #16130e;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding-inline: 20px;
+  width: 100%;
+}
+
+.btn-primary:active {
+  background: #b08f21;
+}
+
+.btn-primary[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-quiet {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border);
+  padding-inline: 18px;
+}
+
+.btn-quiet:active {
+  background: var(--bg-hover);
+}
+
+/* A link-shaped escape hatch. Still 48px tall, because "small enough to look
+   secondary" and "small enough to miss" are not the same requirement. */
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding-inline: 4px;
+  align-self: center;
+}
+
+.btn-link:active {
+  color: var(--accent);
+}
+
+/* ────────────────────────────────────────────────────────────────  message ── */
+
+.message {
+  margin: 0;
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  border-inline-start: 2px solid var(--danger);
+  background: rgba(196, 87, 74, 0.09);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.message.note {
+  border-inline-start-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-muted);
+}
+
+.message.good {
+  border-inline-start-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+/* ─────────────────────────────────────────────────────────────  saved list ── */
+
+.saved {
+  margin-block-start: 36px;
+  border-block-start: 1px solid var(--border);
+  padding-block-start: 20px;
+}
+
+.saved h2 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--text-faint);
+}
+
+:root:lang(ar) .saved h2 {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 12px;
+}
+
+.saved ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.saved li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.saved-open {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--target);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  /* Centred, so a row with no host subtitle under it is the same height as one
+     that has it — a list that changed its rhythm per entry would read as a bug. */
+  justify-content: center;
+  gap: 1px;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: start;
+  padding: 8px;
+  margin-inline-start: -8px;
+  border-radius: 4px;
+}
+
+.saved-open:active {
+  background: var(--bg-hover);
+}
+
+.saved-open .name {
+  font-family: var(--font-serif);
+  font-size: 15.5px;
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-open .host {
+  font-size: 12px;
+  color: var(--text-faint);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* A host is a machine address: it reads left-to-right in every language. */
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.saved-forget {
+  flex: none;
+  width: var(--target);
+  min-height: var(--target);
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+}
+
+.saved-forget:active {
+  color: var(--danger);
+  background: var(--bg-hover);
+}
+
+.saved-forget svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ───────────────────────────────────────────────────────────────  waiting ── */
+
+/* The auto-connect state: no spinner, because a spinner is a promise about
+   duration that this cannot keep over someone's home DSL. A slow pulse on the
+   star says "working" without claiming to know how long. */
+.waiting {
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+}
+
+.waiting .wordmark {
+  font-size: 34px;
+}
+
+.waiting .star {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.32; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .waiting .star { animation: none; }
+  * { transition-duration: 1ms !important; }
+}
+
+.waiting .status {
+  color: var(--text-muted);
+  font-size: 15px;
+  margin: 0;
+  /* The host inside it is LTR text inside possibly-RTL copy; isolate so the
+     port never jumps to the wrong end of the sentence. */
+  unicode-bidi: isolate;
+}
+
+/* ────────────────────────────────────────────────────────────────  capture ── */
+
+.capture-actions {
+  display: flex;
+  gap: 10px;
+  margin-block-start: 4px;
+}
+
+.capture-actions .btn-primary {
+  flex: 1;
+}
+
+.spacer {
+  flex: 1;
+  min-height: 24px;
+}
+
+.target-line {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  unicode-bidi: isolate;
+}

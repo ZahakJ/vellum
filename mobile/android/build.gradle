@@ -1,0 +1,27 @@
+// Top-level build file. Trimmed from Capacitor's template: the google-services
+// classpath and the `google-services.json` sniff in app/build.gradle went with
+// it. This app has no Firebase, no push notifications and no analytics — it
+// talks to one server, which belongs to the person holding the phone.
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.13.0'
+    }
+}
+
+apply from: "variables.gradle"
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.layout.buildDirectory
+}

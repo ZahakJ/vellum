@@ -1,0 +1,27 @@
+{
+  // Standalone, not an `extends` of the repo root. The root tsconfig is tuned
+  // for a Node server plus a React client and pulls in `client/`, `server/` and
+  // `shared/`; this package is neither, and resolves its imports from
+  // `mobile/node_modules` (its own Capacitor copy) rather than walking up. The
+  // one thing kept in lockstep with the root is strictness: nothing here is
+  // allowed to be looser than the app it fronts.
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src", "vite.config.ts", "capacitor.config.ts"]
+}

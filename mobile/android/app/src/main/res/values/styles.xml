@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- One room, and the window frame is part of it.
+
+         `android:windowBackground` is the colour behind everything: the frame
+         before the WebView paints, and — under the edge-to-edge that API 35+
+         enforces — the strips the status bar and gesture bar sit on whenever the
+         page underneath is not drawing there itself. Leaving it at the platform
+         default is how a dark app ends up with two grey bands bolted to it.
+
+         There is no DayNight variant and no values-night/ beside this file. The
+         connection screen has one palette by decision (see src/styles.css), and
+         a window frame that followed the phone's light sensor while the page
+         inside it did not would be worse than either choice alone. -->
+    <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">@color/gold_leaf</item>
+        <item name="colorPrimaryDark">@color/iron_gall</item>
+        <item name="colorAccent">@color/gold_leaf</item>
+        <item name="android:windowBackground">@color/iron_gall</item>
+        <item name="android:textColor">@color/parchment_ink</item>
+    </style>
+
+    <!-- What BridgeActivity switches to once the bridge is up. -->
+    <style name="AppTheme.NoActionBar" parent="AppTheme">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowBackground">@color/iron_gall</item>
+    </style>
+
+    <!-- The launch theme, i.e. the splash.
+
+         `Theme.SplashScreen` is androidx core-splashscreen, which the Capacitor
+         SplashScreen plugin installs on the activity. It builds its own
+         `android:windowBackground` out of the two attributes below — so those
+         are the ones to set, and setting `android:windowBackground` directly
+         here would replace the thing that reads them and break the splash on
+         everything below API 31. (Capacitor's template sets `android:background`
+         instead, which is a View attribute and does nothing at all; it is gone.)
+
+         `postSplashScreenTheme` names what the splash hands over to, so the gold
+         star dissolves into the same ground rather than into the platform
+         default. `@drawable/splash` is still referenced — by the plugin's own
+         fallback path, if the API-31 route throws — and lives in
+         res/drawable/splash.xml. -->
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/iron_gall</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_star</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+    </style>
+</resources>

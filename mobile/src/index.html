@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8" />
+    <!-- `viewport-fit=cover` is what lets Capacitor's SystemBars plugin pass the
+         real insets through to CSS instead of padding the WebView's parent.
+         Without it the screen would sit inside a letterbox on any phone with a
+         cutout. `user-scalable=no` is deliberate on a two-field shell: pinch
+         zoom here only ever strands someone at 2x with no way back. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#16130e" />
+    <title>Vellum</title>
+  </head>
+  <body>
+    <main id="app"></main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

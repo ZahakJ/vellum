@@ -1,0 +1,18 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <!-- NOT TRANSLATED, and marked so rather than left for lint to complain
+         about: `✦ Vellum` is the wordmark, and the web client keeps it in Latin
+         on an Arabic instance too. What IS localized is prose — see
+         values-ar/strings.xml, which carries the one string that is a sentence. -->
+    <string name="app_name" translatable="false">Vellum</string>
+    <string name="title_activity_main" translatable="false">Vellum</string>
+
+    <!-- What the system share sheet calls this target. "Vellum" alone would be
+         ambiguous next to the launcher entry; this names the errand. -->
+    <string name="title_activity_share">Capture to Vellum</string>
+
+    <!-- Identifiers the Capacitor CLI reads out of this file. Not user-facing,
+         not translatable, and not to be renamed. -->
+    <string name="package_name" translatable="false">dev.vellum.mobile</string>
+    <string name="custom_url_scheme" translatable="false">dev.vellum.mobile</string>
+</resources>
