@@ -1,6 +1,6 @@
 {
   "name": "vellum",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "description": "A self-hosted, clone-and-run Obsidian-style markdown vault: live-preview editor, wikilinks, backlinks, graph view, full-text search.",
   "private": true,
   "type": "module",
@@ -23,6 +23,7 @@
     "check-design": "node scripts/shoot-design.mjs",
     "check-board": "node scripts/check-board.mjs",
     "check-preview": "node scripts/check-preview.mjs",
+    "check-print": "node scripts/check-print.mjs",
     "check-a11y": "node scripts/check-a11y.mjs",
     "check-bundle": "node scripts/check-bundle.mjs",
     "check-books": "node scripts/check-books.mjs",
