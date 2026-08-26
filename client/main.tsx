@@ -24,6 +24,22 @@ createRoot(root).render(
   </React.StrictMode>,
 );
 
+// ── Touch gestures ──────────────────────────────────────────────────────────
+// The phone's primary navigation: swipe the notes drawer in and out instead of
+// hunting the ☰. Split behind the same media query that decides the rest of
+// the mobile shell (app.css keys its 44px targets off `(pointer: coarse)`),
+// for the reason spelled out above — the entry chunk has about a kilobyte of
+// headroom and a mouse cannot use any of this. Evaluated once at boot, which
+// is when a device's pointer is settled; the module itself re-checks the
+// drawer breakpoint on every touch, so a rotated tablet is never stale.
+if (window.matchMedia("(pointer: coarse)").matches) {
+  // Swallowed on purpose: a redeploy that rotates the chunk hash mid-session
+  // makes this fetch 404, and a reader who then loses the swipe should lose
+  // the SWIPE — the ☰ is still there — not get the safety net's crash card
+  // from an unhandled rejection over a progressive enhancement.
+  void import("./swipe.ts").then((mod) => mod.installSwipe()).catch(() => {});
+}
+
 // ── The desktop app ─────────────────────────────────────────────────────────
 // Electron stamps `Electron/<version>` into the user-agent and nothing else
 // does — the same test client/components/ShortcutsHelp.tsx already uses to

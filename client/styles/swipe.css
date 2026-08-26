@@ -1,0 +1,57 @@
+/* Follow-finger drawer swipes (client/swipe.ts).
+ *
+ * Ships in the swipe chunk, not the entry: a mouse never downloads either
+ * half. Same breakpoint as the drawer's own — app.css owns the number 999 and
+ * this file only ever agrees with it. */
+
+@media (max-width: 999px) {
+  /* A CLOSED drawer is `visibility: hidden` (app.css says why at length), and
+     a hidden pane cannot be dragged into view. For the length of the gesture
+     it is paintable and its transform belongs to the module, which sets it
+     inline; the transition here is the RELEASE — the spring back or the glide
+     home — and `s-swipe--pan` below takes it away while the finger is still
+     down. Both classes sit on <html>, not on `.s-app`: React rewrites the
+     shell's className whole on every store change and would erase them
+     mid-gesture (client/swipe.ts says it at length). Equal specificity to
+     app.css's `.s-app--drawer .s-sidebar`, so this file must load after it —
+     it does, being the swipe chunk's own stylesheet. */
+  .s-swipe .s-sidebar {
+    visibility: visible;
+    transition: transform 0.2s ease;
+  }
+
+  /* While the finger is down the drawer IS the finger: a transition here
+     would put 200ms of lag between the two and the gesture would feel like
+     it was being reported rather than performed. */
+  .s-swipe--pan .s-sidebar {
+    transition: none;
+  }
+
+  /* The scrim fades in with the drawer instead of appearing whole at the end,
+     so a half-open drawer looks half-open. `--swipe-p` is the module's
+     progress, 0…1. */
+  .s-swipe .s-drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 390;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: var(--swipe-p, 0);
+    transition: opacity 0.2s ease;
+  }
+
+  .s-swipe--pan .s-drawer-backdrop {
+    transition: none;
+  }
+}
+
+/* Reduced motion keeps the follow — dragging a pane with your own finger is
+   direct manipulation, not animation, and removing it would remove the
+   feature — but the release SNAPS. The module runs the identical code path;
+   with no transition to run, its final transform simply lands. */
+@media (prefers-reduced-motion: reduce) {
+  .s-swipe .s-sidebar,
+  .s-swipe .s-drawer-backdrop {
+    transition: none;
+  }
+}

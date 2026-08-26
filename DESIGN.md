@@ -46,6 +46,26 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 - **A closed drawer is `visibility: hidden`**, like every other collapsed pane: off-screen is not
   the same as out of the tab order, and a phone reader must not swipe the whole vault before
   reaching the page.
+- **The drawer opens by SWIPE, and the swipe follows the finger.** A ☰ tap was the only door, and
+  a 30px target is not how anyone opens a sidebar on a phone: a horizontal pan anywhere in the
+  shell drags the drawer with the finger — reversible mid-gesture, the scrim fading with it — and
+  the release commits on a third of the drawer's width **or** on a flick (≥0.5 px/ms), otherwise
+  it springs back over 200ms (`prefers-reduced-motion` snaps instead; the follow stays, because
+  dragging a pane with your own finger is direct manipulation, not animation). The mirrored pan
+  from the opposite edge opens and closes the outline pane, which commits on release rather than
+  following, since it is a grid column and re-laying out the centre every frame would re-measure
+  the editor with it. Direction is LOGICAL and measured, not written down: each pane's edge comes
+  from its own box, so Arabic mirrors with no second code path. Every existing door stays — ☰,
+  the scrim tap, `Ctrl/Cmd Alt B`, the palette, the status-bar switch — and nothing focusable
+  moves. Five conflict rules make it feel native rather than twitchy, and each is a rule about
+  something else already owning that drag: a pan starting within 24px of either screen edge
+  belongs to the OS's back gesture; a pan starting inside a horizontally scrollable element that
+  still has room to scroll that way belongs to it (ancestors are walked, so a wide table, a code
+  fence or a strip keeps its own pan until it hits its end); a pan whose vertical delta wins
+  belongs to the scroller, because reading is a vertical act; a pan begun with a live CodeMirror
+  selection belongs to the selection handle; and a second finger means a pinch, never a drawer.
+  Zen answers none of them — it takes the ☰ away too, and chrome-less means chrome-less.
+  It ships as its own chunk behind `(pointer: coarse)`: a mouse downloads none of it.
 
 ## Sidebar
 
