@@ -225,6 +225,22 @@ export default function BannerModal() {
                       ? "attachmentsFailed"
                       : "noAttachments",
                 )}
+                {/* A VAULT WITH NO PICTURES IN IT IS THE COMMONEST CASE ON A
+                    FIRST BANNER, and the picker answered it with a dead
+                    sentence (v1.8 UX audit F41) — while the uploader that
+                    fixes it sat above the list, past a URL field, looking like
+                    a decorative dashed box. The empty case surfaces it: same
+                    input, same handler, one press. */}
+                {attachments.length === 0 && !listFailed && (
+                  <button
+                    type="button"
+                    className="s-btn s-btn--accent s-bmodal__emptydoor"
+                    disabled={busy}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {t("chooseImageFile")}
+                  </button>
+                )}
               </div>
             )}
             {filtered.slice(0, 200).map((p) => (

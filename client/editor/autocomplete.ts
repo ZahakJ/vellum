@@ -48,6 +48,7 @@ import {
   WIKILINK_RE,
 } from "./links.ts";
 import { noteAnchors } from "../../shared/anchors.ts";
+import { foldTerm } from "../../shared/fold.ts";
 import { isNotePath, stripNoteExt } from "../../shared/noteFormat.ts";
 import { notePathFacet } from "./livePreview.ts";
 import { t, tf } from "../i18n.ts";
@@ -130,8 +131,19 @@ const TIER_SUBSEQUENCE = 1;
 /** How well lowercase `typed` matches lowercase `name`. The four tiers are
  *  the whole story — WITHIN a tier the order is frecency's business, because
  *  "which of the eight notes starting with 'me' do I mean" is a question
- *  about the writer's habits, not about string distance. */
-function matchTier(typed: string, name: string): number {
+ *  about the writer's habits, not about string distance.
+ *
+ *  BOTH SIDES ARE FOLDED (shared/fold.ts). This popup has its own matcher — it
+ *  runs off the store's tree, never off the server's index — so v1.8's
+ *  diacritic folding had to be wired in twice or it would have been a search
+ *  box that finds «الْمُقَدِّمَة» beside a `[[` popup that does not, which is
+ *  worse than neither: the reader would conclude the note is gone. Ignorables
+ *  are dropped on both sides here (no offsets are reported), so a plain query
+ *  reaches an EXACT tier on a pointed title rather than limping in as a
+ *  subsequence under every note that merely contains the letters. */
+function matchTier(rawTyped: string, rawName: string): number {
+  const typed = foldTerm(rawTyped);
+  const name = foldTerm(rawName);
   if (name === typed) return TIER_EXACT;
   if (name.startsWith(typed)) return TIER_PREFIX;
   if (name.includes(typed)) return TIER_SUBSTRING;
@@ -275,11 +287,19 @@ async function wikilinkSource(
 
   const rows: RankedRow[] = [];
   let exactExists = false;
+  // THE NOTE YOU ARE IN is not a destination (v1.8 audit, F4). It carries the
+  // highest frecency there is — you are typing in it — so it sorted to the top
+  // of every "[[" popup in the vault, offering a link from a note to itself as
+  // the first and most obvious answer. It stays out of the list; it does NOT
+  // stay out of `exactExists`, because a note whose own name is typed still
+  // exists, and offering to CREATE it would be worse than offering to link it.
+  const host = hostPath(context);
   for (const note of notes) {
     const name = note.title.toLowerCase();
     const tier = typed === "" ? TIER_SUBSEQUENCE : matchTier(typed, name);
     if (tier === 0) continue;
     if (tier === TIER_EXACT) exactExists = true;
+    if (note.path === host) continue;
     rows.push({
       option: {
         label: note.title,
@@ -314,6 +334,9 @@ async function wikilinkSource(
     const tier = typed === "" ? TIER_SUBSEQUENCE : matchTier(typed, key);
     if (tier === 0) continue;
     if (tier === TIER_EXACT) exactExists = true;
+    // …and the host note's own OTHER names are not destinations either (F4):
+    // "[[Ledger]]" and "[[The Ledger]]" are the same self-link.
+    if (entry.path === host) continue;
     rows.push({
       option: {
         // The detail says whose alias it is, because the label alone is a name
@@ -343,7 +366,7 @@ async function wikilinkSource(
   // and only for a session that may write.
   const typedName = typedRaw.trim();
   if (typedName !== "" && !exactExists && !typedName.includes("#") && useStore.getState().admin) {
-    const dest = createDestination(typedName, hostPath(context));
+    const dest = createDestination(typedName, host);
     options.push({
       label: tf("linkCreateNote", { name: typedName }),
       // Where the file will LAND, spelled out — path, extension and all.

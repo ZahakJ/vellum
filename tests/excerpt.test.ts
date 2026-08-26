@@ -82,6 +82,19 @@ const files: Record<string, string> = {
     { publish: "true" },
     "Tags: philosophy, software\n\nA sentence that is long enough to be chosen as the real opening paragraph.\n",
   ),
+  // A SHELF NOTE: the whole body is fences, so there is no paragraph to cut.
+  // These used to ship a post with a title, a date and nothing where the
+  // sentence goes (UX audit F43).
+  "Shelf.md": note(
+    { publish: "true" },
+    "```tracker\ntitle: Dune\nkind: book\ndone: 300\ntotal: 412\n```\n\n" +
+      "```tracker\ntitle: Piranesi\nkind: book\ndone: 90\ntotal: 245\n```\n",
+  ),
+  "One thing.md": note(
+    { publish: "true" },
+    "```tracker\ntitle: Disco Elysium\nkind: game\npercent: 40\n```\n",
+  ),
+  "Board.md": note({ publish: "true" }, "```tracker-board\nkind: book\n```\n"),
   "Escaping.md": note(
     { publish: "true" },
     "A paragraph mentioning <script>alert(1)</script> and an ampersand & a bracket, written out at length.\n",
@@ -168,6 +181,16 @@ describe("excerpts", () => {
 
   it("is Arabic for an Arabic note", () => {
     assert.match(excerpt("Arabic.md"), /^هذه فقرة افتتاحية/);
+  });
+
+  // ── F43: a body that is only a fence ─────────────────────────────────────
+  it("summarizes a shelf note instead of leaving the slot empty", () => {
+    assert.equal(excerpt("Shelf.md"), "A shelf of 2 trackers.");
+    assert.equal(excerpt("One thing.md"), "A shelf of one tracker.");
+  });
+
+  it("summarizes a tracker BOARD, which carries no trackers of its own", () => {
+    assert.equal(excerpt("Board.md"), "A shelf of every tracker in the vault.");
   });
 
   it("is empty (not garbage) for a note with no prose", () => {

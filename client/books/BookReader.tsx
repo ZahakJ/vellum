@@ -51,6 +51,7 @@ import type { BookOpenResponse } from "../../shared/types.ts";
 import { scrollBehavior } from "../a11y.ts";
 import { localeNum, t, tf, type I18nKey } from "../i18n.ts";
 import { shortcutKey } from "../keys.ts";
+import { noteTitleOf } from "../../shared/noteFormat.ts";
 import { toast } from "../toast.ts";
 import { actionToast } from "../undoToast.ts";
 import {
@@ -774,8 +775,14 @@ export default function BookReader({ path, citation = null, active = true, onLan
       void (async () => {
         try {
           const undo = await citeIntoNote(targetPath, markdown);
-          actionToast(tf("bookReaderLabel", { title: targetPath }), t("undo"), () => {
-            void undo().catch(() => toast(t("bookCited"), "error"));
+          // TWO KEYS, THE RIGHT WAY ROUND (v1.8 UX audit F45). The success
+          // toast was calling `bookReaderLabel` — the reader's own aria-label,
+          // "Reading {title}" — over a raw vault PATH, and the failure inside
+          // the undo was painting `bookCited` ("Quoted into …") in --danger.
+          // Both keys existed and both were written for this moment; each was
+          // wired to the other's branch.
+          actionToast(tf("bookCited", { note: noteTitleOf(targetPath) }), t("undo"), () => {
+            void undo().catch(() => toast(t("bookCiteFailed"), "error"));
           });
         } catch {
           toast(t("bookCiteFailed"), "error");

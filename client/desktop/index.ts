@@ -100,6 +100,12 @@ function runCommand(command: string): void {
     case "find-open":
       openFindBar();
       return;
+    case "print":
+      // Same door the palette row and Ctrl/Cmd+Alt+P use, and dynamic for the
+      // same reason: client/print.ts carries the markdown renderer, and this
+      // module is small on purpose.
+      void import("../print.ts").then((mod) => mod.printNote());
+      return;
     case "reference-window":
       void desktop()?.openReference(location.pathname + location.search);
       return;

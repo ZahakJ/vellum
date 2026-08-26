@@ -92,6 +92,7 @@ export const COMMANDS = [
   "zen",
   "publish",
   "find-open",
+  "print",
   "reference-window",
   "sidebar",
   "panel",

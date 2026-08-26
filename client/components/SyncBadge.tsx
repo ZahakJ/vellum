@@ -26,6 +26,7 @@ import {
   syncCause,
   syncSnapshot,
   syncWhen,
+  SYNC_PANEL_EVENT,
 } from "../sync.ts";
 
 const POLL_MS = 20_000;
@@ -71,6 +72,20 @@ export default function SyncBadge() {
       window.removeEventListener("focus", onFocus);
     };
   }, [admin, preview]);
+
+  /** THE TOAST'S DOOR (v1.8 UX audit F40). "Vault committed and pushed —
+   *  a3f19c2" ends with a button, and the button opens this panel, which is
+   *  where the rest of the answer already lives. Focus follows it: a reader
+   *  who arrived by pressing a button and was left with focus back on the
+   *  vanished toast has been handed nothing. */
+  useEffect(() => {
+    const onOpen = (): void => {
+      setOpen(true);
+      requestAnimationFrame(() => btnRef.current?.focus());
+    };
+    window.addEventListener(SYNC_PANEL_EVENT, onOpen);
+    return () => window.removeEventListener(SYNC_PANEL_EVENT, onOpen);
+  }, []);
 
   // Click-outside and Esc close the panel. Capture phase for the key, like the
   // other overlays, so the editor never sees it.
@@ -196,15 +211,20 @@ export default function SyncBadge() {
                 {/* Isolated separately: dir="auto" over "date — message" takes
                     its direction from the date and reorders the rest. */}
                 <bdi>{syncWhen(status.last.at, locale)}</bdi>
+                {/* The sha names the pass, here as in the toast that
+                    announced it (F40) — the panel is where a reader comes back
+                    to look it up after the toast has gone. */}
                 <bdi>
                   {status.last.ok
-                    ? t(
-                        status.last.committed
-                          ? "syncPushed"
-                          : status.last.remoteAdvanced === true
-                            ? "syncPushedOnly"
-                            : "syncUpToDate",
-                      )
+                    ? status.last.committed && status.last.sha
+                      ? tf("syncPushedSha", { sha: status.last.sha })
+                      : t(
+                          status.last.committed
+                            ? "syncPushed"
+                            : status.last.remoteAdvanced === true
+                              ? "syncPushedOnly"
+                              : "syncUpToDate",
+                        )
                     : (cause ?? t("syncFailed"))}
                 </bdi>
               </div>

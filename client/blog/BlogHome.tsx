@@ -12,6 +12,7 @@ import { applyNoteLayoutTo } from "../textLayout.ts";
 import { useStore } from "../state.ts";
 import PostList from "./PostList.tsx";
 import AuthorSites from "./AuthorSites.tsx";
+import { BlogSkeleton } from "./util.tsx";
 import PublicFolders from "./PublicFolders.tsx";
 import "../reading/reading.css";
 
@@ -79,18 +80,31 @@ export default function BlogHome({
   return (
     <div className="s-blog-page">
       {introPath && <section className="s-blog-intro" ref={introRef} />}
-      {/* h1, not h2: this is the page's own title, and a page whose outline
-          starts at level 2 reads to a screen reader as a fragment of some
-          other document. Styling is entirely on the class, so nothing moves. */}
-      <h1 className="s-blog-heading">
+      {/* THE COLLECTIONS COME BEFORE THE WRITINGS (v1.8 UX audit F27). The
+          band used to be mounted after PostList, which put the site's own
+          declared structure at y=2490 on a 1440 desktop and y=2834 on a
+          390 phone — below every post the reader had to scroll past to learn
+          the collections existed at all. A list is browsing; a collection is
+          navigation, and navigation goes above the thing it navigates.
+          AuthorSites stays where it is: another author's site is a way OFF
+          this page, and a door out belongs at the end. */}
+      <PublicFolders />
+      {/* h2, and the masthead's site name is now the h1 (BlogShell): with the
+          Collections band above this list, the page's first heading is no
+          longer "Writings", and an outline that opens at level 2 and then
+          climbs to 1 is the same fragment the old h2 was. Three peer sections,
+          one page title — the shape the dashboard home has always had.
+          Styling is entirely on the class, so nothing moves. */}
+      <h2 className="s-blog-heading">
         <span>{t("blogWritings")}</span>
-      </h1>
+      </h2>
+      {/* Not a "…" (F41): a loading state and an empty state that render the
+          same mark in the same italic tell the reader nothing. */}
       {posts === null ? (
-        <p className="s-blog-empty">…</p>
+        <BlogSkeleton rows={4} />
       ) : (
         <PostList posts={listed} locale={locale} />
       )}
-      <PublicFolders />
 
       <AuthorSites />
     </div>

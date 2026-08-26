@@ -38,6 +38,7 @@ import { bannerFromYaml } from "../banner.ts";
 import { getLang, t, tf } from "../i18n.ts";
 import { label as tagLabel } from "../tagLabels.ts";
 import { buildBannerEl, buildPropsCard, parseProps, TAG_RE } from "./noteMeta.ts";
+import { propsEditor } from "./propsEdit.ts";
 import {
   FileCardWidget,
   ImageWidget,
@@ -161,8 +162,44 @@ const FOOTNOTE_RE = /\[\^([^\]\s]+)\]/g;
  *  color commands emit it, and the value is re-sanitized before it is used. */
 const COLOR_RE = /<span style="color:([^"<>]*)">(.*?)<\/span>/g;
 
-/** Line numbers currently touched by any selection range. */
+/** Has the reader TOUCHED this note yet?
+ *
+ *  THE RAW-YAML BUG (v1.8 audit, UX finding #1). Both decoration passes hide
+ *  markdown source on every line except the one the selection sits on — and a
+ *  freshly built EditorState puts that selection at offset 0, which is inside
+ *  the frontmatter fence. The inline pass already knew this and kept an
+ *  `interacted` flag on its ViewPlugin so a note opened fully rendered; the
+ *  BLOCK pass (the properties card, the banner, hidden fence markers) did not,
+ *  because it is a StateField and a StateField has no view to hang a flag on.
+ *  So the two everyday triggers — splitting a pane (a second EditorState is
+ *  built with selection 0) and publishing (togglePublish → bumpReload remounts
+ *  the editor) — opened onto five lines of raw YAML with no card and no banner
+ *  until the reader clicked somewhere.
+ *
+ *  The flag therefore becomes STATE, read by both passes: one field, flipped by
+ *  the first transaction that carries a userEvent (a click, a keystroke, a
+ *  paste) or that changes the document. Programmatic dispatches — parking the
+ *  caret on open, a language effect, a mirrored sibling selection — carry
+ *  neither, and deliberately do not flip it: the reader has still not touched
+ *  the note. */
+const interactedField = StateField.define<boolean>({
+  create: () => false,
+  update(value, tr) {
+    if (value) return true;
+    return tr.docChanged || tr.annotation(Transaction.userEvent) !== undefined;
+  },
+});
+
+/** The field's value, defaulting to "untouched" for a state built without the
+ *  live-preview extension (the reading view's throwaway states). */
+function interacted(state: EditorState): boolean {
+  return state.field(interactedField, false) === true;
+}
+
+/** Line numbers currently touched by any selection range — empty until the
+ *  reader has touched the note, so nothing reveals its source on open. */
 function activeLines(state: EditorState): Set<number> {
+  if (!interacted(state)) return new Set<number>();
   const lines = new Set<number>();
   for (const range of state.selection.ranges) {
     const from = state.doc.lineAt(range.from).number;
@@ -194,13 +231,14 @@ function frontmatterEnd(doc: EditorState["doc"]): number {
   return -1;
 }
 
-function buildDecorations(view: EditorView, revealActive: boolean): DecorationSet {
+function buildDecorations(view: EditorView): DecorationSet {
   const { state } = view;
   const doc = state.doc;
-  // Until the user actually interacts (click/keystroke), no line is treated
+  // Until the reader actually interacts (click/keystroke), no line is treated
   // as "active": a freshly opened note renders fully pretty instead of
   // revealing raw markdown on whatever line the initial cursor landed on.
-  const active = revealActive ? activeLines(state) : new Set<number>();
+  // activeLines() owns that rule now, for this pass and the block pass alike.
+  const active = activeLines(state);
   const decos: Range<Decoration>[] = [];
   const codeSpans: Span[] = []; // code regions to exclude from inline scans
   const claimed: Span[] = []; // ranges owned by embeds/math/comments/callouts
@@ -934,6 +972,11 @@ class FrontmatterWidget extends WidgetType {
     const card = buildPropsCard(this.yaml, {
       prefix: "cm-s-props",
       action,
+      // THE CARD IS EDITABLE HERE AND NOWHERE ELSE (v1.8 spec K). The reading
+      // view builds the same card from the same function and passes no editor,
+      // because a reading pane is a reading pane — and a visitor's copy of it
+      // must not even ship the code for an input.
+      ...propsEditor(this.notePath),
       makeTag: (value) => {
         const pill = document.createElement("button");
         pill.type = "button";
@@ -1151,7 +1194,15 @@ function buildBlockDecorations(state: EditorState): DecorationSet {
 const blockHiding = StateField.define<DecorationSet>({
   create: buildBlockDecorations,
   update(deco, tr) {
-    if (tr.docChanged || tr.selection || tr.effects.length > 0) {
+    if (
+      tr.docChanged ||
+      tr.selection ||
+      tr.effects.length > 0 ||
+      // The first touch flips interactedField, and THAT is what un-hides the
+      // line the caret is on. It normally rides a selection or a doc change,
+      // but not always — so the card is not left stale when it does not.
+      interacted(tr.state) !== interacted(tr.startState)
+    ) {
       return buildBlockDecorations(tr.state);
     }
     return deco.map(tr.changes);
@@ -1163,32 +1214,21 @@ const blockHiding = StateField.define<DecorationSet>({
 
 class LivePreviewPlugin {
   decorations: DecorationSet;
-  /** The user has touched the note (click/keystroke); before that, the
-   *  cursor line is not revealed — see buildDecorations. */
-  interacted = false;
   /** A rebuild was deferred because an IME composition was in progress. */
   pendingRebuild = false;
 
   constructor(view: EditorView) {
-    this.decorations = buildDecorations(view, this.interacted);
+    this.decorations = buildDecorations(view);
   }
 
   update(update: ViewUpdate): void {
-    const wasInteracted = this.interacted;
-    if (
-      !this.interacted &&
-      (update.docChanged ||
-        update.transactions.some(
-          (tr) => tr.annotation(Transaction.userEvent) !== undefined,
-        ))
-    ) {
-      this.interacted = true;
-    }
+    // "The reader touched it" is a StateField now (interactedField) rather
+    // than a flag on this plugin, so the block pass can read it too.
     const needsRebuild =
       update.docChanged ||
       update.viewportChanged ||
       update.selectionSet ||
-      this.interacted !== wasInteracted ||
+      interacted(update.state) !== interacted(update.startState) ||
       update.transactions.some((tr) => tr.effects.length > 0);
     if (needsRebuild || this.pendingRebuild) {
       if (update.view.composing) {
@@ -1200,7 +1240,7 @@ class LivePreviewPlugin {
         this.decorations = this.decorations.map(update.changes);
       } else {
         this.pendingRebuild = false;
-        this.decorations = buildDecorations(update.view, this.interacted);
+        this.decorations = buildDecorations(update.view);
       }
     }
   }
@@ -1209,6 +1249,9 @@ class LivePreviewPlugin {
 export function livePreview(path: string): Extension {
   return [
     notePathFacet.of(path),
+    // BEFORE blockHiding: a StateField may only read fields that come earlier
+    // in the configuration, and the block pass reads this one on every update.
+    interactedField,
     calloutFoldField,
     blockHiding,
     ViewPlugin.fromClass(LivePreviewPlugin, {

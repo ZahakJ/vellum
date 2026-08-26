@@ -135,6 +135,38 @@ committed is dropped from the index (`git rm --cached`); and the same eviction r
 matched last. A sync never stages your credentials. Note that files already pushed stay in the
 remote's *history* — if that happened, rotate the token and rewrite the history in a terminal.
 
+## Note history: reading what the backup kept
+
+Every sync makes a commit, and every commit is a version of every note in it. **History** is the
+read half of that: open a note, open the *History* section in the right-hand panel, and you get
+the commits that touched this note — newest first, with the date, the message and how many lines
+each one added and removed.
+
+- Tap a row to **read that revision**, rendered exactly as the note renders anywhere else.
+- **Restore this revision** writes it back through the ordinary save path, so it is undoable with
+  `Ctrl/Cmd+Z` in the editor, and the toast that follows carries an **Undo** of its own. A restore
+  is itself an edit, so the version you restored *from* is one snapshot away from being history
+  too — nothing is lost either way.
+- History **follows renames**. A note that used to be called something else keeps everything it
+  was before the rename.
+
+The section starts closed and asks git nothing until you open it: reading a note's log is a real
+piece of work, and most of the time you are writing rather than looking backwards. Open it once and
+it stays open.
+
+### Snapshot now
+
+The palette has **Snapshot now** — one commit of the whole vault, on this machine, with nothing
+sent anywhere. It is the thing to press before an edit you are not sure about, and it does not
+need a remote, a token or a network: any vault that is a git repository can take one. It appears
+in your history as *Snapshot*.
+
+If the vault is not a git repository yet, the History section says so and offers the switch —
+turning on Backup & sync (step 3 above) is what starts keeping history in the first place.
+
+History is admin-only in both directions: a visitor cannot see that a published note had eleven
+drafts, and cannot read any of them.
+
 ## Two servers, one vault
 
 It is a perfectly ordinary thing to end up with **two Vellum servers over the same folder** — the
@@ -197,4 +229,7 @@ directories** (`VELLUM_DATA`) unless you also want them to share sessions and se
 - If the machine has no git identity configured, commits are made as `Vellum
   <vellum@localhost>`; set `user.name`/`user.email` in the vault (or globally) to use your own.
 - The API, for anyone scripting it (admin-only): `GET /api/sync/status`, `POST /api/sync/init`,
-  `POST /api/sync/now`.
+  `POST /api/sync/now`, `POST /api/sync/snapshot` (a local commit, no network), plus the two
+  read-only history routes — `GET /api/history?path=` and `GET /api/history/blob?path=&sha=`. The
+  blob route wants the path **that revision** lives under, which the listing gives you per row: a
+  note that has been renamed lives under its old name in its older commits.

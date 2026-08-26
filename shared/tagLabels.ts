@@ -37,6 +37,23 @@ export function tagKey(tag: string): string {
   return tag.trim().replace(/^#/, "").toLowerCase();
 }
 
+/** What an inline `#tag` may be made of — the SAME character class
+ *  `server/indexer.ts`'s `parseTags` recognises. It is here, in shared, because
+ *  the rename dialog validates as the reader types: a rule only the server
+ *  knows is a rule the reader meets as a rejection. A rename that produced a
+ *  name the indexer cannot read back would silently drop the tag from every
+ *  note it claimed to rename. */
+const TAG_BODY = /^[\p{L}\p{N}_][\p{L}\p{N}_/-]*$/u;
+
+/** True when `value` is a tag a note can actually carry. Slashes nest — but
+ *  only between segments: a leading, trailing or doubled one names nothing. */
+export function isTagName(value: string): boolean {
+  const key = tagKey(value);
+  if (key === "" || key.length > TAG_LABEL_MAX) return false;
+  if (key.startsWith("/") || key.endsWith("/") || key.includes("//")) return false;
+  return TAG_BODY.test(key);
+}
+
 /** The label for `tag` in `lang`, or the canonical tag when nothing names it.
  *  An exact language match wins; `ar-EG` falls back to `ar` before giving up,
  *  because a labels map written for a language should not have to enumerate

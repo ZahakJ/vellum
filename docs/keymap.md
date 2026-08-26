@@ -29,12 +29,15 @@ is what refuses two rows claiming one keystroke; see [Development](development.m
 | `Ctrl/Cmd N` | New note |
 | `Ctrl/Cmd Alt D` | Open today's daily note (`daily/YYYY-MM-DD.md`) |
 | `Ctrl/Cmd Shift P` | Publish / unpublish the open note |
+| `Ctrl/Cmd Alt P` | [Print the open note, or export it to PDF](printing.md) — Alt because `Ctrl/Cmd P` is the palette |
 | `Ctrl/Cmd Alt B` | Collapse / reopen the **Notes sidebar** |
 | `Ctrl/Cmd Alt Shift B` | Collapse / reopen **Outline & backlinks** |
 | `Ctrl/Cmd Shift Z` | Zen mode — all chrome steps aside (`Esc` returns) |
 | `Ctrl/Cmd \` | Split the pane — the new one opens on the same note |
 | `Ctrl/Cmd Shift \` | Split downwards instead of beside |
 | `Ctrl/Cmd Alt \` | Close the pane — its tabs are adopted by a neighbour, never dropped |
+| `Ctrl/Cmd Alt PageDown` / `PageUp` | Next / previous tab in the focused pane |
+| `Ctrl/Cmd Alt W` | Close this tab |
 | `Ctrl/Cmd Alt Shift ↑` / `↓` | Move to the pane above / below |
 | `Ctrl/Cmd Alt Shift ←` / `→` | Move to the pane on your left / right — physically, in both languages |
 | `←` / `→` | Previous / next file in the attachment viewer |
@@ -167,6 +170,15 @@ editor `Ctrl/Cmd B` and `Ctrl/Cmd Shift B` are still swallowed, because Firefox'
 and Chrome's bookmark bar must never open over the app. macOS Option+B (`∫`) and Option+T (`†`)
 work, and every binding declines when `AltGr` is held so a European layout's Right-Alt never folds
 a pane by accident — see [Non-Latin keyboards](#non-latin-keyboards) for how that is decided.
+
+**The tab keys wear `Alt` for the same reason the templates do.** The world has three chords for
+tabs — `Ctrl Tab`, `Ctrl PageUp`/`PageDown` and `Ctrl W` — and the browser owns all three. Two of
+them can be worn one modifier over, which is the escape hatch this page keeps taking; the third
+cannot, because `Alt Tab` belongs to the window manager. So `Ctrl/Cmd Alt PageDown`/`PageUp` walks
+the strip and `Ctrl/Cmd Alt W` closes the tab, and the muscle memory transfers with one extra
+finger. Not arrows: `Ctrl Alt ←`/`→` is GNOME's workspace switcher and macOS Chrome's own tab
+switcher, and neither hands it back. Next is **next along the strip** in both languages — the bar
+mirrors with the reading direction, and a tab bar is a list, not a map.
 
 Nothing in the interface calls either pane "the left one": the toggles, the palette and the
 shortcut sheet say **Notes sidebar** and **Outline & backlinks**, in both languages, because

@@ -15,6 +15,7 @@ import { useStore } from "../state.ts";
 import { canonical, isLabelled as tagIsLabelled, label as tagLabel, useTagLabels } from "../tagLabels.ts";
 import { topicUrl } from "./nav.ts";
 import PostList from "./PostList.tsx";
+import { BlogSkeleton } from "./util.tsx";
 
 export default function BlogTopic({
   tag,
@@ -74,7 +75,9 @@ export default function BlogTopic({
         </span>
       </h1>
       {posts === null ? (
-        <p className="s-blog-empty">…</p>
+        // The homes' skeleton, for the homes' reason (F41) — this page drew
+        // the same "…" that could not be told from an empty topic.
+        <BlogSkeleton rows={3} />
       ) : filtered.length === 0 ? (
         <p className="s-blog-empty">{t("blogNoTopicWritings")}</p>
       ) : (

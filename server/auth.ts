@@ -25,7 +25,7 @@ import { commentsEnabled } from "./comments.ts";
 import { fontsSignature, slotsAreSystem } from "./fonts.ts";
 import { dateCalendar, fontSlots, getSettings, textAlign, textDirection } from "./settings.ts";
 import { FOLLOW_THEME } from "../shared/themes.ts";
-import { bannerFallback, blogLocale, customCssPath, dataDir, footerLine, publicLayout, siteLanguage, siteName, tagline, themePinnedByEnv, themePref, visitorTheme } from "./site.ts";
+import { attachmentLocation, bannerFallback, blogLocale, customCssPath, dataDir, footerLine, publicLayout, siteLanguage, siteName, tagline, themePinnedByEnv, themePref, visitorTheme } from "./site.ts";
 import { activeDesign, customThemesSig, hasThemeChoice } from "./designs.ts";
 import { authorSiteCards } from "./authorSites.ts";
 import { normalizeRel } from "./vault.ts";
@@ -733,6 +733,15 @@ authRoutes.get("/me", (c) => {
   // GET the folder tree, so it is exactly the gate this field wants.
   if (admin && settings.folderIcons && Object.keys(settings.folderIcons).length > 0) {
     me.folderIcons = settings.folderIcons;
+  }
+  // Where uploads land, for the "Move to…" picker's exclusion (F11). Same
+  // admin gate and for the same reason — it is a vault path, and only an admin
+  // moves anything. The two modes that name no folder send nothing at all.
+  if (admin) {
+    const attach = attachmentLocation();
+    if (attach.mode === "specified" || attach.mode === "subfolder") {
+      me.attachmentFolder = { mode: attach.mode, folder: attach.folder };
+    }
   }
   // The theme a session with no stored pick lands on: a pinned
   // settings.defaultTheme/DEFAULT_THEME, or — by default — the theme the admin

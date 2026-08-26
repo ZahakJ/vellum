@@ -294,10 +294,17 @@ function renderInline(raw: string, ctx: Ctx, multiline = false): string {
   // Footnote refs [^label] (definitions are consumed at block level).
   s = s.replace(/\[\^([^\]\s]+)\]/g, (_m, label: string) =>
     keep(
-      // role+tabindex, not bare <a>: an anchor WITHOUT href is not a link to
-      // the browser — no focus, no Enter, nothing. The delegated keydown on
-      // the root turns Enter/Space back into the click these already handle.
-      `<sup class="s-rv-fnref"><a data-fn="${esc(label)}" id="fnref-${esc(label)}" role="link" tabindex="0">${esc(label)}</a></sup>`,
+      // A REAL `href`, and it earns its keep twice. On screen it is what makes
+      // this a link to the browser at all — focus, Enter, the context menu —
+      // where role+tabindex only imitated one (the delegated keydown on the
+      // root is still there and still preventDefaults, so the smooth scroll is
+      // unchanged). On PAPER it is the whole feature: Chrome writes a link
+      // annotation into the PDF for a fragment href whose target exists, and
+      // writes nothing at all for an href-less anchor — which is exactly how
+      // every "export to PDF" plugin ships footnotes you cannot follow
+      // (v1.8, parity #3). Encoded, because a label is `[^\]\s]+` and may
+      // carry characters a fragment has to spell out.
+      `<sup class="s-rv-fnref"><a href="#fn-${encodeURIComponent(label)}" data-fn="${esc(label)}" id="fnref-${esc(label)}" role="link" tabindex="0">${esc(label)}</a></sup>`,
     ),
   );
 
@@ -1141,11 +1148,31 @@ function renderNote(md: string, ctx: Ctx, root: HTMLElement): void {
     for (const f of ctx.footnotes) {
       const li = document.createElement("li");
       li.id = `fn-${f.label}`;
-      li.innerHTML = `${renderInline(f.text, ctx)} <a class="s-rv-fnback" data-fnback="${esc(f.label)}" role="link" tabindex="0" title="${esc(t("backToReference"))}" aria-label="${esc(t("backToReference"))}">↩</a>`;
+      li.innerHTML = `${renderInline(f.text, ctx)} <a class="s-rv-fnback" href="#fnref-${encodeURIComponent(f.label)}" data-fnback="${esc(f.label)}" role="link" tabindex="0" title="${esc(t("backToReference"))}" aria-label="${esc(t("backToReference"))}">↩</a>`;
       ol.appendChild(li);
     }
     sec.appendChild(ol);
     root.appendChild(sec);
+  }
+
+  // A SAME-NOTE `[[#Heading]]` BECOMES A REAL DESTINATION, resolved here
+  // rather than inline because at the moment the link is rendered its target
+  // may not exist yet: the heading can be further down the note, and the
+  // slugger dedupes as it walks, so the id is only knowable once the whole
+  // document is built. Same argument as the footnote ref above — Chrome emits
+  // a PDF link annotation for a fragment href and nothing for an href-less
+  // anchor, and the click handler still preventDefaults, so the smooth scroll
+  // on screen is untouched.
+  if (ctx.depth === 0) {
+    const heads = [...root.querySelectorAll<HTMLElement>(".s-rv-h[id]")];
+    if (heads.length > 0) {
+      for (const link of root.querySelectorAll<HTMLElement>(".s-rv-wikilink[data-heading]")) {
+        if ((link.dataset.target ?? "") !== "") continue; // points at another note
+        const want = (link.dataset.heading ?? "").trim().toLowerCase();
+        const hit = heads.find((h) => (h.textContent ?? "").trim().toLowerCase() === want);
+        if (hit !== undefined) link.setAttribute("href", `#${encodeURIComponent(hit.id)}`);
+      }
+    }
   }
 
   // Hydrate ![[image]] embeds that came through innerHTML.

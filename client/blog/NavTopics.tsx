@@ -18,7 +18,11 @@
 //
 // Below the burger breakpoint the row becomes a wrapping drop panel and every
 // topic shows at once (`expandAll`) — an overflow menu inside an overflow
-// panel would be a menu inside a menu.
+// panel would be a menu inside a menu. The COLLECTIONS do not go with them:
+// blog.css keeps Home and the folder chips in the bar at those widths and
+// folds only the topics away (v1.8 UX audit F38), so the one run that is the
+// site's own declared structure is never something a reader has to open a
+// menu called TOPICS to find.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PublicFolderCard } from "../../shared/types.ts";
@@ -43,9 +47,11 @@ export default function NavTopics({
 }: {
   topics: string[];
   /** The owner's PUBLIC FOLDERS, when the "show in navigation" sub-option is
-   *  on (empty otherwise). They are FIXED leading items, never folded into
-   *  "More ▾": a declared collection is the site's own structure, and a
-   *  structure that disappears at 900px is not one. Topics still fold. */
+   *  on (empty otherwise, and empty COLLECTIONS are filtered out upstream —
+   *  see BlogShell). They are FIXED leading items, never folded into "More ▾"
+   *  and never folded into the burger either: a declared collection is the
+   *  site's own structure, and a structure that disappears at 900px — or on a
+   *  phone — is not one. Topics still fold, at both breakpoints. */
   folders: PublicFolderCard[];
   activeFolder: string | null;
   activeTag: string | null;
@@ -69,6 +75,15 @@ export default function NavTopics({
 
   useEffect(() => setMoreOpen(false), [routeKey]);
 
+  // A HAIRLINE BETWEEN TWO KINDS OF CHIP (v1.8 UX audit F28). The row mixes
+  // GAMES (a collection the owner declared) with games (a topic the notes
+  // declared about themselves), and nothing on screen said the two runs were
+  // different kinds of thing — same pill, same size, same colour, one after
+  // the other. A hairline is the separator this product already uses between
+  // groups (status bar, sync lines); a `·` is not, because the Eastern Arabic
+  // zero IS a raised dot. Drawn only when there are two runs to separate.
+  const showSep = folders.length > 0 && topics.length > 0;
+
   // <details> does not close on an outside click, and a menu left standing
   // over the page after the reader moved on reads as a stuck nav.
   const moreRef = useRef<HTMLDetailsElement | null>(null);
@@ -90,11 +105,12 @@ export default function NavTopics({
       const kids = [...twin.children] as HTMLElement[];
       if (kids.length < 2) return; // home + more always present
       // THE TWIN'S SHAPE IS THE ARITHMETIC'S SHAPE. Home, then one chip per
-      // folder, then the topics, then the "More ▾" summary — and `lead` is
-      // what keeps the two in step. Adding a row item without adding it here
-      // (and to the twin below) is the one way this file breaks: the widths
-      // then belong to the wrong elements and the fit is silently wrong.
-      const lead = 1 + folders.length;
+      // folder, then the hairline that separates the two runs, then the
+      // topics, then the "More ▾" summary — and `lead` is what keeps the two
+      // in step. Adding a row item without adding it here (and to the twin
+      // below) is the one way this file breaks: the widths then belong to the
+      // wrong elements and the fit is silently wrong.
+      const lead = 1 + folders.length + (showSep ? 1 : 0);
       if (kids.length < lead + 1) return;
       const leadW =
         kids
@@ -153,7 +169,7 @@ export default function NavTopics({
     const ro = new ResizeObserver(measure);
     ro.observe(row);
     return () => ro.disconnect();
-  }, [topics, folders, language, tagLabelsVersion]);
+  }, [topics, folders, showSep, language, tagLabelsVersion]);
 
   // A shrunk topic list renders once with the previous measurement's indices
   // (the layout effect re-measures right after), so clamp rather than hand
@@ -204,13 +220,17 @@ export default function NavTopics({
 
   return (
     <div className="s-blog-nav__links" ref={rowRef}>
+      {/* `--home` is not decoration: at burger widths the stylesheet keeps
+          this link and the folder chips in the bar and folds only the topics
+          away (F38), and it needs a way to name the one it keeps. */}
       <NavLink
         url="/"
-        className={`s-blog-nav__link${isHome ? " s-blog-nav__link--active" : ""}`}
+        className={`s-blog-nav__link s-blog-nav__link--home${isHome ? " s-blog-nav__link--active" : ""}`}
       >
         {t("home")}
       </NavLink>
       {folders.map(folderItem)}
+      {showSep && <span className="s-blog-nav__sep" aria-hidden="true" />}
       {shown.map(navItem)}
       {overflow.length > 0 && (
         <details
@@ -242,6 +262,8 @@ export default function NavTopics({
             <bdi>{folder.title}</bdi>
           </span>
         ))}
+        {/* The hairline's own width, counted in `lead` above. */}
+        {showSep && <span className="s-blog-nav__sep" />}
         {/* The twin measures what is DRAWN, so it measures the label: an
             Arabic label is a different width from its Latin canonical tag,
             and measuring the wrong string is how the row ends up one topic

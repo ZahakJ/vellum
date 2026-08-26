@@ -18,7 +18,7 @@ import { notePathToUrl } from "../router.ts";
 import { useStore } from "../state.ts";
 import HomeBannerModal from "./HomeBannerModal.tsx";
 import { TagChips } from "./PostList.tsx";
-import { formatDate, NavLink } from "./util.tsx";
+import { BlogSkeleton, formatDate, NavLink } from "./util.tsx";
 
 const HOTTEST_MAX = 6;
 
@@ -223,14 +223,38 @@ export default function BlogDashboard({
       </section>
 
       <div className="s-dash-body">
+        {/* COLLECTIONS FIRST, AND INSIDE THE COLUMN (v1.8 UX audit F27). The
+            band was mounted after `.s-dash-body` — so it sat below the whole
+            card grid AND outside the page's only measure, drawing its cards
+            edge-to-edge on a surface where every other row keeps 24px
+            gutters. Moved to the head of the body it gets both fixes at once:
+            the site's declared structure is the first thing under the hero,
+            and it shares the column with the grid it leads. AuthorSites stays
+            outside and below — a link off the site is a way out, not a way
+            in. */}
+        <PublicFolders />
+
         <section aria-label={t("blogLatestWritings")}>
           <h2 className="s-blog-heading">
             <span>{t("blogLatest")}</span>
           </h2>
           {posts === null ? (
-            <p className="s-blog-empty">…</p>
+            // A LOADING STATE IS NOT A SENTENCE. This was a literal "…" in
+            // serif italic, which reads as content that failed rather than as
+            // a page still arriving (v1.8 UX audit F41). Three cards' worth of
+            // quiet bars, shaped like what is coming.
+            <BlogSkeleton rows={3} />
           ) : posts.length === 0 ? (
-            <p className="s-blog-empty">{t("blogNothingPublished")}</p>
+            <div className="s-blog-empty">
+              <p>{t("blogNothingPublished")}</p>
+              {/* THE OWNER IS THE ONLY PERSON WHO EVER SEES THIS PAGE EMPTY —
+                  the dashboard reaches an admin through visitor preview, and a
+                  visitor of a vault with nothing published has no link to it.
+                  So the empty state says the one thing that fixes it, in the
+                  same second-line idiom PostList uses for the language filter
+                  (F41). */}
+              {previewing && <p className="s-blog-empty__why">{t("blogPublishHow")}</p>}
+            </div>
           ) : (
             <div className="s-dash-grid">
               {posts.map((post) => (
@@ -268,11 +292,15 @@ export default function BlogDashboard({
             </div>
           </section>
         )}
+
+        {/* Inside the column for the same reason the Collections band moved
+            into it: on the note-mode home this section lives in
+            `.s-blog-page`, which sets a measure and 24px gutters; here it sat
+            outside `.s-dash-body` and drew its cards edge-to-edge — at 390 a
+            cover photograph touching both sides of the phone. One page, one
+            column (DESIGN.md). */}
+        <AuthorSites />
       </div>
-
-      <PublicFolders />
-
-      <AuthorSites />
 
       {pickerOpen && <HomeBannerModal onClose={() => setPickerOpen(false)} />}
     </div>

@@ -331,6 +331,21 @@ export default function BlogShell() {
   }, [posts]);
   const activeTag = route.kind === "topic" ? route.tag : null;
 
+  // NAV CHIPS ARE NAVIGATION; THE HOME BAND IS AN INVITATION (v1.8 UX audit
+  // F29). An empty collection still draws its card on the home band — it says
+  // "0 published notes" on its face, and a room the owner made and has not
+  // filled is a promise the reader can see the shape of. A NAV CHIP says none
+  // of that: it is the same pill as a topic that leads somewhere, it costs the
+  // row a slot that a topic with posts behind it could have had, and on a
+  // phone (where the collections now stay unfolded, F38) that slot is the
+  // scarcest thing in the shell. So the row carries the collections that have
+  // something in them. docs/blog-mode.md says so.
+  const navFolders = useMemo(() => {
+    if (!foldersInNav) return NO_FOLDERS;
+    const filled = folders.filter((f) => f.count > 0);
+    return filled.length === folders.length ? folders : filled;
+  }, [folders, foldersInNav]);
+
   // Hover previews for every post link the shell renders — one delegated
   // install on the scroll container covers dashboard cards, post lists, topic
   // pages, related, prev/next and search results, so no component below has
@@ -385,6 +400,10 @@ export default function BlogShell() {
   // the masthead above it would say the site name twice. Every other page
   // (article, topic, note-mode home) keeps the classic masthead.
   const dashboardHome = homeMode === "dashboard" && route.kind === "home" && !locked;
+  // The masthead carries the page's h1 only on the home route (see below).
+  // `locked` is deliberately included: the private-vault card is a notice, not
+  // a page with sections, and the site's name is still the only title it has.
+  const routeIsHome = route.kind === "home";
 
   return (
     <div className="s-blog" ref={attachScroll}>
@@ -400,13 +419,35 @@ export default function BlogShell() {
               ✦
             </div>
           )}
-          <NavLink url="/" className="s-blog-mast__name" dir="auto">
-            {logoSrc ? (
-              <img className="s-blog-mast__logo" src={logoSrc} alt={siteName} />
-            ) : (
-              siteName
-            )}
-          </NavLink>
+          {/* THE HOME PAGE'S OWN TITLE IS THE SITE'S NAME. Moving the
+              Collections band above the writings (F27) left the note-mode home
+              with a section heading (h2 "Collections") standing in front of
+              its h1 ("Writings") — an outline that opens at level 2 and then
+              climbs. The dashboard home already answers this the right way
+              (BlogDashboard's hero name is its h1 and its sections are h2), so
+              the classic masthead does the same on the home route: the site
+              name is the page's heading, the three bands under it are its
+              sections. Everywhere else the masthead is chrome and the page's
+              own h1 is the article, the topic or the collection. */}
+          {routeIsHome ? (
+            <h1 className="s-blog-mast__title">
+              <NavLink url="/" className="s-blog-mast__name" dir="auto">
+                {logoSrc ? (
+                  <img className="s-blog-mast__logo" src={logoSrc} alt={siteName} />
+                ) : (
+                  siteName
+                )}
+              </NavLink>
+            </h1>
+          ) : (
+            <NavLink url="/" className="s-blog-mast__name" dir="auto">
+              {logoSrc ? (
+                <img className="s-blog-mast__logo" src={logoSrc} alt={siteName} />
+              ) : (
+                siteName
+              )}
+            </NavLink>
+          )}
           {tagline && (
             <p className="s-blog-mast__tagline" dir="auto">
               {tagline}
@@ -441,11 +482,15 @@ export default function BlogShell() {
             >
               <path d="M4 7h16M4 12h16M4 17h16" />
             </svg>
-            {t("blogTopics")}
+            {/* The word is in a span so the narrowest phones can drop it: the
+                button keeps its aria-label, and at 390 with a collections row
+                beside it (F38) sixty pixels of "TOPICS" is sixty pixels the
+                collections do not get. */}
+            <span className="s-blog-nav__burgerlabel">{t("blogTopics")}</span>
           </button>
           <NavTopics
             topics={topics}
-            folders={foldersInNav ? folders : NO_FOLDERS}
+            folders={navFolders}
             activeFolder={route.kind === "folder" ? route.slug : null}
             activeTag={activeTag}
             isHome={route.kind === "home"}

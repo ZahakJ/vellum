@@ -374,7 +374,10 @@ select:focus,
 
 .s-search {
   flex: none;
-  padding: 2px 12px 10px;
+  /* The operator card hangs from the FIELD, not from the pane: it is an
+     explanation of this input and it has to move with it. */
+  position: relative;
+  padding: 2px 12px 4px;
 }
 
 .s-search__input {
@@ -384,6 +387,23 @@ select:focus,
 
 .s-search__input::-webkit-search-cancel-button {
   -webkit-appearance: none;
+}
+
+/* The search box's own two doors (v1.8): the operator card, and vault-wide
+   replace. They sit in a row UNDER the field rather than inside it, so the
+   field keeps its full width — a search input that gives 60px to chrome is a
+   search input that ellipsizes a folder name halfway through. End-aligned, so
+   they follow the reading direction without a single directional rule. */
+.s-searchbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 0 12px 6px;
+}
+
+.s-searchbar__on {
+  color: var(--accent);
 }
 
 /* ----------------------------------------------------------------- tree -- */
@@ -600,6 +620,30 @@ select:focus,
   gap: 5px;
 }
 
+/* "Show 11 more" under a capped shelf (F17). Deliberately the tree's own
+   more-row (attachments.css .s-tree__more), because it is the same promise in
+   the same pane: a list was shortened, here is the count, press to see it. */
+.s-tags__more {
+  display: block;
+  width: 100%;
+  margin-top: 7px;
+  padding: 3px 8px;
+  background: var(--bg-hover);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.786rem;
+  text-align: start;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.s-tags__more:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .s-tag {
   display: inline-flex;
   align-items: center;
@@ -758,6 +802,17 @@ select:focus,
    affordance opens on a phone (preview.css moves the ⋯ inside the column for
    exactly that reason), and 33.6px rows are the same half-promise the ⋯ used
    to make. The shell's rule applies here as everywhere else. */
+@media (max-width: 700px), (pointer: coarse) {
+  .s-searchbar {
+    gap: 4px;
+  }
+
+  .s-searchbar .s-iconbtn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
 @media (pointer: coarse) {
   .s-menu__item {
     min-height: 44px;
@@ -1095,6 +1150,17 @@ select:focus,
 }
 
 .s-editor .cm-s-props {
+  /* THE CARD MAY NOT WIDEN THE COLUMN. CodeMirror sizes `.cm-content` to the
+     widest thing in it, and a block widget is a thing in it: a note whose
+     frontmatter carries eight tags measured 343px of card inside a 333px
+     column at 390 — ten pixels of horizontal scroll on the ONE surface
+     DESIGN.md says may never have any ("Never let any panel's content overflow
+     the viewport horizontally"), and the phone rule that holds the collapsed
+     header to one line (F36, further down this file) made it 421. Inline-size
+     containment answers both at the root: the card's width comes from the
+     column, and its contents arrange themselves inside that — which is what a
+     card is. */
+  contain: inline-size;
   margin: 0;
   padding: 0;
   border: 1px solid var(--border);
@@ -1214,6 +1280,168 @@ select:focus,
 .s-editor .cm-s-props__action:hover {
   color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* ── The card, editable in place (v1.8, Obsidian parity #1) ────────────────
+   Every control below is drawn INSIDE a CodeMirror block widget, so it
+   inherits the card's font and the editor's own rem, and it is painted with
+   the card's tokens rather than the form defaults a browser would supply.
+   The rule for all of them is that the card must not CHANGE SIZE when a
+   control appears: a properties card that grows by two pixels on hover moves
+   the reader's first sentence, and DESIGN.md's "no layout shift on hover
+   anywhere" is about exactly this kind of chrome. */
+
+.s-editor .cm-s-props__row {
+  position: relative;
+}
+
+/* A scalar value: a button shaped like the text it replaced, so the row reads
+   identically until the pointer is on it. The negative inline margin puts the
+   padded hit area back where the plain text sat. */
+.s-editor .cm-s-props__edit {
+  padding: 0 4px;
+  margin-inline-start: -4px;
+  border-radius: 4px;
+  color: inherit;
+  text-align: start;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.s-editor .cm-s-props__edit:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* An empty property is still a property — it says so rather than showing a
+   blank the reader cannot aim at. --text-muted, never --text-faint: this is
+   a WORD to be read, and the token's bar is 3:1 non-text. */
+.s-editor .cm-s-props__edit--empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.s-editor .cm-s-props__input {
+  min-width: 10ch;
+  max-width: 100%;
+  padding: 0 4px;
+  border: 1px solid var(--accent-soft);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.5;
+}
+
+.s-editor .cm-s-props__input--key {
+  max-width: 14ch;
+}
+
+.s-editor .cm-s-props__input--chip {
+  min-width: 7ch;
+}
+
+.s-editor .cm-s-props__bool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* The word beside the box is the FILE's token (`true` / `false`), not a
+   translated label: a reader comparing the card with `git diff` has to see
+   the same characters in both. */
+.s-editor .cm-s-props__check {
+  inline-size: 14px;
+  block-size: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.s-editor .cm-s-props__chip,
+.s-editor .cm-s-props__adder {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.s-editor .cm-s-props__chipx,
+.s-editor .cm-s-props__addvalue,
+.s-editor .cm-s-props__del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: none;
+  /* The shared button reset ships `padding: 4px 10px`, and these three are
+     SQUARES sized by their own rule: 20px of inherited inline padding inside a
+     16px border box leaves the glyph exactly zero pixels to draw in, which is
+     how the chip × shipped invisible on the desktop and correct on the phone
+     (where the 44px rule below left it room). Measured, not guessed. */
+  padding: 0;
+  inline-size: 16px;
+  block-size: 16px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  transition: color 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+}
+
+.s-editor .cm-s-props__chipx:hover,
+.s-editor .cm-s-props__del:hover {
+  color: var(--danger);
+  background: var(--bg-hover);
+}
+
+.s-editor .cm-s-props__addvalue {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.s-editor .cm-s-props__addvalue:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* The row's own delete is quiet until the row is under the pointer — the tab
+   bar's × idiom, and the coarse block below drops the fade for the reason
+   that one does: there is no hover on a phone. */
+.s-editor .cm-s-props__del {
+  margin-inline-start: auto;
+  flex: none;
+  opacity: 0;
+}
+
+.s-editor .cm-s-props__row:hover .cm-s-props__del,
+.s-editor .cm-s-props__del:focus-visible {
+  opacity: 1;
+}
+
+.s-editor .cm-s-props__foot {
+  display: flex;
+  align-items: center;
+  padding-top: 4px;
+}
+
+.s-editor .cm-s-props__addprop {
+  padding: 1px 8px;
+  margin-inline-start: -8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.s-editor .cm-s-props__addprop:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.s-editor .cm-s-props__form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* Note banner hero above the properties card (frontmatter `banner:`). */
@@ -1546,8 +1774,27 @@ select:focus,
   justify-content: center;
   font-family: var(--font-serif);
   font-size: 1.071rem;
-  color: var(--text-faint);
+  /* A SENTENCE THE READER READS. --text-faint's bar is the 3:1 non-text one
+     (DESIGN.md, "Contrast") and this is the only thing on the canvas. */
+  color: var(--text-muted);
   pointer-events: none;
+}
+
+/* The admin's empty canvas carries a door now (F41), so it needs its events
+   back — and the same column the visitor's empty state uses, since it is now
+   the same three marks: star, sentence, and one thing to press. */
+.s-graph__empty--admin {
+  flex-direction: column;
+  gap: 14px;
+  padding-inline: 24px;
+  text-align: center;
+  pointer-events: auto;
+}
+
+@media (max-width: 700px), (pointer: coarse) {
+  .s-graph__empty--admin .s-btn {
+    min-height: 44px;
+  }
 }
 
 .s-graph__hud {
@@ -1582,6 +1829,102 @@ select:focus,
 .s-graph__controls .s-iconbtn:hover {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* The graph's keyboard route (UX F20). A canvas is a picture to a keyboard, so
+   the nodes get a real list behind it: one note, its neighbours, one tab stop.
+   It is clipped away until it HOLDS focus — the same bargain the skip link
+   strikes, and the same clip-path the sr-only utility uses, because an
+   off-screen offset is scrollable overflow in an RTL document. A reader who
+   arrived here with Tab has to SEE what their arrows are doing; a reader who
+   never did should be looking at the constellation. */
+.s-graph__nav {
+  position: absolute;
+  inset-block-start: 12px;
+  inset-inline-start: 12px;
+  z-index: 2;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.s-graph__nav:focus-within {
+  width: min(268px, calc(100% - 24px));
+  height: auto;
+  max-height: min(340px, calc(100% - 24px));
+  overflow-y: auto;
+  clip-path: none;
+  padding: 8px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.s-graph__nav-hint {
+  margin: 0 0 6px;
+  font-size: 0.786rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.s-graph__nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.s-graph__nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.929rem;
+  text-align: start;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.s-graph__nav-row:hover {
+  background: var(--bg-hover);
+}
+
+/* The centre of the walk wears the same 2px accent bar the active tree row
+   does — one vocabulary for "you are here", wherever the reader is. */
+.s-graph__nav-row--centre {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+[dir="rtl"] .s-graph__nav-row--centre {
+  box-shadow: inset -2px 0 0 0 var(--accent);
+}
+
+.s-graph__nav-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-graph__nav-count {
+  flex: none;
+  font-size: 0.786rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 700px), (pointer: coarse) {
+  .s-graph__nav-row {
+    min-height: 44px;
+  }
 }
 
 /* ---------------------------------------------- right panel (backlinks) -- */
@@ -1824,11 +2167,15 @@ select:focus,
   font-weight: 500;
 }
 
+/* The right panel's empty lines — no backlinks, no headings (F5), no links.
+   --text-muted, not --text-faint: DESIGN.md's rule is that faint is a NON-TEXT
+   token at a 3:1 bar, and a sentence explaining why a section is quiet is
+   exactly the thing the reader has to read. */
 .s-panel-empty {
   padding: 18px 14px;
   font-size: 0.857rem;
   line-height: 1.6;
-  color: var(--text-faint);
+  color: var(--text-muted);
   font-style: italic;
 }
 
@@ -2327,6 +2674,21 @@ select:focus,
   cursor: pointer;
 }
 
+/* The shell's 44px promise, in the one surface that had been exempt from it
+   because it was thought of as a keyboard affordance. It is not: below 700px
+   the palette is how a phone reader opens a note at all — the empty state's
+   "Search notes" door leads here — and a 39px row measured on a 390px screen
+   is the tree's old half-a-promise wearing a different class name. `height`
+   becomes a floor rather than a fixed number so a wrapped Arabic label grows
+   the row instead of spilling out of it. */
+@media (max-width: 700px), (pointer: coarse) {
+  .s-palette-item {
+    height: auto;
+    min-height: 44px;
+    padding-block: 6px;
+  }
+}
+
 .s-palette-item--active {
   background: var(--accent-soft);
 }
@@ -2426,22 +2788,59 @@ select:focus,
   user-select: none;
 }
 
+/* "No matches", and under it the way out. --text-muted, not --text-faint:
+   this is a sentence the reader has to READ, and faint's bar is the 3:1
+   non-text one (DESIGN.md). It shipped faint against every theme's floor. */
 .s-palette-empty {
   padding: 18px 16px;
   font-size: 0.929rem;
   font-style: italic;
-  color: var(--text-faint);
+  color: var(--text-muted);
+}
+
+.s-palette-empty__hint {
+  display: block;
+  margin-block-start: 6px;
+  font-style: normal;
+  font-size: 0.857rem;
+  color: var(--text-muted);
 }
 
 /* ---------------------------------------------------------------- toast -- */
 
-.s-toast {
+/* THE COLUMN, not the message. Toasts used to be individually fixed at
+   bottom: 44px, which is why every one of them had to erase the last: two
+   would have been drawn on top of each other. They stack now (v1.8 UX audit
+   F23 — a plain confirmation was killing the Undo offer under it), so the
+   positioning moves up here and the toast itself becomes an ordinary block.
+   `column` puts the newest at the FOOT, which is where a lone toast has always
+   sat; plain messages are inserted above a standing action toast by
+   client/toast.ts, so its button never moves under a reaching thumb. */
+.s-toasts {
   position: fixed;
   left: 50%;
   bottom: 44px;
   z-index: 200;
   transform: translateX(-50%);
-  max-width: min(480px, calc(100vw - 32px));
+  /* AN EXPLICIT WIDTH, not shrink-to-fit. A fixed box with `left: 50%` and no
+     width takes its available space as "half the viewport", so on a 390px
+     phone the toast could never be wider than 195px however small its
+     max-width said it could be — "Moved “Beta” to .trash" came out one word
+     per line. The COLUMN owns the measure; each toast still sizes to its own
+     content inside it. */
+  width: min(480px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  /* An empty stack is a 480px-wide invisible sheet over the editor otherwise.
+     The toasts themselves take their events back. */
+  pointer-events: none;
+}
+
+.s-toast {
+  pointer-events: auto;
+  max-width: 100%;
   padding: 9px 16px;
   background: var(--bg-raised);
   color: var(--text);
@@ -2465,11 +2864,120 @@ select:focus,
 @keyframes s-toast-in {
   from {
     opacity: 0;
-    transform: translate(-50%, 8px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, 0);
+    transform: translateY(0);
+  }
+}
+
+/* ------------------------------------------------------------ the net ---- */
+/* Two cards for the two ways a session used to end in a WHITE PAGE: a render
+   that threw with no boundary above it (.s-crash, client/ErrorBoundary.tsx)
+   and a code chunk that no longer exists after a redeploy (.s-chunkgone,
+   client/lazySurface.tsx). They are painted in the app's own tokens on
+   purpose — a crash screen in browser default type is a page that has stopped
+   being this product, and the reader's first question is whether their words
+   are still here. It should still look like the place they left them. */
+
+.s-crash {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* Opaque, and its own ground: the tree it replaced is gone from the DOM, so
+     anything translucent shows the bare page behind it. */
+  background: var(--bg);
+}
+
+.s-crash__card {
+  width: min(420px, 100%);
+  padding: 26px 26px 22px;
+  text-align: center;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+
+/* No opacity over --text-faint — the token is already at its 3:1 floor, and
+   DESIGN.md holds that a fade over it fails the floor without failing the
+   gate. Same rule as .s-empty__glyph. */
+.s-crash__glyph {
+  font-size: 2.286rem;
+  line-height: 1;
+  margin-bottom: 12px;
+  color: var(--text-faint);
+}
+
+.s-crash__title {
+  margin: 0 0 8px;
+  font-family: var(--font-serif);
+  font-size: 1.286rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.s-crash__body {
+  margin: 0 0 18px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.s-crash__action,
+.s-chunkgone__action {
+  padding: 6px 18px;
+  font-size: 0.9rem;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.s-crash__action:hover,
+.s-crash__action:focus-visible,
+.s-chunkgone__action:hover,
+.s-chunkgone__action:focus-visible {
+  color: var(--bg);
+  background: var(--accent);
+}
+
+/* A surface that could not be fetched. Sized to sit INSIDE whatever slot the
+   surface would have filled, because it lands in a pane, a modal hole or the
+   sidebar and must not have an opinion about which. */
+.s-chunkgone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 120px;
+  margin: auto;
+  padding: 24px;
+  max-width: 420px;
+  text-align: center;
+}
+
+.s-chunkgone__body {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* The shell's 44px promise: a reload button is the ONLY control on either
+   card, so a 30px tap target here is the whole way out being half a target. */
+@media (pointer: coarse), (max-width: 700px) {
+  .s-crash__action,
+  .s-chunkgone__action {
+    min-height: 44px;
+    padding-inline: 22px;
   }
 }
 
@@ -2842,9 +3350,26 @@ select:focus,
 }
 
 .s-bmodal__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   padding: 14px;
+  text-align: center;
   font-size: 0.857rem;
-  color: var(--text-faint);
+  /* A sentence the reader READS: --text-muted, not the non-text 3:1 token. */
+  color: var(--text-muted);
+}
+
+/* The picker's own uploader, surfaced in the empty case (F41). */
+.s-bmodal__emptydoor {
+  flex: none;
+}
+
+@media (max-width: 700px), (pointer: coarse) {
+  .s-bmodal__emptydoor {
+    min-height: 44px;
+  }
 }
 
 .s-bmodal__item {
@@ -3118,7 +3643,60 @@ select:focus,
   margin: 12px 8px;
   font-size: 0.857rem;
   font-style: italic;
-  color: var(--text-faint);
+  /* A sentence the reader READS — --text-faint's bar is the non-text 3:1 one
+     (DESIGN.md, "Contrast"). */
+  color: var(--text-muted);
+}
+
+/* --------------------------------------------- the empty vault's doors --- */
+/* F41: a vault with nothing in it used to be 292px of nothing under the
+   search field. Three marks and two doors, the shape the designer panel's and
+   the graph's empty states already use. */
+
+.s-tree__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 16px;
+  text-align: center;
+}
+
+.s-tree__empty-star {
+  font-size: 1.714rem;
+  color: var(--accent);
+  opacity: 0.5;
+}
+
+.s-tree__empty-body {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 0.929rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.s-tree__empty-acts {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  max-width: 220px;
+}
+
+/* The SECOND door gets a hairline. `.s-btn` is borderless everywhere else in
+   the product because it sits in a row of controls that tell it what it is —
+   here it stands alone in a 292px column with nothing around it, and a
+   borderless label in the middle of an empty pane reads as a caption. */
+.s-tree__empty-acts .s-btn:not(.s-btn--accent) {
+  border: 1px solid var(--border);
+}
+
+@media (max-width: 700px), (pointer: coarse) {
+  .s-tree__empty-acts .s-btn {
+    min-height: 44px;
+  }
 }
 
 /* --------------------------------------- visitor sidebar topic sections -- */
@@ -3253,7 +3831,8 @@ select:focus,
   padding: 14px 16px 18px;
   font-size: 0.857rem;
   line-height: 1.5;
-  color: var(--text-faint);
+  /* Same correction as .s-panel-empty above: a sentence is text. */
+  color: var(--text-muted);
 }
 
 /* Visitor graph empty state: quiet, intentional. */
@@ -4139,6 +4718,10 @@ button.s-title:hover {
     gap: 6px;
   }
 
+  .s-tags__more {
+    min-height: 44px;
+  }
+
   /* New note / new folder in the sidebar header, the graph's zoom controls,
      every pane chevron: one rule, because they are one component. */
   .s-iconbtn {
@@ -4159,10 +4742,20 @@ button.s-title:hover {
     min-height: 44px;
   }
 
+  /* BOTH sides of 44, not just the tall one. The rule shipped with the height
+     alone, which left the ☾, the gear, the eye and the four pane toggles at
+     23–31px WIDE inside a 44px-tall bar — a target that is only half a target
+     is the shape DESIGN.md's sentence exists to forbid, and the bar already
+     scrolls rather than clipping, so the extra width costs nothing that was
+     not already paid. The text buttons ("Reading", "graph") are wider than the
+     floor and do not move. Found by the v1.8 fresh-eyes pass, which is also
+     when the harness stopped LYING about being a coarse pointer. */
   .s-statusbar__btn,
   .s-statusbar button {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
+    min-width: 44px;
     min-height: 44px;
     padding-block: 0;
     padding-inline: 9px;
@@ -5360,4 +5953,153 @@ button.s-title:hover {
 }
 .s-editor-strip__act--quiet {
   color: var(--text-muted);
+}
+
+/* ── The note's preamble, and the tab bar, for a finger ────────────────────
+   v1.8 UX audit F35 + F36.
+
+   F35 is the same finding as the blog's: a set of controls the 44px pass
+   never reached. Measured at 390 with a coarse pointer — the properties
+   card's expand control 19px, its tag pills 24px, the "Set banner…" action
+   21px (and INVISIBLE, because it is a hover affordance on a device with no
+   hover), the tab's × 16px.
+
+   F36 is about what the preamble DOES to a phone screen. The card is
+   "collapsed" by default and collapsed means one slim row — except that its
+   header wraps, so a note carrying eight tags drew four rows of pills above
+   its own first sentence, and a 240px banner above that. On a 390×844 screen
+   that is a third of the viewport spent before the writing starts. So on a
+   phone the collapsed header is ONE line, exactly 44px tall, with the tag run
+   scrolling sideways inside it rather than wrapping downwards; and the banner
+   clamps to a third of the screen instead of a fixed 240px.
+
+   The card still expands — the trigger is a real control and this is not a
+   rule that disables it. It is a rule about what the DEFAULT costs. */
+
+@media (max-width: 700px), (pointer: coarse) {
+  /* One line, and the whole line is the target. Block padding goes to zero
+     because the 44px pills inside now set the height; 6px on top of them
+     would make a 56px "slim row". */
+  .s-editor .cm-s-props__head {
+    min-height: 44px;
+    padding-block: 0;
+    flex-wrap: nowrap;
+  }
+
+  .s-editor .cm-s-props__trigger {
+    flex: none;
+    min-height: 44px;
+  }
+
+  /* The tags keep their place on the collapsed line and stop pushing it
+     downwards: one run, scrolling under the finger. `min-width: 0` is what
+     lets a flex item be narrower than its content at all. */
+  .s-editor .cm-s-props--collapsed .cm-s-props__headtags {
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .s-editor .cm-s-props--collapsed .cm-s-props__headtags::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* The run fades out at its own scroll edge instead of ending on a pill cut
+     in half — the same gesture the blog's phone nav makes, and invisible when
+     everything fits, because then the fade lands on empty ground. */
+  .s-editor .cm-s-props--collapsed .cm-s-props__headtags {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+  }
+
+  [dir="rtl"] .s-editor .cm-s-props--collapsed .cm-s-props__headtags {
+    -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 18px), transparent);
+    mask-image: linear-gradient(to left, #000 calc(100% - 18px), transparent);
+  }
+
+  .s-editor .cm-s-props__tag {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    min-height: 44px;
+    padding-inline: 12px;
+  }
+
+  /* "Set banner…" is a hover affordance, and there is no hover here — the
+     same exception the section ⋯ makes in preview.css, for the same reason:
+     an invisible control on a touch device is not a quiet control. */
+  .s-editor .cm-s-props__action {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    min-height: 44px;
+    padding-inline: 12px;
+    opacity: 1;
+  }
+
+  /* The editable card's own controls (v1.8). Same two rules the header's
+     pills follow: 44px of target, and nothing that only exists on hover —
+     the row × fades in under a pointer and is simply THERE under a finger. */
+  .s-editor .cm-s-props__chipx,
+  .s-editor .cm-s-props__addvalue,
+  .s-editor .cm-s-props__del {
+    inline-size: 44px;
+    block-size: 44px;
+    opacity: 1;
+  }
+
+  .s-editor .cm-s-props__edit,
+  .s-editor .cm-s-props__addprop,
+  .s-editor .cm-s-props__bool,
+  .s-editor .cm-s-props__input {
+    min-height: 44px;
+  }
+
+  /* A one-word value ("draft", "none") is a 40px target however tall the row
+     is. The value column is wider than the floor already, so the min-width is
+     invisible on every row that does not need it. */
+  .s-editor .cm-s-props__edit {
+    min-width: 44px;
+  }
+
+  /* The banner REPAIR card's button, which the card header's "Banner…" rule
+     above does not reach — two doors to the same picker, and only one of them
+     had been widened for a finger. */
+  .s-editor .cm-s-banner__missingaction {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding-inline: 12px;
+  }
+
+  .s-editor .cm-s-props__edit,
+  .s-editor .cm-s-props__addprop {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* A checkbox scaled to the thumb, not to the 13px row it sits in. */
+  .s-editor .cm-s-props__check {
+    inline-size: 20px;
+    block-size: 20px;
+  }
+
+  /* A quarter of a 844px phone, rather than 240 fixed pixels of it. */
+  .s-editor .cm-s-banner__img {
+    max-height: min(30vh, 200px);
+  }
+
+  /* The tab's ×. The bar is already 44px tall on touch (the drawer rule
+     below sets it); the button inside it was 16. The tab gives back the width
+     from its own cap, so a title still gets a readable run. */
+  .s-tab {
+    max-width: 220px;
+  }
+
+  .s-tab-close {
+    width: 44px;
+    height: 44px;
+  }
 }

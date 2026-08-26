@@ -505,6 +505,20 @@ export function commitTab(ws: Workspace, id: PaneId, path: string): Workspace {
   return withTabs(ws, id, tabs, pane.active);
 }
 
+/** Walk `delta` tabs along the strip, wrapping at both ends (v1.8 audit, F12:
+ *  the tab bar was reachable only by pointer — every other pane operation had a
+ *  chord and the tabs inside them had none).
+ *
+ *  It does NOT commit an ephemeral tab, unlike opening one: cycling past a
+ *  preview tab is a glance, not the second visit that says "keep this". */
+export function stepTab(ws: Workspace, id: PaneId, delta: number): Workspace {
+  const pane = paneAt(ws, id);
+  if (pane === null || pane.active < 0 || pane.tabs.length < 2) return ws;
+  const n = pane.tabs.length;
+  const at = (((pane.active + delta) % n) + n) % n;
+  return withTabs(ws, id, pane.tabs, at);
+}
+
 function dropTabs(ws: Workspace, id: PaneId, doomed: (t: TabState, i: number) => boolean): Workspace {
   const pane = paneAt(ws, id);
   if (pane === null) return ws;

@@ -76,7 +76,10 @@ export async function applyNoteContent(path: string, content: string): Promise<v
 
 // ── Copying ─────────────────────────────────────────────────────────────────
 
-async function copy(text: string, okKey: "sectionLinkCopied" | "sectionCopied"): Promise<void> {
+async function copy(
+  text: string,
+  okKey: "sectionLinkCopied" | "sectionCopied" | "noteLinkCopied",
+): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
     toast(t(okKey));
@@ -93,6 +96,19 @@ async function copy(text: string, okKey: "sectionLinkCopied" | "sectionCopied"):
  *  the heading's inline markup. */
 export function copySectionLink(path: string, section: Section): void {
   void copy(`[[${noteTitleOf(path)}#${anchorFor(section)}]]`, "sectionLinkCopied");
+}
+
+/** `[[Note]]` — the whole note's address, for the palette's "Copy link to
+ *  note" (v1.8 audit, F19). The section version above has existed since the
+ *  outline learned to copy, and the note it belongs to had no equivalent: a
+ *  reader could copy the address of a heading and not of the page.
+ *
+ *  The TITLE, not the path: that is what the vault's own resolver takes
+ *  (shared/noteFormat::noteCandidates), so the link keeps working when the
+ *  note moves between folders — which is the difference between a link and a
+ *  path, and the reason "Copy path" on the tab menu is a different row. */
+export function copyNoteLink(path: string): void {
+  void copy(`[[${noteTitleOf(path)}]]`, "noteLinkCopied");
 }
 
 /** Characters a wikilink cannot carry inside `[[…#here]]`: `]` ends the link,

@@ -14,8 +14,23 @@
 // `around` fixes (1): the caller names a note and gets that note, its direct
 // wikilink neighbors (both directions) and the edges between them — the exact
 // shape `LocalGraph` derives client-side, computed where the data already is.
-// The memo fixes (2), and is invalidated exactly like the tree memo (see
-// server/treeCache.ts for the full contract: vault events plus any write).
+//
+// The MEMO fixes (2), and how it is invalidated is the third fix, forced by
+// the perf audit. It used to be dropped by every vault event and again by
+// every non-GET request — so during a sync storm, or a run of ordinary saves,
+// every poll of a 5 MB answer paid a full rebuild of a graph that had not
+// changed. Typing a paragraph changes no link, no tag, no name and no publish
+// flag; the graph it produces is identical, byte for byte.
+//
+// So the memo is VALIDATED rather than discarded. The index counts its own
+// graph-shaped changes (indexer.ts `graphRevision()` — see `graphSignature()`
+// there for exactly what counts), the site contributes the one setting the
+// graph reads, and an entry is served for as long as that stamp holds. This
+// also removes the stale-memo trap the old code needed a `whenIndexed()`
+// microtask for: a request arriving before the index has applied an event
+// rebuilds from the pre-event index AND stamps the pre-event revision, so the
+// moment the index catches up the entry stops matching. Nothing has to be
+// dropped at the right instant, because nothing is trusted for being recent.
 //
 // The visitor and admin graphs are memoized SEPARATELY and never share an
 // entry: they are different answers to the same question, and serving one for
@@ -26,8 +41,8 @@
 
 import type { GraphData } from "../shared/types.ts";
 import { encodedBody, type EncodedBody } from "./compress.ts";
-import { graph, whenIndexed, type FilterLang } from "./indexer.ts";
-import { onEvent } from "./vault.ts";
+import { graph, graphRevision, type FilterLang } from "./indexer.ts";
+import { excludedTags } from "./site.ts";
 
 interface Memo {
   data: GraphData;
@@ -38,37 +53,34 @@ interface Memo {
 }
 
 const memo = new Map<string, Memo>();
-let wired = false;
+/** The stamp every entry in `memo` was built under. */
+let stamp = "";
 
-/** Drop both memos. Cheap and idempotent. */
-export function invalidateGraph(): void {
-  memo.clear();
+/** Everything outside the index that changes what `graph()` answers.
+ *
+ *  Exactly one thing does: `excludedTags()`, which curates workflow tags off a
+ *  visitor's nodes. The audience and the filter language are already part of
+ *  the memo KEY, and everything else the graph reads — publication, links,
+ *  aliases, labels — is index state and rides on `graphRevision()`. Settings
+ *  are cheap to read (server/settings.ts keeps an mtime-checked cache), so
+ *  this is a handful of string compares per request against a rebuild that
+ *  walks the whole vault. */
+function currentStamp(): string {
+  return `${graphRevision()}|${[...excludedTags()].sort().join(",")}`;
 }
 
-function wire(): void {
-  if (wired) return;
-  wired = true;
-  onEvent(() => {
-    // Unlike the tree, a `changed` event DOES matter here: editing a note's
-    // body rewrites its wikilinks, which is exactly what the graph is made of.
-    invalidateGraph();
-    // …and dropping the memo NOW is not enough. The graph is derived from the
-    // INDEX, and the index applies this event asynchronously (indexer.ts
-    // chains it onto `whenIndexed`). A request arriving in that window would
-    // rebuild from the pre-event index and memoize the stale answer, which —
-    // unlike a one-off stale response — would then persist until the next
-    // vault change. So drop it a second time once the index has caught up.
-    // The microtask makes this independent of listener registration order:
-    // by then every synchronous listener for this event (the indexer's
-    // included) has chained its work onto `settled`.
-    queueMicrotask(() => {
-      void whenIndexed().then(invalidateGraph);
-    });
-  });
+/** Drop every memo the index (or the settings) no longer supports. Cheap,
+ *  idempotent, and a no-op whenever nothing graph-shaped has moved — which is
+ *  the point: api.ts calls this around every write. */
+export function invalidateGraph(): void {
+  const now = currentStamp();
+  if (now === stamp) return;
+  memo.clear();
+  stamp = now;
 }
 
 function current(publishedOnly: boolean, lang: FilterLang): Memo {
-  wire();
+  invalidateGraph();
   // The LANGUAGE is part of the key, not only the audience. Under
   // `languageFilter: "follow"` two visitors of the same URL, with the same
   // (absent) cookie between them, get different graphs — so a memo keyed on

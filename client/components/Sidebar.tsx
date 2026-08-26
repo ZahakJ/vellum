@@ -2,14 +2,15 @@
 // full-text search with <mark> snippets, and a tag list. Inline rename via
 // double-click; context menu for new note / new folder / rename / delete.
 
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazySurface } from "../lazySurface.tsx";
 import type {
   DragEvent as ReactDragEvent,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
 } from "react";
 import type { AttachmentKind, SearchHit, SearchMatch, TagCount, TreeNode } from "../../shared/types.ts";
-import { getGraph, getTags, patchSettings, search, searchMatches } from "../api.ts";
+import { getGraph, getTags, patchSettings, search, searchMatches, seedStatus, seedVault } from "../api.ts";
 import {
   dragFileCount,
   dragHasFiles,
@@ -28,6 +29,8 @@ import { countPhrase, localeNum, t, tf, type Lang } from "../i18n.ts";
 // Tag chips print the vault's own display label when one exists (a tag page's
 // `labels:` map, or settings.tagLabels); `data`/keys/searches stay canonical.
 import { label as tagLabel, useTagLabels } from "../tagLabels.ts";
+// Rename/merge a tag across the whole vault — the pill's one verb.
+import { promptTagRename } from "../tagRename.ts";
 import { beginTabDrag, endTabDrag } from "../dragTab.ts";
 import { isTabbablePath } from "../workspace.ts";
 import {
@@ -96,10 +99,46 @@ function loadShowAttachments(): boolean {
 /** Margin the context menu keeps from every viewport edge. */
 const MENU_EDGE = 8;
 
+/** Put a context menu at the pointer without letting it leave the screen.
+ *
+ *  The pointer can be anywhere, and with the sidebar on the trailing edge (RTL
+ *  by default, or a reader who moved it there) a menu that grows toward the
+ *  trailing edge runs straight off the screen taking its last item with it. So
+ *  it opens toward the reading direction, folds back when that edge has no
+ *  room, and is clamped on both axes. Measured after mount, because a menu's
+ *  size is its content's — and shared by the tree's menu and the tag shelf's,
+ *  because two placement rules is how one of them ends up wrong. */
+function placeMenu(el: HTMLElement | null, x: number, y: number, fromKeyboard: boolean): void {
+  if (!el) return;
+  const rtl = getComputedStyle(document.documentElement).direction === "rtl";
+  const { width, height } = el.getBoundingClientRect();
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
+  let left = rtl ? x - width : x;
+  if (left + width > vw - MENU_EDGE) left = x - width; // fold back
+  if (left < MENU_EDGE) left = x; // …and back again if that overflows
+  left = Math.max(MENU_EDGE, Math.min(left, vw - width - MENU_EDGE));
+  let top = y;
+  if (top + height > vh - MENU_EDGE) top = y - height;
+  top = Math.max(MENU_EDGE, Math.min(top, vh - height - MENU_EDGE));
+  el.style.left = `${Math.round(left)}px`;
+  el.style.top = `${Math.round(top)}px`;
+  // Opened from the keyboard: focus goes into the menu, or it is a menu that
+  // only a mouse can reach.
+  if (fromKeyboard) el.querySelector<HTMLButtonElement>(".s-menu__item")?.focus();
+}
+
 // Mount-gated on `iconPick`, with its own <Suspense> — the App.tsx rule: a
 // boundary tears down everything under it, and this one wraps nothing but the
 // popover, so the tree behind it never blinks while the chunk lands.
-const FolderIconPicker = lazy(() => import("./FolderIconPicker.tsx"));
+const FolderIconPicker = lazySurface(() => import("./FolderIconPicker.tsx"));
+
+// The two v1.8 search surfaces, mount-gated for the same reason and split for
+// one more: the replace panel carries the dry-run list, its own stylesheet and
+// the confirm dialog, and it is opened by a fraction of sessions. Neither
+// belongs in a chunk the sidebar downloads to draw a tree.
+const ReplacePanel = lazySurface(() => import("./ReplacePanel.tsx"));
+const SearchHelp = lazySurface(() => import("./SearchHelp.tsx"));
 
 // How long a collapsed folder has to be hovered, mid-drag, before it opens —
 // "spring-loaded folders", the thing that makes a deep destination reachable
@@ -112,6 +151,10 @@ const SPRING_MS = 600;
 // Tags section collapse (tag-heavy vaults: the pill cloud can eat the tree's
 // room) — persisted like the tree's folder expansion.
 const TAGS_COLLAPSED_KEY = "vellum.tags-collapsed";
+/** How many tag pills the shelf shows before it offers the rest (F17) — a
+ *  dozen is about four rows in a 292px sidebar, which leaves the tree the pane.
+ *  The pills arrive sorted by count, so the twelve shown are the twelve used. */
+const TAG_SHELF_CAP = 12;
 
 function loadTagsCollapsed(): boolean {
   try {
@@ -137,6 +180,18 @@ interface MenuState {
   /** Opened from the keyboard (Shift+F10 / the menu key), so focus has to go
    *  INTO the menu and come back to the row when it closes. A pointer-opened
    *  menu leaves focus where the reader put it. */
+  fromKeyboard?: boolean;
+}
+
+/** The tag shelf's own context menu. A separate state from the tree's because
+ *  a tag is not a tree node — it has no path, no parent and exactly one verb —
+ *  and threading an optional node through every row of the menu above would
+ *  have made eleven guards out of one. They share the placement rule and the
+ *  `.s-menu` chrome, which is the part that has to agree. */
+interface TagMenuState {
+  x: number;
+  y: number;
+  tag: string;
   fromKeyboard?: boolean;
 }
 
@@ -481,6 +536,14 @@ export default function Sidebar() {
   const publishedPaths = useStore((s) => s.publishedPaths);
 
   const [query, setQuery] = useState("");
+  /** Replace mode (admin only). It takes over the results region rather than
+   *  stacking under it — a dry run squeezed between a tree and a tag cloud is
+   *  a dry run nobody reads, and reading it is the whole feature. */
+  const [replacing, setReplacing] = useState(false);
+  /** The operator card. Open one at a time with replace mode: both hang off
+   *  the same field, and two popovers over one input is a shell arguing with
+   *  itself. */
+  const [helpOpen, setHelpOpen] = useState(false);
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   /** Hit rows expanded to their per-line matches (chevron). Query-scoped:
    *  both reset with the results they annotate. */
@@ -504,6 +567,7 @@ export default function Sidebar() {
   const [tagCursor, setTagCursor] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [tagMenu, setTagMenu] = useState<TagMenuState | null>(null);
   /** The open folder-icon popover (feature A). Null = closed. */
   const [iconPick, setIconPick] = useState<IconPickState | null>(null);
   const [showAttachments, setShowAttachments] = useState(loadShowAttachments);
@@ -819,25 +883,42 @@ export default function Sidebar() {
   // size is its content's.
   const menuRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
-    const el = menuRef.current;
-    if (!menu || !el) return;
-    const rtl = getComputedStyle(document.documentElement).direction === "rtl";
-    const { width, height } = el.getBoundingClientRect();
-    const vw = document.documentElement.clientWidth;
-    const vh = document.documentElement.clientHeight;
-    let left = rtl ? menu.x - width : menu.x;
-    if (left + width > vw - MENU_EDGE) left = menu.x - width; // fold back
-    if (left < MENU_EDGE) left = menu.x; // …and back again if that overflows
-    left = Math.max(MENU_EDGE, Math.min(left, vw - width - MENU_EDGE));
-    let top = menu.y;
-    if (top + height > vh - MENU_EDGE) top = menu.y - height;
-    top = Math.max(MENU_EDGE, Math.min(top, vh - height - MENU_EDGE));
-    el.style.left = `${Math.round(left)}px`;
-    el.style.top = `${Math.round(top)}px`;
-    // Opened from the keyboard: focus goes into the menu, or it is a menu
-    // that only a mouse can reach.
-    if (menu.fromKeyboard) el.querySelector<HTMLButtonElement>(".s-menu__item")?.focus();
+    if (menu) placeMenu(menuRef.current, menu.x, menu.y, menu.fromKeyboard === true);
   }, [menu]);
+
+  // The tag shelf's menu, placed by the same rule — one function, so a menu on
+  // an RTL instance cannot open toward the screen edge in one place and away
+  // from it in the other.
+  const tagMenuRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (tagMenu) placeMenu(tagMenuRef.current, tagMenu.x, tagMenu.y, tagMenu.fromKeyboard === true);
+  }, [tagMenu]);
+
+  // …and dismissed by the same rule. Focus goes back to the pill it was opened
+  // from, for the reason the tree's does: Escape must not drop a keyboard
+  // reader on <body>.
+  useEffect(() => {
+    if (!tagMenu) return;
+    const close = (): void => {
+      if (tagMenu.fromKeyboard) {
+        document
+          .querySelector<HTMLElement>(`.s-tag[data-tag="${CSS.escape(tagMenu.tag)}"]`)
+          ?.focus();
+      }
+      setTagMenu(null);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      close();
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [tagMenu]);
 
   const openMenu = useCallback((e: ReactMouseEvent, node: TreeNode) => {
     if (!useStore.getState().admin) return; // menu holds only mutating actions
@@ -1042,18 +1123,48 @@ export default function Sidebar() {
     [cursor, moveCursor, startRename, tree],
   );
 
+  // ── The tag shelf, capped ────────────────────────────────────────────────
+  /** THE SHELF SHOWS A DOZEN AND OFFERS THE REST (v1.8 audit, F17: twenty-three
+   *  tags ate a quarter of the pane before the tree got a row).
+   *
+   *  `max-height: 24vh` with its own scroll (app.css) was the cap, and a cap
+   *  that is a quarter of the window is still a quarter of the window: the
+   *  pills arrive sorted by count, so what a reader loses is the BOTTOM of
+   *  their own tree to the TAIL of a list they have mostly never clicked. The
+   *  tree's own "Show N more" (attachments.css) is the idiom already in this
+   *  pane, and it is the honest one — the count is on the button, so nothing
+   *  is silently truncated. The scroll cap stays for the expanded case.
+   *
+   *  One pill is never worth a row that says "one more", so the cap only
+   *  applies once there are at least two to hide. */
+  const [allTags, setAllTags] = useState(false);
+  const shownTags = useMemo(() => {
+    if (allTags || tags.length <= TAG_SHELF_CAP + 1) return tags;
+    const head = tags.slice(0, TAG_SHELF_CAP);
+    // The tag DOING the filtering is on the shelf wherever it sorts: a filter
+    // whose own pill is hidden is a filter with no way to clear it.
+    const filtering = query.trim().startsWith("#") ? query.trim().slice(1) : null;
+    if (filtering !== null && !head.some((e) => e.tag === filtering)) {
+      const pinned = tags.find((e) => e.tag === filtering);
+      if (pinned) return [...head.slice(0, TAG_SHELF_CAP - 1), pinned];
+    }
+    return head;
+  }, [tags, allTags, query]);
+
   // ── The tag shelf's single tab stop ──────────────────────────────────────
   /** Where Tab enters the shelf: the reader's own cursor while it still names
    *  a tag, else the tag currently filtering the search (so Tab lands on the
    *  filter you are looking at), else the first pill. */
   const tagStop = useMemo(() => {
+    // Over the SHOWN pills, not every tag: a stop on a pill that is not on the
+    // shelf leaves the shelf with no tabIndex 0 in it at all, i.e. unreachable.
     const has = (tag: string | null): boolean =>
-      tag !== null && tags.some((entry) => entry.tag === tag);
+      tag !== null && shownTags.some((entry) => entry.tag === tag);
     if (has(tagCursor)) return tagCursor;
     const filtering = query.trim().startsWith("#") ? query.trim().slice(1) : null;
     if (has(filtering)) return filtering;
-    return tags[0]?.tag ?? null;
-  }, [tagCursor, query, tags]);
+    return shownTags[0]?.tag ?? null;
+  }, [tagCursor, query, shownTags]);
 
   /**
    * ARROWS WALK THE PILLS. The shelf is a WRAPPED grid, so both axes have to
@@ -1076,7 +1187,21 @@ export default function Sidebar() {
     else if (e.key === (rtl ? "ArrowRight" : "ArrowLeft")) to = at - 1;
     else if (e.key === "ArrowDown") to = rowStep(pills, at, 1);
     else if (e.key === "ArrowUp") to = rowStep(pills, at, -1);
-    else return;
+    else if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+      // The keyboard's right-click, on the pill the roving stop is parked on.
+      // "Rename tag…" is admin-only and mouse-only without it, and the reader
+      // who cannot drag a tree row is the same reader who cannot right-click.
+      if (!useStore.getState().admin) return;
+      e.preventDefault();
+      const box = pills[at].getBoundingClientRect();
+      setTagMenu({
+        x: Math.round(box.left + 12),
+        y: Math.round(box.bottom),
+        tag: pills[at].dataset.tag ?? "",
+        fromKeyboard: true,
+      });
+      return;
+    } else return;
     if (to < 0 || to >= pills.length) return;
     e.preventDefault();
     const next = pills[to];
@@ -1282,6 +1407,53 @@ export default function Sidebar() {
           }}
           spellCheck={false}
         />
+        {/* The card is positioned against THIS box, so it hangs from the field
+            it explains rather than from the pane. */}
+        {helpOpen && (
+          <Suspense fallback={null}>
+            <SearchHelp onClose={() => setHelpOpen(false)} />
+          </Suspense>
+        )}
+      </div>
+
+      {/* Two doors under the box (v1.8): a grammar nobody can guess, and the
+          rewrite nobody trusts. Both are quiet icon buttons — the search box
+          is unchanged for a reader who wants none of it. */}
+      <div className="s-searchbar">
+        <button
+          type="button"
+          className={`s-iconbtn${helpOpen ? " s-searchbar__on" : ""}`}
+          aria-expanded={helpOpen}
+          title={t("searchHelpOpen")}
+          aria-label={t("searchHelpOpen")}
+          onClick={() => {
+            setHelpOpen((v) => !v);
+            setReplacing(false);
+          }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M9.6 9.2a2.5 2.5 0 1 1 3 2.4v1.4" />
+            <path d="M12.6 16.6h-.01" />
+          </svg>
+        </button>
+        {admin && (
+          <button
+            type="button"
+            className={`s-iconbtn${replacing ? " s-searchbar__on" : ""}`}
+            aria-expanded={replacing}
+            title={replacing ? t("replaceClose") : t("replaceOpen")}
+            aria-label={replacing ? t("replaceClose") : t("replaceOpen")}
+            onClick={() => {
+              setReplacing((v) => !v);
+              setHelpOpen(false);
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 7h11l-3-3M20 17H9l3 3" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {admin && publishedFilter && (
@@ -1299,7 +1471,11 @@ export default function Sidebar() {
         </div>
       )}
 
-      {hits !== null ? (
+      {admin && replacing ? (
+        <Suspense fallback={null}>
+          <ReplacePanel query={query} onClose={() => setReplacing(false)} />
+        </Suspense>
+      ) : hits !== null ? (
         // A results list that swaps in silently is a list a screen-reader user
         // never learns about — the count is announced politely as it lands.
         <div className="s-search__results" role="region" aria-label={t("searchResultsAria")} ref={resultsRef}>
@@ -1518,6 +1694,12 @@ export default function Sidebar() {
               onDropFiles={onDropFiles}
             />
           </div>
+          {/* A VAULT WITH NOTHING IN IT IS THE FIRST SCREEN SOMEBODY SEES, and
+              it was 292 pixels of nothing (v1.8 UX audit F41). The two doors
+              are the two answers: write something, or take the guide the
+              server stopped writing into people's own directories unasked
+              (server/seed.ts — this is the offer that replaced it). */}
+          {tree !== null && (tree.children?.length ?? 0) === 0 && <TreeEmpty />}
         </nav>
       )}
 
@@ -1566,7 +1748,7 @@ export default function Sidebar() {
             aria-label={t("tags")}
             onKeyDown={onTagsKeyDown}
           >
-            {tags.map(({ tag, count }) => {
+            {shownTags.map(({ tag, count }) => {
               const active = query.trim() === `#${tag}`;
               return (
               <button
@@ -1585,6 +1767,17 @@ export default function Sidebar() {
                   setQuery(active ? "" : `#${tag}`);
                 }}
                 title={tf(active ? "clearTagFilter" : "searchTag", { tag })}
+                /* A TAG IS A THING YOU CAN RENAME. It was the one object in
+                   this sidebar with no verbs on it at all — Obsidian's sixth
+                   most-requested feature, eight years old — and right-clicking
+                   the pill is where every reader already looks for it. */
+                onContextMenu={(e) => {
+                  if (!useStore.getState().admin) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setTagCursor(tag);
+                  setTagMenu({ x: e.clientX, y: e.clientY, tag });
+                }}
               >
                 {/* The hash belongs TO the tag name, so the two share one
                     bidi isolate: without it the RTL shell drew a Latin tag as
@@ -1601,6 +1794,18 @@ export default function Sidebar() {
               );
             })}
           </div>
+          )}
+          {/* OUTSIDE the listbox: a control that is not one of the options may
+              not sit among them. It is one extra tab stop and it earns it —
+              the shelf's whole tail lives behind it. */}
+          {!tagsCollapsed && shownTags.length < tags.length && (
+            <button
+              type="button"
+              className="s-tags__more"
+              onClick={() => setAllTags(true)}
+            >
+              {tf("showMoreRows", { count: localeNum(tags.length - shownTags.length) })}
+            </button>
           )}
         </div>
       )}
@@ -1835,6 +2040,39 @@ export default function Sidebar() {
         </div>
       )}
 
+      {/* The tag shelf's menu. One verb today, and it is the verb the forum has
+          been asking for since 2018: rename (and, onto a name that exists,
+          merge). Same chrome and same placement as the tree's menu above; a
+          separate element because a tag is not a tree node. */}
+      {tagMenu && (
+        <div
+          ref={tagMenuRef}
+          className="s-menu"
+          role="menu"
+          aria-label={t("tagActions")}
+          style={{ left: tagMenu.x, top: tagMenu.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key !== "Tab") return;
+            setTagMenu(null);
+          }}
+        >
+          <button
+            type="button"
+            className="s-menu__item"
+            role="menuitem"
+            onClick={() => {
+              const tag = tagMenu.tag;
+              const known = tags.map((entry) => entry.tag);
+              setTagMenu(null);
+              void promptTagRename(tag, known);
+            }}
+          >
+            {t("renameTag")}
+          </button>
+        </div>
+      )}
+
       {iconPick && (
         <Suspense fallback={null}>
           <FolderIconPicker
@@ -1859,6 +2097,79 @@ export default function Sidebar() {
         />
       )}
     </aside>
+  );
+}
+
+/** THE EMPTY VAULT'S INVITATION.
+ *
+ *  Three marks and two doors, the shape every other empty state in this
+ *  product settled on (the designer's, the graph's): a glyph, one sentence
+ *  saying what is true, and something to press. The guide door only appears
+ *  when there IS a guide to copy and nothing of the reader's to copy it over —
+ *  `GET /api/seed` answers both questions, and a button that would 409 is a
+ *  button that should not be drawn.
+ *
+ *  Asked once, on mount. This component exists only while the vault is empty,
+ *  which is a state a vault leaves exactly once. */
+function TreeEmpty() {
+  const [seed, setSeed] = useState<{ available: boolean; guide: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  useStore((s) => s.language); // re-render the chrome strings on language change
+
+  useEffect(() => {
+    let disposed = false;
+    seedStatus()
+      .then((s) => {
+        if (!disposed) setSeed(s);
+      })
+      .catch(() => {
+        // A visitor gets a 404 here by design, and a visitor has no folders in
+        // their sidebar to begin with: no door, no noise.
+        if (!disposed) setSeed({ available: false, guide: "" });
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  const takeSeed = (): void => {
+    setBusy(true);
+    seedVault()
+      .then(async ({ guide }) => {
+        await useStore.getState().loadTree();
+        // Straight into the guide, and NO toast: thirteen rows appearing where
+        // there were none and the guide opening in the pane is a louder
+        // confirmation than a sentence, and a toast fired here would be swept
+        // away by App.tsx's own navigation dismissal a frame later anyway.
+        useStore.getState().openNote(guide);
+      })
+      .catch((err: unknown) => {
+        console.error("vellum: seeding the vault failed", err);
+        toast(t("seedFailed"), "error");
+      })
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="s-tree__empty">
+      <span className="s-tree__empty-star" aria-hidden="true">✦</span>
+      <p className="s-tree__empty-body">{t("vaultEmptyBody")}</p>
+      <div className="s-tree__empty-acts">
+        <button
+          type="button"
+          className="s-btn s-btn--accent"
+          disabled={busy}
+          onClick={() => void promptNewNote("")}
+        >
+          {t("newNote")}
+        </button>
+        {seed?.available === true && (
+          <button type="button" className="s-btn" disabled={busy} onClick={takeSeed}>
+            {t("vaultEmptySeed")}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -2342,6 +2653,9 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
         {renaming === node.path ? (
           <RenameInput
             initial={node.name}
+            // A FILE wears an extension and a folder does not: "Notes v1.8"
+            // must not be pre-selected down to "Notes v1".
+            hasExt={node.type === "file"}
             onCommit={(name) => props.onCommitRename(node, name)}
             onCancel={props.onCancelRename}
           />
@@ -2383,10 +2697,12 @@ const TreeRow = memo(function TreeRow(props: TreeRowProps) {
 
 function RenameInput({
   initial,
+  hasExt = false,
   onCommit,
   onCancel,
 }: {
   initial: string;
+  hasExt?: boolean;
   onCommit(name: string): void;
   onCancel(): void;
 }) {
@@ -2396,8 +2712,15 @@ function RenameInput({
 
   useEffect(() => {
     ref.current?.focus();
-    ref.current?.select();
-  }, []);
+    // The STEM, not the whole filename (v1.8 audit, F10). Renaming pre-selected
+    // "Ledger.md" whole, so the first keystroke ate the extension and the note
+    // was saved back as a `.md` by `ensureMd` whatever it had been — a `.tex`
+    // note renamed by hand quietly changed format. The dialog prompt has
+    // selected only the stem since it shipped (client/components/Confirm.tsx);
+    // the inline rename is the same gesture and now answers the same way.
+    const dot = hasExt ? initial.lastIndexOf(".") : -1;
+    ref.current?.setSelectionRange(0, dot > 0 ? dot : initial.length);
+  }, [initial, hasExt]);
 
   const finish = (commit: boolean) => {
     if (doneRef.current) return;

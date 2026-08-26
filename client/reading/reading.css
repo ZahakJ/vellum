@@ -2,6 +2,15 @@
    typography (DESIGN.md): serif prose, 760px measure, gold-leaf accents.
    Every color is a token from tokens.css. Class prefix: s-reading / s-rv / s-toc. */
 
+/* The same rules on PAPER. It rides with this sheet rather than being linked
+   from index.html for two reasons: a `<link media="print">` in the HTML entry
+   is merged into one stylesheet by the build (the media attribute is lost, so
+   the print rules would apply on screen), and it would be charged to the entry
+   budget every reader pays. Here it reaches exactly the surfaces that can show
+   a document — reading view, blog article, designed page, the editor's
+   transclusion widget — and nothing else. */
+@import "./print.css";
+
 /* ── Scroll column ─────────────────────────────────────────────────────── */
 
 .s-reading {
@@ -1173,4 +1182,72 @@ span.s-rv-math-live {
   font-family: var(--font-ui);
   font-weight: 500;
   color: var(--text-muted);
+}
+
+/* ── The reading view's preamble, for a finger ─────────────────────────────
+   The editor's card got this treatment in styles/app.css (v1.8 UX audit F35 +
+   F36) and this is the same card, built by the same builder (noteMeta.ts
+   buildPropsCard) under a second prefix — so it gets the same rule rather
+   than a second opinion. One tappable line, 44px, the tag run scrolling
+   sideways instead of wrapping a phone's whole preamble downwards; and the
+   banner clamped to a share of the SCREEN rather than to a fixed 240px.
+
+   Only the pills IN THE CARD grow. A `#tag` sitting in a sentence is not a
+   chip in a row of chips, and a 44px pill dropped into prose would set the
+   line height of the paragraph around it. Those take vertical padding
+   instead: painted, hit-tested, invisible to the line box. */
+
+@media (max-width: 700px), (pointer: coarse) {
+  .s-rv-props__head {
+    min-height: 44px;
+    padding-block: 0;
+    flex-wrap: nowrap;
+  }
+
+  .s-rv-props__trigger {
+    flex: none;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .s-rv-props--collapsed .s-rv-props__headtags {
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .s-rv-props--collapsed .s-rv-props__headtags::-webkit-scrollbar {
+    display: none;
+  }
+
+  .s-rv-props--collapsed .s-rv-props__headtags {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 18px), transparent);
+  }
+
+  [dir="rtl"] .s-rv-props--collapsed .s-rv-props__headtags {
+    -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 18px), transparent);
+    mask-image: linear-gradient(to left, #000 calc(100% - 18px), transparent);
+  }
+
+  .s-rv-props__headtags .s-rv-tag {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    min-height: 44px;
+    padding-inline: 12px;
+  }
+
+  .s-rv p .s-rv-tag,
+  .s-rv li .s-rv-tag {
+    padding-block: 0.9em;
+  }
+
+  .s-rv-banner__img {
+    max-height: min(30vh, 200px);
+  }
 }

@@ -17,6 +17,10 @@ import { flashElement, takePendingLine } from "../landing.ts";
 import { renderNoteContent } from "./renderNote.ts";
 import { liveNoteText } from "../editor/bufferBridge.ts";
 import { applyNoteLayoutTo } from "../textLayout.ts";
+// Side-effect import — see the twin in components/Editor.tsx: `beforeprint`
+// fires synchronously, so the handler has to be resident before the reader
+// reaches for the print dialog, not fetched once they have.
+import "../print.ts";
 import "./reading.css";
 
 /** Scroll positions survive tab switches; module-level so remounts keep them.

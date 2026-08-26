@@ -22,6 +22,7 @@ import {
   closePane,
   closePathsUnder,
   closeTabIn,
+  stepTab,
   emptyWorkspace,
   fromStoredTabs,
   holdersOf,
@@ -145,6 +146,37 @@ describe("workspace: tabs", () => {
     const p = ws.focus;
     ws = closeTabIn(ws, p, "B.md");
     assert.equal(activeTabOf(paneAt(ws, p)!)!.path, "C.md");
+  });
+
+  it("the tab chords walk the strip and wrap at both ends (F12)", () => {
+    let ws = soloWorkspace(tabs("A.md", "B.md", "C.md"), "A.md");
+    const p = ws.focus;
+    ws = stepTab(ws, p, 1);
+    assert.equal(activeTabOf(paneAt(ws, p)!)!.path, "B.md");
+    ws = stepTab(ws, p, -1);
+    assert.equal(activeTabOf(paneAt(ws, p)!)!.path, "A.md");
+    // Backwards off the first tab lands on the last, not on nothing.
+    ws = stepTab(ws, p, -1);
+    assert.equal(activeTabOf(paneAt(ws, p)!)!.path, "C.md");
+    ws = stepTab(ws, p, 1);
+    assert.equal(activeTabOf(paneAt(ws, p)!)!.path, "A.md");
+  });
+
+  it("stepping a pane with one tab (or none) is a no-op, not a throw", () => {
+    const one = soloWorkspace(tabs("A.md"), "A.md");
+    assert.equal(stepTab(one, one.focus, 1), one);
+    const none = soloWorkspace([], null);
+    assert.equal(stepTab(none, none.focus, -1), none);
+    assert.equal(stepTab(one, "no-such-pane", 1), one);
+  });
+
+  it("stepping past a preview tab does NOT commit it — a glance is not intent", () => {
+    let ws = soloWorkspace(tabs("A.md"), "A.md");
+    const p = ws.focus;
+    ws = openInPane(ws, p, "Preview.md", { ephemeral: true });
+    ws = stepTab(ws, p, 1);
+    ws = stepTab(ws, p, -1);
+    assert.equal(paneAt(ws, p)!.tabs.find((t) => t.path === "Preview.md")!.ephemeral, true);
   });
 
   it("only notes and books may be tabs", () => {

@@ -142,15 +142,29 @@
   --book-ink-5: rgba(251, 146, 60, 0.4);
   --book-ink-6: rgba(167, 139, 250, 0.4);
 
-  /* How far a generated banner (client/banner.ts) lets its hash hue pull the
-     ACCENT away from itself. The accent is the base colour of every blob and
-     this is the swing, so 0% is pure accent — the safe floor, and what a theme
-     that never declares the token inherits. The four light themes sit at 0%
-     (a paper ground shows a foreign hue at any strength); the dark rooms allow
-     45%, which the outer accent floor in banner.ts halves again. Resolved at
-     the consuming element, so it is safe to override per theme and a theme
-     switch repaints live. */
-  --banner-tint: 45%;
+  /* The two halves of a generated banner's colour (client/banner.ts) — the
+     gradient a post with no `banner:` wears on the blog list and at the top of
+     its own article.
+
+     `--banner-hue` is THIS THEME'S ACCENT HUE, in degrees, and it is what lets
+     the room own the picture. The generator hashes a post's title into a SWING
+     around this number (±48°, the analogous neighbourhood), never into a point
+     on the wheel: a hash hue with no anchor is how iron-gall's gold-and-brown
+     page ended up carrying a green→yellow card, and the clamping that fixed
+     that flattened every card into the same rectangle instead (v1.8 UX audit
+     F42 / WORST-06). Anchored, the swing costs nothing to clamp, so it can be
+     spent. A theme that forgets the token falls back to iron-gall's 46 —
+     wrong, but wrong inside one hue rather than across the wheel.
+
+     `--banner-tint` is how far the hash may pull a blob off that accent. 0% is
+     pure accent — the safe floor. The light themes hold theirs to 34% because
+     a paper ground shows a swing at half the strength a dark one does; the
+     dark rooms allow 66%.
+
+     Both resolve at the consuming element, so they are safe to override per
+     theme and a theme switch repaints live. */
+  --banner-tint: 66%;
+  --banner-hue: 46;
 
   /* Font stacks. Latin-first is the default: a stack is consulted per
      CHARACTER, so on an English instance the Arabic faces are only ever
@@ -264,6 +278,7 @@
   --text-faint: #6b6b76;
   --accent: #5fc9dd;
   --accent-soft: rgba(95, 201, 221, 0.14);
+  --banner-hue: 190;
   --border: #1f1f27;
   --danger: #c4574a;
 
@@ -311,6 +326,7 @@
   --text-faint: #6b7794;
   --accent: #d9b23a;
   --accent-soft: rgba(217, 178, 58, 0.15);
+  --banner-hue: 45;
   --border: #24304b;
   --danger: #d0655a;
 
@@ -373,7 +389,8 @@
   --graph-edge: #b8ac92;
   --graph-vignette: rgba(98, 80, 34, 0.26);
 
-  --banner-tint: 0%;
+  --banner-tint: 34%;
+  --banner-hue: 44;
 
   --callout-note: #3b6e99;
   --callout-info: #3b6e99;
@@ -420,7 +437,8 @@
 
   --selection-bg: rgba(226, 84, 60, 0.24);
   --focus-ring: #e2543c;
-  --banner-tint: 45%;
+  --banner-tint: 66%;
+  --banner-hue: 9;
 
   --graph-node: #e2543c;
   --graph-edge: #5c5b5e;
@@ -469,7 +487,8 @@
 
   --selection-bg: rgba(127, 182, 217, 0.24);
   --focus-ring: #7fb6d9;
-  --banner-tint: 45%;
+  --banner-tint: 66%;
+  --banner-hue: 203;
 
   --graph-node: #7fb6d9;
   --graph-edge: #525b66;
@@ -517,7 +536,8 @@
 
   --selection-bg: rgba(95, 191, 164, 0.24);
   --focus-ring: #5fbfa4;
-  --banner-tint: 45%;
+  --banner-tint: 66%;
+  --banner-hue: 163;
 
   --graph-node: #5fbfa4;
   --graph-edge: #4a5c57;
@@ -565,7 +585,8 @@
 
   --selection-bg: rgba(217, 138, 166, 0.24);
   --focus-ring: #d98aa6;
-  --banner-tint: 45%;
+  --banner-tint: 66%;
+  --banner-hue: 339;
 
   --graph-node: #d98aa6;
   --graph-edge: #5f505d;
@@ -613,7 +634,8 @@
 
   --selection-bg: rgba(169, 155, 240, 0.24);
   --focus-ring: #a99bf0;
-  --banner-tint: 45%;
+  --banner-tint: 66%;
+  --banner-hue: 250;
 
   --graph-node: #a99bf0;
   --graph-edge: #535669;
@@ -668,7 +690,8 @@
 
   --selection-bg: rgba(242, 176, 98, 0.24);
   --focus-ring: #f2b062;
-  --banner-tint: 45%;
+  --banner-tint: 66%;
+  --banner-hue: 33;
 
   --graph-node: #f2b062;
   --graph-edge: #6b5d51;
@@ -726,7 +749,8 @@
 
   --selection-bg: rgba(107, 127, 232, 0.26);
   --focus-ring: #6b7fe8;
-  --banner-tint: 45%;
+  --banner-tint: 66%;
+  --banner-hue: 230;
 
   --graph-node: #6b7fe8;
   --graph-edge: #57575b;
@@ -773,7 +797,8 @@
 
   --selection-bg: rgba(157, 196, 106, 0.24);
   --focus-ring: #9dc46a;
-  --banner-tint: 45%;
+  --banner-tint: 66%;
+  --banner-hue: 86;
 
   --graph-node: #9dc46a;
   --graph-edge: #505b48;
@@ -821,7 +846,8 @@
 
   --selection-bg: rgba(156, 75, 39, 0.2);
   --focus-ring: #9c4b27;
-  --banner-tint: 0%;
+  --banner-tint: 34%;
+  --banner-hue: 18;
 
   --graph-node: #9c4b27;
   --graph-edge: #b8ae9d;
@@ -869,7 +895,8 @@
 
   --selection-bg: rgba(58, 110, 165, 0.2);
   --focus-ring: #3a6ea5;
-  --banner-tint: 0%;
+  --banner-tint: 34%;
+  --banner-hue: 211;
 
   --graph-node: #3a6ea5;
   --graph-edge: #aeb4bd;
@@ -922,7 +949,8 @@
 
   --selection-bg: rgba(163, 92, 0, 0.2);
   --focus-ring: #a35c00;
-  --banner-tint: 0%;
+  --banner-tint: 34%;
+  --banner-hue: 34;
 
   --graph-node: #a35c00;
   --graph-edge: #bbb1a1;

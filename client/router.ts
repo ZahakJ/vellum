@@ -183,15 +183,28 @@ export function applyUrl(initial = false): boolean {
     }
     if (location.pathname === "/") {
       if (initial) return false; // keep the home note / restored session
-      // Back past the first note lands on the root entry. Pre-panes this
-      // nulled `openPath` to show the empty state; with panes that write was
-      // pure DESYNC — a pane renders its own active tab from the workspace, so
-      // the note stayed on screen while the status bar, the palette and every
-      // `openPath`-gated command were told nothing was open, and the next
-      // `commitWorkspace` snapped the mirror back anyway. `openPath` is a
-      // derived mirror with exactly one writer; the root entry now keeps the
-      // reader's place and touches only the view mode.
+      // BACK PAST THE FIRST NOTE LANDS ON THE ROOT ENTRY, and the root entry
+      // is a place: the vault, open, with nothing in front of the reader.
+      //
+      // Pre-panes this nulled `openPath`, which was pure DESYNC — a pane
+      // renders its own active tab from the workspace, so the note stayed on
+      // screen while the status bar, the palette and every `openPath`-gated
+      // command were told nothing was open, and the next `commitWorkspace`
+      // snapped the mirror back anyway. The fix for that was to touch only the
+      // view mode, which traded a desync for a LIE: the address bar said "/"
+      // and the note was still there, so Back did nothing a reader could see
+      // (v1.8 client-solidity audit, B4 — found in the emulator, where there
+      // is nothing to press but Back).
+      //
+      // `openPath` is a derived mirror with exactly one writer, so the honest
+      // way to show the empty state is to close the tabs — through the store
+      // action that owns that, which saves anything dirty on the way out
+      // (`release()` in the buffer registry) and re-mirrors openPath for free.
+      // The cost is the tab arrangement, and it is bounded: this entry only
+      // EXISTS if the session began with nothing open, and Forward reopens the
+      // note the reader stepped back from.
       if (store.view === "graph") store.setView("editor");
+      if (store.openPath !== null) store.closeAllTabs();
       return true;
     }
     return false;

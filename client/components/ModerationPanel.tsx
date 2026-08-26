@@ -62,6 +62,7 @@ function shortDate(ms: number): string {
 
 export default function ModerationPanel() {
   const setModerationOpen = useStore((s) => s.setModerationOpen);
+  const openSettingsAt = useStore((s) => s.openSettingsAt);
   useStore((s) => s.language); // re-render the chrome strings on language change
   const [feed, setFeed] = useState<Feed>({ state: "loading" });
   const panelRef = useRef<HTMLDivElement>(null);
@@ -92,9 +93,14 @@ export default function ModerationPanel() {
     close();
   };
 
+  // EVERY OUTCOME SPEAKS, not only the failures (v1.8 UX audit F25). Hiding a
+  // comment moves one row's eye glyph and nothing else; deleting one takes the
+  // row away, which reads the same as a list that reordered. The panel used to
+  // toast only when something went wrong, so the reader's evidence that
+  // moderation had happened at all was a two-pixel change in an icon.
   const toggleHidden = (id: number, hidden: boolean) => {
     setCommentHidden(id, hidden)
-      .then(() =>
+      .then(() => {
         setFeed((f) =>
           f.state === "ready"
             ? {
@@ -102,9 +108,10 @@ export default function ModerationPanel() {
                 comments: f.comments.map((cm) => (cm.id === id ? { ...cm, hidden } : cm)),
               }
             : f,
-        ),
-      )
-      .catch(() => toast(t(hidden ? "hideCommentFailed" : "unhideCommentFailed")));
+        );
+        toast(t(hidden ? "commentHiddenToast" : "commentUnhiddenToast"));
+      })
+      .catch(() => toast(t(hidden ? "hideCommentFailed" : "unhideCommentFailed"), "error"));
   };
 
   const remove = (id: number) => {
@@ -114,14 +121,19 @@ export default function ModerationPanel() {
     }).then((ok) => {
       if (!ok) return;
       deleteComment(id)
-        .then(() =>
+        .then(() => {
           setFeed((f) =>
             f.state === "ready"
               ? { state: "ready", comments: f.comments.filter((cm) => cm.id !== id) }
               : f,
-          ),
-        )
-        .catch(() => toast(t("deleteCommentFailed")));
+          );
+          // No Undo offered, and deliberately: a deleted comment is gone from
+          // the SQLite store, there is no `.trash` behind it, and a button
+          // that cannot keep its promise is worse than none. The confirm
+          // dialog is where this one is taken back.
+          toast(t("commentDeletedToast"));
+        })
+        .catch(() => toast(t("deleteCommentFailed"), "error"));
     });
   };
 
@@ -158,8 +170,26 @@ export default function ModerationPanel() {
           {feed.state === "loading" && (
             <div className="s-moderation__empty">{t("readingMargins")}</div>
           )}
+          {/* THE SWITCH, NOT THE SHELL VARIABLE (v1.8 UX audit F33). This
+              state used to read "start the server with COMMENTS=on", which
+              tells an owner who has never opened a terminal that the feature
+              is not for them — while the panel two clicks away has had a
+              Comments row with an on/off control in it the whole time. The
+              button closes this modal and opens Settings ON that row. */}
           {feed.state === "disabled" && (
-            <div className="s-moderation__empty">{t("commentsOff")}</div>
+            <div className="s-moderation__empty">
+              {t("commentsOff")}
+              <button
+                type="button"
+                className="s-btn s-btn--accent s-moderation__door"
+                onClick={() => {
+                  close();
+                  openSettingsAt("rowComments");
+                }}
+              >
+                {t("commentsOffAction")}
+              </button>
+            </div>
           )}
           {feed.state === "error" && (
             <div className="s-moderation__empty">{t("commentsLoadFailed")}</div>

@@ -78,20 +78,29 @@ export async function promptNewNote(dir: string): Promise<void> {
   if (path) await useStore.getState().createNote(path);
 }
 
-/** New folder in `dir` ("" = vault root). */
-export async function promptNewFolder(dir: string): Promise<void> {
+/** New folder in `dir` ("" = vault root), pre-filled with `value` when the
+ *  caller already knows what the reader would type — the Move-to picker hands
+ *  over its filter text (F11), so "archive" typed into a list that matched
+ *  nothing becomes the name of the folder that fixes it.
+ *
+ *  Returns the path CREATED, so a caller can go on to use it (the picker moves
+ *  the note into it); null when the reader cancelled or the write failed. */
+export async function promptNewFolder(dir: string, value = ""): Promise<string | null> {
   const path = await promptModal({
     title: t("newFolder"),
     body: destination(dir),
+    value,
     placeholder: t("phFolderName"),
     check: (raw) => check(dir, false, raw),
   });
-  if (!path) return;
+  if (!path) return null;
   try {
     await createFolder(path);
     await useStore.getState().loadTree();
+    return path;
   } catch (err) {
     console.error("vellum: creating folder failed", err);
     toast(err instanceof Error ? err.message : t("creatingFolderFailed"));
+    return null;
   }
 }

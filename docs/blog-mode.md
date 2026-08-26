@@ -46,8 +46,15 @@ RSS or the dashboard, even when they carry `publish: true` so the notes made fro
 
 However many topics your published tags add up to, the row measures itself and folds whatever will
 not fit into an inline "More ▾" menu beside the topics that do — re-measured on every resize, in
-either direction, so it never wraps into a second ragged line. Below ~840px it collapses into the
-usual burger panel, which shows every topic at once.
+either direction, so it never wraps into a second ragged line. Below ~840px the *topics* collapse
+into the usual burger panel, which shows every one of them at once.
+
+Your **collections do not collapse with them**. Where the row carries collection chips, Home and
+those chips stay in the bar at every width — swiping sideways if there are more of them than the
+phone is wide — and only the topics fold away. A declared collection is the site's own structure,
+and a structure reachable only through a menu labelled *Topics* has been demoted to one of them.
+A hairline sits between the two runs, because `GAMES` the collection and `games` the topic are
+otherwise the same pill twice.
 
 Topic names are the [localised label](arabic-and-rtl.md#localised-tag-labels) where one exists;
 the URL stays the canonical slug.
@@ -89,12 +96,15 @@ the frontmatter first and make the folder afterwards.
 
 Two sub-options decide where folders *show*:
 
-- **Show on home page** (on by default) — a band of folder cards under your writings, on either
-  home. An empty folder still shows: a collection you have made and not filled yet is an
-  invitation, not a bug.
+- **Show on home page** (on by default) — a band of folder cards **above** your writings, on
+  either home: a list is browsing, a collection is navigation, and navigation goes above the
+  thing it navigates. An empty folder still shows there: a collection you have made and not
+  filled yet is an invitation, not a bug, and its card says "0 published notes" on its face.
 - **Show in navigation** (off by default) — folder chips lead the topics row, each wearing its
-  own mark instead of a `#`, and they never fold into "More ▾": a declared collection is the
-  site's own structure.
+  own mark instead of a `#`, and they never fold into "More ▾" or into the phone's burger: a
+  declared collection is the site's own structure. A collection with *nothing in it* gets no
+  chip — the band is an invitation and a nav chip is a promise of somewhere to go, and on a
+  phone that chip costs a slot the collections with posts in them need.
 
 Every folder page works either way — the two switches hide doors, not the rooms behind them. Each
 one lists its posts exactly as a topic page does, under a header carrying the folder's mark, title,

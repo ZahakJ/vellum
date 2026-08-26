@@ -122,7 +122,16 @@ function specifiers(raw) {
     /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
   ];
   for (const re of patterns) for (const m of src.matchAll(re)) out.push(m[1]);
-  return out;
+  // AND IT HAS TO SAY WHAT A SPECIFIER LOOKS LIKE, because the scan is textual
+  // and `stripComments` does not strip STRINGS: `requiredString(body, "from")`
+  // — an ordinary field name in server/api.ts — puts the word `from` directly
+  // in front of a quote, and the first pattern above happily read the rest of
+  // the expression as a package name. The gate then reported four npm packages
+  // called things like `"), requiredString(body, "` and failed the build over
+  // dependencies nobody had added. A module specifier is a relative path, a
+  // node: builtin, or a package name; anything else is prose that happened to
+  // sit next to the word.
+  return out.filter((spec) => /^(?:\.{1,2}\/|node:|@[\w.~-]+\/[\w.~-]|[\w.~-])/.test(spec) && !/[\s()"']/.test(spec));
 }
 
 /** "@scope/name/sub" → "@scope/name"; "name/sub" → "name". */

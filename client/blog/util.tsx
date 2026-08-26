@@ -4,6 +4,7 @@
 
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { siteDate } from "../dates.ts";
+import { t } from "../i18n.ts";
 import { go } from "./nav.ts";
 
 /** ISO date → localized long date ("14 August 2026", "١٤ أغسطس ٢٠٢٦",
@@ -68,5 +69,34 @@ export function NavLink({
     >
       {children}
     </a>
+  );
+}
+
+/** THE BLOG'S LOADING STATE.
+ *
+ *  Both public homes drew a literal "…" in serif italic while the post list
+ *  was in flight (v1.8 UX audit F41) — the same element and the same styling
+ *  the EMPTY state uses, so the one thing a reader could not tell from it was
+ *  which of the two they were looking at: a site still arriving, or a site
+ *  with nothing on it.
+ *
+ *  Quiet bars in the shape of what is coming, and no animation on the bars
+ *  themselves beyond one slow breath — a shimmer sweeping a public home page
+ *  is a busier thing than the page it stands in for. `aria-hidden`, with the
+ *  status said once in words: a screen reader wants "loading", not seven
+ *  rectangles. */
+export function BlogSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="s-blog-skel" role="status" aria-live="polite" aria-busy="true">
+      <span className="s-sr-only">{t("loading")}</span>
+      <span className="s-blog-skel__rows" aria-hidden="true">
+        {Array.from({ length: rows }, (_, i) => (
+          <span key={i} className="s-blog-skel__row">
+            <span className="s-blog-skel__title" />
+            <span className="s-blog-skel__meta" />
+          </span>
+        ))}
+      </span>
+    </div>
   );
 }

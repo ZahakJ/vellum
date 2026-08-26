@@ -228,10 +228,14 @@ for (const line of doorSrc.split("\n")) {
   if (m) fail(`client/books/door.ts statically imports ./${m[1]} — it is first-paint code and must use import()`);
 }
 const paneSrc = read("client/components/Pane.tsx");
-if (/lazy\(\(\) => import\("\.\.\/books\/BooksSurface\.tsx"\)\)/.test(paneSrc)) {
-  ok("Pane.tsx reaches the surface through React.lazy(import())");
+// `lazySurface()` is React.lazy with the chunk-fetch failure handled
+// (client/lazySurface.tsx) — the same dynamic-import boundary rollup splits on,
+// which is the property this assertion is actually about. Accepting only the
+// bare spelling would have made the v1.8 safety net look like a regression.
+if (/lazy(?:Surface)?\(\(\) => import\("\.\.\/books\/BooksSurface\.tsx"\)\)/.test(paneSrc)) {
+  ok("Pane.tsx reaches the surface through lazySurface(import())");
 } else {
-  fail("client/components/Pane.tsx must load BooksSurface with React.lazy(() => import()) — a static import puts the reader in first paint");
+  fail("client/components/Pane.tsx must load BooksSurface with lazySurface(() => import()) — a static import puts the reader in first paint");
 }
 
 // ── 3. Nothing writes to the vault ─────────────────────────────────────────

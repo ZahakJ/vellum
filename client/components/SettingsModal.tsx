@@ -77,6 +77,7 @@ import { attachScrollFade } from "../scrollFade.ts";
 import { confirmModal } from "./Confirm.tsx";
 import { FontPicker, SYSTEM_FONT } from "./FontPicker.tsx";
 import SettingsSearch from "./settings/SettingsSearch.tsx";
+import { SETTINGS_INDEX } from "./settings/settingsIndex.ts";
 import { NumberInput, SegmentedControl, TextInput, Toggle, type Segment } from "./controls/Fields.tsx";
 import { isSelectOpen, Select, type SelectGroup } from "./controls/Select.tsx";
 import DeviceTab from "./settings/DeviceTab.tsx";
@@ -1626,13 +1627,15 @@ function SyncStatusBlock({
               reorders everything after it around that. */}
           <bdi>{lastAt}</bdi>
           <bdi>
-            {t(
-              status.last.committed
-                ? "syncPushed"
-                : status.last.remoteAdvanced === true
-                  ? "syncPushedOnly"
-                  : "syncUpToDate",
-            )}
+            {status.last.committed && status.last.sha
+              ? tf("syncPushedSha", { sha: status.last.sha })
+              : t(
+                  status.last.committed
+                    ? "syncPushed"
+                    : status.last.remoteAdvanced === true
+                      ? "syncPushedOnly"
+                      : "syncUpToDate",
+                )}
           </bdi>
         </div>
       )}
@@ -2081,6 +2084,7 @@ function intervalLabel(minutes: number): string {
 
 export default function SettingsModal() {
   const setOpen = useStore((s) => s.setSettingsOpen);
+  const settingsFocus = useStore((s) => s.settingsFocus);
   useStore((s) => s.language); // re-render the chrome strings on language change
   const close = useCallback(() => setOpen(false), [setOpen]);
 
@@ -2128,6 +2132,22 @@ export default function SettingsModal() {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }, []);
 
+  /** Bring one row into view and MARK it for a moment. Scrolling to a row
+   *  without marking it leaves the reader looking at a list and guessing which
+   *  one answered. Shared by the panel's own search and by the surfaces
+   *  elsewhere in the app that point at a row (`openSettingsAt`). */
+  const reveal = useCallback((label: string) => {
+    requestAnimationFrame(() => {
+      const row = bodyRef.current?.querySelector<HTMLElement>(
+        `[data-setting="${CSS.escape(label)}"]`,
+      );
+      if (!row) return;
+      row.scrollIntoView({ block: "center", behavior: "smooth" });
+      row.classList.add("s-smodal__row--found");
+      window.setTimeout(() => row.classList.remove("s-smodal__row--found"), 1600);
+    });
+  }, []);
+
   /** ↑/↓ walk the rail, the way a tab list is expected to behave; the arrow
    *  keys never leave the rail, and Home/End jump to its ends. */
   const onRailKey = useCallback(
@@ -2165,6 +2185,24 @@ export default function SettingsModal() {
       disposed = true;
     };
   }, []);
+
+  /** ARRIVING FROM SOMEWHERE ELSE IN THE APP, pointed at one row.
+   *
+   *  `openSettingsAt("rowComments")` is how the moderation panel answers "the
+   *  margins are closed" with the switch that opens them rather than with a
+   *  shell variable (v1.8 UX audit F33). The tab comes from SETTINGS_INDEX —
+   *  the same index the search above walks, so a row that moves tabs moves for
+   *  both — and the request is cleared the moment it has been served, or the
+   *  panel would jump back to it on every re-render. It waits for `form`,
+   *  because no row exists in the DOM until the settings have loaded. */
+  useEffect(() => {
+    if (settingsFocus === null || form === null) return;
+    const entry = SETTINGS_INDEX.find((row) => row.label === settingsFocus);
+    useStore.setState({ settingsFocus: null });
+    if (entry === undefined) return;
+    goToTab(entry.tab);
+    reveal(t(entry.label));
+  }, [settingsFocus, form, goToTab, reveal]);
 
   // Esc closes — the picker first when it is open (capture phase, so the
   // editor never sees it).
@@ -2437,18 +2475,8 @@ export default function SettingsModal() {
               onGo={(entry, label) => {
                 goToTab(entry.tab);
                 // After the tab has painted: find the row by the label it
-                // stamped (settings/Row.tsx), bring it into view, and mark it
-                // for a moment. Scrolling to a row without marking it leaves
-                // the reader looking at a list and guessing which one answered.
-                requestAnimationFrame(() => {
-                  const row = bodyRef.current?.querySelector<HTMLElement>(
-                    `[data-setting="${CSS.escape(label)}"]`,
-                  );
-                  if (!row) return;
-                  row.scrollIntoView({ block: "center", behavior: "smooth" });
-                  row.classList.add("s-smodal__row--found");
-                  window.setTimeout(() => row.classList.remove("s-smodal__row--found"), 1600);
-                });
+                // stamped (settings/Row.tsx).
+                reveal(label);
               }}
             />
             <nav

@@ -602,6 +602,35 @@
   font-size: 0.84rem;
 }
 
+/* The preview pane's empty state carries a door (F41) rather than a sentence
+   telling the reader to go and find one. Centred in the pane it occupies —
+   this is two thirds of the panel, not a caption under a control. */
+.s-dsgr-empty--door {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 220px;
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+}
+
+.s-dsgr-empty__body {
+  margin: 0;
+  max-width: 34ch;
+  font-family: var(--font-serif);
+  font-size: 0.96rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 700px), (pointer: coarse) {
+  .s-dsgr-empty--door .s-btn {
+    min-height: 44px;
+  }
+}
+
 .s-dsgr-warn {
   margin: 8px 0 0;
   color: var(--danger);

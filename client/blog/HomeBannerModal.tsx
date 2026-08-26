@@ -198,6 +198,19 @@ export default function HomeBannerModal({ onClose }: { onClose: () => void }) {
             {attachments !== null && filtered.length === 0 && (
               <div className="s-bmodal__empty">
                 {attachments.length === 0 ? t("noAttachments") : t("noMatchesDot")}
+                {/* The uploader, surfaced where the reader actually is (F41) —
+                    see BannerModal for the argument; this is the home banner's
+                    half of the same picker. */}
+                {attachments.length === 0 && (
+                  <button
+                    type="button"
+                    className="s-btn s-btn--accent s-bmodal__emptydoor"
+                    disabled={busy}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {t("chooseImageFile")}
+                  </button>
+                )}
               </div>
             )}
             {filtered.slice(0, 200).map((p) => (

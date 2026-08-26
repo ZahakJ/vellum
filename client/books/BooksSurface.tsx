@@ -9,7 +9,8 @@
 // its pane holds the keyboard, because zathura keys listen on `window` and a
 // `j` typed toward another pane must not turn a page here.
 
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
+import { lazySurface } from "../lazySurface.tsx";
 import type { BookAnchor } from "../../shared/bookAnchor.ts";
 import { t } from "../i18n.ts";
 import "../styles/books.css";
@@ -44,8 +45,8 @@ export interface BooksSurfaceProps {
 // search matcher, and the shelf is what a click on "Library" reaches first.
 // (pdf.js itself is behind a further boundary again — client/books/pdfjs.ts —
 // so neither of these two chunks contains it.)
-const BookLibrary = lazy(() => import("./BookLibrary.tsx"));
-const BookReader = lazy(() => import("./BookReader.tsx"));
+const BookLibrary = lazySurface(() => import("./BookLibrary.tsx"));
+const BookReader = lazySurface(() => import("./BookReader.tsx"));
 
 export default function BooksSurface({ route, onRoute, onExit, active = true, onLanded }: BooksSurfaceProps) {
   return (

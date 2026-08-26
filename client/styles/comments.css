@@ -345,11 +345,31 @@
 }
 
 .s-moderation__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
   padding: 36px 20px;
   text-align: center;
   font-family: var(--font-serif);
   font-size: 1rem;
-  color: var(--text-faint);
+  /* A SENTENCE THE READER READS, so --text-muted (4.5:1 in all fifteen).
+     --text-faint's bar is the 3:1 non-text one and it was carrying the whole
+     of this panel's empty states — DESIGN.md, "Contrast". */
+  color: var(--text-muted);
+}
+
+/* The door out of an empty state (F41/F33): the state says what is true, the
+   button says what to do about it. Sized like every other primary action; the
+   44px floor below comes from the shell's coarse-pointer rule. */
+.s-moderation__door {
+  flex: none;
+}
+
+@media (max-width: 700px), (pointer: coarse) {
+  .s-moderation__door {
+    min-height: 44px;
+  }
 }
 
 .s-moderation__empty code {

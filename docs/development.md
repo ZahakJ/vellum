@@ -195,6 +195,18 @@ and a `Ctrl/Cmd S` round trip through the store.
 That it is a real iframe under `frame-src 'none'`, that styles and theme reach it (including a
 live theme switch), and that it lays out at 390 / tablet / 1440 device widths.
 
+### `npm run check-print` — the printed page
+
+`PORT=6801 npm run check-print`. The only surface nobody looks at while they work: `@media print`
+rules are invisible to every screenshot harness above, because a browser applies them only when a
+human opens a dialog. So this drives the app under `emulateMedia("print")` and asserts that the
+print host is the only thing on the paper (and is `display: none` on screen, so it can never
+flash), that the paper palette wins from a dark theme, that a folded callout prints its body, that
+headings stay real `h1`–`h6` with ids and internal anchors keep fragment `href`s — the two things
+Chrome builds a PDF's bookmark outline and its link annotations from — and that an Arabic note
+prints as a right-to-left page from an English instance. It writes two fixture notes through the
+API and deletes them on the way out. See [Printing & PDF](printing.md).
+
 ### `npm run check-presets` — the preset catalog
 
 Unique slug ids, a bilingual name and blurb with real Arabic, a known family, at least one preset

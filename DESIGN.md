@@ -154,6 +154,20 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
   --text-muted under node, hidden below zoom 0.7 except hovered/neighbors. Hover: node + neighbors
   full opacity + labels, rest dimmed to .15. Active-note node: ring in --accent. Bottom-left HUD:
   "N notes · M links" 11px faint; bottom-right: zoom +/− and ⌖ reset buttons (icon buttons, raised).
+- **The zoom rule is not the only cap on labels.** A frame draws at most ~180 of them, keeping the
+  highest-degree nodes, because two hundred overlapping titles is noise rather than navigation and
+  a title is the most expensive mark on this canvas. Everything outside the viewport — nodes, edges
+  and labels alike — is culled before a single canvas call, the idle edge web is drawn to its own
+  bitmap and blitted (it changes with the view and the physics and with nothing else), and the
+  cooling schedule runs on the CLOCK, not on the frame counter, so a large vault settles in the
+  same thirteen seconds a small one does instead of taking longer the slower it draws. Repulsion is
+  summed through a quadtree (Barnes–Hut, θ = 0.7): the approximation is a DISTANCE test, so it
+  leaves no mark on the picture — an aggregation by fixed grid cell printed the grid into the
+  settled layout as a square cloud with a lattice in it, and that is the failure this note exists to
+  prevent. Measured on a 3,000-note vault: 60 fps median from the first frame to rest.
+- **A canvas is a picture to a keyboard**, so the nodes also exist as a list behind it: the open
+  note and its neighbours, one tab stop, arrows to walk, Enter to open, clipped away until it holds
+  focus. CONTRACTS.md carries the full behaviour.
 
 ## Motion & finish
 

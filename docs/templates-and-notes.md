@@ -174,4 +174,7 @@ notes' links and is indexed before the request answers, so search, the graph and
 are correct the moment it lands. A name collision asks for another name instead of overwriting,
 and every move raises a toast naming both ends **with Undo**. No mouse? "Move to…" in a row's
 right-click menu and in the command palette opens a filterable folder picker that does exactly the
-same thing — as does dropping images straight from your desktop onto a folder row.
+same thing — as does dropping images straight from your desktop onto a folder row. The picker ends
+in a pinned **New folder…** row, named after whatever you typed into the filter, so "there is
+nowhere to put this" is a folder away rather than a dead end; it does not offer your attachments
+folder as a home for a note.

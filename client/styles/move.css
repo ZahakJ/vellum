@@ -82,13 +82,15 @@
 
 /* ------------------------------------------------------- the undo toast --- */
 
-/* Same `.s-toast` element as every other message (they must never stack), with
-   room for one button. */
+/* Same `.s-toast` element as every other message, with room for one button and
+   the ✕ that ends the offer by hand. It no longer replaces the plain messages
+   around it (v1.8 UX audit F23): `.s-toasts` in app.css is the column they
+   share, and this one holds the foot of it until it is answered. */
 .s-toast--action {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding-inline-end: 8px;
+  padding-inline-end: 4px;
 }
 
 .s-toast__msg {
@@ -114,10 +116,38 @@
   color: var(--bg);
 }
 
+/* Quieter than the action by design — it is the answer "no thank you", and a
+   dismiss drawn as loud as the undo is a coin toss under a nine-second clock.
+   --text-muted, not --text-faint: this is a glyph the reader has to FIND. */
+.s-toast__dismiss {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 1.143rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.s-toast__dismiss:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
 /* The undo toast is often the ONLY way back from a destructive move, and it
    expires. A keyboard reader who cannot see where focus is cannot take it in
    time, so the ring is not optional here. */
-.s-toast__action:focus-visible {
+.s-toast__action:focus-visible,
+.s-toast__dismiss:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -235,6 +265,35 @@
   color: var(--text-muted);
 }
 
+/* The pinned "New folder…" row (F11). It sits BETWEEN the scrolling list and
+   the footer with a hairline of its own, because it is the dialog's door out of
+   a dead end and a door that scrolls out of the list is not one. */
+.s-movepick__new {
+  flex: none;
+  margin: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--border);
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.s-movepick__new:hover,
+.s-movepick__new.s-movepick__row--active {
+  color: var(--text);
+}
+
+/* A UI glyph, so --text-faint is its token (DESIGN.md: the 3:1 non-text bar);
+   it lights to the accent with the row. */
+.s-movepick__glyph {
+  flex: none;
+  color: var(--text-faint);
+}
+
+.s-movepick__new:hover .s-movepick__glyph,
+.s-movepick__new.s-movepick__row--active .s-movepick__glyph {
+  color: var(--accent);
+}
+
 .s-movepick__none {
   margin: 0;
   padding: 18px 16px;
@@ -266,5 +325,18 @@
 
   .s-movepick__input {
     padding-block: 14px;
+  }
+
+  /* The undo is the way back from a destructive gesture and it expires in nine
+     seconds. A 26px-tall button on a phone is the one target in the product
+     that MUST be hit first time. */
+  .s-toast__action {
+    min-height: 44px;
+    padding-inline: 16px;
+  }
+
+  .s-toast__dismiss {
+    width: 44px;
+    height: 44px;
   }
 }

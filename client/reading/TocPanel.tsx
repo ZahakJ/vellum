@@ -286,139 +286,154 @@ export default function TocPanel() {
     });
   };
 
-  if (!openPath || headings.length === 0) return null;
+  if (!openPath) return null;
+
+  // A NOTE WITH NO HEADINGS KEEPS ITS OUTLINE SECTION (v1.8 audit, F5). The
+  // whole section used to vanish, so the right panel's contents changed shape
+  // from note to note and a reader who had just used the outline found the
+  // panel apparently missing a part of itself — the same complaint the graph's
+  // empty sky drew one section down. One quiet line answers it: the outline is
+  // there, this note has nothing in it yet. The count badge and the numbering
+  // button go, because a `0` badge over an empty list is the "reads as broken"
+  // that comment is about, and there is nothing to number.
+  const empty = headings.length === 0;
 
   return (
     <section className="s-toc">
       <header className="s-panel-header s-toc__header">
         <span className="s-panel-title">{t("outline")}</span>
-        <span className="s-panel-count">{localeNum(headings.length)}</span>
+        {!empty && <span className="s-panel-count">{localeNum(headings.length)}</span>}
         {/* Numbering is a READING affordance and it lives here, over the list
             it numbers: the outline is where a reader looks at the shape of the
             document, so it is where they decide whether that shape is
             numbered. The note's own frontmatter still outranks it. */}
-        <button
-          type="button"
-          className={`s-toc__numbtn s-iconbtn${numbers ? " s-toc__numbtn--on" : ""}`}
-          aria-pressed={numbers !== null}
-          title={t(numbers ? "unnumberHeadings" : "numberHeadings")}
-          onClick={() => setHeadingNumbersPref(!headingNumbersPref())}
-        >
-          1.
-        </button>
-      </header>
-      <nav
-        className={`s-toc__list${dragSlug ? " s-toc__list--dragging" : ""}`}
-        // A navigation landmark with no name is one of several: this shell has
-        // the sidebar tree, the blog nav and this one.
-        aria-label={t("outline")}
-        ref={listRef}
-        onDragOver={(e) => {
-          // Past the last row: the drop lands at the end of the note.
-          if (!dragSlug || e.target !== e.currentTarget) return;
-          e.preventDefault();
-          const list = listRef.current;
-          if (!list) return;
-          setDrop({
-            beforeLine: null,
-            level: 1,
-            y: list.scrollHeight,
-            springSlug: null,
-          });
-        }}
-        onDrop={onDrop}
-        onDragEnd={clearDrag}
-      >
-        {drop && (
-          <div
-            className="s-toc__drop"
-            style={{ top: drop.y, insetInlineStart: `${8 + (drop.level - 1) * 10}px` }}
-            aria-hidden="true"
-          />
-        )}
-        {headings.map((h) => {
-          const section = sectionOf(h);
-          return (
+        {!empty && (
             <button
-              key={`${h.slug}:${h.line}`}
               type="button"
-              draggable={canDrag && !!section}
-              className={`s-toc__item s-toc__item--l${h.level}${
-                active === h.slug ? " s-toc__item--active" : ""
-              }${dragSlug === h.slug ? " s-toc__item--dragging" : ""}${
-                drop?.springSlug === h.slug ? " s-toc__item--spring" : ""
-              }`}
-              // "You are here" was gold text and nothing else; aria-current is
-              // the same fact in a form a screen reader can read.
-              aria-current={active === h.slug ? "location" : undefined}
-              /* The TOOLTIP keeps the heading as the FILE spells it, so a
-                 reader looking at a localised row can still learn the
-                 canonical tag it carries — the bargain every labelled chip in
-                 the product makes. */
-              title={h.text}
-              onClick={() =>
-                window.dispatchEvent(
-                  new CustomEvent("vellum:goto-heading", {
-                    detail: { slug: h.slug, line: h.line, text: h.text },
-                  }),
-                )
-              }
-              onContextMenu={(e) => {
-                if (!admin || !section) return;
-                e.preventDefault();
-                // An open editor answers first, and its menu is the FULLER
-                // one: fold-all-below, select and focus act on a CodeMirror
-                // view, so they exist exactly when one is mounted on this
-                // path. In reading mode the same right-click gets the three
-                // rows that still mean something.
-                if (openEditorSectionMenu(openPath, section.headingLine, e.clientX, e.clientY)) {
-                  return;
-                }
-                openSectionMenu({
-                  path: openPath,
-                  content,
-                  headingLine: section.headingLine,
-                  x: e.clientX,
-                  y: e.clientY,
-                  onDone: () => useStore.getState().bumpReload(),
-                });
-              }}
-              onDragStart={(e) => {
-                if (!section) return;
-                e.dataTransfer.effectAllowed = "move";
-                // Some browsers refuse to start a drag with no payload.
-                e.dataTransfer.setData("text/plain", h.text);
-                gesture.current = {
-                  x: e.clientX,
-                  level: section.level,
-                  springAt: Date.now(),
-                  springSlug: h.slug,
-                };
-                setDragSlug(h.slug);
-              }}
-              onDragOver={(e) => onRowDragOver(e, h)}
-              onDrop={onDrop}
-              onDragEnd={clearDrag}
+              className={`s-toc__numbtn s-iconbtn${numbers ? " s-toc__numbtn--on" : ""}`}
+              aria-pressed={numbers !== null}
+              title={t(numbers ? "unnumberHeadings" : "numberHeadings")}
+              onClick={() => setHeadingNumbersPref(!headingNumbersPref())}
             >
-              {/* The ROW is chrome: it keeps the shell's direction, so every
-                  entry aligns to the same edge as the panel header, the indent
-                  levels step inward from that edge and the active-row accent bar
-                  stays attached to the row it marks. Only the LABEL is note
-                  content, and it is isolated so an English heading in an Arabic
-                  vault still reads "Tags:" rather than ":Tags". `dir="auto"` on
-                  the row itself did both jobs at once and got the first one
-                  wrong — a Latin heading dragged its whole row to the far side
-                  of the panel. */}
-              {numbers?.get(h.slug) && (
-                <span className="s-toc__num" aria-hidden="true">
-                  {numberLabel(numbers.get(h.slug) ?? "")}
-                </span>
-              )}
-              <bdi>{labelTagsInText(h.text)}</bdi>
+              1.
             </button>
-          );
-        })}
-      </nav>
+          )}
+        </header>
+        {empty && <p className="s-panel-empty">{t("noHeadings")}</p>}
+        {!empty && (
+        <nav
+          className={`s-toc__list${dragSlug ? " s-toc__list--dragging" : ""}`}
+          // A navigation landmark with no name is one of several: this shell has
+          // the sidebar tree, the blog nav and this one.
+          aria-label={t("outline")}
+          ref={listRef}
+          onDragOver={(e) => {
+            // Past the last row: the drop lands at the end of the note.
+            if (!dragSlug || e.target !== e.currentTarget) return;
+            e.preventDefault();
+            const list = listRef.current;
+            if (!list) return;
+            setDrop({
+              beforeLine: null,
+              level: 1,
+              y: list.scrollHeight,
+              springSlug: null,
+            });
+          }}
+          onDrop={onDrop}
+          onDragEnd={clearDrag}
+        >
+          {drop && (
+            <div
+              className="s-toc__drop"
+              style={{ top: drop.y, insetInlineStart: `${8 + (drop.level - 1) * 10}px` }}
+              aria-hidden="true"
+            />
+          )}
+          {headings.map((h) => {
+            const section = sectionOf(h);
+            return (
+              <button
+                key={`${h.slug}:${h.line}`}
+                type="button"
+                draggable={canDrag && !!section}
+                className={`s-toc__item s-toc__item--l${h.level}${
+                  active === h.slug ? " s-toc__item--active" : ""
+                }${dragSlug === h.slug ? " s-toc__item--dragging" : ""}${
+                  drop?.springSlug === h.slug ? " s-toc__item--spring" : ""
+                }`}
+                // "You are here" was gold text and nothing else; aria-current is
+                // the same fact in a form a screen reader can read.
+                aria-current={active === h.slug ? "location" : undefined}
+                /* The TOOLTIP keeps the heading as the FILE spells it, so a
+                   reader looking at a localised row can still learn the
+                   canonical tag it carries — the bargain every labelled chip in
+                   the product makes. */
+                title={h.text}
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent("vellum:goto-heading", {
+                      detail: { slug: h.slug, line: h.line, text: h.text },
+                    }),
+                  )
+                }
+                onContextMenu={(e) => {
+                  if (!admin || !section) return;
+                  e.preventDefault();
+                  // An open editor answers first, and its menu is the FULLER
+                  // one: fold-all-below, select and focus act on a CodeMirror
+                  // view, so they exist exactly when one is mounted on this
+                  // path. In reading mode the same right-click gets the three
+                  // rows that still mean something.
+                  if (openEditorSectionMenu(openPath, section.headingLine, e.clientX, e.clientY)) {
+                    return;
+                  }
+                  openSectionMenu({
+                    path: openPath,
+                    content,
+                    headingLine: section.headingLine,
+                    x: e.clientX,
+                    y: e.clientY,
+                    onDone: () => useStore.getState().bumpReload(),
+                  });
+                }}
+                onDragStart={(e) => {
+                  if (!section) return;
+                  e.dataTransfer.effectAllowed = "move";
+                  // Some browsers refuse to start a drag with no payload.
+                  e.dataTransfer.setData("text/plain", h.text);
+                  gesture.current = {
+                    x: e.clientX,
+                    level: section.level,
+                    springAt: Date.now(),
+                    springSlug: h.slug,
+                  };
+                  setDragSlug(h.slug);
+                }}
+                onDragOver={(e) => onRowDragOver(e, h)}
+                onDrop={onDrop}
+                onDragEnd={clearDrag}
+              >
+                {/* The ROW is chrome: it keeps the shell's direction, so every
+                    entry aligns to the same edge as the panel header, the indent
+                    levels step inward from that edge and the active-row accent bar
+                    stays attached to the row it marks. Only the LABEL is note
+                    content, and it is isolated so an English heading in an Arabic
+                    vault still reads "Tags:" rather than ":Tags". `dir="auto"` on
+                    the row itself did both jobs at once and got the first one
+                    wrong — a Latin heading dragged its whole row to the far side
+                    of the panel. */}
+                {numbers?.get(h.slug) && (
+                  <span className="s-toc__num" aria-hidden="true">
+                    {numberLabel(numbers.get(h.slug) ?? "")}
+                  </span>
+                )}
+                <bdi>{labelTagsInText(h.text)}</bdi>
+              </button>
+            );
+          })}
+        </nav>
+      )}
     </section>
   );
 }

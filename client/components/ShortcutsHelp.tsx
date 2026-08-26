@@ -277,6 +277,16 @@ const GROUPS: Group[] = [
     title: "scGroupPublishing",
     items: [
       { label: "cmdPublishNote", keys: ["Ctrl/Cmd", "Shift", "P"], admin: true },
+      // PRINTING IS PUBLISHING TO PAPER, so it files here beside the other
+      // way a note leaves the vault. `shell: "app"` because the blog hands
+      // Ctrl/Cmd+P straight back to the browser and a visitor's own print key
+      // is the right one there; no `admin`, because printing is reading.
+      {
+        label: "cmdPrintNote",
+        keys: ["Ctrl/Cmd", "Alt", "P"],
+        shell: "app",
+        run: () => void import("../print.ts").then((mod) => mod.printNote()),
+      },
       { label: "cmdSetBanner", via: "scViaPalette", admin: true },
       { label: "cmdModerateComments", via: "scViaPalette", admin: true },
       { label: "siteSettings", via: "scViaStatusBar", admin: true, run: () => useStore.getState().setSettingsOpen(true) },
@@ -302,6 +312,18 @@ const GROUPS: Group[] = [
           const s = useStore.getState();
           s.setPanelCollapsed(!s.panelCollapsed);
         },
+      },
+      // THE TAB STRIP'S OWN KEYS (F12). Filed with the panes rather than under
+      // Navigation because a tab is a thing inside a pane, and the reader
+      // looking for "how do I close this" is looking at the same corner of the
+      // window. The page keys and W wear Alt for the reason App.tsx spells
+      // out: the browser owns all three of the world's tab chords.
+      { label: "scStepTab", keys: ["Ctrl/Cmd", "Alt", "PageDown / PageUp"], shell: "app" },
+      {
+        label: "scCloseTab",
+        keys: ["Ctrl/Cmd", "Alt", "W"],
+        shell: "app",
+        run: () => useStore.getState().closeActiveTab(),
       },
     ],
   },

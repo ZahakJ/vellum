@@ -40,6 +40,17 @@ const root = makeVault({
       `${"pad ".repeat(120)}a tulip buried mid-paragraph ${"pad ".repeat(120)}`,
     ].join("\n") + "\n",
   ),
+  // A TABLE, which is fields and not a sentence. The link and the search term
+  // each sit in a cell that is not the first one (UX audit F44: the context
+  // line used to be every cell of the row joined with " · ").
+  "Shelf.md": [
+    "# Shelf",
+    "",
+    "| Title | Author | Note |",
+    "| --- | --- | --- |",
+    "| Dune | Herbert | see [[Target]] for the reread |",
+    "| Piranesi | Clarke | a tulip in the vestibule |",
+  ].join("\n") + "\n",
   "Unpublished.md": "secret tulip\n",
   // 150 matching lines: the cap must hold at 100.
   "Many.md": Array.from({ length: 150 }, (_, i) => `tulip row ${i}`).join("\n") + "\n",
@@ -71,6 +82,29 @@ describe("backlink lines", () => {
       .map((h) => h.line)
       .sort((a, b) => a - b);
     assert.deepEqual(lines, [1, 3]);
+  });
+});
+
+describe("context lines out of a table", () => {
+  it("quotes the CELL the link is in, not a join of the whole row", () => {
+    const hit = backlinks("Target.md", false, null).find((h) => h.path === "Shelf.md");
+    assert.ok(hit, "the table row links to Target and must appear");
+    assert.ok(hit.context.includes("[[Target]]"), hit.context);
+    assert.ok(!hit.context.includes("Herbert"), `a neighbouring cell leaked: ${hit.context}`);
+    assert.ok(!hit.context.includes("|"), `a raw table pipe reached the reader: ${hit.context}`);
+    // The separator this replaced. A `·` between two runs of text is banned
+    // everywhere in this product — the Eastern Arabic zero is a raised dot.
+    assert.ok(!hit.context.includes("·"), `the cell join came back: ${hit.context}`);
+  });
+
+  it("quotes the cell the SEARCH TERM is in, and never the alignment row", () => {
+    const out = searchMatches("Shelf.md", "tulip", false, null);
+    assert.equal(out.length, 1);
+    assert.match(out[0].text, /<mark>tulip<\/mark>/);
+    assert.ok(!out[0].text.includes("Clarke"), `a neighbouring cell leaked: ${out[0].text}`);
+    // The `---` row matches nothing, but it must not be quotable for anything
+    // either: it is punctuation, not a line of the note.
+    assert.deepEqual(searchMatches("Shelf.md", "---", false, null), []);
   });
 });
 

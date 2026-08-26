@@ -617,6 +617,65 @@
   color: var(--accent);
 }
 
+/* ── The chevron on a coarse pointer ──────────────────────────────────────
+   v1.8 UX audit F35: this control was 18×18 with no coarse block at all,
+   while its SIBLING in the same gutter — the ⋯ section menu, forty lines
+   below — has had one since the day the touch shell shipped. On a phone the
+   ONLY way to fold a heading was an 18px target, which is 41% of the floor
+   DESIGN.md sets for every target in the product.
+
+   THE GUTTER IS NOT ALWAYS 44px WIDE, and that is the whole difficulty.
+   `--prose-gutter` is `min(56px, 7.37%)`: 56px from 768 up (a 44px button
+   fits with 12px to spare and nothing moves), but 28.7px at 390 and 26.5px at
+   360. The ⋯ solved its own version of this by leaving the gutter entirely
+   and taking 44px off the END of the heading line; the chevron cannot follow
+   it there, because then a phone heading would carry 88px of controls across
+   a 333px measure and the title would have a third of the room the body text
+   has.
+
+   So the chevron takes the gutter, and asks the line for ONLY THE SHORTFALL —
+   `max(0, 44px - gutter)`, which is 0px on every tablet and ~19px on a 390px
+   phone. The button is positioned against the line rather than laid out in
+   it, so a 44px-tall target does not turn every heading into a 44px-tall line
+   box; the padding underneath it is what guarantees the button's leading edge
+   never crosses the viewport's (DESIGN.md: "Never let any panel's content
+   overflow the viewport horizontally").
+
+   The percentage inside `--prose-gutter` resolves here against the LINE's box
+   rather than the editor's, so the number it produces is an estimate of the
+   real gutter, not the gutter. Measured at 390 it reads 24.5 against a true
+   29 — short, which is the safe direction (the shortfall comes out large and
+   the button lands further from the text, never over it). But the estimate
+   goes the OTHER way whenever the editor is scrolling horizontally, because
+   then the line is wider than the column: on a note whose frontmatter widget
+   forces the content past the viewport it read 31 against 29 and put the
+   button's leading edge 2px off-screen. Hence 48 rather than 44: four pixels
+   of slack, paid out of the gutter, so the arithmetic is wrong in the
+   harmless direction in both cases. */
+@media (pointer: coarse) {
+  .s-editor .cm-line:has(.cm-s-foldbtn) {
+    position: relative;
+    --fold-short: max(0px, calc(48px - var(--prose-gutter)));
+    padding-inline-start: var(--fold-short);
+  }
+
+  .s-editor .cm-s-foldbtn {
+    position: absolute;
+    inset-inline-start: calc(var(--fold-short) - 44px);
+    top: 50%;
+    width: 44px;
+    height: 44px;
+    margin: 0;
+    /* The rotation is the state; the centring is the layout. Both live in one
+       transform, so neither can clobber the other. */
+    transform: translateY(-50%) rotate(90deg);
+  }
+
+  .s-editor .cm-s-foldbtn--folded {
+    transform: translateY(-50%) rotate(0deg);
+  }
+}
+
 /* ── The section affordance (⋯), beside the fold chevron ───────────────────
    The chevron pulls itself into the prose gutter with a negative margin,
    which is a trick only ONE element on a line can play: a second one shifts

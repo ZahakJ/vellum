@@ -14,7 +14,8 @@
 // stylesheet keeps matching. The grid arrives only once there is something to
 // arrange.
 
-import { lazy, Suspense, type ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
+import { lazySurface } from "../lazySurface.tsx";
 import { useStore } from "../state.ts";
 import { activeTabOf, paneAt, surfaceOf } from "../workspace.ts";
 import Tabs from "./Tabs.tsx";
@@ -24,14 +25,14 @@ import { useTabDrag } from "../dragTab.ts";
 // no business in first paint — the chunk loads when the first tab is LIFTED,
 // and a drag is hundreds of ms long where the fetch is a handful. This is
 // what kept the entry inside its check-bundle budget.
-const PaneDropZones = lazy(() => import("./PaneDropZones.tsx"));
+const PaneDropZones = lazySurface(() => import("./PaneDropZones.tsx"));
 
-const Editor = lazy(() => import("./Editor.tsx"));
-const ReadingView = lazy(() => import("../reading/ReadingView.tsx"));
+const Editor = lazySurface(() => import("./Editor.tsx"));
+const ReadingView = lazySurface(() => import("../reading/ReadingView.tsx"));
 // The books surface keeps its own chunk boundary (scripts/check-bundle.mjs
 // pins it): a pane that never shows a book never downloads the shelf, the
 // reader or — two boundaries further in — pdf.js.
-const BooksSurface = lazy(() => import("../books/BooksSurface.tsx"));
+const BooksSurface = lazySurface(() => import("../books/BooksSurface.tsx"));
 
 export default function Pane({
   id,

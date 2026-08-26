@@ -30,6 +30,15 @@
   user-select: none;
 }
 
+/* The home route wraps the name in an h1 (BlogShell) — the heading is
+   structure, and every pixel of the look stays on `__name` below it. */
+.s-blog-mast__title {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
 .s-blog-mast__name {
   display: inline-block;
   font-family: var(--font-serif);
@@ -145,6 +154,34 @@
 .s-blog-nav__link--active {
   color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* THE ROW HOLDS TWO KINDS OF CHIP, AND SAYS SO (v1.8 UX audit F28). A
+   collection the owner declared and a topic the notes declared about
+   themselves sat side by side in identical pills — GAMES next to games, with
+   nothing between them. One hairline, the separator this product uses between
+   groups everywhere else; never a `·`, because the Eastern Arabic zero is
+   itself a raised dot (DESIGN.md). Not a target and not text: aria-hidden in
+   the markup, and it takes the row's own gap on both sides. */
+.s-blog-nav__sep {
+  /* inline-BLOCK, and that is a measurement decision as much as a drawing one:
+     the twin NavTopics measures is laid out as inline-block children, not as a
+     flex row, and `inline-size` on a non-replaced INLINE box does nothing — so
+     an inline separator measured 0 in the twin and 9 in the row, and the fit
+     let one topic too many onto a line that may not wrap. Measured overflow
+     before this word: 6px at 1440. */
+  display: inline-block;
+  flex: none;
+  align-self: center;
+  /* NINE PIXELS WIDE, WITH THE HAIRLINE DRAWN DOWN THE MIDDLE — not a 1px box
+     with margins on it. NavTopics fits the row from `getBoundingClientRect()`
+     widths plus one GAP per pair, so a margin is space the arithmetic cannot
+     see: 8px of it would let one topic too many into a row that may not wrap
+     (`flex-wrap: nowrap` is the promise; the measurement is what keeps it).
+     The row's own 4px gap on either side does the rest of the separating. */
+  inline-size: 9px;
+  block-size: 16px;
+  background: linear-gradient(var(--border), var(--border)) center / 1px 100% no-repeat;
 }
 
 .s-blog-nav__tools {
@@ -505,6 +542,137 @@
 .s-blog-empty__why {
   margin-top: 6px;
   font-size: 0.929rem;
+}
+
+/* ------------------------------------------- doors out of an empty room --
+   F29: an empty collection page said one italic sentence and offered nothing,
+   on a page a reader can reach from the home band, from an article chip and
+   from a bare URL. The sentence stays; under it go the two exits that are
+   actually useful — the whole list, and the topics the site is really about.
+   Chrome, not prose: the UI face, upright in both scripts. */
+
+.s-blog-empty__doors {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
+  margin-top: 20px;
+  font-family: var(--font-ui);
+  font-style: normal;
+}
+
+.s-blog-empty__door {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--accent);
+  font-size: 0.929rem;
+  text-decoration: none;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.s-blog-empty__door:hover,
+.s-blog-empty__door:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--bg-hover);
+}
+
+.s-blog-empty__topics {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.s-blog-empty__topicslabel {
+  font-size: 0.786rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  /* A label naming a thing is text the reader READS — muted, never faint. */
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------- the loading skeleton -- */
+/* F41: both public homes printed a literal "…" in the empty state's own serif
+   italic while the list was in flight, so a site still arriving and a site
+   with nothing on it looked identical. Bars in the shape of what is coming,
+   at the same rhythm as .s-blog-entry, breathing once every 1.6s rather than
+   sweeping — a shimmer across a public home page is busier than the page. */
+
+.s-blog-skel {
+  padding: 20px 0 8px;
+}
+
+.s-blog-skel__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.s-blog-skel__row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.s-blog-skel__title,
+.s-blog-skel__meta {
+  display: block;
+  height: 15px;
+  border-radius: var(--radius);
+  background: var(--bg-hover);
+  animation: s-blog-skel-breathe 1.6s ease-in-out infinite;
+}
+
+.s-blog-skel__title {
+  width: min(62%, 420px);
+  height: 21px;
+}
+
+.s-blog-skel__meta {
+  width: min(34%, 240px);
+  height: 12px;
+}
+
+/* Each row a beat behind the one above it: the page fills top-down, the way
+   the real list does. */
+.s-blog-skel__row:nth-child(2) .s-blog-skel__title,
+.s-blog-skel__row:nth-child(2) .s-blog-skel__meta {
+  animation-delay: 0.12s;
+}
+
+.s-blog-skel__row:nth-child(3) .s-blog-skel__title,
+.s-blog-skel__row:nth-child(3) .s-blog-skel__meta {
+  animation-delay: 0.24s;
+}
+
+.s-blog-skel__row:nth-child(4) .s-blog-skel__title,
+.s-blog-skel__row:nth-child(4) .s-blog-skel__meta {
+  animation-delay: 0.36s;
+}
+
+@keyframes s-blog-skel-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* A placeholder that pulses is decoration, and decoration is the first thing
+   a reduced-motion preference asks us to stop. The bars stay; they hold still. */
+@media (prefers-reduced-motion: reduce) {
+  .s-blog-skel__title,
+  .s-blog-skel__meta {
+    animation: none;
+  }
 }
 
 /* ARABIC HAS NO ITALIC. A leaning naskh is a SYNTHESIZED oblique — the
@@ -973,6 +1141,16 @@
   margin-inline-end: 0.35em;
 }
 
+/* …and the one that points FORWARD sits after its words. */
+.s-blog-fwdarrow {
+  display: inline-block;
+  margin-inline-start: 0.4em;
+}
+
+[dir="rtl"] .s-blog-fwdarrow {
+  transform: scaleX(-1);
+}
+
 .s-blog-pn__card--next .s-blog-pn__arrow {
   margin-inline-end: 0;
   margin-inline-start: 0.35em;
@@ -1065,8 +1243,64 @@
     display: none;
   }
 
-  .s-blog-nav--open .s-blog-nav__links {
+  /* ── THE COLLECTIONS DO NOT FOLD (v1.8 UX audit F38) ────────────────────
+     The phone nav swept the folder chips into the topics burger with
+     everything else, which contradicts the sentence docs/blog-mode.md and
+     NavTopics.tsx both write down: "a declared collection is the site's own
+     structure", and a structure that is only reachable through a menu called
+     TOPICS is not the site's structure — it is one of its topics.
+
+     So at burger widths the row STAYS, carrying Home and the collections and
+     nothing else: the first, unfolded segment. The topics keep folding into
+     the burger, which is what the burger was for. It scrolls sideways rather
+     than wrapping, because a nav that changes height as the reader scrolls
+     the page under it is worse than one that asks for a swipe — twelve
+     collections is the documented maximum and the common case is three.
+
+     `:has()` is the condition: with no collection chips in the row there is
+     nothing to keep out of the burger, and the bar goes back to exactly what
+     it drew before this rule existed. The predicate reads the measurement
+     twin's chips too, which is the same answer by construction. */
+  .s-blog-nav__links:has(.s-blog-nav__link--folder) {
     display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    /* SAYS "SIDEWAYS" ONLY WHEN THERE IS SIDEWAYS. The row is a `flex: 1`
+       item, so where the chips fit, the fade falls on empty ground and is
+       invisible; where they do not, it lands on the chip that is running off
+       the edge — which is the difference between a scroller and a nav that
+       looks broken. A gradient has no logical direction, hence the RTL twin
+       (the same shape `.s-dash-hot__fade` uses further down this file). */
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
+  }
+
+  [dir="rtl"] .s-blog-nav__links:has(.s-blog-nav__link--folder) {
+    -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 26px), transparent);
+    mask-image: linear-gradient(to left, #000 calc(100% - 26px), transparent);
+  }
+
+  .s-blog-nav__links:has(.s-blog-nav__link--folder)::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Child combinators throughout: the twin's clones are grandchildren and
+     must keep their natural widths, or the fit arithmetic measures zeroes. */
+  .s-blog-nav:not(.s-blog-nav--open) .s-blog-nav__links > .s-blog-nav__link:not(.s-blog-nav__link--folder):not(.s-blog-nav__link--home),
+  .s-blog-nav:not(.s-blog-nav--open) .s-blog-nav__links > .s-blog-nav__sep,
+  .s-blog-nav:not(.s-blog-nav--open) .s-blog-nav__links > .s-blog-more {
+    display: none;
+  }
+
+  /* Open burger: the row leaves the bar and becomes the drop panel it always
+     was, with everything in it — including the collections, which is where a
+     reader who opened the menu looking for them would reach for them. */
+  .s-blog-nav--open .s-blog-nav__links,
+  .s-blog-nav--open .s-blog-nav__links:has(.s-blog-nav__link--folder) {
+    display: flex;
+    -webkit-mask-image: none;
+    mask-image: none;
     position: absolute;
     top: 100%;
     inset-inline: 0;
@@ -1074,12 +1308,29 @@
     flex-wrap: wrap;
     gap: 4px;
     padding: 10px 14px 12px;
+    overflow: visible;
     background: var(--bg-raised);
     border-bottom: 1px solid var(--border);
     box-shadow: 0 14px 30px rgba(0, 0, 0, 0.3);
   }
   /* The panel shows every topic (NavTopics renders `expandAll`) — an overflow
      menu inside an overflow panel would be a menu inside a menu. */
+}
+
+/* The narrowest phones: the burger keeps its glyph and drops its word, so the
+   collections row beside it gets those sixty pixels. The button's name lives
+   in aria-label, so nothing is lost to a screen reader. */
+@media (max-width: 480px) {
+  .s-blog-nav__burgerlabel {
+    display: none;
+  }
+
+  /* …and the button keeps its floor without the word inside it. */
+  .s-blog-nav__burger {
+    min-width: 44px;
+    justify-content: center;
+    padding-inline: 0;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1844,8 +2095,12 @@
 
    Logical properties throughout, so Arabic mirrors for free: the glyph leads
    the card on the reading direction's own edge. */
+/* THE BAND LEADS BOTH HOMES (F27), so its air is below it, not above it. It
+   used to close the page under 72px of separation from the post list it
+   followed; it now opens the page under the masthead (or the intro note) and
+   hands off to the "Writings"/"Latest" eyebrow beneath it. */
 .s-blog-folders {
-  margin-block-start: 72px;
+  margin-block-end: 44px;
 }
 .s-blog-heading--folders {
   margin-block-end: 20px;
@@ -1968,9 +2223,57 @@
     transform: none;
   }
 }
+/* ── The band on a phone ────────────────────────────────────────────────────
+   It leads the page now (F27), and a lead band has to be affordable. Stacked
+   one card per row at 390 the four collections measured 586px — the whole
+   first screen of the site spent before a single post title, which is the
+   same complaint F27 made about the band being last, pointed the other way.
+
+   So the phone card is COMPACT and the grid is two across: the mark, the
+   title and the count — the three things a door needs — and the description
+   stands down, because it is the one part a reader can get by opening the
+   door. Four collections then cost ~230px instead of 586, and the writings
+   are on the first screen with them. Still one tap target per card, still
+   well over the floor. */
 @media (max-width: 640px) {
   .s-blog-folders__grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .s-blog-folders__card {
+    gap: 10px;
+    padding: 12px;
+  }
+  .s-blog-folders__glyph {
+    inline-size: 36px;
+    block-size: 36px;
+  }
+  .s-blog-folders__glyph svg {
+    inline-size: 20px;
+    block-size: 20px;
+  }
+  .s-blog-folders__desc {
+    display: none;
+  }
+  .s-blog-folders__title {
+    font-size: 0.98rem;
+  }
+  /* "2 published notes" broken over two lines inside a 172px card is a pill
+     that has stopped being a pill. It holds one line and takes a step down
+     instead — the count is the smallest thing on the card either way. */
+  .s-blog-folders__count {
+    white-space: nowrap;
+    font-size: 0.72rem;
+    padding-inline: 7px;
+  }
+  /* A lone collection keeps its feature band — one compact card marooned in
+     half a phone is the "leftover tile" the :only-child rule exists to stop. */
+  .s-blog-folders__card:only-child {
+    grid-column: 1 / -1;
+    padding: 16px;
+  }
+  .s-blog-folders__card:only-child .s-blog-folders__desc {
+    display: -webkit-box;
   }
 }
 /* A coarse pointer gets a ≥44px target — the card is one already, and so is
@@ -2055,4 +2358,157 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+
+/* ── The public site, for a finger ─────────────────────────────────────────
+   v1.8 UX audit F34. The app shell got its 44px pass (app.css, "The whole
+   shell, for a finger"); this stylesheet had exactly ONE coarse-pointer block
+   in 2,100 lines, and what it did was HIDE a keyboard hint. Measured at 390
+   with a coarse pointer before this block: nav links 30px, the burger 32,
+   the theme/search/language buttons 32, tag chips 23, the search field 30,
+   the back-to-top disc 34, a post title's link 31, a footer link 17. The blog
+   is the surface a stranger meets on a phone, so it was the half of the
+   product least able to afford it.
+
+   Same trigger as everywhere else in the product — `max-width: 700px` OR any
+   coarse pointer, because a tablet is 1024px wide and still has no mouse. And
+   the same discipline: nothing here changes a colour, a font, a border or a
+   measure. Only the box a finger has to land in.
+
+   TWO MECHANISMS, and which one applies is decided by the element's own
+   display, not by taste:
+     · a BLOCK or inline-flex control (a button, a pill, a card) grows its box
+       with min-height, so the row it sits in grows with it;
+     · a run of INLINE text inside prose (a post title's link, a share link)
+       takes vertical PADDING instead. On a non-replaced inline box that
+       padding is painted and hit-tested but does not enter the line box, so
+       the target reaches 44px and the page does not move a pixel — which is
+       the only way a 1.5rem serif title can be a touch target without the
+       list around it turning into a ladder. */
+
+@media (max-width: 700px), (pointer: coarse) {
+  /* ---------------------------------------------------------------- nav -- */
+  .s-blog-nav__link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .s-blog-nav__burger {
+    min-height: 44px;
+    padding-inline: 12px;
+  }
+
+  .s-blog-iconbtn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .s-blog-lang {
+    min-width: 44px;
+    height: 44px;
+  }
+
+  /* The expanding search field overlays the row, so its height is free. */
+  .s-blog-search__input {
+    height: 44px;
+  }
+
+  .s-blog-search__hit {
+    min-height: 44px;
+  }
+
+  /* ------------------------------------------------------------- chips -- */
+  /* PADDING, NOT FONT (the audit's own words). A 12px chip blown up to fill
+     44px would be a label; it is a tag, and it reads at 0.821rem in every
+     other theme of this page. */
+  .s-blog-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding-inline: 14px;
+  }
+
+  /* ------------------------------------------------------ post entries -- */
+  /* Inline padding trick (see the note above): a title link's target reaches
+     44px and the heading it lives in does not move. These three are genuine
+     inline runs inside prose — a flex ITEM would be blockified and the trick
+     would silently become a layout change, which is why the four controls
+     below take the other mechanism instead. */
+  .s-blog-entry__title a,
+  .s-dash-card__title a {
+    padding-block: 11px;
+  }
+
+  /* The smallest type on the page needs the most padding to reach the floor. */
+  .s-blog-powered a {
+    padding-block: 16px;
+  }
+
+  /* Flex items and <button>s: a box, not padding. `.s-blog-share__link` and
+     `.s-blog-footer__link` are each drawn as BOTH an anchor and a button on
+     this site (copy-link, sign-in), so they get the mechanism that answers
+     for both. */
+  .s-blog-share__link,
+  .s-blog-footer__link,
+  .s-blog-locked__home,
+  .s-blog-related__link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  /* A TARGET IS TWO DIMENSIONS. "RSS" is three characters wide and was a
+     23×44 sliver; the share row's "X" is ONE character and measured 8px. The
+     padding is what makes each of them a button-sized thing, and each row's
+     gap comes down by roughly what the padding adds, so the footer and the
+     share line keep their rhythm. */
+  .s-blog-footer__link {
+    padding-inline: 12px;
+  }
+
+  /* Padding alone does not get a ONE-character label there: 8.4px of glyph
+     plus 20px of padding is 28.4, and the v1.8 fresh-eyes measurement caught
+     the shortfall on "X". A floor finishes the job without stretching
+     "WhatsApp" — the wider labels are already past it and do not move. */
+  .s-blog-share__link {
+    justify-content: center;
+    min-width: 44px;
+    padding-inline: 10px;
+  }
+
+  .s-blog-share {
+    gap: 4px 2px;
+  }
+
+  /* The related row already had 18px of its own padding; without this the
+     44px link would make a 62px row out of a 39px one. */
+  .s-blog-related__list li {
+    padding-block: 0;
+  }
+
+  .s-blog-footer__meta {
+    flex-wrap: wrap;
+    gap: 4px 4px;
+  }
+
+  /* --------------------------------------------------------- dashboard -- */
+  .s-dash-hot__card {
+    min-height: 44px;
+  }
+
+  .s-dash-hero__change {
+    min-height: 44px;
+    padding-inline: 18px;
+  }
+
+  /* ------------------------------------------------------ back to top --- */
+  /* It shrank to 34px exactly where the finger arrived. The gutter argument
+     in its own block above still holds — it stays hard against the corner —
+     but a disc that cannot be pressed is not a smaller control, it is a
+     missing one. */
+  .s-btt {
+    width: 44px;
+    height: 44px;
+  }
 }

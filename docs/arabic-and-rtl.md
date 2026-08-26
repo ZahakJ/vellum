@@ -248,6 +248,34 @@ the rendered view alike. Callouts, quotes and lists are prose and follow the not
 note takes the direction (an Arabic paper is written right to left) and refuses the measure —
 its source is markup end to end.
 
+## Searching in Arabic
+
+Arabic text that has been **pointed** — a Qur'anic quotation, a classical text, anything a careful
+typist vowelled — is spelled differently from the way anyone types it into a search box. «المقدمة»
+and «الْمُقَدِّمَة» are the same word. So Vellum folds, on both sides of the index: what it files
+and what you ask for go through the same table, which means the plain spelling finds the pointed
+note *and* the pointed spelling finds the plain one.
+
+What folds:
+
+- **Harakat and the Quranic marks** — fatha, damma, kasra, shadda, sukun, the superscript alef,
+  the pause marks
+- **The alef family** — أ إ آ ٱ are ا
+- **ى → ي**, **ة → ه**, and the Persian **ی → ي**, **ک → ك**
+- **Tatweel** (ـــ), which is a typographic stretch and not a letter
+- **Zero-width joiners, the bidi marks and the soft hyphen**
+- **Latin combining marks**, in the same breath and by the same table: `resume` finds *résumé*,
+  `naive` finds *naïve*, `cafe` finds *café*
+
+It is one table (`shared/fold.ts`) and every matcher in the product consults it — the sidebar
+search and the lines it quotes under a hit, the `[[` wikilink completion, the command palette's
+note rows, and the PDF reader's own `/` search, which is where the table was written.
+
+**Replace does not fold**, deliberately. See
+[Search & replace](editor.md#navigating): finding is a question and folding widens it kindly, but
+replacing is a write, and a replace that quietly rewrote «الْمُقَدِّمَة» would strip harakat you
+never typed and never saw.
+
 ## Localised tag labels
 
 A vault's tags are English because tags are addresses: `#software` is in your files, in your

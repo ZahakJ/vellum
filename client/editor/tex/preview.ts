@@ -30,6 +30,7 @@ import { useStore } from "../../state.ts";
 import { toast } from "../../toast.ts";
 import { resolveLink } from "../links.ts";
 import { buildPropsCard } from "../noteMeta.ts";
+import { propsEditor } from "../propsEdit.ts";
 import {
   brokenEmbed,
   embedKnownBroken,
@@ -286,6 +287,10 @@ class FrontmatterWidget extends WidgetType {
     host.className = "cm-s-props-host";
     const card = buildPropsCard(this.yaml, {
       prefix: "cm-s-props",
+      // A `.tex` note's properties live in a `%---` comment block and are
+      // edited exactly like a markdown note's: server/frontmatterEdit.ts knows
+      // both fences, so the card does not have to.
+      ...propsEditor(view.state.facet(notePathFacet)),
       makeTag: (value) => {
         const pill = document.createElement("button");
         pill.type = "button";

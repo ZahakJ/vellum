@@ -9,7 +9,8 @@ import type { AuthorSiteCard, Backlink, HomeSettings, PublicFolderCard, PublicTh
 import * as api from "./api.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
 import { collectNotes, resolveLink, setAliasTable } from "./editor/links.ts";
-import type { LanguageFilterMode, VisibilityImpact } from "../shared/types.ts";
+import { SEED_GUIDE } from "../shared/seed.ts";
+import type { LanguageFilterMode, PropertyValue, VisibilityImpact } from "../shared/types.ts";
 import { setLang, setNumeralLocale, t, tf } from "./i18n.ts";
 // Localization the shell pushes into plain modules rather than into the store:
 // the calendar (client/dates.ts), the note-prose layout defaults
@@ -35,7 +36,7 @@ import {
   type TextAlign,
   type TextDirection,
 } from "../shared/textLayout.ts";
-import type { Lang } from "./i18n.ts";
+import type { I18nKey, Lang } from "./i18n.ts";
 import {
   chromeLang,
   readEditorLang,
@@ -43,7 +44,7 @@ import {
   writeEditorLang,
   writeVisitorLang,
 } from "./langPref.ts";
-import { choiceLabel, isTheme, THEMES } from "./themes.ts";
+import { choiceLabel, counterpartChoice, isTheme, THEMES } from "./themes.ts";
 import type { ThemeChoice } from "./themes.ts";
 import { isCustomThemeId } from "../shared/customTheme.ts";
 import {
@@ -75,6 +76,7 @@ import {
   moveTab as moveTabIn,
   reorderTab as reorderTabIn,
   splitPane as splitPaneIn,
+  stepTab as stepTabIn,
   serializeWorkspace,
   setBookTarget as setBookTargetIn,
   setPinned as setPinnedIn,
@@ -381,6 +383,9 @@ export interface State {
    *  the empty case is one shared frozen object, so a vault with no marks
    *  never allocates. */
   folderIcons: Record<string, FolderIcon>;
+  /** Where new attachments land (MeData.attachmentFolder), or null when the
+   *  policy names no folder. The "Move to…" picker keeps notes out of it. */
+  attachmentFolder: { mode: "specified" | "subfolder"; folder: string } | null;
   /** Store a fresh folder→glyph map (the tree picker, post-PATCH). */
   setFolderIcons(icons: Record<string, FolderIcon>): void;
   /** Merge a fresh home config into the store (the dashboard's banner save). */
@@ -410,11 +415,30 @@ export interface State {
   setBannerModalOpen(b: boolean): void;
   /** Write (value) or clear (null) a note's frontmatter banner. */
   setBanner(path: string, value: string | null): Promise<void>;
+  /** Write (value) or remove (null) ONE frontmatter property, byte-surgically
+   *  (v1.8: the editable properties card). Same choreography as setBanner —
+   *  the two are the same route with a different value shape. */
+  setProperty(path: string, key: string, value: PropertyValue | null): Promise<void>;
 
   // --------------------------------------------------------------- settings
   /** Site settings panel (admin; status-bar gear / palette "Site settings"). */
   settingsOpen: boolean;
   setSettingsOpen(b: boolean): void;
+  /** THE ROW A SURFACE ELSEWHERE IN THE APP IS POINTING AT — a settings row's
+   *  own label key, or null.
+   *
+   *  A panel that has to say "this is switched off" owes the reader the
+   *  switch, and the moderation panel was printing a shell variable instead
+   *  ("start the server with COMMENTS=on"), which is an instruction most
+   *  owners of this product cannot follow and none of them should have to
+   *  (v1.8 UX audit F33). The key is resolved against SETTINGS_INDEX, so the
+   *  caller names a ROW and not a tab plus a scroll offset — the same index the
+   *  panel's own search walks, which is what keeps the two from drifting.
+   *  Cleared by the panel once it has arrived. */
+  settingsFocus: I18nKey | null;
+  /** Open the settings panel ON a row: reveal it, mark it, and let the reader
+   *  see the control that answers the sentence they just read. */
+  openSettingsAt(label: I18nKey): void;
 
   /** Keyboard-shortcuts overlay (Ctrl/Cmd+/, the status-bar ? button, the
    *  palette). Visitors get it too — the panes, themes and search are theirs. */
@@ -432,6 +456,12 @@ export interface State {
   loadTree(): Promise<void>;
   openNote(path: string): void;
   closeTab(path: string): void;
+  /** Walk the focused pane's tab strip: +1 the next tab, -1 the previous,
+   *  wrapping. The keyboard half of the tab bar (F12). */
+  stepTab(delta: number): void;
+  /** Close the focused pane's ACTIVE tab — what a close chord means when the
+   *  reader is not pointing at a particular one. */
+  closeActiveTab(): void;
   /** Replace the workspace and re-derive the mirror. The ONE writer of
    *  `openPath`/`openTabs`. */
   commitWorkspace(ws: Workspace): void;
@@ -474,6 +504,13 @@ export interface State {
   dropTab(from: string | null, path: string, to: string, dest: TabDropDest): void;
   setView(v: View): void;
   setTheme(t: ThemeChoice): void;
+  /** The ☾/☀ move, as one action: this room's curated counterpart on the other
+   *  side of the day (themes.ts::counterpartChoice), never the next id in a
+   *  list. It exists as a store action rather than as two lines in the palette
+   *  because the status bar's glyph, the blog's button and now a palette row
+   *  all mean the same gesture, and a third copy of "which theme is the other
+   *  half of this one" is how the three drift apart (v1.8 audit, F19). */
+  toggleTheme(): void;
   /** What a cookieless VISITOR lands on, and why — admin sessions only (null
    *  for everyone else, which is also how the chrome knows not to draw the
    *  "Visitors see …" line). Refreshed by loadMe, by the debounced mirror of
@@ -942,15 +979,67 @@ function waitForClean(path: string, timeoutMs: number): Promise<void> {
   });
 }
 
+/** What a delete says afterwards.
+ *
+ *  Three delete verbs named the trash and offered nothing to do about it
+ *  (v1.8 UX audit F24) — which is a receipt, not a way back: the reader who
+ *  deleted the wrong row had to know the trash browser exists, find it in the
+ *  palette, and recognise the file among everything else in there. The `.trash`
+ *  machinery has answered "put it back" since it shipped; the toast just never
+ *  asked it. Mirrors move.ts's undo exactly, and for the same reason.
+ *
+ *  A PERMANENT delete keeps the plain sentence. There is nothing behind it,
+ *  and an Undo button that cannot undo is worse than none. */
+function deletedToast(
+  get: () => State,
+  message: string,
+  trashPath: string | undefined,
+): void {
+  if (trashPath === undefined) {
+    toast(message);
+    return;
+  }
+  // The trash entry's NAME is its id (server/vault.ts trashEntryAbs): the
+  // basename of where it landed, which the delete answered with.
+  const entry = trashPath.slice(trashPath.lastIndexOf("/") + 1);
+  actionToast(message, t("undo"), () => {
+    get()
+      .restoreTrash(entry)
+      .then((result) => {
+        // Where it LANDED, said differently when that is not where it came
+        // from — the same sentence the trash browser prints, because a
+        // restore that quietly went somewhere else is the lie the delete
+        // previews exist to stop telling.
+        toast(
+          tf(result.renamed ? "restoredRenamedToast" : "restoredToast", {
+            name: entry,
+            path: result.path,
+          }),
+        );
+      })
+      .catch((err: unknown) => {
+        console.error("vellum: undoing a delete failed", err);
+        toast(t("restoreFailed"), "error");
+      });
+  });
+}
+
 /** Run a store mutation, log any failure and tell the reader.
  *
  *  `failMessage` is a LOCALIZED line the caller supplies. Without it the toast
- *  falls back to `err.message`, which is the server's English log prose
+ *  used to fall back to `err.message`, which is the server's English log prose
  *  (CONTRACTS: "`error` is English prose written for a log and for curl. It is
  *  NOT a string any UI may print") — so an Arabic operator whose delete failed
- *  read "Note not found: x.md" inside a fully Arabic panel. The delete verbs
- *  pass their own line; the rest of the store still rides the old fallback,
- *  which is the pre-existing pattern and not this round's business. */
+ *  read "Note not found: x.md" inside a fully Arabic panel. Worse, the second
+ *  fallback built its sentence out of the English `label` this function takes
+ *  for the CONSOLE: a non-Error rejection put "toggling publish failed" on
+ *  screen in literal English, a string no translation table has ever held
+ *  (v1.8 UX audit F45).
+ *
+ *  Both are gone. The reader gets a localized line; the diagnosis stays where
+ *  a diagnosis belongs — the console call above, which carries the whole error
+ *  object. Callers that can say something more useful still pass their own
+ *  line, and that is still the better answer. */
 async function guarded(
   label: string,
   fn: () => Promise<void>,
@@ -960,7 +1049,7 @@ async function guarded(
     await fn();
   } catch (err) {
     console.error(`vellum: ${label} failed`, err);
-    toast(failMessage ?? (err instanceof Error ? err.message : `${label} failed`));
+    toast(failMessage ?? t("actionFailed"), "error");
   }
 }
 
@@ -1005,11 +1094,30 @@ export const useStore = create<State>()((set, get) => {
     // A deep link in the address bar outranks the home note — the router
     // applies it right after bootstrap (client/router.ts).
     const deepLinked = location.pathname !== "/" && location.pathname !== "/graph";
-    if (home && !deepLinked) {
+    if (deepLinked) return;
+    if (home) {
       const path = resolveLink(home, tree);
-      if (path) get().openNote(path);
-      else console.warn(`vellum: home note "${home}" not found in the vault`);
+      if (path) {
+        get().openNote(path);
+        return;
+      }
+      console.warn(`vellum: home note "${home}" not found in the vault`);
     }
+    // FIRST RUN (v1.8 audit, F1). No session to restore and no home note set,
+    // and the app opened onto "The vault is open." with the seed's guide
+    // sitting in the tree behind it — the one moment a new reader has nothing
+    // of their own to come back to is the one moment we showed them nothing.
+    // The guide first, then whatever note the vault does have.
+    //
+    // ADMIN ONLY, deliberately. A visitor's landing is the site — the blog, or
+    // the empty shell — and opening somebody's first published file at them
+    // because the owner set no home note is a guess made in public. The owner's
+    // own guess is `homeNote`, and it is honoured above for everyone.
+    if (!get().admin) return;
+    const notes = collectNotes(tree);
+    if (notes.length === 0) return;
+    const guide = resolveLink(SEED_GUIDE, tree);
+    get().openNote(guide ?? notes[0].path);
   };
 
   return {
@@ -1136,6 +1244,7 @@ export const useStore = create<State>()((set, get) => {
     textDirection: DEFAULT_TEXT_DIRECTION,
     textAlign: DEFAULT_TEXT_ALIGN,
     folderIcons: NO_FOLDER_ICONS,
+    attachmentFolder: null,
     // Normalized to the shared empty object, not stored as a fresh `{}`:
     // clearing the last folder's mark must leave the tree's 1.4k memoized rows
     // reading the same identity they read before anything was marked.
@@ -1145,6 +1254,8 @@ export const useStore = create<State>()((set, get) => {
     bannerModalOpen: false,
     settingsOpen: false,
     setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+    settingsFocus: null,
+    openSettingsAt: (settingsFocus) => set({ settingsOpen: true, settingsFocus }),
     shortcutsOpen: false,
     setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
 
@@ -1262,6 +1373,7 @@ export const useStore = create<State>()((set, get) => {
           textDirection: noteDir,
           textAlign: noteAlign,
           folderIcons: icons,
+          attachmentFolder: me.attachmentFolder ?? null,
         });
         // The tag-label map is scoped by session (a visitor is told about
         // visible tags only), so it is refetched on every /api/me — which is
@@ -1489,22 +1601,49 @@ export const useStore = create<State>()((set, get) => {
         const next = publish ?? !current;
         markSelfWrite(path); // the SSE echo arrives before the response
         const result = await api.publishNote(path, next);
-        set((s) => {
-          const publishedPaths = s.publishedPaths ? new Set(s.publishedPaths) : null;
-          if (publishedPaths) {
-            if (result.published) publishedPaths.add(result.path);
-            else publishedPaths.delete(result.path);
-          }
-          return {
-            publishedPaths,
-            openPublished: s.openPath === result.path ? result.published : s.openPublished,
-          };
-        });
+        const before = get().publishedPaths;
+        const publishedPaths = before === null ? null : new Set(before);
+        if (publishedPaths !== null) {
+          if (result.published) publishedPaths.add(result.path);
+          else publishedPaths.delete(result.path);
+        }
+        const live = publishedPaths === null ? null : publishedPaths.size;
+        set((s) => ({
+          publishedPaths,
+          openPublished: s.openPath === result.path ? result.published : s.openPublished,
+        }));
         void get().loadPublished();
         // The note's bytes changed on disk: refresh the open editor/reading
         // pane so its buffer carries the new frontmatter.
         if (get().openPath === result.path) get().bumpReload();
-        toast(result.published ? t("publishedToast") : t("unpublishedToast"));
+        if (!result.published) {
+          toast(t("unpublishedToast"));
+          return;
+        }
+        // THE PROUDEST MOMENT IN THE PRODUCT, and until now it was four words
+        // that faded (v1.8 UX audit F22). Publishing is the one action whose
+        // result the author cannot see from where they are standing — it
+        // happens on a site they are not looking at — so the message carries
+        // the door to it. And the FIRST one is not the same event as the
+        // ninetieth: an instance whose published set has exactly one note in
+        // it just became a public site, and says so.
+        //
+        // The count comes from the set this call just updated, not from the
+        // refreshed counters above: `loadPublished()` is two requests away and
+        // the sentence has to be right in this frame. A vault whose published
+        // set never loaded (`null`) gets the ordinary line — over-claiming a
+        // first publish is the worse of the two mistakes.
+        actionToast(
+          live === 1 ? t("publishedFirstToast") : t("publishedToast"),
+          t("publishedViewAction"),
+          () => {
+            // Open the note that was just published BEFORE entering preview:
+            // the toggle can be fired from a tree row for a note nobody has
+            // open, and preview reopens whatever `openPath` names.
+            get().openNote(result.path);
+            void get().setPreviewVisitor(true);
+          },
+        );
       }),
 
     setPublishedFilter: (publishedFilter) => set({ publishedFilter }),
@@ -1525,6 +1664,23 @@ export const useStore = create<State>()((set, get) => {
         // pane so its buffer carries the new frontmatter.
         if (get().openPath === path) get().bumpReload();
         toast(value === null ? t("bannerRemovedToast") : t("bannerSetToast"));
+      }),
+
+    // The properties card's every write (v1.8, Obsidian parity #1). The
+    // choreography is `setBanner`'s to the letter, and deliberately so: a
+    // property IS a banner as far as this client is concerned — one surgical
+    // line edit on the server, one pane reload afterwards. What differs is the
+    // silence. A card that raised a toast for every ticked checkbox would put
+    // a message in the corner for an action whose result is already on screen
+    // one row away; REMOVAL says so, because a row that vanishes is the one
+    // change the card cannot show you afterwards.
+    setProperty: (path, key, value) =>
+      guarded("saving the property", async () => {
+        if (get().dirty[path]) await waitForClean(path, 2000);
+        markSelfWrite(path);
+        await api.setFrontmatter(path, key, value);
+        if (get().openPath === path) get().bumpReload();
+        if (value === null) toast(tf("propRemovedToast", { key }));
       }),
 
     loadTree: () =>
@@ -1616,6 +1772,24 @@ export const useStore = create<State>()((set, get) => {
       void get().refreshBacklinks();
     },
 
+    stepTab: (delta) => {
+      set((s) => {
+        const ws = stepTabIn(s.workspace, s.workspace.focus, delta);
+        return ws === s.workspace ? s : { ...s, ...mirrorOf(ws) };
+      });
+      // The panel follows the note the way it does for any other tab change.
+      void get().refreshBacklinks();
+    },
+
+    closeActiveTab: () => {
+      const s = get();
+      const pane = paneAt(s.workspace, s.workspace.focus);
+      const tab = pane === null ? null : activeTabOf(pane);
+      // A pane showing the graph or the shelf has no tab to close, and closing
+      // "whatever the last note was" from under it would be a guess.
+      if (tab !== null) s.closeTab(tab.path);
+    },
+
     closeTab: (path) => {
       set((s) => {
         const ws = closeTabIn(s.workspace, s.workspace.focus, path);
@@ -1687,6 +1861,10 @@ export const useStore = create<State>()((set, get) => {
       // An ADMIN's pick is also the public site's default, unless a pin says
       // otherwise. Queued, not sent: see mirrorTheme's note.
       mirrorTheme(theme);
+    },
+
+    toggleTheme: () => {
+      get().setTheme(counterpartChoice(get().theme));
     },
 
     setPublicTheme: async (theme) => {
@@ -1869,21 +2047,21 @@ export const useStore = create<State>()((set, get) => {
         // closed — a toast reading “Welcome.md” after a row reading "Welcome"
         // is the same file wearing two names in two seconds.
         const name = noteLabelOf(path);
-        await api.deleteNote(path, permanent);
+        const result = await api.deleteNote(path, permanent);
         get().closeTab(path);
         await get().loadTree();
         void get().refreshBacklinks();
         // A published note leaving the vault changes the public site — the
         // "N published" segment and the publish marks have to follow it.
         void get().loadPublished();
-        toast(tf(permanent ? "noteDeletedToast" : "noteTrashedToast", { name }));
+        deletedToast(get, tf(permanent ? "noteDeletedToast" : "noteTrashedToast", { name }), result.trashPath);
       }, t("couldNotDeleteNote")),
 
     deleteFolder: (path, opts) =>
       guarded(`deleting folder ${path}`, async () => {
         const permanent = opts?.permanent === true;
         const name = path.split("/").pop() ?? path;
-        await api.deleteFolder(path, permanent);
+        const result = await api.deleteFolder(path, permanent);
         // Tabs pointing INTO the folder now name files that no longer exist —
         // close them before the tree reload so no stale editor tries to save
         // into the hole. (The folder itself is never a tab.)
@@ -1895,14 +2073,14 @@ export const useStore = create<State>()((set, get) => {
         await get().loadTree();
         void get().refreshBacklinks();
         void get().loadPublished();
-        toast(tf(permanent ? "folderDeletedToast" : "folderTrashedToast", { name }));
+        deletedToast(get, tf(permanent ? "folderDeletedToast" : "folderTrashedToast", { name }), result.trashPath);
       }, t("couldNotDeleteFolder")),
 
     deleteAttachment: (path, opts) =>
       guarded(`deleting ${path}`, async () => {
         const permanent = opts?.permanent === true;
         const name = path.split("/").pop() ?? path;
-        await api.deleteAttachment(path, permanent);
+        const result = await api.deleteAttachment(path, permanent);
         await get().loadTree();
         // An attachment is not a note, so no tab and no backlinks — but a
         // PUBLISHED note may embed it, and the file leaving the vault leaves
@@ -1913,7 +2091,7 @@ export const useStore = create<State>()((set, get) => {
         // must not keep rendering from that cache.
         clearBrokenEmbeds();
         get().bumpReload();
-        toast(tf(permanent ? "fileDeletedToast" : "fileTrashedToast", { name }));
+        deletedToast(get, tf(permanent ? "fileDeletedToast" : "fileTrashedToast", { name }), result.trashPath);
       }, t("couldNotDeleteFile")),
 
     restoreTrash: async (name) => {

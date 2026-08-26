@@ -94,7 +94,7 @@ export async function recoverCitation(
 export async function repairCitations(notePath: string, from: string, to: string): Promise<void> {
   const before = await noteContent(notePath).catch(() => null);
   if (before === null) {
-    toast(tf("bookCitationRepairFailed", { name: from }), "error");
+    toast(t("bookCitationRepairFailed"), "error");
     return;
   }
   const after = before.split(`[[${linkSafe(from)}#`).join(`[[${linkSafe(to)}#`);
@@ -104,9 +104,15 @@ export async function repairCitations(notePath: string, from: string, to: string
   }
   try {
     await applyNoteContent(notePath, after);
-    actionToast(tf("linkNotPublished", { name: to }), t("undo"), () => {
+    // THE RIGHT KEY IN THE RIGHT BRANCH (v1.8 UX audit F45). The repair that
+    // WORKED was announcing itself with `linkNotPublished` — "“Ihya.pdf” isn’t
+    // published here", a sentence from the blog's broken-link path that has
+    // nothing to do with this — while the failure inside the undo painted
+    // `bookCitationRepaired` ("The link now points at …") in --danger. The two
+    // keys written for these two moments were each wired to the other's.
+    actionToast(tf("bookCitationRepaired", { name: to }), t("undo"), () => {
       void applyNoteContent(notePath, before).catch(() => {
-        toast(t("bookCitationRepaired"), "error");
+        toast(t("bookCitationRepairFailed"), "error");
       });
     });
   } catch {

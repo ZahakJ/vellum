@@ -16,13 +16,20 @@
 import { useEffect, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
 import { focusIsClaimed } from "../a11y.ts";
-import { isNotPublishedError } from "../api.ts";
+import { ApiError, isNotPublishedError } from "../api.ts";
 import { holdsLease, setLeaseListener, takeOver } from "../windows/lease.ts";
 import { t, tf } from "../i18n.ts";
 import { Lru } from "../lru.ts";
 import { useStore } from "../state.ts";
 import { paneAt, surfaceOf } from "../workspace.ts";
 import { toast } from "../toast.ts";
+import { offerHeadingRepair } from "../bulkEdit.ts";
+// Side-effect import: it registers the `beforeprint` handler, and `beforeprint`
+// fires synchronously — a module fetched at print time arrives after the pages
+// are cut. An editor pane is the surface that needs it most, because
+// CodeMirror renders only the lines near the caret and printing its DOM prints
+// a fragment of the note (client/print.ts).
+import "../print.ts";
 import { buildEditorState, setEditorLanguage, setVim } from "../editor/setup.ts";
 import {
   acquire,
@@ -33,9 +40,11 @@ import {
   keepMine,
   release,
   save as saveBuffer,
+  SaveStuckError,
   takeDisk,
   setDirtyListener,
   setDivergeListener,
+  setHeadingRepairListener,
   setSaveErrorListener,
 } from "../editor/buffers.ts";
 import { attachVimStatus, detachVimStatus } from "../editor/vimStatus.ts";
@@ -43,22 +52,28 @@ import { languageChanged } from "../editor/langEffect.ts";
 import { noteLayoutChanged } from "../editor/noteLayout.ts";
 import { findHeadingLine } from "../editor/links.ts";
 import { anchorLine } from "../../shared/anchors.ts";
-import { isTexPath } from "../../shared/noteFormat.ts";
-import { findTexFrontmatter } from "../../shared/tex.ts";
+import { caretHome } from "../editor/caretHome.ts";
 import { INSERT_TEMPLATE_EVENT, type InsertTemplateDetail } from "../templateActions.ts";
+import { openSearchPanel } from "@codemirror/search";
+import { FIND_IN_NOTE_EVENT } from "../editor/bufferBridge.ts";
 import { applyTemplate, splitFrontmatter } from "../templates.ts";
 
-/** Offset just past a leading frontmatter block (0 if none). Opening a note
- *  lands the cursor here so frontmatter renders as its properties card instead
- *  of raw source — in BOTH formats: a `.tex` note's frontmatter is a `%--- …
- *  %---%` comment block, and landing the caret inside it would have opened
- *  every LaTeX note on five lines of raw YAML-in-comments. */
-function afterFrontmatter(path: string, content: string): number {
-  if (isTexPath(path)) return findTexFrontmatter(content)?.end ?? 0;
-  if (!/^---\r?\n/.test(content)) return 0;
-  const m = /^---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)(?:\r?\n|$)/.exec(content);
-  return m ? m[0].length : 0;
-}
+/** The caret each note was last seen at, so a REMOUNT does not throw it away.
+ *
+ *  Publishing a note (state.ts::togglePublish → bumpReload) and setting a
+ *  banner both rewrite the file's frontmatter and remount the editor onto a
+ *  fresh EditorState whose selection is at 0 — which is how the raw-YAML bug
+ *  reached the publish path, and, once that was fixed, how a reader mid-sentence
+ *  got their caret yanked to the top of the note for pressing "publish".
+ *
+ *  Distance from the END of the document is the measure that survives, because
+ *  the only thing that remounts an editor mid-session is a write ABOVE the
+ *  caret: one `published: true` line lands in the fence and every body offset
+ *  moves by its length. When the document did not change length at all the two
+ *  measures agree, and the offset is used as it stands. */
+const caretMemory = new Lru<{ head: number; fromEnd: number; length: number }>({
+  max: 256,
+});
 
 /** Scroll positions survive switching tabs; module-level so remounts keep them.
  *  Bounded (client/lru.ts): unbounded, its ceiling is "every note edited this
@@ -77,10 +92,38 @@ function markDirty(path: string, dirty: boolean): void {
 // how this app says those things. Wired once at module scope rather than per
 // mount, because the registry outlives every mount.
 setDirtyListener(markDirty);
+/** The write failures a reader can actually DO something about, named by the
+ *  server (server/vault.ts::writeFailure) or by the registry itself, so this
+ *  can say them in the reader's language. The first two used to arrive as a
+ *  bare 500 and print "Failed to save X", which sends someone hunting for a
+ *  bug in Vellum when the answer is a full disk or a vault that got remounted
+ *  read-only. Everything else keeps the general sentence: a code we have not
+ *  understood must not be dressed up as one we have. */
+const SAVE_ERROR_KEYS: Record<string, "saveDiskFull" | "saveReadOnly" | "saveStuck"> = {
+  diskFull: "saveDiskFull",
+  readOnly: "saveReadOnly",
+  // The save was refused as stale and the file could not be re-read, so there
+  // is no conflict strip to offer — only "still trying, and your text is here"
+  // (client/editor/saveRetry.ts).
+  saveStuck: "saveStuck",
+};
+
 setSaveErrorListener((path, err) => {
   console.error(`Failed to save ${path}`, err);
-  toast(tf("saveFailed", { path }), "error");
+  const code =
+    err instanceof ApiError || err instanceof SaveStuckError ? err.code : undefined;
+  const key = code ? SAVE_ERROR_KEYS[code] : undefined;
+  toast(tf(key ?? "saveFailed", { path }), "error");
 });
+// A SAVE THAT RENAMED A HEADING OTHER NOTES POINT INTO. The write path notices
+// (server/headingRepair.ts argues why that seam and not this one) and says so on
+// its own response; the offer is a toast with a button, never an automatic
+// rewrite — "N links point at this heading. Update them?" is a question, and a
+// bulk edit nobody asked for is the thing this whole feature exists not to be.
+setHeadingRepairListener((offer) => {
+  offerHeadingRepair(offer);
+});
+
 /** Raised on the window when a note's save is refused as stale, so the pane
  *  holding that note can show the resolution strip. A window event rather
  *  than component state because the registry announces divergence from
@@ -187,11 +230,24 @@ export default function Editor({ path, paneId = null }: { path: string; paneId?:
         // ONCE per note, not once per mount. A buffer restored from the
         // registry brings its own selection back with it, so re-running this
         // would drag the caret out of the reader's sentence and into the
-        // properties card every time they switched tabs and came back.
-        if (!caretPlaced.has(path)) {
+        // properties card every time they switched tabs and came back. A state
+        // that arrived with its caret already somewhere is one of those.
+        const len = view.state.doc.length;
+        const remembered = caretMemory.get(path);
+        if (view.state.selection.main.head > 0) {
           caretPlaced.add(path);
-          const anchor = afterFrontmatter(path, view.state.doc.toString());
-          if (anchor > 0 && anchor <= view.state.doc.length) {
+        } else if (remembered !== undefined) {
+          // A remount (publish, banner) onto a rebuilt state: put the reader
+          // back where they were, measured from the end — see caretMemory.
+          caretPlaced.add(path);
+          const anchor =
+            remembered.length === len ? remembered.head : len - remembered.fromEnd;
+          const at = Math.max(0, Math.min(len, anchor));
+          if (at > 0) view.dispatch({ selection: { anchor: at } });
+        } else if (!caretPlaced.has(path)) {
+          caretPlaced.add(path);
+          const anchor = caretHome(path, view.state.doc.toString());
+          if (anchor > 0 && anchor <= len) {
             view.dispatch({ selection: { anchor } });
           }
         }
@@ -252,6 +308,9 @@ export default function Editor({ path, paneId = null }: { path: string; paneId?:
         return;
       }
       scrollPositions.set(path, view.scrollDOM.scrollTop);
+      const head = view.state.selection.main.head;
+      const length = view.state.doc.length;
+      caretMemory.set(path, { head, fromEnd: length - head, length });
       // NO FLUSH HERE, and that is the change. The buffer keeps the document
       // and its dirty flag, so an unmount is no longer the last chance to save
       // — `release()` saves only when nothing holds the note any more, and even
@@ -375,6 +434,30 @@ export default function Editor({ path, paneId = null }: { path: string; paneId?:
     window.addEventListener("vellum:goto-heading", onGoto);
     return () => window.removeEventListener("vellum:goto-heading", onGoto);
   }, []);
+
+  // "Find in note" from the palette (v1.8 audit, F19). CodeMirror's own search
+  // panel, opened by the same call `Ctrl/Cmd F` makes — one implementation, so
+  // the command can never become a second, lesser find.
+  useEffect(() => {
+    const onFind = (): void => {
+      const view = viewRef.current;
+      if (!view) return;
+      // ONE editor answers, resolved exactly as the template insert above
+      // resolves it: the focused pane when it holds an editor, else the pane
+      // `noteFocus` names. Two mounted editors both opening a find panel is
+      // two find panels, and the reader typed into neither.
+      if (paneId !== null) {
+        const ws = useStore.getState().workspace;
+        const focused = paneAt(ws, ws.focus);
+        const target = focused !== null && surfaceOf(focused) === "edit" ? ws.focus : ws.noteFocus;
+        if (paneId !== target) return;
+      }
+      view.focus();
+      openSearchPanel(view);
+    };
+    window.addEventListener(FIND_IN_NOTE_EVENT, onFind);
+    return () => window.removeEventListener(FIND_IN_NOTE_EVENT, onFind);
+  }, [paneId]);
 
   return (
     <div className="s-editor-wrap">

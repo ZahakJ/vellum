@@ -117,9 +117,15 @@ const DICT = {
     en: "“{path}” will be erased from disk. This cannot be undone.",
     ar: "سيُمحى “{path}” من القرص. لا يمكن التراجع عن هذا.",
   },
+  // The tail these three used to carry — "restore it from the trash browser"
+  // — was the whole of what a delete offered: an instruction to go and find a
+  // surface, in a message that fades. F24 put a real Undo button in the toast,
+  // so the sentence goes back to stating the fact and lets the button carry
+  // the verb. (The bin is still in the palette for the reader who lets the
+  // nine seconds run out.)
   noteTrashedToast: {
-    en: "Moved “{name}” to .trash — restore it from the trash browser",
-    ar: "نُقلت “{name}” إلى ‎.trash‎ — يمكن استرجاعها من متصفح المهملات",
+    en: "Moved “{name}” to .trash",
+    ar: "نُقلت “{name}” إلى ‎.trash‎",
   },
   noteDeletedToast: { en: "Deleted “{name}” permanently", ar: "حُذفت “{name}” نهائيًا" },
   creatingFolderFailed: { en: "Creating folder failed", ar: "فشل إنشاء المجلد" },
@@ -168,8 +174,8 @@ const DICT = {
     ar: "مرتبط بها من {notes} — ستصبح تلك الروابط مكسورة.",
   },
   folderTrashedToast: {
-    en: "Moved “{name}” to .trash — restore it from the trash browser",
-    ar: "نُقل “{name}” إلى ‎.trash‎ — يمكن استرجاعه من متصفح المهملات",
+    en: "Moved “{name}” to .trash",
+    ar: "نُقل “{name}” إلى ‎.trash‎",
   },
   folderDeletedToast: { en: "Deleted “{name}” permanently", ar: "حُذف “{name}” نهائيًا" },
   // Attachments delete too, now. Their own toasts because Arabic agrees with
@@ -177,8 +183,8 @@ const DICT = {
   // note's line would print "نُقلت" over a file.
   deleteAttachment: { en: "Delete file", ar: "حذف الملف" },
   fileTrashedToast: {
-    en: "Moved “{name}” to .trash — restore it from the trash browser",
-    ar: "نُقل “{name}” إلى ‎.trash‎ — يمكن استرجاعه من متصفح المهملات",
+    en: "Moved “{name}” to .trash",
+    ar: "نُقل “{name}” إلى ‎.trash‎",
   },
   fileDeletedToast: { en: "Deleted “{name}” permanently", ar: "حُذف “{name}” نهائيًا" },
   couldNotDeleteFile: { en: "Could not delete that file", ar: "تعذر حذف هذا الملف" },
@@ -238,6 +244,15 @@ const DICT = {
   publishedNotes: { en: "Published notes", ar: "الملاحظات المنشورة" },
   notes: { en: "Notes", ar: "ملاحظات" },
   nothingPublished: { en: "Nothing published yet.", ar: "لا شيء منشور بعد." },
+  // ── The empty vault (F41) ───────────────────────────────────────────────
+  // Not a report that a list is empty — an invitation with two doors on it.
+  // The guide door only draws when GET /api/seed says there is one to take.
+  vaultEmptyBody: {
+    en: "Nothing in this vault yet. Start a note, or take the guide.",
+    ar: "لا شيء في هذه الخزانة بعد. ابدأ ملاحظة، أو خذ الدليل.",
+  },
+  vaultEmptySeed: { en: "Start with the guide", ar: "ابدأ بالدليل" },
+  seedFailed: { en: "Could not add the starter notes", ar: "تعذّرت إضافة ملاحظات البداية" },
   home: { en: "Home", ar: "الرئيسية" },
   collapseSection: { en: "Collapse {label}", ar: "طي {label}" },
   expandSection: { en: "Expand {label}", ar: "توسيع {label}" },
@@ -424,21 +439,115 @@ const DICT = {
     ar: "لا روابط راجعة بعد — اربط بهذه الملاحظة عبر [[…]]",
   },
   outline: { en: "Outline", ar: "المحتويات" },
+  // F5: the section stays and says this, instead of vanishing and leaving the
+  // panel a different shape on every note.
+  noHeadings: { en: "No headings yet.", ar: "لا عناوين بعد." },
   localGraph: { en: "Local graph", ar: "مخطط محلي" },
   showLocalGraph: { en: "Show local graph", ar: "إظهار المخطط المحلي" },
   hideLocalGraph: { en: "Hide local graph", ar: "إخفاء المخطط المحلي" },
-  noLinksYet: {
-    en: "No links yet — link to or from this note with [[…]].",
-    ar: "لا روابط بعد — اربط من هذه الملاحظة أو إليها عبر [[…]].",
-  },
+  // F6: this used to be "No links yet — link to or from this note with [[…]]",
+  // sitting two inches above the backlinks list's "No backlinks yet — link to
+  // this note with [[…]]". Two near-identical sentences in one panel teach
+  // nothing twice, so the INSTRUCTION is said once, in the backlinks empty
+  // (DESIGN.md names that copy), and the graph's line is now only about the
+  // picture it is standing in for.
+  noLinksYet: { en: "No links yet.", ar: "لا روابط بعد." },
   noPublishedLinks: { en: "No published links yet.", ar: "لا روابط منشورة بعد." },
 
+  // ── Note history ────────────────────────────────────────────────────────
+  // The undo of last resort: `git log` over one note, read out of the same
+  // repository Backup & sync has been writing all along. The section starts
+  // collapsed and asks git nothing until it is opened — see HistoryPanel.tsx.
+  history: { en: "History", ar: "السجل" },
+  showHistory: { en: "Show history", ar: "إظهار السجل" },
+  hideHistory: { en: "Hide history", ar: "إخفاء السجل" },
+  historyAria: { en: "Revisions of this note", ar: "مراجعات هذه الملاحظة" },
+  historyLoading: { en: "Reading history…", ar: "تُقرأ المراجعات…" },
+  historyFailed: {
+    en: "Could not read this note's history.",
+    ar: "تعذّرت قراءة سجل هذه الملاحظة.",
+  },
+  // The empty state with a door, both halves: what is missing, and the one
+  // click that starts it. A vault with no repository keeps no history at all.
+  historyNoRepo: {
+    en: "Backup is off — turn it on to start keeping history.",
+    ar: "النسخ الاحتياطي مُطفأ — شغّله ليبدأ حفظ السجل.",
+  },
+  historyOpenBackup: { en: "Open Backup & sync", ar: "افتح النسخ والمزامنة" },
+  historyEmpty: {
+    en: "No revisions yet — this note has never been committed.",
+    ar: "لا مراجعات بعد — لم تُودَع هذه الملاحظة قط.",
+  },
+  historyOlder: { en: "Older revisions not shown.", ar: "مراجعات أقدم غير معروضة." },
+  // "+12 −3", said out loud for a reader who is not looking at the digits.
+  revisionChanges: {
+    en: "{added} lines added, {removed} removed",
+    ar: "{added} سطرًا مضافًا، {removed} محذوفًا",
+  },
+  revisionAria: { en: "Open this revision", ar: "افتح هذه المراجعة" },
+  // OUR OWN commit subjects, said in the reader's language. `commit()` writes
+  // "vellum snapshot: <ISO>" and "vellum sync: <ISO>", which is right for a
+  // terminal `git log` and wrong in a timeline whose first column is already
+  // the date: the row would print the moment twice, once as "3 days ago" and
+  // once as a machine timestamp. Somebody else's commit subject is left
+  // exactly as they wrote it.
+  revisionSnapshot: { en: "Snapshot", ar: "لقطة" },
+  revisionBackup: { en: "Automatic backup", ar: "نسخ احتياطي تلقائي" },
+  revisionTitle: { en: "Revision", ar: "مراجعة" },
+  revisionLoading: { en: "Opening this revision…", ar: "تُفتح هذه المراجعة…" },
+  revisionOpenFailed: {
+    en: "Could not read that revision.",
+    ar: "تعذّرت قراءة تلك المراجعة.",
+  },
+  revisionEmpty: { en: "This revision is empty.", ar: "هذه المراجعة فارغة." },
+  restoreRevision: { en: "Restore this revision", ar: "استرجاع هذه المراجعة" },
+  closeRevision: { en: "Close revision", ar: "إغلاق المراجعة" },
+  // A restore is itself a revision, so the way back is a second restore — of
+  // the text that was there a moment ago.
+  revisionRestored: {
+    en: "Restored “{name}” as it was on {when}",
+    ar: "استُرجعت “{name}” كما كانت في {when}",
+  },
+  revisionRestoreFailed: {
+    en: "Could not restore that revision.",
+    ar: "تعذّر استرجاع تلك المراجعة.",
+  },
+  revisionRestoreUndone: { en: "Restore undone.", ar: "تراجعتَ عن الاسترجاع." },
+
+  // ── Snapshot ────────────────────────────────────────────────────────────
+  // One local commit. The point a reader comes back to after a bulk edit.
+  snapshotNow: { en: "Snapshot now", ar: "لقطة الآن" },
+  cmdSnapshotHint: {
+    en: "Commit the vault locally — a point to come back to",
+    ar: "أودِع الخزانة محليًا — نقطة تعود إليها",
+  },
+  snapshotMade: { en: "Snapshot taken — {sha}", ar: "أُخذت لقطة — {sha}" },
+  snapshotNothing: {
+    en: "Nothing has changed since the last snapshot",
+    ar: "لم يتغيّر شيء منذ اللقطة الأخيرة",
+  },
+  snapshotFailed: { en: "Snapshot failed — {message}", ar: "تعذّرت اللقطة — {message}" },
+
   // ── Command palette ─────────────────────────────────────────────────────
-  palettePlaceholder: { en: "Type a command or search notes…", ar: "اكتب أمرًا أو ابحث في الملاحظات…" },
+  // THE PLACEHOLDER IS THE ONLY PLACE THE PREFIX MODE IS TAUGHT (v1.8 audit,
+  // F21). Heading-jump has been in the palette since headings had anchors and
+  // nothing anywhere said so — a mode reachable only by a character you have
+  // to already know is a mode nobody has. It costs three words here.
+  palettePlaceholder: {
+    en: "Type a command, search notes, @ or # for a heading…",
+    ar: "اكتب أمرًا، أو ابحث في الملاحظات، أو @ أو # لعنوان…",
+  },
   paletteCommands: { en: "Commands", ar: "أوامر" },
   paletteOpenTabs: { en: "Open tabs", ar: "التبويبات المفتوحة" },
   paletteNotes: { en: "Notes", ar: "ملاحظات" },
   paletteNoMatches: { en: "No matches", ar: "لا نتائج" },
+  // The second line of the no-matches block: the rescue, not the report. A
+  // reader who typed something the vault does not have is the reader most
+  // likely to be reaching for a heading in the note already on screen.
+  paletteModeHint: {
+    en: "Start with @ or # to jump to a heading in this note.",
+    ar: "ابدأ بـ @ أو # للانتقال إلى عنوان داخل هذه الملاحظة.",
+  },
   cmdCreateHint: { en: "create", ar: "إنشاء" },
   cmdDailyNote: { en: "Open daily note", ar: "فتح ملاحظة اليوم" },
   cmdToggleGraph: { en: "Toggle graph", ar: "تبديل المخطط" },
@@ -518,9 +627,54 @@ const DICT = {
   cmdExitPreviewHint: { en: "back to the vault", ar: "العودة إلى الخزانة" },
   cmdSignInHint: { en: "unlock editing", ar: "فتح التحرير" },
   cmdSignOutHint: { en: "back to reading", ar: "العودة إلى القراءة" },
+  // ── The seven the palette did not carry (v1.8 audit, F19) ───────────────
+  // Every one of these was already a gesture SOMEWHERE — a tab's context
+  // menu, a chord, a tree row — and nowhere in the one surface that is meant
+  // to be the complete list of what this app can do. A command that exists
+  // only behind a right-click is a command a keyboard reader does not have.
+  cmdRevealInTree: { en: "Reveal note in sidebar", ar: "إظهار الملاحظة في اللوحة الجانبية" },
+  cmdRevealInTreeHint: { en: "opens its folders", ar: "يفتح مجلداتها" },
+  cmdFindInNote: { en: "Find in note", ar: "بحث داخل الملاحظة" },
+  cmdSplitPane: { en: "Split pane", ar: "تقسيم اللوح" },
+  cmdSplitPaneDown: { en: "Split pane below", ar: "تقسيم اللوح إلى الأسفل" },
+  cmdClosePane: { en: "Close pane", ar: "إغلاق اللوح" },
+  cmdFocusNextPane: { en: "Focus next pane", ar: "الانتقال إلى اللوح التالي" },
+  cmdPaneHint: { en: "panes", ar: "الألواح" },
+  cmdDuplicateNote: { en: "Duplicate note", ar: "تكرار الملاحظة" },
+  cmdDuplicateHint: { en: "a copy beside it", ar: "نسخة بجانبها" },
+  noteDuplicated: { en: "Duplicated to {path}", ar: "نُسخت إلى {path}" },
+  couldNotDuplicateNote: { en: "Could not duplicate note", ar: "تعذر تكرار الملاحظة" },
+  cmdCopyNoteLink: { en: "Copy link to note", ar: "نسخ رابط الملاحظة" },
+  // Names what lands on the clipboard WITHOUT printing the brackets: raw
+  // markdown syntax outside the editor is a hard rule (DESIGN.md), and a hint
+  // row is outside the editor.
+  cmdCopyNoteLinkHint: { en: "paste into another note", ar: "للصقه في ملاحظة أخرى" },
+  noteLinkCopied: { en: "Link to note copied", ar: "نُسخ رابط الملاحظة" },
+  // ── Print (v1.8, parity #3) ──────────────────────────────────────────────
+  // The ellipsis is the house convention for a row that opens a further
+  // surface, and this one opens the browser's own print dialog — where the
+  // reader chooses paper or PDF, which is why one row names both.
+  cmdPrintNote: { en: "Print / Export PDF…", ar: "طباعة / تصدير PDF…" },
+  /** Printed onto the sheet itself, not toasted, when the print dialog was
+   *  opened from a surface with no document in it (the graph, the empty
+   *  state): a blank page that explains itself beats a blank page. */
+  printNothingOpen: {
+    en: "Nothing to print — open a note first.",
+    ar: "لا شيء لطباعته — افتح ملاحظة أولًا.",
+  },
+  // ONE row, whose label says where it goes. A row called "Toggle theme" in a
+  // product with fifteen rooms answers "which one?" with silence, and blind
+  // cycling is the failure the fifteen `Theme:` rows were deleted for.
+  cmdThemeFlip: { en: "Switch to {theme}", ar: "التبديل إلى {theme}" },
   couldNotCreateNote: { en: "Could not create note", ar: "تعذر إنشاء الملاحظة" },
   couldNotRenameNote: { en: "Could not rename note", ar: "تعذرت إعادة تسمية الملاحظة" },
   couldNotDeleteNote: { en: "Could not delete note", ar: "تعذر حذف الملاحظة" },
+  /** The store's last-resort failure line (state.ts `guarded`). It used to be
+   *  the server's English log prose, or an English phrase assembled out of a
+   *  console label — see the note there. Deliberately says nothing about what
+   *  went wrong: the honest diagnosis is the console entry beside it, and a
+   *  sentence invented to fill the gap would be a guess. */
+  actionFailed: { en: "That did not go through", ar: "لم يتم ذلك" },
 
   // ── Confirm / prompt / login modals ─────────────────────────────────────
   cancel: { en: "Cancel", ar: "إلغاء" },
@@ -557,10 +711,15 @@ const DICT = {
   close: { en: "Close", ar: "إغلاق" },
   closeModeration: { en: "Close moderation panel", ar: "إغلاق لوحة الإشراف" },
   readingMargins: { en: "Reading the margins…", ar: "جارٍ قراءة الحواشي…" },
+  // The sentence names the STATE and stops. What to do about it is the button
+  // under it (F33): the shell variable this line used to print is real, but it
+  // is the operator's route, not the owner's, and the owner is who opens a
+  // moderation panel.
   commentsOff: {
-    en: "Comments are switched off on this instance — start the server with COMMENTS=on to open the margins.",
-    ar: "التعليقات معطلة على هذا الموقع — شغل الخادم مع COMMENTS=on لفتح الحواشي.",
+    en: "Comments are switched off on this site, so there are no margins to moderate yet.",
+    ar: "التعليقات معطّلة على هذا الموقع، فلا حواشي للإشراف عليها بعد.",
   },
+  commentsOffAction: { en: "Turn comments on…", ar: "تفعيل التعليقات…" },
   commentsLoadFailed: {
     en: "Could not load comments — try again in a moment.",
     ar: "تعذر تحميل التعليقات — حاول مجددًا بعد قليل.",
@@ -579,6 +738,10 @@ const DICT = {
     en: "The comment will be removed for everyone. This cannot be undone.",
     ar: "سيُحذف التعليق للجميع. لا يمكن التراجع عن هذا.",
   },
+  // Every moderation outcome speaks now, not only the failures (F25).
+  commentHiddenToast: { en: "Comment hidden from visitors", ar: "أُخفي التعليق عن الزوار" },
+  commentUnhiddenToast: { en: "Comment is visible again", ar: "عاد التعليق ظاهرًا" },
+  commentDeletedToast: { en: "Comment deleted", ar: "حُذف التعليق" },
   hideCommentFailed: { en: "Hiding comment failed", ar: "فشل إخفاء التعليق" },
   unhideCommentFailed: { en: "Unhiding comment failed", ar: "فشل إظهار التعليق" },
   deleteCommentFailed: { en: "Deleting comment failed", ar: "فشل حذف التعليق" },
@@ -641,13 +804,13 @@ const DICT = {
   },
   rowPublicFoldersHome: { en: "Show on home page", ar: "إظهارها في الصفحة الرئيسية" },
   hintPublicFoldersHome: {
-    en: "A band of folder cards under your writings.",
-    ar: "شريط من بطاقات المجلدات أسفل كتاباتك.",
+    en: "A band of folder cards above your writings.",
+    ar: "شريط من بطاقات المجلدات فوق كتاباتك.",
   },
   rowPublicFoldersNav: { en: "Show in navigation", ar: "إظهارها في شريط التنقل" },
   hintPublicFoldersNav: {
-    en: "Folder chips lead the topics row, each wearing its own mark.",
-    ar: "تتصدر رقاقات المجلدات صف المواضيع، وكلٌّ منها بعلامته.",
+    en: "Folder chips lead the topics row, each wearing its own mark. They stay in the bar on a phone; an empty collection gets no chip.",
+    ar: "تتصدر رقاقات المجلدات صف المواضيع، وكلٌّ منها بعلامته. وتبقى في الشريط على الهاتف، ولا رقاقة لمجموعة فارغة.",
   },
   publicFoldersEmpty: {
     en: "No folders yet. Add one to give your readers a collection of their own.",
@@ -1119,6 +1282,15 @@ const DICT = {
     ar: "تغيرت {path} على القرص — احتفظنا بتعديلاتك غير المحفوظة",
   },
   publishedToast: { en: "Published — live for visitors", ar: "نُشرت الملاحظة — أصبحت متاحة للزوار" },
+  /** The first note an instance ever publishes is the moment it stops being a
+   *  private vault, and the line says that rather than counting to one. */
+  publishedFirstToast: {
+    en: "Your first note is live — the site is public now.",
+    ar: "أولى ملاحظاتك صارت منشورة — الموقع علني الآن.",
+  },
+  /** The arrow leans with the reading direction: a ← in an Arabic sentence
+   *  points forward, the way → does in English. */
+  publishedViewAction: { en: "View →", ar: "عرض ←" },
   unpublishedToast: { en: "Unpublished", ar: "أُلغي النشر" },
   bannerSetToast: { en: "Banner set", ar: "تم تعيين الغلاف" },
   bannerRemovedToast: { en: "Banner removed", ar: "تمت إزالة الغلاف" },
@@ -1128,6 +1300,26 @@ const DICT = {
   },
   dailyNoteFailed: { en: "Could not create today's daily note", ar: "تعذر إنشاء ملاحظة اليوم" },
   saveFailed: { en: "Failed to save {path}", ar: "فشل حفظ {path}" },
+  // The two write failures that are the DISK's news, not Vellum's. Both used
+  // to reach the reader as the generic sentence above, which sends them
+  // looking for a bug in the app. The server names them (vault.ts::
+  // writeFailure) and Editor.tsx picks the key.
+  saveDiskFull: {
+    en: "Could not save {path} — the disk is full",
+    ar: "تعذّر حفظ {path} — القرص ممتلئ",
+  },
+  saveReadOnly: {
+    en: "Could not save {path} — the vault is read-only",
+    ar: "تعذّر حفظ {path} — الخزانة للقراءة فقط",
+  },
+  // The save was refused as stale AND the file could not be re-read, so there
+  // is no disk version to offer and no conflict to resolve — only the two
+  // facts that matter while it lasts. Before v1.8 this state said NOTHING and
+  // never ended (client/editor/saveRetry.ts).
+  saveStuck: {
+    en: "Could not re-check {path} — your text is safe, still trying",
+    ar: "تعذّر التحقق من {path} — نصّك سليم، وما زالت المحاولة جارية",
+  },
   openFailed: { en: "Failed to open {path}", ar: "فشل فتح {path}" },
   // Not an error. Inside visitor preview the server 404s an unpublished note
   // because that is the CORRECT answer for a visitor, and the generic failure
@@ -1161,6 +1353,16 @@ const DICT = {
   zoomIn: { en: "Zoom in", ar: "تكبير" },
   zoomOut: { en: "Zoom out", ar: "تصغير" },
   resetView: { en: "Reset view", ar: "إعادة ضبط العرض" },
+  // The graph's keyboard route: one note and its neighbours, walked with the
+  // arrows. A canvas has no tab stops of its own, so the nodes get a list.
+  graphNavHint: {
+    en: "Up and down move, forward walks into a note, Enter opens it.",
+    ar: "أعلى وأسفل للتنقل، وسهم التقدّم يدخل إلى ملاحظة، ويفتحها مفتاح Enter.",
+  },
+  graphWalkedTo: {
+    en: "Now at “{name}”, {count} links",
+    ar: "الآن عند “{name}”، {count} رابطًا",
+  },
 
   // ── Reading view ────────────────────────────────────────────────────────
   emptyNoteAdmin: {
@@ -1179,6 +1381,18 @@ const DICT = {
   bannerAction: { en: "Banner…", ar: "الغلاف…" },
   setBannerAction: { en: "Set banner…", ar: "تعيين الغلاف…" },
   setBannerTitle: { en: "Set a banner image for this note", ar: "تعيين صورة غلاف لهذه الملاحظة" },
+
+  // The card, editable in place (v1.8 — Obsidian parity #1). Every string
+  // here labels a control inside the properties card; the values themselves
+  // are the note's own bytes and are never translated.
+  propAdd: { en: "Add property", ar: "إضافة خاصية" },
+  propKey: { en: "Name", ar: "الاسم" },
+  propValue: { en: "Value", ar: "القيمة" },
+  propEmpty: { en: "Empty", ar: "فارغة" },
+  propAddValue: { en: "Add value", ar: "إضافة قيمة" },
+  propRemove: { en: "Remove {key}", ar: "إزالة {key}" },
+  propRemoveValue: { en: "Remove {value}", ar: "إزالة {value}" },
+  propRemovedToast: { en: "Removed {key}.", ar: "أُزيلت {key}." },
 
   // ── Editor chrome built as raw DOM (folds, embeds, transclusions) ───────
   // These live in client/editor/*.ts and client/reading/render.ts — plain DOM
@@ -1290,6 +1504,169 @@ const DICT = {
   renameAliasKeptToast: { en: "“{title}” still finds this note.", ar: "لا يزال “{title}” يصل إلى هذه الملاحظة." },
   renameAliasFailed: { en: "Could not keep “{title}” as an alias.", ar: "تعذّر الاحتفاظ بـ “{title}” كاسم بديل." },
 
+  // ── Bulk rewrites: heading-link repair and tag rename/merge ──────────────
+  //
+  // Every sentence here names a NUMBER and a NAME, because the reader is being
+  // asked to approve — or take back — an edit spread across files they are not
+  // looking at. "Done" on its own is what makes a bulk tool frightening.
+
+  // Rename a heading and the [[Note#Heading]] links into it stop resolving:
+  // the link still opens the note and silently lands at the top. Nothing said
+  // so until v1.8; the offer is raised by the save that caused it.
+  // The count goes through countPhrase() and the sentence is built so NOTHING
+  // agrees with it: "1 link into …" and "4 links into …" are the same shape,
+  // and the Arabic verb belongs to the update rather than to the number. The
+  // reason is the one folderRefsWarn gives above — a string cannot see how
+  // many its substitution turned out to be, and the first draft of that one
+  // shipped "“The Moved Essay” still embed this file".
+  headingRepairOffer: {
+    en: "{count} into “{heading}”. Update to “{to}”?",
+    ar: "‏{count} إلى “{heading}”. أيُحدَّث إلى “{to}”؟",
+  },
+  headingRepairAction: { en: "Update links", ar: "تحديث الروابط" },
+  headingRepairedToast: {
+    en: "Updated {count} to “{heading}”.",
+    ar: "تحديث {count} إلى “{heading}”.",
+  },
+  headingRepairFailed: { en: "Could not update the links.", ar: "تعذّر تحديث الروابط." },
+
+  // The pill's one verb, and the dialogs around it.
+  tagActions: { en: "Tag actions", ar: "إجراءات الوسم" },
+  renameTag: { en: "Rename tag…", ar: "إعادة تسمية الوسم…" },
+  tagRenameTitle: { en: "Rename tag", ar: "إعادة تسمية الوسم" },
+  // THE HASH IS PART OF THE NAME, so it rides INSIDE the substitution rather
+  // than as a literal `#` in the sentence. `tf()` bidi-isolates each value;
+  // leaving the hash outside that isolate puts a neutral character next to an
+  // Arabic run, and the RTL shell drew «مسودة#» with the hash flush against
+  // the wrong end — the same defect the sidebar pill fixed with one <bdi>
+  // around both. Callers pass "#" + tag.
+  tagRenameBody: {
+    en: "Every note carrying {tag} — and anything nested under it — is rewritten.",
+    ar: "تُعاد كتابة كل ملاحظة تحمل {tag} وكل ما يتفرّع منه.",
+  },
+  tagRenameBadName: {
+    en: "A tag is letters, digits, _ - and / between parts.",
+    ar: "الوسم حروف وأرقام و_ و- و/ بين الأجزاء." ,
+  },
+  tagRenameSameName: { en: "That is the name it already has.", ar: "هذا هو اسمه الحالي." },
+  tagRenameNested: {
+    en: "A tag cannot be renamed into its own subtree.",
+    ar: "لا يمكن نقل الوسم إلى داخل فروعه." ,
+  },
+  tagRenameCreates: { en: "Becomes {tag}", ar: "يصير {tag}" },
+  // A merge is the one outcome renaming back does not reverse.
+  tagRenameMerges: { en: "{tag} already exists — the two merge into one.", ar: "{tag} موجود — يندمج الوسمان في واحد." },
+  tagRenameConfirmBody: {
+    en: "{count} will change: {from} becomes {to}.",
+    ar: "التغيير يشمل {count}: يصير {from} هو {to}." ,
+  },
+  tagRenamePage: { en: "Its page moves to {path}.", ar: "تنتقل صفحته إلى {path}." },
+  tagRenameNothing: {
+    en: "Nothing to rewrite for {tag}.",
+    ar: "لا شيء لإعادة كتابته من أجل {tag}." ,
+  },
+  tagRenameFailed: { en: "Could not rename the tag.", ar: "تعذّرت إعادة تسمية الوسم." },
+  tagMergeTitle: { en: "Merge tags", ar: "دمج الوسمين" },
+  tagMergeAction: { en: "Merge", ar: "دمج" },
+  tagMergeWarn: {
+    en: "The two become one {to}; renaming back will not separate them again.",
+    ar: "يصيران وسمًا واحدًا {to}، ولن تفصلهما إعادة التسمية مرة أخرى." ,
+  },
+  tagRenamedToast: { en: "{from} is now {to} in {count}.", ar: "صار {from} هو {to} في {count}." },
+  tagMergedToast: { en: "{from} merged into {to} across {count}.", ar: "اندمج {from} في {to} عبر {count}." },
+
+  // The other half of a bulk edit's answer: what it did NOT touch. A file
+  // somebody else edited between our read and our write is left alone, and a
+  // reader who is not told finds the one stale tag six weeks later.
+  bulkSkipped: {
+    en: "Left untouched: {count} — changed underneath while this ran.",
+    ar: "بلا تغيير: {count} — تغيّر محتواها أثناء العملية." ,
+  },
+  bulkFailed: { en: "{count} could not be rewritten.", ar: "تعذّرت إعادة كتابة {count}." },
+  bulkNoUndo: {
+    en: "Too large to undo here — restore from Backup & sync.",
+    ar: "أكبر من أن يُتراجع عنه هنا — استعِد من النسخ والمزامنة." ,
+  },
+  bulkUndoneToast: { en: "Put back in {count}.", ar: "استُعيد كل شيء في {count}." },
+  bulkUndoFailed: { en: "Could not take that back.", ar: "تعذّر التراجع عن ذلك." },
+
+  // ── Search: the operator help, and the vault-wide replace ───────────────
+  //
+  // Two of v1.8's three search answers are CONVERSATIONS the reader has to be
+  // able to read before pressing anything: a grammar nobody can guess, and a
+  // rewrite of four hundred notes. The third — the diacritic fold — needs no
+  // chrome at all, which is how you know it was the right shape.
+  searchHelpOpen: { en: "How to search", ar: "كيف تبحث" },
+  searchHelpTitle: { en: "Search operators", ar: "معاملات البحث" },
+  searchHelpFold: {
+    en: "Diacritics and letter shapes fold: المقدمة finds الْمُقَدِّمَة, and resume finds résumé.",
+    ar: "تُطوى الحركات وصور الحروف: «المقدمة» تجد «الْمُقَدِّمَة»، و«resume» تجد «résumé».",
+  },
+  searchOpTag: { en: "the topic and everything nested under it", ar: "الوسم وكل ما تفرّع عنه" },
+  searchOpPath: { en: "notes whose path holds the text", ar: "ملاحظات يحوي مسارها هذا النص" },
+  searchOpIs: { en: "the frontmatter flags", ar: "أعلام المقدمة" },
+  searchOpDate: { en: "by the note's own date", ar: "حسب تاريخ الملاحظة" },
+  searchOpLink: { en: "by the link graph, in either direction", ar: "حسب شبكة الروابط في الاتجاهين" },
+  searchOpNot: { en: "everything but", ar: "كل شيء عدا" },
+  searchOpQuote: { en: "a value with a space in it", ar: "قيمة تحوي مسافة" },
+  searchOpAnd: {
+    en: "Everything narrows together — two operators both have to hold.",
+    ar: "تتضافر المعاملات جميعًا، فلا بدّ من تحقق كليهما.",
+  },
+
+  replaceOpen: { en: "Replace across the vault", ar: "استبدال في الخزانة كلها" },
+  replaceClose: { en: "Back to search", ar: "العودة إلى البحث" },
+  replaceTitle: { en: "Search & replace", ar: "بحث واستبدال" },
+  replaceFind: { en: "Find", ar: "ابحث عن" },
+  replaceWith: { en: "Replace with", ar: "استبدل بـ" },
+  replaceRegex: { en: "Regular expression", ar: "تعبير نمطي" },
+  replaceSnapshot: { en: "Snapshot the vault first", ar: "خُذ نسخة من الخزانة أولًا" },
+  // The rail the whole feature stands on, said in one sentence before the
+  // reader types anything: what it matches, and what it will never touch.
+  replaceRule: {
+    en: "Matching is exact — case and diacritics count. Frontmatter is never touched.",
+    ar: "المطابقة حرفية، تُراعى الحالة والحركات. ولا تُمَسّ المقدمة أبدًا.",
+  },
+  replaceScope: {
+    en: "The search box above sets the scope: its operators narrow which notes are considered.",
+    ar: "صندوق البحث أعلاه يحدّد النطاق: معاملاته تضيّق دائرة الملاحظات المشمولة.",
+  },
+  replaceNothing: { en: "Nothing matches that.", ar: "لا شيء يطابق ذلك." },
+  replaceSummary: { en: "{edits} in {notes}", ar: "{edits} في {notes}" },
+  replaceRun: { en: "Replace in {count}", ar: "استبدل في {count}" },
+  replaceRunning: { en: "Replacing…", ar: "جارٍ الاستبدال…" },
+  replaceSelectAll: { en: "Select all", ar: "حدّد الكل" },
+  replaceSelectNone: { en: "Select none", ar: "ألغِ التحديد" },
+  replaceTooMany: {
+    en: "More notes match than can be listed — narrow the search first.",
+    ar: "المطابقات أكثر من أن تُعرض — ضيّق البحث أولًا.",
+  },
+  replaceMoreLines: {
+    en: "{count} more — this note is all or nothing.",
+    ar: "و{count} أخرى — هذه الملاحظة كلها أو لا شيء.",
+  },
+  replaceLineFrom: { en: "before", ar: "قبل" },
+  replaceLineTo: { en: "after", ar: "بعد" },
+  replaceConfirmTitle: { en: "Replace across the vault", ar: "الاستبدال في الخزانة كلها" },
+  replaceConfirmBody: {
+    en: "{edits} in {notes} will be rewritten.",
+    ar: "ستُعاد كتابة {edits} في {notes}.",
+  },
+  replaceConfirmSnapshot: {
+    en: "A snapshot is taken first, so this is recoverable from Backup & sync even after the undo expires.",
+    ar: "تُؤخذ نسخة أولًا، فيبقى الاسترجاع ممكنًا من النسخ والمزامنة حتى بعد انتهاء مهلة التراجع.",
+  },
+  // NOT "Replaced {edits}": `{edits}` is already spelled "4 replacements" by
+  // countPhrase, and "Replaced 4 replacements" is the noun said twice.
+  replaceDoneToast: { en: "{edits} across {notes}.", ar: "{edits} عبر {notes}." },
+  replaceStale: {
+    en: "{count} changed while you were looking — left untouched.",
+    ar: "{count} تغيّرت أثناء نظرك — تُركت كما هي.",
+  },
+  replaceSnapshotTaken: { en: "Snapshot {sha} taken first.", ar: "أُخذت نسخة {sha} أولًا." },
+  replaceFailed: { en: "Could not run that replace.", ar: "تعذّر تنفيذ الاستبدال." },
+  replaceBadPattern: { en: "That pattern will not run.", ar: "هذا النمط لا يصلح للتنفيذ." },
+
   slashDivider: { en: "Divider", ar: "فاصل" },
   slashDate: { en: "Date", ar: "تاريخ" },
   slashDailyLink: { en: "Daily note link", ar: "رابط ملاحظة اليوم" },
@@ -1332,10 +1709,22 @@ const DICT = {
     en: "Nothing in this collection yet.",
     ar: "لا شيء في هذه المجموعة بعد.",
   },
+  /** The door out of an empty collection (F29). "All the writings", not "Home":
+   *  the reader is standing in a list and the useful offer is the bigger list,
+   *  which is also what the link goes to. */
+  blogBrowseAll: { en: "Browse all the writings", ar: "تصفّح كل الكتابات" },
   blogLatest: { en: "Latest", ar: "الأحدث" },
   blogLatestWritings: { en: "Latest writings", ar: "أحدث الكتابات" },
   blogMostDiscussed: { en: "Most discussed", ar: "الأكثر نقاشًا" },
   blogNothingPublished: { en: "Nothing published here yet.", ar: "لا شيء منشور هنا بعد." },
+  /** The owner's own empty dashboard (F41). The visitor never reaches this
+   *  page on a vault with nothing published, so the sentence is written for
+   *  the one person who can do something about it — and it names the control
+   *  rather than the concept. */
+  blogPublishHow: {
+    en: "Turn on a note’s publish star (✦ in the status bar, or “Publish” in its sidebar menu) and it appears here.",
+    ar: "فعّل نجمة النشر لملاحظة (✦ في شريط الحالة، أو «نشر» في قائمتها الجانبية) لتظهر هنا.",
+  },
   blogFilteredByLanguage: {
     en: "This site lists only notes written in its own language.",
     ar: "يعرض هذا الموقع الملاحظات المكتوبة بلغته فقط.",
@@ -1594,6 +1983,12 @@ const DICT = {
   syncErrorShort: { en: "failed", ar: "فشلت" },
   syncFailed: { en: "Sync failed", ar: "فشلت المزامنة" },
   syncPushed: { en: "Vault committed and pushed", ar: "تم إيداع الخزانة ورفعها" },
+  /** The same fact, NAMED (F40). The sha is a git object id: it stays in its
+   *  own LTR isolate and its own numerals wherever it is rendered — never
+   *  through localeNum(), which would spell an Eastern Arabic "٣" into a
+   *  string an operator is going to paste into `git show`. */
+  syncPushedSha: { en: "Vault committed and pushed — {sha}", ar: "تم إيداع الخزانة ورفعها — {sha}" },
+  syncOpenPanel: { en: "Backup", ar: "النسخ الاحتياطي" },
   syncUpToDate: {
     en: "Nothing to commit — already up to date",
     ar: "لا شيء لإيداعه — كل شيء محدّث",
@@ -1814,6 +2209,11 @@ const DICT = {
     // «الخزانة» is feminine, so the verb is تحتوي, not يحتوي.
     ar: "لا مكان آخر له — لا تحتوي الخزانة على مجلد آخر.",
   },
+  // The door out of both dead ends (F11): a vault with no other folder, and a
+  // filter that matches none. Named with the filter text when there is any,
+  // because that text is already the reader's answer to "where does this go?".
+  moveNewFolder: { en: "New folder…", ar: "مجلد جديد…" },
+  moveNewFolderNamed: { en: "New folder “{name}”…", ar: "مجلد جديد “{name}”…" },
   // The conflict dialog. It offers a NAME, never an overwrite: the two files
   // both exist and the reader decides which name the arriving one keeps.
   moveConflictTitle: { en: "“{name}” is already there", ar: "“{name}” موجود هناك بالفعل" },
@@ -2293,6 +2693,11 @@ const DICT = {
   designLayoutDesign: { en: "Designed", ar: "المصمَّم" },
   designLayoutDesigned: { en: "Visitors now see your design.", ar: "أصبح الزوار يرون تصميمك." },
   designLayoutStock: { en: "Visitors now see the stock site.", ar: "أصبح الزوار يرون الموقع الأصلي." },
+  /** The way back from a layout switch, offered in the toast that announces it
+   *  (F26). "Switch back", not "Undo": nothing was lost — the design and the
+   *  stock blog are both still there — and the reader is choosing a room, not
+   *  repairing a mistake. */
+  designLayoutBack: { en: "Switch back", ar: "الرجوع" },
   designNotLiveNote: {
     en: "The public site is not on your design yet — switch it above when you are ready.",
     ar: "الموقع العام ليس على تصميمك بعد — بدّله بالأعلى عندما تجهز.",
@@ -2598,10 +3003,15 @@ const DICT = {
     en: "“{name}” will be removed from this instance. The stock blog is unaffected either way.",
     ar: "ستُزال «{name}» من هذه النسخة. المدوّنة الأصلية لا تتأثر في الحالتين.",
   },
-  designNoneYet: {
-    en: "No design yet. Make one — until you do, the public site is the stock blog.",
-    ar: "لا يوجد تصميم بعد. أنشئ واحدًا — وإلى أن تفعل، يبقى الموقع العام هو المدوّنة الأصلية.",
+  /** `designNoneYet` lived here and said "No design yet. Make one — …". The
+   *  verb came out of the sentence when "Make one" became a real button under
+   *  it (F41): a line that tells the reader to do something, beside a control
+   *  that does it, says the same thing twice. */
+  designNoneYetBody: {
+    en: "No design yet — until you make one, the public site is the stock blog.",
+    ar: "لا يوجد تصميم بعد — وإلى أن تنشئ واحدًا، يبقى الموقع العام هو المدوّنة الأصلية.",
   },
+  designMakeOne: { en: "Make one", ar: "أنشئ واحدًا" },
   designOpenSection: { en: "The design you are editing", ar: "التصميم الذي تحرّره" },
   designTheme: { en: "Theme", ar: "السمة" },
   designThemeHint: {
@@ -2799,6 +3209,7 @@ const DICT = {
   resultCount: { en: "{count} results", ar: "{count} نتيجة" },
   noResultsAria: { en: "No results", ar: "لا نتائج" },
   graphAria: { en: "Vault link graph", ar: "رسم روابط الخزانة" },
+  graphNodesAria: { en: "Graph nodes", ar: "عُقد المخطط" },
   localGraphAria: {
     en: "Links around this note — the panel below lists them as text",
     ar: "الروابط حول هذه الملاحظة — تسردها اللوحة أدناه نصًّا",
@@ -2828,6 +3239,10 @@ const DICT = {
   uploadTheRest: { en: "Upload {files}?", ar: "هل تريد رفع {files}؟" },
   upload: { en: "Upload", ar: "رفع" },
   filesAdded: { en: "Added {files} to {folder}", ar: "أُضيفت {files} إلى {folder}" },
+  /** ONE file, named. A pasted screenshot arrives called "image.png" and is
+   *  stored under a dated name the reader never sees typed anywhere — so the
+   *  single-file line spends its words on the name rather than on "1 file". */
+  fileAdded: { en: "Added “{name}” to {folder}", ar: "أُضيف “{name}” إلى {folder}" },
   // Covers both reasons a stored name can differ from the dropped one — the
   // folder already held it, or it needed sanitizing — because the reader's
   // question is the same either way: what is it called now?
@@ -3109,6 +3524,10 @@ const DICT = {
   // PHYSICAL left and right, in both languages — a reader pressing ← at a grid
   // is pointing at the screen, not reading a list. See paneInDirection().
   scFocusPaneSide: { en: "Move to the pane on your left / right", ar: "الانتقال إلى اللوحة على يسارك / يمينك" },
+  // The tab strip's keys (F12). "Along the strip", not "left/right": the bar
+  // mirrors with the reading direction, and next is next in both.
+  scStepTab: { en: "Next / previous tab", ar: "التبويب التالي / السابق" },
+  scCloseTab: { en: "Close this tab", ar: "إغلاق هذا التبويب" },
 
   // ── Several windows, one vault ───────────────────────────────────────────
   // The wording refuses the word "locked". Nothing is locked: the text in this
@@ -3138,6 +3557,33 @@ const DICT = {
   },
   conflictKeepMine: { en: "Keep my version", ar: "احتفظ بنسختي" },
   conflictTakeDisk: { en: "Use the disk version", ar: "استخدم نسخة القرص" },
+
+  // ── The safety net (client/safety.ts, client/lazySurface.tsx) ────────────
+  // Four sentences for the four ways this app used to end a session with a
+  // WHITE PAGE and no explanation: a render that threw, a code chunk that no
+  // longer exists after a redeploy, a promise nobody caught, and a request
+  // that hung forever because fetch has no deadline of its own. Every one of
+  // them says the same first thing, because it is the only thing a writer
+  // cares about at that moment: the words are not gone.
+  crashTitle: { en: "Vellum stopped drawing", ar: "توقّف ڤيلوم عن العرض" },
+  crashBody: {
+    en: "Your unsaved notes were sent to the vault. Reload to carry on.",
+    ar: "أُرسلت ملاحظاتك غير المحفوظة إلى الخزانة. أعد التحميل للمتابعة.",
+  },
+  crashReload: { en: "Reload", ar: "إعادة التحميل" },
+  chunkGone: {
+    en: "This part of Vellum could not be loaded — it may have been updated while you were here.",
+    ar: "تعذّر تحميل هذا الجزء من ڤيلوم — ربما جرى تحديثه أثناء وجودك هنا.",
+  },
+  netTimeout: { en: "The server did not answer in time", ar: "لم يستجب الخادم في الوقت المتاح" },
+  sessionStale: {
+    en: "Signed out — sign in again to carry on",
+    ar: "انتهت الجلسة — سجّل الدخول من جديد للمتابعة",
+  },
+  unexpectedError: {
+    en: "Something went wrong — the details are in the browser console",
+    ar: "حدث خطأ غير متوقع — التفاصيل في سجلّ المتصفح",
+  },
 
   // ── The book reader ──────────────────────────────────────────────────────
   // The shelf.
@@ -3304,6 +3750,12 @@ export type CountUnit =
   | "trashItems"
   | "publishedNotes"
   | "links"
+  // What a vault-wide replace is about to WRITE, as opposed to how many notes
+  // it will touch. Both numbers are in the same sentence and they are rarely
+  // the same number — "3 replacements in 2 notes" is the shape of the answer —
+  // so the unit is its own rather than borrowed from "changes", which the
+  // designer's save bar has already given a different meaning.
+  | "replacements"
   | "words"
   | "chars"
   | "comments"
@@ -3335,6 +3787,10 @@ const UNITS: Record<CountUnit, { en: [string, string]; ar: { one: string; two: s
     ar: { one: "غير محفوظة", two: "غير محفوظتين", few: "غير محفوظة", many: "غير محفوظة" },
   },
   notes: { en: ["note", "notes"], ar: { one: "ملاحظة واحدة", two: "ملاحظتان", few: "ملاحظات", many: "ملاحظة" } },
+  replacements: {
+    en: ["replacement", "replacements"],
+    ar: { one: "استبدال واحد", two: "استبدالان", few: "استبدالات", many: "استبدالًا" },
+  },
   // The sidebar footer counts the vault's ATTACHMENTS beside its notes — the
   // images, PDFs and recordings that are not notes but are certainly files.
   files: { en: ["file", "files"], ar: { one: "ملف واحد", two: "ملفان", few: "ملفات", many: "ملفًا" } },

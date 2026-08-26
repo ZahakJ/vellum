@@ -24,8 +24,15 @@
   chip; inside a fence it takes the identifier, `$jquery` and `snake_case_name` included.
   Triple-click takes the paragraph, drag extends by character, shift-click extends from where you
   were. Gated in both language shells by `npm run check-caret`
-- **Frontmatter properties card** — YAML frontmatter collapses to a neat key/value card with
-  clickable tag pills while your cursor is outside it
+- **Frontmatter properties card, editable in place** — YAML frontmatter collapses to a neat
+  key/value card with clickable tag pills while your cursor is outside it, and you edit it there:
+  click a value to type over it, tick a checkbox for `true`/`false`, pick a date from a calendar,
+  add and remove list values as chips, add a property, remove one with the × at the end of its row.
+  Every one of those writes is **byte-surgical** — your quote style, your comments, your key order
+  and every line you did not touch survive exactly as they were, and deleting the last property
+  takes the `---` fences with it instead of leaving a stray rule behind. Machine keys (`id`,
+  `uuid`, `dg-*`) stay read-only, and `publish:` keeps its own switch in the status bar. It works
+  the same on a `.tex` note, whose properties live in a `%---` comment block
 - **Templates, Obsidian-compatible** — `{{date}}`, `{{time}}`, `{{title}}`, `{{date:FORMAT}}` (plus
   `{{hdate}}` for the Hijri date); insert one at the cursor or start a new note from one, with a
   picker that previews the filled result — see [Templates](templates-and-notes.md#templates)
@@ -98,8 +105,60 @@
   click to open
 - **Full-text search** — prefix + fuzzy (MiniSearch), highlighted snippets with markdown syntax
   stripped, instant. It answers to [localised tag labels](arabic-and-rtl.md#localised-tag-labels)
-  as well as canonical ones
-- **Tags** — `#inline` and frontmatter `tags:`, counted and clickable in the sidebar
+  as well as canonical ones, and it **folds diacritics and letter shapes**, so «المقدمة» finds a
+  note that spells it «الْمُقَدِّمَة» and `resume` finds *résumé* — see
+  [Searching in Arabic](arabic-and-rtl.md#searching-in-arabic)
+- **Search operators** — the `?` under the search box opens the card that lists them; they narrow
+  together, and any one of them can be negated with a leading `-`:
+
+  | Type | Finds |
+  | --- | --- |
+  | `tag:recipes` | the topic and everything nested under it |
+  | `path:Journal` | notes whose path holds the text |
+  | `is:published`, `is:page` | the frontmatter flags |
+  | `after:2024`, `before:2024-06-15` | by the note's own date (`YYYY`, `YYYY-MM`, `YYYY-MM-DD`, UTC; `after:` is inclusive from the start of the named period and `before:` is exclusive of it, so `after:2024 before:2025` is exactly 2024) |
+  | `linkto:Ledger` | notes that link **to** that note |
+  | `linkfrom:Ledger` | notes that note links **to** |
+  | `-tag:draft` | everything but |
+  | `path:"Reading notes"` | a value with a space in it |
+
+  A query made only of operators is a real query: `tag:recipes` on its own lists every recipe,
+  newest first. Anything that does not parse — `before:soon`, a bare `tag:` — stays an ordinary
+  word rather than silently matching nothing.
+- **Search & replace across the vault** — the ⇄ button under the search box (admins only). The
+  search box sets the **scope**: whatever operators are in it decide which notes are considered,
+  so `tag:recipes` replaces in the recipes and nowhere else. You get a **dry run first, always** —
+  every file it would touch, every line, the replacement beside the original, and a checkbox on
+  each — then one button, and a toast with **Undo**. Where the vault is a git repository the panel
+  offers to take a **snapshot** first, ticked by default: the in-memory undo expires and the commit
+  does not, so a replace you regret tomorrow is still in
+  [Backup & sync](backup-and-sync.md). Two rules worth knowing before you type:
+
+  - **Matching is exact.** Case and diacritics count, and it is a literal string unless you tick
+    *Regular expression* (then it is a JavaScript pattern, `$1` capture references and all, applied
+    one line at a time — so `^` and `$` mean the ends of a line). The search box above folds and
+    shrugs at case because finding is a question; replacing is a write, and a replace that stripped
+    the harakat off a word you never typed would be destroying text you never saw.
+  - **Frontmatter is never touched.** Properties have their own byte-surgical editor; a blind
+    regex over YAML is how other tools eat your quote styles.
+
+  A file that changed on disk between the preview and the press is **skipped and named**, never
+  overwritten.
+- **Tags** — `#inline` and frontmatter `tags:`, counted and clickable in the sidebar. Right-click
+  a pill to **rename** the tag across the whole vault — inline `#tags` and frontmatter `tags:`
+  alike, with everything nested under it coming along (`#zettel` → `#slip` takes `#zettel/seed`
+  with it). Renaming onto a tag that already exists **merges** the two, and the dialog says so
+  before you press anything. You are shown how many notes will change before it runs, and the
+  toast that follows carries one **Undo**. The rewrite never enters a code fence or an inline
+  code span, so a `#define` in a shell block is left exactly where it is; your quote styles,
+  comments and every other frontmatter key survive byte for byte. The tag's own page under the
+  tags folder comes along, and its [localised label](arabic-and-rtl.md#localised-tag-labels)
+  moves with it
+- **Rename a heading and the links follow** — `[[Note#Heading]]` links break silently when the
+  heading is renamed: the link still opens the note and quietly lands at the top. When a save
+  renames a heading other notes point into, Vellum says so — *"3 links point at “Introduction”.
+  Update them to “Preface”?"* — and one button repairs them all. It is always an offer, never
+  automatic, and it too carries an Undo
 - **Attachments are in the tree**, with a lightbox, players and downloads — see
   [Attachments](templates-and-notes.md#attachments)
 - **Reorganize by dragging**, with every link repaired — see
@@ -120,7 +179,11 @@
   English editor. Each palette row names its language in that language's own script, which is
   the point: it stays findable when the interface is one you cannot read. See
   [Arabic & RTL](arabic-and-rtl.md#your-editors-language-is-yours)
-- **Command palette** — fuzzy over notes and commands alike
+- **Command palette** — fuzzy over notes and commands alike, and every command row has to earn
+  its place: a query only surfaces commands it genuinely matches, at most five of them, and they
+  sit above or below your notes according to which matched better. Typing `sort` used to put
+  *Design your site* over the whole vault. Start the query with `@` or `#` to jump to a heading
+  (or a LaTeX `\label`) inside the note you are reading instead.
 - **Live vault watching** — edit a file in any other editor and the app updates within ~100 ms
   (chokidar + SSE)
 

@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { t, tf } from "../i18n.ts";
 import { allFolders, canDrop, folderLabel, itemLabel, moveTo, parentDir, type MoveItem } from "../move.ts";
+import { promptNewFolder } from "../prompts.ts";
 import { attachScrollFade } from "../scrollFade.ts";
 import { useStore } from "../state.ts";
 
@@ -33,6 +34,26 @@ interface Row {
   parent: string;
 }
 
+/** Is `path` the folder new attachments are written into?
+ *
+ *  F11: the picker listed `attachments/` beside every real destination, and a
+ *  note moved in there is a note filed with the pasted screenshots — the one
+ *  place in the vault that is not about its contents. The policy comes from the
+ *  server (MeData.attachmentFolder) rather than from a guess about the name:
+ *  under "specified" it is one fixed path, and under "subfolder" it is a NAME
+ *  that repeats under every note folder, so both shapes are asked here.
+ *
+ *  Only for notes. A FOLDER may legitimately be filed anywhere the reader
+ *  likes, including into their attachments — and hiding the row would take
+ *  away the only keyboard route to a move the drag still allows. */
+function isAttachmentSink(path: string): boolean {
+  const at = useStore.getState().attachmentFolder;
+  if (!at || path === "") return false;
+  return at.mode === "specified"
+    ? path === at.folder
+    : path.slice(path.lastIndexOf("/") + 1) === at.folder;
+}
+
 function buildRows(item: MoveItem): Row[] {
   const tree = useStore.getState().tree;
   const rows: Row[] = [];
@@ -41,17 +62,22 @@ function buildRows(item: MoveItem): Row[] {
   if (canDrop(item, "")) rows.push({ path: "", name: t("moveVaultRoot"), parent: "" });
   for (const path of allFolders(tree)) {
     if (!canDrop(item, path)) continue; // self, own descendants, current parent
+    if (!item.isFolder && isAttachmentSink(path)) continue;
     rows.push({ path, name: path.slice(path.lastIndexOf("/") + 1), parent: parentDir(path) });
   }
   return rows;
 }
+
+/** What the dialog resolves with: a destination folder, or the reader asking
+ *  for one that does not exist yet (F11 — see the pinned row below). */
+export type MoveChoice = { dir: string } | { newFolder: string };
 
 function MovePickerPanel({
   item,
   onDone,
 }: {
   item: MoveItem;
-  onDone(dir: string | null): void;
+  onDone(choice: MoveChoice | null): void;
 }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
@@ -81,7 +107,7 @@ function MovePickerPanel({
 
   // Filtering must never leave the highlight past the end of the list.
   useEffect(() => {
-    setSelected((at) => (at < shown.length ? at : 0));
+    setSelected((at) => (at <= shown.length ? at : 0));
   }, [shown.length]);
 
   useEffect(() => {
@@ -90,12 +116,24 @@ function MovePickerPanel({
       ?.scrollIntoView({ block: "nearest" });
   }, [selected, shown]);
 
+  // The NEW-FOLDER row is pinned under the list rather than in it: it is the
+  // dialog's door out of a dead end (F11 — a vault whose every folder is
+  // refused, or a filter that matches none, used to answer with a sentence and
+  // nothing to press), and a door that scrolls away is not one. It is the last
+  // stop of the arrow keys, so Enter reaches it without the mouse.
+  const newFolderAt = shown.length;
   const commit = useCallback(
-    (row: Row | undefined) => {
-      if (!row) return;
-      onDone(row.path);
+    (at: number) => {
+      if (at === shown.length) {
+        // The filter text is the reader's own words for where this belongs —
+        // hand it to the naming dialog rather than making them type it twice.
+        onDone({ newFolder: query.trim() });
+        return;
+      }
+      const row = shown[at];
+      if (row) onDone({ dir: row.path });
     },
-    [onDone],
+    [onDone, shown, query],
   );
 
   // Capture phase, like the confirm dialog and the attachment viewer: while this
@@ -109,15 +147,15 @@ function MovePickerPanel({
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
         e.stopPropagation();
-        setSelected((at) => (shown.length === 0 ? 0 : (at + 1) % shown.length));
+        setSelected((at) => (at + 1) % (shown.length + 1));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         e.stopPropagation();
-        setSelected((at) => (shown.length === 0 ? 0 : (at - 1 + shown.length) % shown.length));
+        setSelected((at) => (at - 1 + shown.length + 1) % (shown.length + 1));
       } else if (e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
-        commit(shown[selected]);
+        commit(selected);
       }
     };
     window.addEventListener("keydown", onKeyDown, true);
@@ -166,7 +204,7 @@ function MovePickerPanel({
               // pointer must not steal the keyboard's highlight (the palette's
               // own bug, CONTRACTS "Command palette").
               onMouseMove={() => setSelected(i)}
-              onClick={() => commit(row)}
+              onClick={() => commit(i)}
             >
               <span className="s-movepick__name" dir="auto">{row.name}</span>
               {row.parent && (
@@ -180,6 +218,36 @@ function MovePickerPanel({
             </p>
           )}
         </div>
+        <button
+          type="button"
+          className={`s-movepick__row s-movepick__new${
+            selected === newFolderAt ? " s-movepick__row--active" : ""
+          }`}
+          onMouseMove={() => setSelected(newFolderAt)}
+          onClick={() => commit(newFolderAt)}
+        >
+          {/* The tree header's own new-folder mark, so the row is recognised
+              before it is read. aria-hidden: the label says it. */}
+          <svg
+            className="s-movepick__glyph"
+            viewBox="0 0 16 16"
+            width="14"
+            height="14"
+            aria-hidden="true"
+          >
+            <path
+              d="M1.5 12.5v-9h4l1.5 2h7.5v7z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
+            />
+            <path d="M8.5 7v4M6.5 9h4" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          </svg>
+          <span className="s-movepick__name" dir="auto">
+            {query.trim() ? tf("moveNewFolderNamed", { name: query.trim() }) : t("moveNewFolder")}
+          </span>
+        </button>
         <p className="s-movepick__from" dir="auto">
           {tf("moveCurrently", { folder: folderLabel(parentDir(item.path)) })}
         </p>
@@ -195,16 +263,17 @@ function MovePickerPanel({
 let closeOpen: (() => void) | null = null;
 
 /** Ask which folder `item` should move into. Resolves with the destination
- *  folder path ("" = vault root), or null when the reader backed out. */
-export function pickMoveTarget(item: MoveItem): Promise<string | null> {
+ *  folder path ("" = vault root), with a request for a folder that does not
+ *  exist yet, or with null when the reader backed out. */
+export function pickMoveTarget(item: MoveItem): Promise<MoveChoice | null> {
   closeOpen?.(); // a second request cancels the first rather than stacking
-  return new Promise<string | null>((resolve) => {
+  return new Promise<MoveChoice | null>((resolve) => {
     const host = document.createElement("div");
     host.className = "s-movepick-host";
     document.body.appendChild(host);
     const root = createRoot(host);
     let settled = false;
-    const done = (dir: string | null): void => {
+    const done = (choice: MoveChoice | null): void => {
       if (settled) return;
       settled = true;
       if (closeOpen === cancel) closeOpen = null;
@@ -213,7 +282,7 @@ export function pickMoveTarget(item: MoveItem): Promise<string | null> {
         root.unmount();
         host.remove();
       }, 0);
-      resolve(dir);
+      resolve(choice);
     };
     const cancel = (): void => done(null);
     closeOpen = cancel;
@@ -221,9 +290,22 @@ export function pickMoveTarget(item: MoveItem): Promise<string | null> {
   });
 }
 
-/** Pick a destination, then move — what the row menu and the palette both run. */
+/** Pick a destination, then move — what the row menu and the palette both run.
+ *
+ *  "New folder…" (F11) is the same move with one step in front of it: the
+ *  naming dialog is `promptNewFolder`, the SAME one the tree's own New folder
+ *  opens, so the `..`/dotfile refusals and the "creates archive/2026" line
+ *  under the field are the rules the reader already knows. It creates at the
+ *  vault root and accepts a typed path, which is what makes one dialog enough
+ *  for "Archive" and for "Archive/2026" alike. */
 export async function moveViaPicker(item: MoveItem): Promise<void> {
-  const dir = await pickMoveTarget(item);
-  if (dir === null) return;
-  await moveTo(item, dir);
+  const choice = await pickMoveTarget(item);
+  if (choice === null) return;
+  if ("dir" in choice) {
+    await moveTo(item, choice.dir);
+    return;
+  }
+  const created = await promptNewFolder("", choice.newFolder);
+  if (created === null) return;
+  await moveTo(item, created);
 }

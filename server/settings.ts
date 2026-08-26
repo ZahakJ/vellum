@@ -1404,6 +1404,62 @@ export function moveFolderIcons(from: string, to: string | null): void {
   persist(raw);
 }
 
+/** Carry (or retire) a tag's localised label when the TAG itself is renamed.
+ *
+ *  Exactly the argument `moveFolderIcons` makes one function up, one noun over:
+ *  `tagLabels` is keyed by the canonical tag, a tag rename changes that key, and
+ *  the seam is the server because the rename is a server operation. Without
+ *  this, renaming `software` to `code` left «برمجيات» attached to a tag no note
+ *  carries any more — the Arabic chip silently reverted to the English word, and
+ *  the only way back was to find the row in Settings → Language and retype it.
+ *
+ *  Nested labels come along for the same reason nested TAGS do: `zettel/seed` is
+ *  a child of `zettel`, not a coincidence of spelling.
+ *
+ *  Returns the map as it was, so the caller can put it back — a tag rename is
+ *  undoable and the label has to be undoable with it. Null when nothing moved,
+ *  which is the common case and does not touch the file.
+ *
+ *  On a MERGE the destination's own label wins: it is the label of the tag that
+ *  survives, and the reader chose to fold the other one into it. */
+export function renameTagLabels(from: string, to: string): TagLabelMap | null {
+  const stored = getSettings().tagLabels;
+  if (!stored) return null;
+  const source = tagKey(from);
+  const target = tagKey(to);
+  if (source === "" || target === "" || source === target) return null;
+  const prefix = `${source}/`;
+  const next: TagLabelMap = {};
+  let changed = false;
+  for (const [key, entry] of Object.entries(stored)) {
+    if (key !== source && !key.startsWith(prefix)) {
+      next[key] = entry;
+      continue;
+    }
+    changed = true;
+    const moved = key === source ? target : `${target}/${key.slice(prefix.length)}`;
+    // Destination first: a label already written for the surviving tag is not
+    // overwritten by the one being folded into it.
+    next[moved] = { ...entry, ...(stored[moved] ?? {}) };
+  }
+  if (!changed) return null;
+  const before = { ...stored };
+  const raw = { ...readRaw() };
+  if (Object.keys(next).length === 0) delete raw.tagLabels;
+  else raw.tagLabels = next;
+  persist(raw);
+  return before;
+}
+
+/** Put a `tagLabels` map back exactly as `renameTagLabels` found it — the
+ *  settings half of a tag rename's undo. */
+export function restoreTagLabels(map: TagLabelMap): void {
+  const raw = { ...readRaw() };
+  if (Object.keys(map).length === 0) delete raw.tagLabels;
+  else raw.tagLabels = map;
+  persist(raw);
+}
+
 /** Apply a partial update (null clears a key back to its env default) and
  *  persist atomically. Throws VaultError(400) on anything malformed — the
  *  whole patch is rejected, nothing partial lands. Returns stored+effective. */

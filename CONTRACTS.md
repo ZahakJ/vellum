@@ -57,23 +57,32 @@ that is the pre-existing pattern, and the door is now open.
   told about a note it may not know exists). Max 64 paths, because the caller is a client's OPEN
   TABS and not its vault; more is a 400 and `/api/tree` is the route for "everything". This is
   the wake-up probe — see "Revalidate on wake" under "The open document".
-- `PUT  /api/note?path=` body `{ content: string, baseMtimeMs?: number }` → `NoteData` (writes
+- `PUT  /api/note?path=` body `{ content: string, baseMtimeMs?: number }` → `NoteWriteResult`
+  (`NoteData` plus an optional `headingRepair` — see "Bulk rewrites") (writes
   file; creates parent dirs). `baseMtimeMs` is the OPTIONAL write precondition: given, and the
   file's current mtime differs, the write is refused **409 `{ error, code: "stale" }`** and
   nothing is touched. Omitted (older clients, `curl`, scripts) → last-writer-wins, unchanged. See
   "The write precondition".
 - `POST /api/note` body `{ path: string }` → `NoteData` (create empty; 409 if exists)
+- `GET  /api/seed` → `{ available: boolean, guide: string }` (admin-only, 404 to a visitor; `available` is true only when `vault-seed/` exists AND the vault holds no markdown)
+- `POST /api/seed` → `{ guide: string }` — copy the starter notes in, 409 `code: "seedNotEmpty"` if the vault filled up in between. **Boot seeds only a vault directory that DID NOT EXIST**; an existing-but-empty directory is the reader's and is offered the seed from the empty state instead of being written into unasked (server/seed.ts).
 - `POST /api/rename` body `{ path, toPath }` → `{ ok: true }` (also rewrites `[[wikilinks]]` in other notes that pointed at the old name)
 - `POST /api/alias` body `{ path, alias }` → `{ ok: true, path, alias }` (admin-only; merges one name into the note's `aliases:`, preserving every other byte — the write behind "keep the old title" after a rename)
 - `DELETE /api/note?path=&permanent=<bool>` → `{ ok: true, trashPath?: string }` (default MOVES to `.trash/`; see "Note deletion")
 - `DELETE /api/attachment?path=&permanent=<bool>` → `{ ok: true, trashPath?: string }` (non-`.md` only; same two speeds — see "Attachment deletion")
 - `GET  /api/delete-preview?path=` → `DeletePreview` (admin-only; what a delete would actually take — see "Delete previews")
+- `GET  /api/tags/rename-preview?from=&to=` → `TagRenamePreview` (admin-only, 404 to a visitor) — the DRY RUN: how many notes actually change, how many substitutions, whether the destination already exists (`merge: true`), and where the tag's own page would land. See "Bulk rewrites".
+- `POST /api/tags/rename` body `{ from, to }` → `TagRenameResult` (admin-only) — rename a tag and everything nested under it across every note that carries it, inline `#tags` and frontmatter `tags:` alike, byte-surgically. Renaming onto an existing tag MERGES. Re-keys `settings.tagLabels` exactly as a folder move re-keys `folderIcons`, and moves the tag's page (its path IS the tag).
+- `POST /api/links/heading-repair` body `{ path, from, fromTitle, to }` → `BulkResult` (admin-only) — point every `[[Note#from]]` in the vault at the heading's new name. `to` must be a real anchor in the note NOW: a stale offer answers **409 `code: "headingGone"`**. Never runs without the offer `PUT /api/note` raised.
+- `GET  /api/replace/preview?q=&find=&replace=&regex=` → `ReplacePreview` (admin-only, 404 to a visitor) — the DRY RUN for a vault-wide replace: every file it would touch with the mtime it was read at, and per-line `{line, before, after, count}` samples. `q` sets the SCOPE (its operators), `find` is the needle and is used verbatim.
+- `POST /api/replace` body `{ find, replace, regex, snapshot, files: [{path, mtimeMs, lines}] }` → `ReplaceResult` (admin-only) — apply exactly what was previewed. `lines: null` = every match in that file. A file whose mtime has moved since the preview is refused and named in `conflicts[]`. `snapshot: true` commits first (when the vault is a repo) and answers with the short sha. **400** `emptyFind` · `patternTooLong` · `multilinePattern` · `badRegex` · `emptyMatch` · `nothingSelected`. See "Vault-wide search & replace".
+- `POST /api/bulk/undo` body `{ undoId }` → `BulkResult` (admin-only) — put back every file one bulk edit changed. **410 `code: "undoExpired"`** once the bundle has aged out (30 min) or four more bulk edits have happened.
 - `GET  /api/trash` → `TrashEntry[]` (admin-only; newest first)
 - `POST /api/trash/restore` body `{ name }` → `{ ok: true, path, renamed }`
 - `DELETE /api/trash?name=` → `{ ok: true }` (erase one entry for good)
 - `POST /api/folder` body `{ path }` → `{ ok: true }`
 - `POST /api/folder/move` body `{ path, toPath }` → `{ ok: true, notes, rewritten }` (moves the whole subtree and repairs the links it would have broken; see "Moving notes and folders")
-- `GET  /api/search?q=` → `SearchHit[]` (max 50, minisearch, prefix+fuzzy)
+- `GET  /api/search?q=` → `SearchHit[]` (max 50, minisearch, prefix+fuzzy, diacritic-folded on both sides of the index). `q` may carry OPERATORS — `tag:` `path:` `is:published` `is:page` `before:` `after:` `linkto:` `linkfrom:`, negated with `-`, values `"quoted"` — which are peeled off and answered from the index's own tables; a query made ONLY of operators lists what they narrow to, newest first. See "Search: operators and the fold".
 - `GET  /api/search/matches?path=&q=` → `SearchMatch[]` (max 100) — every line of ONE note the
   query matches, `{ line, text }`: `line` 1-based in the note's FULL source (frontmatter
   included), `text` HTML-escaped with matched terms in literal `<mark>…</mark>`. Substring
@@ -93,7 +102,7 @@ that is the pre-existing pattern, and the door is now open.
 - `GET  /api/tags` → `TagCount[]` (from `#tag` inline + frontmatter `tags:`)
 - `GET  /api/trackers` → `TrackerMeta[]` — every ```` ```tracker ```` fence this session may see, newest-touched first (the shelf a ```` ```tracker-board ```` draws). Scoped EXACTLY like `/api/posts`: a visitor gets published notes only with the language filter applied, an admin gets the whole vault, and templates are out of both. Covers are resolved server-side, per session, so the board spends no `/api/resolve` per card and a visitor is never handed a path they may not fetch. See "Trackers".
 - `GET  /api/aliases` → `AliasesResponse` (`{ alias, path, title }[]`, sorted by alias) — the name table the client cannot derive, since a tree carries filenames and an alias is frontmatter. Visitor-scoped exactly as resolution is.
-- `GET  /api/events` → SSE stream of `VaultEvent` (chokidar watcher; debounced 100ms; events named `message`, JSON data)
+- `GET  /api/events` → SSE stream of `VaultEvent` (chokidar watcher; debounced 100ms per path; events named `message`, JSON data). **Above 25 events in 200ms the stream stops narrating and sends one `{ kind: "bulk", path: "" }`** once the burst settles (and at least every 2s while it does not) — a `git pull` is one frame, not a thousand, and a client answers it by re-reading the tree and revalidating its buffers. The INDEX still receives every named event; only the refetching subscribers are coalesced (server/vault.ts `onEventCoalesced`). A delivery failure ENDS the stream so EventSource reconnects, rather than leaving a live-looking socket that receives nothing.
 - `POST /api/upload` (admin) multipart `file` + optional `dir` → `UploadResult` — see "Attachments"
 - `GET  /api/impact?path=&kind=` (admin) → `DeleteImpact` — what a delete would really take
 - `DELETE /api/attachment?path=&permanent=` (admin) → `{ trashPath? }`
@@ -153,8 +162,33 @@ more than one name".
   full-text search and the link graph degrade (no body is read, so no minisearch entry, no links, no
   excerpt); the skip is `console.warn`ed once per file and counted in the boot line
   ("N by metadata only").
+  **Every mutation of the index goes through ONE chain** (`enqueue()` → `settled` → `whenIndexed()`):
+  watcher events, the routes' own eager `indexFile()` calls, and the minisearch vacuum. `autoVacuum`
+  is OFF, and a vacuum is booked on an idle timer and run as a chain task — because minisearch
+  vacuums with an async batched walk of the term index scheduled by `discard()`, so it was still
+  walking the radix tree when the next save mutated it, and the resulting TypeError came out of a
+  promise this process does not own and killed the server. Two clients alternating precondition
+  saves reproduced it 5/5. `indexStats()` reports `{ notes, dirt, vacuuming }` for the harness.
+  **A read that fails is not a delete**: only `ENOENT`/`ENOTDIR` removes a record; anything else
+  (`EMFILE` under a `git pull`, `EACCES`, `EIO`) keeps the previous entry and warns, because the
+  untyped catch that preceded it evicted notes from search, the graph, backlinks and the tag counts
+  until the process restarted, silently.
+  **`detectTemplatesFolder()` is memoized** against the same five index mutations the link caches
+  invalidate on (NOT `onEvent`, which fires before the index has applied the change), and the three
+  loops that asked `isTemplateNote()` per published post hoist the lookup out (`templateMatcher()`).
+  So does `excludedTags()`, which `postMeta()` called once per post. Measured on a 3k-note vault:
+  `GET /api/posts` p50 **30.2 ms → 5.4 ms**, eight concurrent anonymous GETs **187 ms → 23 ms**.
 - `server/api.ts` — `export const api: Hono` implementing routes above.
-- `server/index.ts` — arg/env parsing, seed-on-missing (copy `vault-seed/` → vault), mount `api` at `/api`, static `dist/` + SPA fallback, listen 6801 with startup banner.
+- `server/seed.ts` — the starter vault and the single rule about when it may be written: a directory
+  that did not exist is seeded at boot; one that exists is the reader's, and is OFFERED the seed
+  (`/api/seed`) rather than written into.
+- `server/index.ts` — arg/env parsing, seed-on-missing (copy `vault-seed/` → vault, **only when the
+  directory was absent**), mount `api` at `/api`, static `dist/` + SPA fallback, listen 6801 with
+  startup banner. It also installs the process's last net: `uncaughtException` /
+  `unhandledRejection` are logged and SURVIVED — the state that matters is on disk (atomic writes,
+  mtime preconditions) and the in-memory index is a derived cache, while the alternative is every
+  desktop window on that vault closing or a web instance 502ing — but five faults inside ten
+  seconds exits 1, so a supervisor gets a clean process instead of a haunted one.
 
 ## Auth & sessions (server/auth.ts)
 
@@ -363,6 +397,17 @@ and so it is testable without standing a server up (`tests/durability.test.ts`).
   because the file it leaves is neither version.
 - **A file that is GONE is written, not refused.** Recreating is kinder than refusing to save work
   into a note somebody else deleted, and the caller learns of the deletion from the watcher anyway.
+  **"Gone" means `ENOENT` and nothing else.** Any other errno on that `stat` — `EACCES`, `EIO`,
+  `EMFILE` — means the precondition could not be CHECKED, which is not the same as there being
+  nothing to check, and the write is refused. A bare `catch` here used to swallow all of them, so
+  one unreadable directory turned a guarded save into an unguarded one and the precondition was
+  skipped in silence.
+- **The write path's errnos are named, not swallowed** (`server/vault.ts::writeFailure`). `ENOSPC`/
+  `EDQUOT` → **507 `code: "diskFull"`**, `EROFS` → `"readOnly"`, `EACCES`/`EPERM` →
+  `"writeDenied"`, `EIO` → `"writeIO"`, `EMFILE`/`ENFILE` → **503 `"vaultBusy"`**; anything
+  unrecognised is re-thrown untouched, because dressing an unknown error as a disk problem is how a
+  real bug gets filed as "disk full". The editor translates the first two (`saveDiskFull` /
+  `saveReadOnly`) and falls back to the general sentence for the rest.
 - **Opt-in, deliberately** — by the PRESENCE OF THE FIELD, so there is no flag to forget to set and
   no default to argue about. A write with no `baseMtimeMs` (an older client, a script, `curl`) keeps
   last-writer-wins exactly as it always did; that is the compatibility promise, and
@@ -394,6 +439,33 @@ and so it is testable without standing a server up (`tests/durability.test.ts`).
   the pane work, which is where there is room to show both.
 - **A failed save that is NOT a conflict is still said out loud.** The buffer stays dirty on purpose:
   the text is here, the tab still shows its dot, and the next edit reschedules the write.
+- **A refused save whose file cannot be RE-READ is the one state that must never be silent.** The
+  409 arm re-reads the note to hand the pane a disk version; when that read fails there is no
+  conflict to show and nothing to resolve, and the branch used to simply `return`. Nothing fired,
+  `baseMtimeMs` stayed stale, every later autosave took the same path and said the same nothing, and
+  the `beforeunload` beacon carried the same precondition the server had been refusing all along —
+  so the writing went nowhere and the only notice was the note being an hour behind the next time it
+  was opened (v1.8 client-solidity audit, B1). It now RETRIES on a backoff and SPEAKS:
+  `client/editor/saveRetry.ts` is the policy — 1s, 2s, 4s, 8s, then 15s for ever — and it announces
+  the first failure, again once the backoff reaches its ceiling, and then about every two minutes.
+  It never gives up, because the buffer holds the reader's only copy and a client that stops trying
+  has decided on their behalf that the server is not coming back. `SaveStuckError` carries
+  `code: "saveStuck"` so the sentence is the reader's language, not a bare "Failed to save". A
+  buffer with `staleRetries > 0` keeps ITS timer: a keystroke does not reset the backoff to 600ms.
+- **A transaction may be BUFFER-WIDE.** Mirroring carries `changes` and nothing else, which is right
+  for typing and wrong for the one thing that is neither text nor per-caret: an in-flight upload's
+  placeholder decoration. Annotating a transaction with `bufferWide` forwards its EFFECTS to the
+  other views too, and mirrors it even when it changes no text. Without it the pill showed in the
+  pasting pane alone, and — worse — the sibling merely focusing the note replaced the canonical
+  `buf.state` with one that had never heard of the upload, so the answer had nowhere to land.
+- **`applyToBuffer(path, spec)` edits a note with no view of it held.** A live view is still the
+  right target when there is one (it goes through `dispatchFrom`, so mirroring, dirtying and the
+  autosave happen exactly as for typing); with none, the same three are done against the stored
+  state. A spec with no `changes` is not an edit and does not dirty the note. The upload path is why
+  it exists: an upload is a round trip that outlives the pane that started it, and `uploads.ts` used
+  to answer that by checking `view.dom.isConnected` and giving up — leaving an "Uploading…" pill in
+  a preserved `EditorState` that nothing could ever remove, and the picture nowhere in the text
+  (v1.8 audit, B3).
 
 ### Revalidate on wake (`GET /api/note/state`, `client/editor/revalidate.ts`)
 
@@ -471,6 +543,45 @@ fail with a message about CodeMirror in first paint — a message whose stated c
 with the line that caused it, in a file nobody would think to open. So the registry registers itself
 with a CM-free bridge and the shell calls through that. Written before the registry, on purpose: the
 failure it prevents is one that misreports itself.
+
+### A note OPENS RENDERED, and the caret has a home
+
+**THE REVEAL RULE IS STATE, not a flag on a view** (v1.8 UX audit, finding #1 — the raw-YAML bug).
+Both decoration passes hide markdown source on every line except the one the selection sits on, and
+a freshly built `EditorState` puts that selection at offset 0 — which is inside the frontmatter
+fence. The inline pass knew this and kept an `interacted` flag on its `ViewPlugin`; the BLOCK pass
+(the properties card, the banner, the hidden fence markers) did not, because it is a `StateField`
+and a `StateField` has no view to hang a flag on. So the two everyday triggers opened five lines of
+raw YAML with no card and no banner until the reader clicked somewhere: **splitting a pane** (a
+second `EditorState` is built for the new pane) and **publishing** (`togglePublish` → `bumpReload`
+remounts the editor). A tab switch and back did the same, for the same reason.
+
+`interactedField` (livePreview.ts) is therefore a `StateField<boolean>` that BOTH passes read
+through `activeLines()`: false until the first transaction carrying a `Transaction.userEvent` or
+changing the document. Programmatic dispatches — parking the caret on open, a language effect, a
+mirrored sibling selection — carry neither and deliberately do not flip it: the reader has still
+not touched the note. It is registered BEFORE `blockHiding` in the extension array, because a
+`StateField` may only read fields that come earlier in the configuration.
+
+**A REMOUNT PUTS THE CARET BACK.** Publishing and setting a banner rewrite the file's frontmatter
+and rebuild the state; once the raw YAML was fixed, what was left was a reader mid-sentence whose
+caret jumped to the top of the note for pressing publish. `Editor.tsx` remembers the caret per path
+(bounded `Lru`, beside `scrollPositions`, written on unmount) and restores it when the state it
+mounts onto has its selection at 0. The measure is DISTANCE FROM THE END: the only thing that
+remounts an editor mid-session is a write ABOVE the caret — one `published: true` line lands in the
+fence and every body offset moves by its length — and when the document did not change length the
+two measures agree anyway.
+
+**THE CARET'S HOME** (`client/editor/caretHome.ts`, proven in tests/caret.test.ts) is past the
+frontmatter and past the blank line under it (F9). It used to land on that phantom line between the
+properties card and the H1: a gap with nothing to read and nothing to continue, drawn as a stray
+empty paragraph at the top of every note in the vault. It goes to the END of the first heading line
+instead, so the first keystroke extends the title. A headingless note gets the START of its first
+prose line — not the document end, because a note opened onto its own last line is worse than the
+gap this fixes — and a note that is only frontmatter gets the document end, because it is waiting to
+be written. In a `.tex` note the frontmatter is the `%---%` comment block and the same rule applies
+over it. What the rule must NEVER do is land inside the fence: that is the raw-YAML bug arriving
+through the other door, and it is the property the test file asserts over every shape of note.
 
 ## The workspace (client/workspace.ts, client/state.ts)
 
@@ -597,6 +708,20 @@ a second time (a revisit is intent), pins it, or opens it explicitly in a new ta
 ephemeral are mutually exclusive by construction, and both are visible in the row rather than only
 in the menu that set them: an italic title for a preview, a gold ◆ for a pin, each with real
 screen-reader text beside it, because a promise the reader cannot see is one they will not rely on.
+
+**The strip has keys of its own** (v1.8 UX audit, F12). Every other pane operation had a chord and
+the tabs inside them had none, so a reader with forty notes open could split, close and walk between
+panes without a mouse and then had to reach for one to change tab. `Ctrl/Cmd Alt PageDown`/`PageUp`
+walk the focused pane's strip and WRAP at both ends (`stepTab` in client/workspace.ts, proven in
+tests/workspace.test.ts); `Ctrl/Cmd Alt W` closes the pane's active tab (a pane showing the graph or
+the shelf has no tab to close, and closing "whatever the last note was" from under it would be a
+guess). Stepping past a preview tab does NOT commit it — a glance is not the second visit that says
+"keep this". The chords wear `Alt` for the reason the templates do: the world's three tab chords
+(`Ctrl Tab`, `Ctrl PageUp`/`PageDown`, `Ctrl W`) all belong to the browser, two of them can be worn
+one modifier over, and the third cannot because `Alt Tab` belongs to the window manager. NOT arrows
+— `Ctrl Alt ←`/`→` is GNOME's workspace switcher and macOS Chrome's own tab switcher. "Next" is
+next ALONG THE STRIP in both languages: the bar mirrors with the reading direction, and a tab bar is
+a list, not a map.
 
 ### Drag a tab: reorder, move, or SPLIT (Tabs.tsx, PaneDropZones.tsx, dragTab.ts)
 
@@ -1358,6 +1483,79 @@ visitors, which is what lets it name absolute paths.
 - Errors surface to the user via `console.error` + a transient `.s-toast` div helper in
   `client/toast.ts` (`export function toast(msg: string)`) — shell agent owns it. The MESSAGE is
   `t()`/`tf()`, keyed off `ApiError.code` where the server names one; see the API section.
+
+### Toasts are a STACK, and an offer outlives a statement (v1.8 moments, F23)
+
+`toast()` used to begin with `dismissToasts()`, which removed **every** toast on screen — action
+toasts included. So the one message in the product a reader has to ACT on was killed by whatever
+ambient confirmation happened to land inside its nine seconds, and the delete path proved it end to
+end: "Moved to the trash — Undo" was erased by the next save toast and the way back went with it.
+
+- `.s-toasts` (app.css) is the fixed, centred COLUMN both kinds live in, and it carries the measure:
+  a fixed box with `left: 50%` and no width takes its available space as half the viewport, so a
+  toast that sized itself could never be wider than 195px on a 390px phone.
+- A **plain** toast states a fact and may replace another plain toast — two facts stacked
+  unreadably is the reason the old blanket dismissal existed, and that reason still holds.
+- An **action** toast (`client/undoToast.ts`, `.s-toast--action`) is an offer with a deadline. Only
+  three things close it: its 9s timeout, its own button, and its own ✕ (`.s-toast__dismiss`, 44px on
+  a coarse pointer, like the action). A SECOND offer replaces the first — two standing "Undo"
+  buttons is a question about which one takes back what.
+- Plain toasts are inserted ABOVE a standing action toast, so its button never moves under a thumb
+  already reaching for it.
+- `dismissToasts()` now means "clear the transient ones". `App.tsx` calls it when `openPath`
+  changes, and **deleting the open note is exactly the gesture that changes `openPath`** — an undo
+  that dismisses itself in the frame it appears is not an undo.
+
+### The net under the client (v1.8 client-solidity, B2)
+
+Four failures shared one shape: the client noticed something had gone wrong and then said nothing,
+for ever. All four are answered, and all four answers are in the ENTRY chunk on purpose — a net that
+arrives in its own request has a hole in it for exactly the window in which most first-paint
+failures happen, and a crash card that must fetch a chunk after the crash is not a crash card.
+
+- **A render that throws is a card, not a white page.** `client/ErrorBoundary.tsx` wraps `<App/>` in
+  `main.tsx`. It FLUSHES FIRST — `flushAllBuffers()`, the `sendBeacon` path, which needs neither
+  React nor the render that just died — then draws `.s-crash`: the wordmark's ✦, what happened, and
+  Reload. Before this, any one of a hundred components could end a writing session by leaving
+  `<div id="root">` empty, with the unsaved buffers unflushed and no reason for the reader to think
+  closing the tab was safe.
+- **A rejected promise reaches somebody.** `client/safety.ts` installs `unhandledrejection` and
+  `error` handlers before the first mount. Both log AND toast, except for the rejections that are
+  not faults — a request the client itself cancelled (`AbortError`), and a 401/404, which is the
+  server ANSWERING. `errorSentence()` keys the wording off `ApiError.code`, so a deadline and an
+  expired session are sentences in the reader's language rather than the server's English prose.
+- **`fetch` has no deadline, so `request()` gives it one.** `REQUEST_TIMEOUT_MS` 30s,
+  `UPLOAD_TIMEOUT_MS` 300s for the two uploads and both sync calls. `requestSignal()` COMPOSES the
+  deadline with the caller's own signal rather than replacing it — search and the visibility probe
+  abort per keystroke, and clobbering `init.signal` would have made those a request per character
+  that nothing could cancel. A deadline that fires becomes `ApiError(code: "timeout")`; the caller's
+  own abort stays exactly what it was.
+- **A 2xx that is not JSON throws.** An auth proxy in front of Vellum answers the expired XHR with
+  its own 200 HTML login page; `return body as T` handed every caller a `null` typed as a tree, a
+  note or a settings object, which the reader saw as an empty vault or as a crash three frames
+  later. It is `ApiError(code: "notJson")` now — the one place in the client that can tell.
+- **A lazy chunk that cannot be fetched is a card, not a blank app.** Every surface arrives through
+  `lazySurface()` (`client/lazySurface.tsx`), which is `lazy()` with the import failure caught: one
+  retry, then it RESOLVES into `.s-chunkgone` rather than rejecting — React caches a rejected lazy
+  promise for the life of the session, so a surface that failed once would keep failing after the
+  network came back. Redeploying the server under an open session rotates every content hash, so
+  this is not a hypothetical: it is what `git pull && npm start` does to a reader mid-sentence.
+- **The root URL is a PLACE.** `applyUrl()` on a popstate to `/` closes the tabs through
+  `closeAllTabs()` — which saves anything dirty on the way out and re-mirrors `openPath` — so Back
+  past the first note shows the empty state. Touching only the view mode (the pre-v1.8 answer)
+  traded a desync for a lie: the address bar said `/` and the note was still on screen, so Back did
+  nothing a reader could see. The `initial` call still returns false for `/`, which is what keeps a
+  restored session and the home note.
+- **A FIRST RUN OPENS THE GUIDE, not the empty state** (v1.8 UX audit, F1). `enterVault()` restores
+  the stored workspace, and when there is none it opens `settings.homeNote` — and, failing that,
+  the seed's guide (`SEED_GUIDE`, declared in `shared/seed.ts` so the boot seeder in `server/seed.ts`
+  and this open cannot name different files) and then the vault's first note. A fresh install landed
+  on "The vault is open." with `Welcome.md` sitting in the tree behind it: the one moment a new
+  reader has nothing of their own to come back to was the one moment they were shown nothing.
+  ADMIN ONLY past the home note, deliberately — a visitor's landing is the site, and opening
+  somebody's first published file at them because the owner set no home note is a guess made in
+  public. A deep link in the address bar still outranks all of it (the router applies it right after
+  bootstrap), and an EMPTY vault still gets the empty state, which is where the seed offer lives.
 - **A SCROLL BOUNDARY FADES; IT DOES NOT GUILLOTINE.** `client/scrollFade.ts`
   (`attachScrollFade(el)`) maintains `data-more-above`/`data-more-below`, and `.s-scrollfade`
   (app.css) masks an 18px alpha ramp at whichever end actually has content beyond it — so a list
@@ -1556,7 +1754,30 @@ against.
   these are real buttons and there are a hundred of them, not a thousand, so moving the stop is one
   attribute on two nodes. Left/Right step one pill in READING order (they swap in RTL), Up/Down
   step a visual ROW of the wrapped shelf, Home/End reach its ends. Tab enters at the reader's own
-  cursor, else at the tag currently filtering, else at the first pill.
+  cursor, else at the tag currently filtering, else at the first pill — over the SHOWN pills, since
+  a stop on a pill that is not on the shelf leaves the shelf with no `tabindex="0"` in it at all.
+  **The shelf shows twelve and offers the rest** (v1.8 UX audit, F17). `max-height: 24vh` with its
+  own scroll was the cap, and a quarter of the window is still a quarter of the window: the pills
+  arrive sorted by count, so what a reader loses to the tail of a list they have mostly never
+  clicked is the BOTTOM of their own tree. `.s-tags__more` is the tree's own "Show N more" row
+  (`.s-tree__more`, attachments.css) — the count is on the button, so nothing is silently
+  truncated — and the tag currently FILTERING is on the shelf wherever it sorts, because a filter
+  whose own pill is hidden is a filter with no way to clear it. One pill is never worth a row that
+  says "one more", so the cap applies only once there are at least two to hide.
+  **The graph view has a node list behind its canvas** (`.s-graph__nav`), for the reason the two
+  above have their shapes: a bitmap is a picture to a keyboard, and every node in the graph used to
+  be pointer-only. `.s-graph__nav-list` is a roving-tabindex `role="listbox"` holding ONE note and
+  its neighbours — not the vault, because three thousand buttons is three thousand DOM nodes and a
+  shelf nobody can walk, while a neighbourhood is what the graph is FOR. Up/Down move along the
+  shelf, the LOGICAL forward arrow steps into the neighbour under the cursor and makes it the
+  centre, the logical back arrow returns along the trail, Home/End reach the ends and Enter opens
+  the note. The canvas lights whichever node the cursor is on and pans it into frame only if it has
+  left the frame — the same highlight hover draws, so the two halves are visibly one thing — and a
+  `role="status"` line names each recentre. The list is clipped (`clip-path: inset(50%)`, the
+  `.s-sr-only` technique) until it HOLDS focus and then draws as a raised card: a reader who
+  arrived by Tab has to see what their arrows are doing, and a reader who never did should be
+  looking at the constellation. The walk starts at the open note, else at the busiest node in the
+  vault. Rows are 44px on a coarse pointer like every other target in the shell.
 - **Names.** Every icon-only control has an `aria-label`. A placeholder is never a label. Settings
   rows render a real `<label for>` and wire `aria-describedby` / `aria-invalid` onto their one
   control child (`Row` does this — call sites pass a single element).
@@ -1647,6 +1868,313 @@ Server side, `deleteFolder` lstats before it counts: a symlinked folder is a lin
 `fs.rm` unlink it without touching the target, so it reports `notes: 0` rather than describing a
 tree outside the vault that the call will not touch.
 
+## Search: operators and the fold (`shared/searchQuery.ts`, `shared/fold.ts`)
+
+**One box, three answers.** `GET /api/search` takes the reader's raw string; the operators are
+peeled off inside `search()` and the words go to minisearch. There is no second endpoint and no
+mode flag, because the reader types them into the box they already have.
+
+`tag:` · `path:` · `is:published` / `is:page` · `before:` / `after:` · `linkto:` / `linkfrom:`,
+each optionally negated with a leading `-`, values optionally `"quoted"`.
+
+- **Everything is AND.** `tag:a tag:b` is notes carrying both, and the free words are ANDed with
+  the filters. OR is not offered: a query language whose default is OR returns the whole vault the
+  moment somebody adds a term.
+- **An operator that does not parse is a WORD.** `before:soon`, `is:blue`, a bare `tag:` — all fall
+  back to ordinary text. A search box that answers "no results" for a typo the reader cannot see is
+  the worst failure this surface has.
+- **A query of only operators is a real query.** `tag:recipes` alone lists every recipe, newest
+  first, capped at fifty like any other search — the alternative is that the most obvious thing
+  anybody types returns nothing.
+- **The scope ladder still holds.** Filters are evaluated after the visitor/language filter, never
+  instead of it: `is:page` on an unpublished note answers a visitor with nothing.
+- **Localised tags reach through.** `SearchOptions.canonicalTag` resolves an operator's value and
+  `SearchOptions.expandTerms` (`expandTagQuery`) widens the free words — each applied to its own
+  half, never the other's. Run over the raw string, `expandTagQuery` reads `tag:برمجيات` as prose
+  and appends `software` as a loose term, widening the query the operator was narrowing.
+
+**The fold** (`shared/fold.ts`) is one table with three doors, and picking the wrong one is how a
+highlight lands an invisible character early:
+
+- `foldTerm` — ignorables DROPPED. minisearch's `processTerm`, on the index side and the query
+  side, which is the only way "type it plain, find it pointed" can hold; also the `[[` completion's
+  tier test.
+- `foldKeep` — same length in, same length out. For a matcher that reports INDICES into its input
+  (the palette's highlight marks). Ignorables stay put; a subsequence walks over them anyway.
+- `findMatches` / `findAnyMatches` — offsets into the UNTOUCHED string, for a scanner that turns a
+  hit back into a DOM Range or a byte edit (the PDF reader, `searchMatches`, the snippet marker).
+
+Harakat, the Quranic marks, the alef family, ى/ي, ة/ه, the Persian ی/ک, tatweel, the zero-width
+joiners and bidi marks, the soft hyphen, and the Latin combining block. The table was written for
+the books reader and lives in `shared/` because a fold that disagrees with itself between the note
+index and the reader that opens from it is worse than no fold at all.
+
+## Bulk rewrites (`server/bulkRewrite.ts` + `tagRewrite.ts` + `headingRepair.ts`)
+
+**Bulk-edit tools are what note-takers most want and least trust**, and the reason is always the
+same: a rewrite spread over four hundred files is not something a reader can inspect afterwards,
+so a wrong one is unrecoverable. Every vault-wide edit in Vellum therefore runs through ONE
+engine, and it makes three promises once instead of once per feature:
+
+1. **Nothing is written that was not previewed.** `previewBulk` and `applyBulk` run the SAME
+   transform over the SAME reads. A preview produced by different code from the apply is a
+   preview of a different operation.
+2. **Nothing is clobbered.** Every write carries `writeNote`'s mtime precondition, taken from
+   the read this very call made — so the window in which a concurrent edit can be missed is the
+   width of one file's transform, not the width of the reader's dialog. A file somebody else
+   changed in that window is SKIPPED and named in `skipped[{path, reason: "conflict"}]`, and the
+   client says so out loud. A bulk edit that reports "done" while quietly skipping four notes is
+   the bulk edit nobody presses twice.
+3. **There is a way back.** Apply keeps the pre-edit bytes of every file it changed in an undo
+   bundle (`undoId`), including the half of the operation that is not a file at all — a
+   `settings.tagLabels` re-key, a renamed tag page — which the caller hands over as a `revert`
+   closure. Bundles are in memory, capped at 12 MB, four deep, 30 minutes; past the cap the
+   answer is `undoId: null` and the client sends the reader to Backup & sync, which is the real
+   floor under an edit that size. Undo carries the same precondition in the other direction: a
+   file edited SINCE the bulk edit is skipped, because an undo that discards work done after the
+   thing being undone is the same clobber wearing a friendly label.
+
+### Tag rename and merge (`POST /api/tags/rename`)
+
+Right-click a tag pill in the sidebar → *Rename tag…*. Two dialogs: the first checks the name as
+it is typed (`isTagName`, `shared/tagLabels.ts` — the same rule the route enforces, so a reader
+never meets it as a rejection) and says when the destination already exists; the second states
+what the server actually found. Then:
+
+- **Inline `#tags` and frontmatter `tags:` both move**, byte-surgically. All four YAML spellings
+  are handled in place — bare scalar, comma scalar, `[flow, list]`, block list — in either note
+  format (a `.tex` note's `%`-prefixed comment block stays commented). Quote style, `#` prefixes,
+  spacing, trailing comments and every other key are reprinted untouched.
+- **The rewrite never enters code.** `parseTags` scans the whole body, fences included, which is
+  a known over-count (`tests/tags.test.ts` pins `#define` inside a ```` ```sh ```` block as a
+  "tag"). Over-counting a tag list is cosmetic; rewriting a `#define` inside a shell fence is
+  data loss. Fenced blocks and inline code spans are skipped — so the preview's number is
+  sometimes SMALLER than the tag pill's count, and it is the honest one, because it is what the
+  writer will actually change.
+- **Nested tags come along.** `zettel` → `slip` takes `zettel/seed` to `slip/seed`: a tag
+  hierarchy is one name with slashes in it. Renaming a tag into its own subtree is refused
+  (400 `code: "nestedTag"`).
+- **A merge does not print the target twice.** `tags: [alpha, beta]` with alpha→beta becomes
+  `tags: [beta]`, not `[beta, beta]` — the duplicate item is removed with its separator, or its
+  whole line in block form. PROSE is left alone: two `#beta`s in one sentence is the author's
+  sentence, not a list.
+- **A tag's label is part of the tag.** `settings.tagLabels` is re-keyed exactly as
+  `folderIcons` is re-keyed by a folder move (`renameTagLabels`, and the destination's own label
+  wins on a merge). Without it, renaming `software` to `code` left «برمجيات» attached to a tag no
+  note carries and the Arabic chip silently reverted to the English word.
+- **The tag's PAGE follows the tag**, because the path IS the tag: `tagPageLabels` derives one
+  from the other, so leaving `tags/software.md` behind after the rename leaves a page defining
+  labels for a tag nothing carries. It moves through the ordinary rename path, so wikilinks to
+  the page follow. On a merge the destination page already exists and two pages cannot be merged
+  by a file rename — the old page is then left where it is and `page: null` says so.
+
+### Heading-link repair (`PUT /api/note` → `POST /api/links/heading-repair`)
+
+Rename a heading and every `[[Note#Heading]]` pointing into it stops resolving — the link still
+opens the note and silently lands at the top, which is the worst shape a broken link can take
+because nothing says it broke. `moveLinks.ts` carries `#tails` through a MOVE verbatim, and that
+is right for a move; this is the other half.
+
+**Detection is on the WRITE PATH**, server-side, and the alternatives were both wrong. The
+editor sees only edits made in Vellum's own CodeMirror (not the reading view's source, not a
+template, not another window) and fires mid-word. The indexer sees everything including a `git
+pull` — which would open forty offers to rewrite links the puller never touched, and an offer
+nobody asked for over files nobody looked at is how a bulk tool loses trust. `PUT /api/note`
+covers every write this instance makes, is scoped to writes the reader caused, and costs
+nothing: the OLD anchor table is already in the index and the new one is computed by the reindex
+that follows the write anyway.
+
+A rename is **the same headings, in the same order, with exactly one wearing a different title**
+— anything else is an edit, not a rename, and guessing would rewrite the vault on a heuristic. A
+title that changes without changing its slug breaks no link and raises nothing.
+
+**A save fires while the reader is still typing**, so a rename is remembered as a CHAIN: the
+ORIGINAL anchor the vault's links actually name, plus wherever the heading has got to now.
+`## Introduction` → `## Introductio` → `## Preface` is one offer naming `introduction` and
+`Preface`, not three. Type the heading back and the chain dissolves. The offer rides on the
+write's response (`NoteWriteResult.headingRepair`) and is raised only when the count is non-zero.
+
+The repair answers **in the register it was addressed in**: `findAnchor` matches an anchor's id,
+its slug OR its human title, so `[[N#introduction]]` becomes `[[N#preface]]` and
+`[[N#Introduction]]` becomes `[[N#Preface]]`. Rewriting the second into the first would work and
+would also reprint the reader's prose in lower case. The note ITSELF is never rewritten — its
+buffer is open in the editor that just saved it.
+
+### Vault-wide search & replace (`GET /api/replace/preview`, `POST /api/replace`)
+
+The 650-like forum request, and the third rider on the engine above. Admin-only at both gates a
+mutating owner surface uses: the auth guard 401s the POST, and the GET dry run answers a visitor
+**404** rather than 403 — the preview names vault paths and quotes their lines.
+
+- **THE SCOPE IS THE SEARCH BOX.** `q` is whatever the reader typed into the sidebar, operators
+  included (`shared/searchQuery.ts`), and its filters decide which notes are considered. `find` is
+  sent SEPARATELY and used verbatim, because a regular expression is not a search query — running
+  `\d+:\d+` through the operator tokenizer would lose its middle to a `path:`-shaped rule. The
+  client pre-fills `find` from the same parser and the reader may edit it.
+- **The candidate walk is not `search()`.** That one ranks, fuzzes, folds and caps at fifty, every
+  one of which is right for a list and wrong for a rewrite. `replaceCandidates` walks the whole
+  index, applies the filters exactly, and tests the needle against the in-memory body — so the
+  filesystem is touched only for notes that can actually change.
+- **MATCHING IS EXACT: case-sensitive, diacritic-sensitive, literal unless `regex`.** This is the
+  ONE matcher in the product that deliberately does not consult `shared/fold.ts`. Finding is a
+  question and folding widens it kindly; replacing is a WRITE, and a "replace المقدمة" that
+  stripped the harakat off «الْمُقَدِّمَة» would destroy text the reader never typed and never saw.
+  Case is the same argument in Latin. The regex toggle is where `[Mm]` says so out loud.
+- **FRONTMATTER IS OUT OF REACH**, in both the preview and the apply. A blind regex over YAML is
+  the failure this release's story mocks Obsidian's properties editor for, and the vault has a
+  byte-surgical frontmatter writer for that work. One tool per substrate.
+- **Line-preserving by construction.** A newline in `find` or `replace` is refused (`400`,
+  `multilinePattern`), because a replacement that split a line would make every line number below
+  it in the preview the reader is looking at wrong. A regex that can match the empty string is
+  refused too (`emptyMatch`): `a*` → `x` inserts an x between every character in the vault.
+- **Selection is per file AND per line.** `files[{path, mtimeMs, lines}]`; `lines: null` is "every
+  match in this file". Preview rows carry FULL-FILE line numbers (frontmatter counted), the number
+  the editor's goto machinery uses. Every matching file is named and counted; the first 40 carry
+  line samples (20 each) and the rest are offered whole and say so.
+- **THE MTIME IS THE FOURTH PROMISE.** A reader looks at a preview for a while, and the engine's
+  precondition only covers the width of its own read. Every previewed file carries the mtime it was
+  read at; `screenTargets` refuses any file whose mtime has moved since and returns it in
+  `conflicts[]`, which the panel names in a toast. `applyBulk`'s own precondition then closes the
+  remaining millisecond.
+- **The snapshot is why history shipped first.** When the vault is a git work tree the panel offers
+  `snapshot: true`, ticked by default; the route runs `snapshotNow()` BEFORE the rewrite and answers
+  with the short sha. A commit taken after the rewrite records the damage. A repository that is not
+  there, or a clean tree, is not an error — the box was an offer, not a precondition.
+
+## The properties card, editable in place (`POST /api/frontmatter`)
+
+Obsidian's all-time #1 request, and the one this release's story is told against: their editor
+round-trips YAML through a serializer, so it reformats quote styles, drops comments and reorders
+keys nobody touched. Vellum's writer is textual. `server/frontmatterEdit.ts` owns the surgery,
+`client/editor/propsEdit.ts` owns the controls, `tests/frontmatter.test.ts` owns the promise.
+
+- **THE CARD IS EDITABLE IN THE EDITOR AND NOWHERE ELSE.** `buildPropsCard()` (noteMeta.ts) takes
+  its editing layer as two callbacks — `editRow`, `footer` — and the reading-view renderer passes
+  neither. That is not a flag: rollup never reaches `propsEdit.ts` from the reading side, so a blog
+  visitor's first paint does not contain an `<input>` element for a note they cannot write to. A
+  reviewer confirms it by grepping the built chunks for `cm-s-props__chipx`.
+- **EVERY WRITE RIDES THE ROUTE, never the buffer.** A frontmatter edit through the CodeMirror
+  document would inherit the autosave debounce, the 409 dance and the undo history (Ctrl Z after
+  ticking a checkbox would eat your last paragraph), and it would put a SECOND frontmatter writer
+  in the product — which is how the claim above stops being true. The card dispatches
+  `vellum:property {path, key, value}`; App.tsx re-checks `admin` and calls `setProperty`, which is
+  `setBanner`'s choreography to the letter: let a pending autosave land, `markSelfWrite`, POST,
+  `bumpReload`. Silent on success (the row IS the feedback), one toast on removal.
+- **THE VALUE IS TYPED ON THE WIRE.** `PropertyValue` is `{kind:"text"|"bool"|"date"|"list"}`,
+  because a card with a checkbox and a date picker in it cannot say what it means with a string:
+  `true` and `"true"` are different YAML, and guessing from the characters is how a note titled
+  "no" becomes `title: false`. A bare string is still read as `text` — `banner:` has been written
+  that way since v1.2.
+- **The key policy is a SHAPE, not a list.** Arbitrary keys are allowed (`\p{L}\p{N}_.-`, ≤64
+  chars, single line, no control characters, values ≤500 chars, lists ≤64 items) — the whole point
+  is the keys Vellum does not know about. Refused: `publish` (its own route broadcasts, re-filters
+  the SSE visitor stream and re-counts the site; reaching it here would set the flag and tell
+  nobody) and `id`/`uuid`/`guid`/`dg-*` (another tool's primary key). The card renders exactly that
+  set faint and control-less via `isMachineKey()`; the route refuses it again, because a rule
+  enforced only in the DOM is not a rule. A `.tex` note's keys must additionally be ASCII: its
+  fence is recognised by `looksLikeYaml()` (shared/tex.ts) only when every line is an ASCII `key:`
+  or `- item`, so an Arabic key in a comment block would make the whole block stop being
+  frontmatter — and the first thing lost when frontmatter stops parsing is `publish: true`.
+- **The five rails of `setNoteProperty()`**, each with cases in `tests/frontmatter.test.ts`:
+  1. only the edited key's lines are rewritten — comments, blank lines, indentation, key order,
+     CRLF, unknown keys and malformed YAML three lines down are spliced through untouched;
+  2. quote style is preserved (plain stays plain, `'…'` stays `'…'`, `"…"` stays `"…"`), falling
+     back to double quotes only when the new text cannot be spelled that way — and falling back
+     when a plain spelling would change the YAML TYPE, unless the value it replaces was itself a
+     plain literal (`weight: 3` → `weight: 4`, never `weight: "4"`);
+  3. a trailing `# comment` on the key line survives the value under it changing, alignment and all;
+  4. list items the edit did not touch keep their own bytes — the card sends the whole array and
+     the writer DIFFS it, so adding one chip to a five-item block list appends one line. A block
+     list stays a block list: collapsing one onto its key line orphans its `- item` lines under a
+     key that now holds a value, which is not a note with an odd list but a note whose YAML no
+     longer parses;
+  5. removing the last property removes the FENCE PAIR, so the note never keeps the `---\n---`
+     stub that renders as a divider — unless comments remain in the block, which are the reader's
+     own words. An emptied LIST stays a list (`key: []`): removing the key is a different verb, and
+     a card whose row vanished with its last chip would leave no way to put one back.
+- **A key that already carries a value owns ONE line.** Continuation scanning starts only from an
+  empty key line or a block-scalar indicator (`|`, `>`), which is what stops a write to `title`
+  from swallowing the comment and the stray indented line beneath it.
+- **Controls.** Scalar → a button shaped like the text, click opens an input (blur commits: typed
+  text survives the gesture that interrupted it, Esc cancels). `true`/`false` → a real checkbox
+  with the FILE's token beside it, untranslated, so the card and `git diff` show the same
+  characters. `YYYY-MM-DD` → the platform date picker, written unquoted. Lists (or `tags`,
+  `aliases`, `folders`, `cssclasses`, `categories`, `keywords` however they are currently spelled)
+  → chips with their own ×, plus a `+`. A `tags` chip is the card's own search pill, WRAPPED not
+  rebuilt, so it still searches when clicked. Every control stops its own pointer and key events:
+  the card is a widget inside `.cm-content`, and an un-stopped Esc reached the shell and left zen.
+- **44px on any coarse pointer**, for the row ×, the chip ×, the `+`, the value button, the add
+  form and the checkbox — and the row × drops its hover fade there, because an invisible control on
+  a touch device is not a quiet control.
+
+## Print & PDF (`client/reading/print.css`, `client/print.ts`, gated by `npm run check-print`)
+
+Obsidian's third most-demanded feature, and this product shipped with **zero** `@media print` rules
+across twenty-seven stylesheets — so a note printed the ROOM: a viewport-locked grid clipped to one
+sheet, an inch of sidebar, a status bar, and out of a dark theme a black rectangle with the type
+dropped out of it by the printer's own background suppression.
+
+- **TWO SURFACES, TWO ANSWERS, and the difference is not a compromise.** The **blog article prints
+  itself, in place**: that page IS the document, hero and byline and tags, its DOM is complete, and
+  the person printing a published piece is usually not its author and has no command palette on
+  their page — their own `Ctrl/Cmd P` has to work with no JavaScript from us. The **app prints a
+  rendered copy** into `.s-print`, built outside `#root` by `client/print.ts`, with `#root` hidden
+  for the duration. The app shell cannot be printed in place at any price: it is a grid of up to N
+  panes locked to the viewport, its centre column is its own scrollport, and CodeMirror renders
+  only the lines near the caret — printing the editor's DOM prints the fragment that happened to be
+  on screen, which is a silently truncated document rather than a layout bug.
+- **THE HOST IS `display: none` ON SCREEN, always** — declared outside the media block, never a
+  class toggled at print time. A print host that can be seen being built is the theme-swap flash
+  this codebase refuses everywhere else.
+- **THE COPY COMES FROM, IN ORDER:** the rendered document already on screen in the FOCUSED pane
+  (cloned — hydrated maths, drawn tracker cards, decoded images, and a clone cannot disagree with
+  what the reader is looking at); else the editor's live buffer through `renderNoteContent`, the
+  one renderer; else the note on disk, which only the command can reach because `beforeprint`
+  cannot await a fetch.
+- **`beforeprint` IS THE ENTRY POINT, not the command.** It fires synchronously and Chrome
+  paginates without waiting on a promise, so `client/print.ts` is imported for its side effect by
+  `Editor.tsx` and `ReadingView.tsx` — the chunks that are already loaded whenever there is a
+  document to print — and by `import()` from the palette, App.tsx and the desktop menu. It is in
+  no first paint, and an anonymous blog reader never fetches a byte of it.
+- **THE PAPER PALETTE IS DECLARED, NOT SWITCHED.** `parchment`'s inks — the light room the product
+  has already solved for contrast, callouts and syntax — laid on white paper, redefined on `:root`
+  inside `@media print`. No theme is forced, nothing changes on screen, and the reader's chosen
+  room stays the screen's. `!important` on those tokens and on every structural rule that a screen
+  rule also declares, for two reasons: `@import` is legal only at the top of a file, so reading.css
+  wins on order at equal specificity; and the LAST stylesheet on any instance belongs to its owner
+  (`VELLUM_DATA/custom.css` and a custom theme's injected block are both served at runtime). Rules
+  that only ADD — the page box, every `break-*` — carry none.
+- **THE PAGE BOX IS THE MEASURE.** `@page { margin: 20mm 25mm 22mm }` and nothing inside sets a
+  width: a centred max-width column inside a page box is a second measure inside the first. The
+  margins are symmetric because `@page` has no logical margins in any shipping engine, so an
+  asymmetric binding edge would be silently wrong in one of the two directions forever.
+- **THE PAGE MIRRORS.** The host's `dir` is the note's — a pinned `dir:` in frontmatter if it has
+  one, else the first strong character of its PROSE. The properties card is REMOVED from the host
+  rather than hidden, and that is what makes the second half true: it would otherwise be the first
+  text in the document, and an Arabic note carrying `publish: true` printed as a left-to-right page
+  because the first word in its DOM was the English word "Properties".
+- **WHAT THE PDF GETS THAT EVERY PLUGIN GETS WRONG.** Chrome builds a PDF's bookmark outline from
+  real `h1`–`h6` and its link annotations from fragment `href`s whose target exists — and from
+  nothing else. So the reading renderer emits a real `href` on footnote references, on their return
+  arrows, and (resolved in a post-pass, once the ids exist) on a same-note `[[#Heading]]`. The
+  delegated click handler still `preventDefault`s, so the smooth scroll on screen is unchanged, and
+  no rule here may replace a heading with a styled div.
+- **A FOLDED CALLOUT PRINTS ITS BODY, and a clamped transclusion prints whole.** A fold is a
+  reading posture, not an edit; printing a title with its text missing is silent data loss, which
+  is the one failure a print feature must not have.
+- **A WIKILINK IS PLAIN TEXT ON PAPER** (it points into a vault the person holding the sheet does
+  not have, and a broken one's dashed danger tint is an invitation paper cannot accept); an
+  external link prints its destination after it, except inside a heading, where a url would land in
+  the bookmark outline.
+- **INK ONLY WHERE THE COLOUR IS THE MEANING.** `print-color-adjust: exact` on exactly four things
+  — a callout (its kind), a quotation's bar, a highlight, and the divider, which is content rather
+  than furniture. Everything else lets the printer drop its backgrounds.
+- **NOTHING TO PRINT SAYS SO.** From the graph or the empty state the host holds one line instead
+  of a blank sheet.
+- The chord is **`Ctrl/Cmd Alt P`**, in the ledger and in `docs/keymap.md`, because `Ctrl/Cmd P` is
+  the palette and `Ctrl/Cmd Shift P` publishes. In the BLOG shell App.tsx swallows neither, so a
+  visitor keeps their browser's print key.
+
 ## Delete previews (server indexer + `/api/delete-preview` + client dialogs)
 
 **The dialog counted markdown and the folder held images.** The owner moved a note out of its
@@ -1704,11 +2232,24 @@ time is how the stale hint happened. **The palette hint and the dialog say the s
 `cmdTrashHint` is *moves to .trash*, checked against these dialogs whenever either changes.
 
 **Store deletes toast a LOCALIZED failure.** `guarded(label, fn, failMessage?)` in `state.ts`
-takes an optional localized line; without it the toast falls back to `err.message`, which
-CONTRACTS says above is English log prose no UI may print — an Arabic operator whose delete
-failed read "Note not found: x.md" inside a fully Arabic panel. The three delete verbs pass
-`couldNotDeleteNote` / `couldNotDeleteFolder` / `couldNotDeleteFile`; the rest of the store still
-rides the old fallback, which is the pre-existing pattern.
+takes an optional localized line. It used to fall back to `err.message`, which CONTRACTS says above
+is English log prose no UI may print — an Arabic operator whose delete failed read "Note not found:
+x.md" inside a fully Arabic panel — and its second fallback built a sentence out of the English
+`label` this function takes for the CONSOLE, so a non-Error rejection put "toggling publish failed"
+on screen in a string no translation table has ever held (v1.8 F45). Both are gone: the fallback is
+`actionFailed`, and the diagnosis stays in the `console.error` beside it. The three delete verbs
+still pass `couldNotDeleteNote` / `couldNotDeleteFolder` / `couldNotDeleteFile`, and a caller that
+can say something more useful still should.
+
+**A delete that can be undone offers it (v1.8 F24).** `deletedToast(get, message, trashPath)` in
+`state.ts` is the single seam: a non-permanent delete answers with `trashPath`, whose BASENAME is
+the trash entry's id, so the Undo is `restoreTrash(entry)` — the machinery the trash browser has
+always used — and the result toast is that browser's own `restoredToast` / `restoredRenamedToast`,
+because a restore that quietly went somewhere else is the lie the delete previews exist to stop
+telling. A PERMANENT delete keeps the plain sentence: there is nothing behind it, and an Undo that
+cannot undo is worse than none. The three trashed-toast strings lost their "— restore it from the
+trash browser" tails when the button arrived; the bin is still in the palette for the reader who
+lets the nine seconds run out.
 
 ## Attachment deletion (server, shipped)
 
@@ -2185,6 +2726,46 @@ to move the selection silently. So hover is IGNORED until the pointer actually m
 synthetic move after layout/scroll changes, and one of those must not count), every keystroke and
 every query change disarms it and resets the selection to row 0, and rows select on `mousemove`
 rather than `mouseenter`. Clicking always activates regardless.
+
+**A command row has to EARN its place, and the rank is a number both kinds carry.** The palette's
+match was a plain subsequence test that rejected only a MISSING character, and the whole matched
+command block was concatenated on top of the whole note list — so `sort` put *Design your site*
+(`de**s**ign y**o**u**r** si**t**e`) above every note in the vault. Three rules, all in
+`CommandPalette.tsx`:
+
+- **A floor.** `normalize()` divides the raw fuzzy score by the query length, which turns it into a
+  per-character QUALITY comparable across queries: a contiguous run at a word start pays 7–8, an
+  acronym over word starts 3.5–5.5, a subsequence scattered through unrelated words 2.5 or less.
+  `COMMAND_FLOOR = 3` sits in that gap — measured against the whole table and written into
+  `tests/paletteRank.test.ts`, which is the test that says which way the floor has to move if a
+  bonus is ever retuned: the F18 trap scores −0.75, the weakest match anyone MEANT (`tg` →
+  *Toggle graph*) scores 3.5. The floor is not asked to separate perfectly, only to delete the
+  class of match nobody meant; above it, the cap and the sort do the rest. It is applied to the
+  label and to the hint SEPARATELY, before the hint's demotion, or every searchable hint would fail
+  it — hints are visible row text (`marginalia` / «الحواشي») and must stay findable.
+- **A cap.** `MAX_COMMAND_ROWS = 5`. Past the fifth the list has stopped answering the query and
+  started reciting the table.
+- **One yardstick for both kinds.** A note hit is scored by the same fuzzy pass over its TITLE;
+  a body-only hit takes `BODY_ONLY_SCORE`, just under the floor. Notes keep the server's relevance
+  order exactly — re-sorting them by title fuzz would throw away everything MiniSearch knows about
+  the body — so the interleave is a PLACEMENT: the command block is inserted after the leading
+  notes that outrank its best member, and each kind stays one run under one section caption. A
+  row-by-row weave prints *Commands / Notes / Commands / Notes* down the panel, which is four
+  captions saying what the row icons already said. An exact tie goes to the command.
+
+`fuzzyMatch` tries EVERY position of the query's first character as an anchor and keeps the best
+pass. One greedy pass is enough for a yes/no answer and wrong for a ranking: `note` against
+*Design Notes* latches onto the `n` of *desig**n*** and never sees the whole word two characters
+later, which is how a note lost to four chrome rows in its own vault.
+
+**Two prefixes, one mode.** `@` and `#` both enter heading-jump over the OPEN note's anchor table
+(headings + LaTeX `\label`s), because readers arrive from editors that disagree about which
+character means "heading". Both are gated on a note being open, and that gate is also the fallback
+that makes the choice safe: with nothing on screen to walk, `#tag` is an ordinary note search and
+runs as one. `#` is deliberately NOT a second mode (tag filtering): the search box filters a vault,
+this list walks the open note, and the palette does not need two answers to one keystroke. The
+placeholder and the no-matches block name both characters — the mode was reachable only by a
+character you had to already know, which is a mode nobody has.
 
 **`Ctrl/Cmd+K` remembers where it came from.** App records the focused element before dispatching
 `vellum:quicksearch`; `Esc` inside `.s-search` returns focus to it (falling back to `.cm-content`,
@@ -2767,6 +3348,22 @@ off, contained none of those three things.
   DESIGN.md's hard rule is strip OR render; plain text cannot render a tag, so the whole token goes
   (the shape `isFurnitureLine` already uses). Search matching is unaffected: MiniSearch indexes the
   raw `body` and a separate `tags` field, not the stripped prose.
+- **A TABLE ROW IS FIELDS, NOT A SENTENCE.** Backlink context and per-line search matches quote ONE
+  CELL — the one holding the link or the term, else the first non-empty one — and the alignment row
+  (`|---|:--:|`) is never quotable at all (`cleanContextLine(line, needles)`). A cell is never
+  widened into its neighbours the way a bare `- [[Link]]` line is, because a table's neighbours are
+  the header and the next row. Sidebar search snippets reduce a row to its cells joined by ", ".
+  All of it replaces one rule that joined every cell with `" · "`, which was both unreadable
+  ("Dune · Herbert · 1965 · ★★★★ · [[Read]]") and a `·` between two runs of text, banned everywhere
+  else in this product for the reason the status bar gives.
+- **A post whose body is only a fence gets a sentence, not an empty slot.** A shelf note (one
+  ```` ```tracker ```` per thing, or one ```` ```tracker-board ````) has no paragraph to cut, so
+  `postMeta` falls back to `fenceSummary()`: "A shelf of 3 trackers." / "رفّ فيه 3 من المتتبِّعات.".
+  Written on the SERVER, in both languages, off `blogLocale()` — an excerpt is not chrome, it goes
+  into RSS and `og:description` where there is no client to translate it (`footerLine()` is the
+  precedent) — and computed per call rather than cached in `record.post`, so a language change in
+  settings takes effect without every shelf note being resaved. Counts go through
+  `shared/numerals.ts` like every other number on the card.
 - **`--banner-tint` names how far the hash may pull the ACCENT, not how much accent to add
   back.** The generated banner's inner mix is
   `color-mix(in oklab, hsl(<hash hue>) var(--banner-tint, 0%), var(--accent))` — accent first,
@@ -3826,6 +4423,17 @@ PATCH keys — `gitToken`, `gitUser` — that never reach `settings.json`. Route
 as a visitor is refused too; the POSTs are mutations the auth guard already 401s):
 `POST /api/sync/init`, `POST /api/sync/now` (409 while one is running), `GET /api/sync/status`.
 
+- **A pass that commits NAMES the commit.** `GitSyncResult.sha?` carries `git rev-parse --short
+  HEAD`, read after the commit and through `gitTry` — a backup that worked must never be reported
+  as a failure because `rev-parse` did. Absent when the pass committed nothing, when it failed, and
+  on results recorded before the field existed. It exists because "Vault committed and pushed" is
+  true of every successful pass this product has ever run and therefore reads the same after a
+  chapter and after a stray space (v1.8 F40); the client's toast prints it via `syncPushedSha` and
+  carries a **Backup** button that dispatches `vellum:sync-panel`, which `SyncBadge` answers by
+  opening its panel and taking focus. The sha stays in its own isolate and its own numerals —
+  never `localeNum()`, which would spell an Eastern Arabic digit into a string an operator is
+  about to paste into `git show`.
+
 - **Never a shell.** Every git call is `execFile("git", [fixed, argument, array], { cwd: vaultRoot })`.
   The remote is validated to `^https://` / `^ssh://` / `git@host:path` with no whitespace, no shell
   metacharacters, no leading `-`, and **no credentials in the URL** — a password is a 400 on either
@@ -3933,6 +4541,73 @@ as a visitor is refused too; the POSTs are mutations the auth guard already 401s
   lines are separated by a hairline rule, never by a "·": the Eastern Arabic zero is itself a
   raised dot.
 
+### Note history — the read half of the same repository
+
+Backup & sync had been committing the whole vault since v1.6 and **nothing in the product could
+look at what it kept**. That is the locked-fire-exit shape the trash browser was built to fix one
+floor down, and it is why the undo of last resort ships FIRST in v1.8: the bulk editors that follow
+it (vault-wide search & replace, tag rename) are what a note-taker most wants and least trusts,
+because a bad vault-wide edit is unrecoverable.
+
+- **Two read-only routes, both admin-only.** `GET /api/history?path=` answers
+  `{ repo, revisions, truncated }`; `GET /api/history/blob?path=&sha=` answers one revision's
+  bytes. Both 404 to a publish-limited session exactly as `/api/settings` does — a stranger
+  learning that a published essay had eleven drafts, when each landed and what its commit message
+  said, is a leak of the author's process even where the note itself is public. Neither is behind
+  `assertCredentialed()`: that gate exists because a *sync* can send the whole vault to an address
+  the caller chose, and reading is not that.
+- **A vault that is not a git repository answers `repo: false`, not an error.** It is the state
+  every first-run instance is in, and the honest reply is an invitation: the panel prints "Backup
+  is off — turn it on to start keeping history" over a button that opens Settings **on the Backup
+  row** (`openSettingsAt("rowSyncEnabled")`, the same index the moderation panel's door uses).
+- **`--follow`, and therefore a path PER REVISION.** A rename must not throw a note's past away, so
+  the log crosses renames — which means an older revision of a moved note is a blob under its OLD
+  name, and `git show <sha>:<current path>` would simply miss. Every row carries the path its own
+  blob lives under, and the blob route is asked for that one. It gets the identical treatment the
+  note routes give any path: `assertNotePath()` then `safeAbs()` — `..` is a 400, a dotfile or
+  anything outside the vault a 404 — before git is spoken to.
+- **A revision id is a bare object name.** `isFullSha()` accepts 40 or 64 lowercase hex and nothing
+  else, because the value is spliced into `<sha>:<path>`, which git parses as a revision spec:
+  `HEAD`, `sha^`, `@{-1}` and a second `:` all mean something there. Size is checked with
+  `cat-file -s` BEFORE the content is read, so a note somebody pasted a database into cannot become
+  a 40 MB JSON body (2 MB ceiling, 413 past it).
+- **The numstat is parsed in `-z` form.** The human spelling prints `dir/{old => new}/note.md`,
+  which no parser should be asked to take apart; `-z` gives the rename as two NUL-separated fields.
+  What the rows show is `+12 −3` — the spec's optional "sizes", decided as line counts, because a
+  byte count of a markdown revision answers nothing a reader is asking and both numbers come out of
+  the same single `git log` call. **There is no diff view**: a real one is a renderer, a stylesheet
+  and a second modal state, and the whole revision is one tap away.
+- **The section is COLLAPSED at rest and asks git nothing until it is opened.** `git log --follow`
+  is a process, and an always-expanded panel would spawn one on every note opened, for ever, to
+  fill a list most sessions never look at. The header is always visible (a door, never a hover
+  reveal) and the choice persists in `localStorage`, so the reader who wants history pays for it
+  and nobody else does. The whole panel is a dynamic import for the same reason — it carries a
+  markdown renderer and a modal that a visitor can never reach.
+- **Restoring is an ORDINARY EDIT.** It goes through `sectionActions::applyNoteContent`: one
+  transaction into the open editor when one holds the note (undoable, and the existing autosave
+  carries it to disk under its precondition), `putNote` when nothing does. Nothing here writes a
+  special path. A restore is itself a revision, which is exactly why the toast's Undo is a SECOND
+  restore — of the text that was on screen a moment ago, read buffer-first *before* the write —
+  rather than a rollback verb this feature would have had to invent.
+- **"Snapshot now" is one LOCAL commit** (`gitSync::snapshotNow()`, `POST /api/sync/snapshot`,
+  palette row, offered on any vault that is already a repository whether or not backup is switched
+  on). It is `syncNow()` with the two network halves removed and the identical
+  `protectDataDir()` → `stageAll()` gate, because the one thing that must never differ between the
+  two paths is what gets committed. It claims the same `busy` lock — two writers in `.git/index` is
+  the fight that lock exists to prevent — and it does NOT record `lastResult`: the badge's sentence
+  answers "is my writing somewhere else yet", and a local commit is not an answer to that. Its
+  subject is `vellum snapshot:` rather than `vellum sync:`, so one row of the timeline is findable
+  a week later.
+- **Our own commit subjects are told in the reader's language.** `vellum snapshot: <iso>` is the
+  right subject for a terminal `git log` and the wrong one in a timeline whose first column is
+  already the moment — the row would print when twice. Anyone else's subject is shown exactly as
+  they wrote it, `dir="auto"`, scrubbed and capped server-side.
+- **Dates go through `client/dates.ts`, both halves.** `relativeDate()` is new and lives there
+  rather than in the panel for the reason that module's header gives: four surfaces used to hold
+  their own `Intl` call. Inside 30 days a revision is a DISTANCE ("three days ago" — how a reader
+  hunting "the version before I broke it" thinks); beyond it, `siteDate()`, so a Hijri instance
+  dates its own history in Hijri.
+
 ## The desktop app (`electron/`, `desktop/`, `client/desktop/`)
 
 Vellum runs in a browser, and for a writer that is the wrong window: no
@@ -4004,6 +4679,17 @@ feature, it is silent, and it is one line of convenience away at all times.
   language** (`dlgPortMovedBody`). It is the one message this app owes: their
   layout for that vault has just reverted, and nothing inside the window can say
   why.
+- **A server that dies gets ONE respawn, after a 1.5 s backoff, before the app
+  gives up** (`main.ts::onServerExit` → `respawnServer`). Closing every window on
+  the vault and printing an exit code is the right ending for a server that
+  cannot run, and the wrong one for a server that fell over once — which is what
+  a crash usually is. The port is free by then, so `startVaultServer` almost
+  always gets the same one back and the windows simply resume with their stored
+  layout intact; a port that moved carries each window's route across instead.
+  The sign-in is redone against the new child (same `SESSION_SECRET`, so the
+  cookie in the partition still stands) and the keep-alive re-armed. A SECOND
+  death gets no second attempt: a server that cannot stay up is a bug to show,
+  not a flicker to hide.
 - `VELLUM_DATA` goes to `<userData>/vaults/<name>-<hash>/data`, **not** into the
   vault. `isIgnoredSegment` hides exactly three names — `.obsidian`, `.git`,
   `.trash` — and `.vellum` is not one of them, so a data directory beside the
@@ -4384,6 +5070,22 @@ ends becomes a per-note `renamed`; anything hidden at its new address leaves as 
   pointer). It lists exactly the destinations `canDrop()` allows, so the tree's highlighting and the
   list can never disagree, and it mounts its own React root on demand rather than adding a host to
   `App.tsx`.
+- **The picker has a door, and it is pinned** (v1.8 UX audit, F11). Two dead ends had no way
+  forward: a vault whose every folder `canDrop()` refuses, and a filter that matches none. A
+  `.s-movepick__new` row sits BETWEEN the scrolling list and the footer — outside the
+  `role="listbox"`, since a control that is not one of the options may not sit among them, and
+  outside the scroll, since a door that scrolls away is not one. It is the last stop of the arrow
+  keys, it is named with the filter text when there is any ("New folder “archive”…"), and it opens
+  `promptNewFolder` — the SAME dialog the tree's own New folder opens, so the `..`/dotfile refusals
+  and the "creates archive/2026" line under the field are rules the reader already knows. It
+  creates at the vault root and obeys a typed path, then moves the item in through the ordinary
+  `moveTo()`, undo toast included.
+- **A NOTE is never offered the attachments folder** (F11). `MeData.attachmentFolder` carries the
+  resolved policy (admin-only, like `folderIcons`: it is a vault path, and only an admin moves
+  anything) — the fixed folder under `specified`, the repeating folder NAME under `subfolder`, and
+  nothing at all under the two modes that name no folder. A FOLDER may still be filed there: a
+  folder is the reader's own structure, and hiding the row would take away the only keyboard route
+  to a move the drag still allows.
 - **`POST /api/folder/move` refuses a path WRITTEN as absolute.** `normalizeRel` strips the leading
   slash, so `toPath:"/tmp/escaped"` answered 200 and invented a top-level `tmp/` folder inside the
   vault. Nothing escaped — but a request that reads as "put this at /tmp" and succeeds by meaning
@@ -5014,6 +5716,17 @@ tree already teaches, which is what makes a deep nest reachable without pixel-hu
 indent step. The drop indicator is `position: absolute` inside the list rather than spliced between
 rows: an indicator that takes up space pushes every row below it down by its own height, so the row
 the reader is aiming at moves away at the moment they aim.
+
+**A note with no headings keeps its outline section** (v1.8 UX audit, F5): the whole section used
+to vanish, so the right panel changed shape from note to note and a reader who had just used the
+outline found the panel apparently missing a part of itself. It renders its header and one quiet
+`.s-panel-empty` line instead, without the count badge and without the numbering button — a `0`
+over an empty list reads as broken, and there is nothing to number. The sentence the LOCAL GRAPH
+shows when a note has no links at all was shortened in the same pass (F6): two near-identical
+sentences one above the other taught nothing twice, so the instruction ("link to this note with
+`[[…]]`") is said once, in the backlinks empty, and the graph's line is only about the picture it
+stands in for. Both empties are `--text-muted`: DESIGN.md's rule is that `--text-faint` is a
+NON-TEXT token, and a sentence explaining why a section is quiet is exactly what a reader must read.
 
 The panel keeps the FULL section list (furniture headings included, which the rows do not show):
 a section the outline hides is still a section the note holds, and a drop point computed from the
@@ -6784,6 +7497,13 @@ subsection beside the palette/editor-extensions entries.
   row ranks by its NOTE's frecency/linkedness. Once a `|` is typed the popup
   closes (the author is writing display text). The alias dedupe rules
   (one row per alias, winner-first) are unchanged — tests/aliases.test.ts.
+  **THE NOTE YOU ARE IN IS NOT A DESTINATION** (v1.8 UX audit, F4): it carries
+  the highest frecency there is — you are typing in it — so it sorted to the
+  top of every "[[" popup in the vault and offered a link from a note to
+  itself as the first and most obvious answer. The host path (the
+  `notePathFacet`) is excluded from the rows, its aliases with it; it is NOT
+  excluded from `exactExists`, because a note whose own name is typed still
+  exists and offering to CREATE it would be worse than offering to link it.
 
 - The CREATE ROW: last row of the "[[" popup, admin only, only when nothing
   answers the typed name exactly. It creates `<open note's folder>/<typed>.md`

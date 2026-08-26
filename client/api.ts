@@ -6,15 +6,20 @@ import type {
   AliasesResponse,
   AnchorsResponse,
   Backlink,
+  BulkResult,
   CustomFontInfo,
   DeletePreview,
   FrontmatterResult,
+  PropertyValue,
   GitSyncStatus,
   GraphData,
   MeData,
   NoteData,
+  NoteHistoryResponse,
+  NoteRevisionBlob,
   NoteState,
   NoteStatesResponse,
+  NoteWriteResult,
   PostMeta,
   PublicThemeInfo,
   PublishedPaths,
@@ -25,6 +30,10 @@ import type {
   SettingsResponse,
   TagCount,
   TagLabelsResponse,
+  ReplacePreview,
+  ReplaceResult,
+  TagRenamePreview,
+  TagRenameResult,
   TrackerMeta,
   TrashEntry,
   TreeNode,
@@ -111,16 +120,79 @@ export function isNotPublishedError(err: unknown): boolean {
   return previewOn && err instanceof ApiError && err.status === 404;
 }
 
-async function request<T>(url: string, init?: RequestInit, asAdmin = false): Promise<T> {
+/** How long any ordinary API call may hang before this client stops waiting.
+ *
+ *  `fetch` has NO timeout of its own: a proxy that accepts a connection and
+ *  then says nothing (a laptop that slept through a wifi change, a tunnel that
+ *  died mid-flight) leaves the promise pending for as long as the tab lives.
+ *  Every one of those promises is a spinner that never stops and — on the save
+ *  path — a write nobody will ever be told did not land. 30s is far past the
+ *  slowest real answer this API gives and far short of a reader's patience. */
+export const REQUEST_TIMEOUT_MS = 30_000;
+
+/** Uploads carry BYTES, and an attachment ceiling measured in tens of
+ *  megabytes over a phone tether is minutes of honest work, not a hang. */
+export const UPLOAD_TIMEOUT_MS = 300_000;
+
+/** The signal one request runs under. The deadline is COMPOSED with the
+ *  caller's own signal rather than replacing it: search and the visibility
+ *  probe abort their in-flight request on every keystroke, and a timeout that
+ *  clobbered `init.signal` would have turned those into a request per
+ *  character that nothing could cancel.
+ *
+ *  Exported because it is the whole policy, and a policy worth a test. */
+export function requestSignal(caller: AbortSignal | null, timeoutMs: number): AbortSignal {
+  const deadline = AbortSignal.timeout(timeoutMs);
+  return caller ? AbortSignal.any([caller, deadline]) : deadline;
+}
+
+/** What a request that ran out of time becomes. An `ApiError`, so it reaches a
+ *  reader as a sentence about the server (keyed off `code`, see
+ *  client/safety.ts) rather than as "signal is aborted without reason", which
+ *  is what a DOMException prints. Status 0: no server answered. */
+export function timeoutError(timeoutMs: number): ApiError {
+  return new ApiError(`Timed out after ${Math.round(timeoutMs / 1000)}s`, 0, "timeout");
+}
+
+async function request<T>(
+  url: string,
+  init?: RequestInit,
+  asAdmin = false,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<T> {
   // asAdmin: skip the preview header — for admin actions offered INSIDE the
   // visitor preview (the dashboard's "Change banner…"), which must reach the
   // server as the real admin session or the guard would 401/404 them.
-  const res = await fetch(url, asAdmin ? init : withPreview(init));
+  const caller = init?.signal ?? null;
+  const signal = requestSignal(caller, timeoutMs);
+  const timed: RequestInit = { ...init, signal };
+  let res: Response;
+  try {
+    res = await fetch(url, asAdmin ? timed : withPreview(timed));
+  } catch (err) {
+    // The caller's own abort stays exactly what it was — callers recognise it
+    // and stay quiet. OURS becomes an ApiError, so a request that simply never
+    // came back is a sentence rather than a spinner that spins for ever.
+    if (signal.aborted && caller?.aborted !== true) throw timeoutError(timeoutMs);
+    throw err;
+  }
   let body: unknown = null;
+  let parsed = false;
   try {
     body = await res.json();
+    parsed = true;
   } catch {
     // non-JSON body; fall through to status handling
+  }
+  if (res.ok && !parsed) {
+    // A 2xx THIS API DID NOT SEND. The shape that produces it is an auth proxy
+    // in front of Vellum: the session cookie expires, the proxy answers the
+    // XHR with its own 200 HTML login page, and `return body as T` handed every
+    // caller a `null` typed as a tree, a note or a settings object. What the
+    // reader saw was an empty vault, or a crash three frames later inside a
+    // component that had every right to assume its data existed. A typed error
+    // instead — the one place in this client that can tell the difference.
+    throw new ApiError("The server answered with a page, not data", res.status, "notJson");
   }
   if (!res.ok) {
     const message =
@@ -156,6 +228,20 @@ export function getTree(): Promise<TreeNode> {
 
 export function getNote(path: string): Promise<NoteData> {
   return request<NoteData>(`/api/note?path=${encodeURIComponent(path)}`);
+}
+
+/** THE STARTER VAULT, OFFERED RATHER THAN IMPOSED. The server no longer writes
+ *  `vault-seed/` into an existing-but-empty vault directory at boot (the whole
+ *  argument is in server/seed.ts) — the empty state asks instead. `available`
+ *  is true only when there is a seed to copy and nothing of the reader's to
+ *  copy it over; both routes are admin-only and 404 to a visitor. */
+export function seedStatus(): Promise<{ available: boolean; guide: string }> {
+  return request<{ available: boolean; guide: string }>("/api/seed");
+}
+
+/** Copy the starter notes in. Resolves with the guide's path to open. */
+export function seedVault(): Promise<{ guide: string }> {
+  return request<{ guide: string }>("/api/seed", { method: "POST" });
 }
 
 /** How many open notes one revalidation may ask about. Mirrors the server's
@@ -207,8 +293,8 @@ export function putNote(
   path: string,
   content: string,
   baseMtimeMs?: number,
-): Promise<NoteData> {
-  return request<NoteData>(
+): Promise<NoteWriteResult> {
+  return request<NoteWriteResult>(
     `/api/note?path=${encodeURIComponent(path)}`,
     json("PUT", baseMtimeMs === undefined ? { content } : { content, baseMtimeMs }),
   );
@@ -397,6 +483,78 @@ export function addAlias(path: string, alias: string): Promise<{ ok: true; path:
   return request<{ ok: true; path: string; alias: string }>("/api/alias", json("POST", { path, alias }));
 }
 
+// ── Bulk rewrites: tag rename/merge, heading-link repair, and the way back ──
+//
+// Three verbs over one server engine (server/bulkRewrite.ts). Each answers a
+// `BulkResult` naming what it changed AND what it refused to touch, plus an
+// `undoId` the toast hands straight back to `undoBulk`.
+
+/** The dry run every tag-rename dialog shows before it will let anything be
+ *  pressed: how many notes, how many substitutions, whether this is a merge,
+ *  and where the tag's own page would land. */
+export function previewTagRename(from: string, to: string): Promise<TagRenamePreview> {
+  return request<TagRenamePreview>(
+    `/api/tags/rename-preview?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+  );
+}
+
+/** Rename a tag — and everything nested under it — across every note that
+ *  carries it, inline `#tags` and frontmatter alike. Renaming onto a tag that
+ *  exists MERGES the two; the dialog says so before this is called. */
+export function renameTag(from: string, to: string): Promise<TagRenameResult> {
+  return request<TagRenameResult>("/api/tags/rename", json("POST", { from, to }));
+}
+
+/** Point every `[[Note#old]]` in the vault at the heading's new name. Offered
+ *  by the save that renamed the heading; never run without the offer. */
+export function repairHeadingLinks(
+  path: string,
+  from: string,
+  fromTitle: string,
+  to: string,
+): Promise<BulkResult> {
+  return request<BulkResult>(
+    "/api/links/heading-repair",
+    json("POST", { path, from, fromTitle, to }),
+  );
+}
+
+/** THE DRY RUN FOR A VAULT-WIDE REPLACE. `q` is the whole search box — its
+ *  operators decide which notes are in scope — and `find` is sent separately
+ *  and used verbatim, because a regular expression is not a search query and
+ *  the operator tokenizer would eat the middle of `\d+:\d+`. */
+export function previewReplace(
+  q: string,
+  find: string,
+  replace: string,
+  regex: boolean,
+  signal?: AbortSignal,
+): Promise<ReplacePreview> {
+  const query = new URLSearchParams({ q, find, replace, regex: regex ? "1" : "0" });
+  return request<ReplacePreview>(
+    `/api/replace/preview?${query.toString()}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+/** Apply exactly what the preview showed: each file carries the mtime it was
+ *  previewed at (the server refuses anything that has moved since) and the
+ *  lines the reader ticked, or null for "all of them in this file". */
+export function applyReplace(body: {
+  find: string;
+  replace: string;
+  regex: boolean;
+  snapshot: boolean;
+  files: { path: string; mtimeMs: number; lines: number[] | null }[];
+}): Promise<ReplaceResult> {
+  return request<ReplaceResult>("/api/replace", json("POST", body));
+}
+
+/** Put the vault back the way a bulk edit found it. */
+export function undoBulk(undoId: string): Promise<BulkResult> {
+  return request<BulkResult>("/api/bulk/undo", json("POST", { undoId }));
+}
+
 export function getBacklinks(path: string): Promise<Backlink[]> {
   return request<Backlink[]>(`/api/backlinks?path=${encodeURIComponent(path)}`);
 }
@@ -469,12 +627,16 @@ export function publishNote(path: string, publish: boolean): Promise<PublishResu
   return request<PublishResult>("/api/publish", json("POST", { path, publish }));
 }
 
-/** Surgically set (value) or remove (null) one frontmatter key (admin only;
- *  server allowlists the keys — "banner" for now). */
+/** Surgically set (value) or remove (null) one frontmatter property (admin
+ *  only). A bare string is a text value — the shape `banner:` has used since
+ *  v1.2; the typed shapes carry what a card's checkbox, date picker and chips
+ *  mean, which a string cannot (`true` and `"true"` are different YAML). The
+ *  server guards the key by SHAPE and refuses one closed set of machine keys;
+ *  see server/api.ts PROTECTED_KEYS. */
 export function setFrontmatter(
   path: string,
   key: string,
-  value: string | null,
+  value: PropertyValue | string | null,
 ): Promise<FrontmatterResult> {
   return request<FrontmatterResult>("/api/frontmatter", json("POST", { path, key, value }));
 }
@@ -505,7 +667,13 @@ export function uploadAttachment(
   // the falsy test is right here in a way it would not be for a destination.
   if (dir) form.append("dir", dir);
   // No Content-Type header: the browser sets the multipart boundary itself.
-  return request<UploadResult>("/api/upload", { method: "POST", body: form }, asAdmin);
+  // The long deadline, because this one is measured in megabytes.
+  return request<UploadResult>(
+    "/api/upload",
+    { method: "POST", body: form },
+    asAdmin,
+    UPLOAD_TIMEOUT_MS,
+  );
 }
 
 // `getDeleteImpact` / `GET /api/impact` stood here and is gone: it asked "what
@@ -537,7 +705,12 @@ export function uploadFont(file: File): Promise<CustomFontInfo> {
   const form = new FormData();
   form.append("file", file, file.name);
   // No Content-Type header: the browser sets the multipart boundary itself.
-  return request<CustomFontInfo>("/api/fonts/upload", { method: "POST", body: form }, true);
+  return request<CustomFontInfo>(
+    "/api/fonts/upload",
+    { method: "POST", body: form },
+    true,
+    UPLOAD_TIMEOUT_MS,
+  );
 }
 
 /** Remove an uploaded face. 409 while a slot still names it. */
@@ -585,15 +758,54 @@ export function getSyncStatus(): Promise<GitSyncStatus> {
   return request<GitSyncStatus>("/api/sync/status", undefined, true);
 }
 
-/** Make the vault a git repo and point origin at the configured remote. */
+/** Make the vault a git repo and point origin at the configured remote.
+ *  On the upload deadline, not the 30s one: `git init` + the first push of a
+ *  vault of photographs is minutes of honest transfer, and a client that gave
+ *  up on it at 30s would report a failure over a sync that then completed. */
 export function syncInit(): Promise<GitSyncStatus> {
-  return request<GitSyncStatus>("/api/sync/init", { method: "POST" }, true);
+  return request<GitSyncStatus>("/api/sync/init", { method: "POST" }, true, UPLOAD_TIMEOUT_MS);
 }
 
 /** One sync pass: (optional) ff-only pull, stage, commit, push. 409 while a
- *  sync is already running. */
+ *  sync is already running. Same long deadline, same reason. */
 export function syncNow(): Promise<GitSyncStatus> {
-  return request<GitSyncStatus>("/api/sync/now", { method: "POST" }, true);
+  return request<GitSyncStatus>("/api/sync/now", { method: "POST" }, true, UPLOAD_TIMEOUT_MS);
+}
+
+/** A LOCAL commit of the whole vault, and nothing else — no fetch, no push.
+ *
+ *  Not on the upload deadline the two above use: nothing leaves the machine,
+ *  so the only thing this waits on is git writing objects to the operator's
+ *  own disk. Answers whether it committed and the short sha it made. */
+export function snapshotNow(): Promise<{ committed: boolean; sha: string | null }> {
+  return request<{ committed: boolean; sha: string | null }>(
+    "/api/sync/snapshot",
+    { method: "POST" },
+    true,
+  );
+}
+
+// ── Note history (admin only) ───────────────────────────────────────────────
+// The read half of the same repository Backup & sync writes. Both routes 404
+// to a visitor exactly as /api/settings does.
+
+/** Every commit that touched one note, newest first, across renames.
+ *  `repo: false` means the vault is not a git work tree yet — not an error:
+ *  the panel offers to turn Backup & sync on. */
+export function getNoteHistory(path: string, limit?: number): Promise<NoteHistoryResponse> {
+  const q = limit === undefined ? "" : `&limit=${limit}`;
+  return request<NoteHistoryResponse>(`/api/history?path=${encodeURIComponent(path)}${q}`, undefined, true);
+}
+
+/** One revision's bytes. `path` is the path THAT REVISION lives under — the
+ *  listing carries it per row, because `--follow` crosses renames and an old
+ *  revision of a moved note is a blob under its old name. */
+export function getNoteRevision(path: string, sha: string): Promise<NoteRevisionBlob> {
+  return request<NoteRevisionBlob>(
+    `/api/history/blob?path=${encodeURIComponent(path)}&sha=${encodeURIComponent(sha)}`,
+    undefined,
+    true,
+  );
 }
 
 /**

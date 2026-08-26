@@ -2,8 +2,9 @@
 // global keyboard shortcuts, and the single SSE subscription that keeps the
 // tree, backlinks, and externally-changed open notes fresh.
 
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { VaultEvent } from "../shared/types.ts";
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazySurface } from "./lazySurface.tsx";
+import type { PropertyValue, VaultEvent } from "../shared/types.ts";
 import { subscribeEvents } from "./api.ts";
 import { coalesce } from "./coalesce.ts";
 import { clearBrokenEmbeds } from "./editor/embeds.ts";
@@ -95,26 +96,26 @@ const SSE_COALESCE_MS = 250;
 // of every session dropped focus to <body>. Per-surface boundaries fix both,
 // because nothing that is already on screen is inside the boundary that
 // suspends.
-const Workspace = lazy(() => import("./components/Workspace.tsx"));
-const BlogShell = lazy(() => import("./blog/BlogShell.tsx"));
-const DesignedSite = lazy(() => import("./design/DesignedSite.tsx"));
-const GraphView = lazy(() => import("./components/GraphView.tsx"));
-const Sidebar = lazy(() => import("./components/Sidebar.tsx"));
-const Tabs = lazy(() => import("./components/Tabs.tsx"));
-const StatusBar = lazy(() => import("./components/StatusBar.tsx"));
-const BacklinksPanel = lazy(() => import("./components/BacklinksPanel.tsx"));
-const CommandPalette = lazy(() => import("./components/CommandPalette.tsx"));
-const BannerModal = lazy(() => import("./components/BannerModal.tsx"));
-const ModerationPanel = lazy(() => import("./components/ModerationPanel.tsx"));
-const TrashModal = lazy(() => import("./components/TrashModal.tsx"));
-const SettingsModal = lazy(() => import("./components/SettingsModal.tsx"));
+const Workspace = lazySurface(() => import("./components/Workspace.tsx"));
+const BlogShell = lazySurface(() => import("./blog/BlogShell.tsx"));
+const DesignedSite = lazySurface(() => import("./design/DesignedSite.tsx"));
+const GraphView = lazySurface(() => import("./components/GraphView.tsx"));
+const Sidebar = lazySurface(() => import("./components/Sidebar.tsx"));
+const Tabs = lazySurface(() => import("./components/Tabs.tsx"));
+const StatusBar = lazySurface(() => import("./components/StatusBar.tsx"));
+const BacklinksPanel = lazySurface(() => import("./components/BacklinksPanel.tsx"));
+const CommandPalette = lazySurface(() => import("./components/CommandPalette.tsx"));
+const BannerModal = lazySurface(() => import("./components/BannerModal.tsx"));
+const ModerationPanel = lazySurface(() => import("./components/ModerationPanel.tsx"));
+const TrashModal = lazySurface(() => import("./components/TrashModal.tsx"));
+const SettingsModal = lazySurface(() => import("./components/SettingsModal.tsx"));
 // The keyboard-shortcut sheet is lazy AND mount-gated on `shortcutsOpen` —
 // which is why it is worth splitting when the other always-mounted hosts are
 // not. It renders in the BLOG branch too, so a static copy put its 389 lines,
 // and the theme picker it reaches, into an anonymous article reader's first
 // request in order to describe keys that reader has not pressed. The store
 // already holds the open flag, so the mount can simply wait for it.
-const ShortcutsHelp = lazy(() => import("./components/ShortcutsHelp.tsx"));
+const ShortcutsHelp = lazySurface(() => import("./components/ShortcutsHelp.tsx"));
 
 /** One lazy surface, one boundary. `fallback` defaults to nothing for the
  *  modals — a dialog that arrives a frame late is invisible, whereas a
@@ -354,8 +355,11 @@ export default function App() {
       .map((p) => ({ path: p, title: live.get(p)! }));
   }, [recent, tree]);
 
-  // Navigating to another note dismisses lingering toasts — a message about
-  // the previous interaction must not overlay unrelated content.
+  // Navigating to another note dismisses lingering PLAIN toasts — a message
+  // about the previous interaction must not overlay unrelated content. An
+  // action toast is deliberately spared (client/toast.ts): deleting the open
+  // note is exactly the gesture that changes `openPath`, and the Undo it
+  // offers cannot dismiss itself in the same frame it appears.
   useEffect(() => {
     dismissToasts();
   }, [openPath]);
@@ -392,6 +396,17 @@ export default function App() {
     const onEvent = (ev: VaultEvent) => {
       const store = useStore.getState();
       refreshVault();
+      // TOO MUCH CHANGED TO NARRATE. The server stops sending one frame per
+      // file above ~25 in 200ms (a `git pull`, a folder restore, an Obsidian
+      // sync) and sends this instead; the honest answer is the one a dropped
+      // stream gets — re-read everything this client is holding, since we were
+      // not told which of it moved.
+      if (ev.kind === "bulk") {
+        invalidateVaultGraph();
+        clearBrokenEmbeds();
+        void revalidateBuffers();
+        return;
+      }
       // The link graph is the most expensive of the lot and has its own
       // debounce and its own shared cache, so it is invalidated rather than
       // refetched here.
@@ -507,6 +522,28 @@ export default function App() {
     };
     window.addEventListener("vellum:set-banner", onSetBanner);
     return () => window.removeEventListener("vellum:set-banner", onSetBanner);
+  }, []);
+
+  // The properties card writes one property (v1.8, Obsidian parity #1). The
+  // card is raw DOM inside a CodeMirror widget and knows nothing about the
+  // store, so it asks the shell the same way the "Set banner…" button beside
+  // it does — but it names its own NOTE in the event, because a split puts two
+  // cards on screen and the one that was clicked is not always the focused
+  // pane's. `admin` is re-checked here rather than trusted from the DOM: this
+  // is the shell's gate, and the editor is only one of the things that can
+  // dispatch a window event.
+  useEffect(() => {
+    const onProperty = (ev: Event): void => {
+      const detail = (ev as CustomEvent<{ path?: unknown; key?: unknown; value?: unknown }>).detail;
+      const store = useStore.getState();
+      if (!store.admin) return;
+      const path = typeof detail?.path === "string" ? detail.path : store.openPath;
+      const key = typeof detail?.key === "string" ? detail.key.trim() : "";
+      if (path === null || key === "") return;
+      void store.setProperty(path, key, (detail?.value ?? null) as PropertyValue | null);
+    };
+    window.addEventListener("vellum:property", onProperty);
+    return () => window.removeEventListener("vellum:property", onProperty);
   }, []);
 
   // Global keyboard shortcuts.
@@ -664,7 +701,22 @@ export default function App() {
       // Ctrl/Cmd+K is the blog reader's one command; the rest act on chrome
       // that is not on their page.
       if (blogShell && key !== "k") return;
-      if (key === "p" && e.shiftKey) {
+      if (key === "p" && e.altKey) {
+        // Ctrl/Cmd+Alt+P — print / export PDF. THE OBVIOUS CHORD WAS ALREADY
+        // SPENT, twice: Ctrl/Cmd+P is the palette and Ctrl/Cmd+Shift+P
+        // publishes, and neither of those is worth moving so that printing can
+        // have the key browsers hand it. So printing wears Alt, like the daily
+        // note and the pane toggles, and both of the alternatives are honest:
+        // the palette row prints the chord, and inside the BLOG shell nothing
+        // is swallowed at all — a visitor's Ctrl/Cmd+P is the browser's, and
+        // reading/print.css is what makes it produce the right pages.
+        //
+        // Dynamic import for the reason CommandPalette gives at the same call:
+        // the module carries the markdown renderer and must not be in a first
+        // paint. It is already resolved whenever a document is on screen.
+        e.preventDefault();
+        void import("./print.ts").then((mod) => mod.printNote());
+      } else if (key === "p" && e.shiftKey) {
         // Ctrl/Cmd+Shift+P: publish toggle (admin, note open) — never the palette.
         if (store.admin && store.openPath) void store.togglePublish(store.openPath);
       } else if (key === "p") {
@@ -740,6 +792,30 @@ export default function App() {
         } else if (!store.splitFocusedPane(e.shiftKey ? "block" : "inline")) {
           toast(t("paneCapReached"));
         }
+      } else if (e.altKey && (e.key === "PageDown" || e.key === "PageUp")) {
+        // THE TAB STRIP GETS A KEYBOARD (v1.8 audit, F12). Every other pane
+        // operation had a chord and the tabs inside them had none, so a reader
+        // with forty notes open could split, close and walk between panes
+        // without a mouse and then had to reach for one to change tab.
+        //
+        // WHY THESE KEYS. The three chords the whole world uses for tabs —
+        // Ctrl+Tab, Ctrl+PageUp/PageDown, Ctrl+W — all belong to the browser,
+        // and a keystroke that fights the browser is a keystroke that loses.
+        // Two of them can be worn one modifier over, which is the escape hatch
+        // this file already takes for the templates and the pane toggles; the
+        // third cannot, because Alt+Tab belongs to the window manager. So the
+        // page keys carry the walk and W carries the close, and the muscle
+        // memory transfers with one extra finger.
+        //
+        // NOT arrows: Ctrl+Alt+←/→ is GNOME's workspace switcher and macOS
+        // Chrome's own tab switcher, and neither hands it back.
+        e.preventDefault();
+        store.stepTab(e.key === "PageDown" ? 1 : -1);
+      } else if (key === "w" && e.altKey) {
+        // Ctrl/Cmd+Alt+W — close the focused pane's active tab. The bare chord
+        // closes the browser window and is not takeable anywhere.
+        e.preventDefault();
+        store.closeActiveTab();
       } else if (key === "d" && e.altKey) {
         // Ctrl/Cmd+Alt+D — the daily note, moved here off the plain key for
         // the same reason the pane toggles moved to Alt above: the unmodified

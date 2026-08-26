@@ -89,7 +89,8 @@ internet behind any HTTPS reverse proxy pointed at `localhost:6801` — see
 ## What's in it
 
 - **[A live-preview editor](docs/editor.md)** — CodeMirror 6, wikilinks with autocomplete, hover previews, callouts, KaTeX, transclusions, slash commands, vim mode
-- **[Backlinks, outline, graph and instant search](docs/editor.md#navigating)** — a hand-rolled canvas force simulation, MiniSearch over the whole vault, live file watching
+- **[Backlinks, outline, graph and instant search](docs/editor.md#navigating)** — a hand-rolled canvas force simulation, MiniSearch over the whole vault, live file watching. Search takes **operators** (`tag:`, `path:`, `is:published`, `before:`/`after:`, `linkto:`/`linkfrom:`, negated with `-`) and **folds diacritics**, so «المقدمة» finds «الْمُقَدِّمَة» and `resume` finds *résumé*
+- **[Search and replace across the vault](docs/editor.md#navigating)** — the thing every note-taker wants and nobody ships, because a bad vault-wide edit is unrecoverable. So it is built on the safety net rather than beside it: a dry run of every file and every line with a checkbox on each, an offer to snapshot the vault to git first, and one **Undo** on the toast. Matching is exact and frontmatter is never touched
 - **[Templates and banners](docs/templates-and-notes.md)** — Obsidian's own template syntax, a `banner:` hero on any note, drag-to-move sections, a trash you can restore from
 - **[LaTeX notes](docs/latex.md)** — `.tex` files are notes: edited, searched, linked and published like any other, and they still compile
 - **[Trackers](docs/trackers.md)** — a `tracker` fence turns a note into a progress card for a book, a game, a course, with a bar you can nudge; a `tracker-board` fence shelves all of them, and the shelf knows who is looking
@@ -100,6 +101,7 @@ internet behind any HTTPS reverse proxy pointed at `localhost:6801` — see
 - **[Real typography](docs/typography.md)** — a self-hosted font catalog and your own uploads, with per-character Arabic that sets correctly inside an English sentence
 - **[Arabic & RTL](docs/arabic-and-rtl.md)** — the whole interface mirrored and translated, an optional visitor `EN`/`ع` switch, a language filter, Hijri dates
 - **[Backup & sync](docs/backup-and-sync.md)** — commit the vault to a private git remote you own, manually or on a timer, fast-forward only
+- **[Note history](docs/backup-and-sync.md#note-history-reading-what-the-backup-kept)** — every commit that touched the open note, read any revision as it was, restore one with an Undo behind it, and take a local snapshot before anything you are unsure about
 - **Zero CDN requests.** No webfonts, no analytics, no telemetry, nothing phoning anywhere
 
 ## Documentation

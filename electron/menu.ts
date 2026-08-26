@@ -117,6 +117,13 @@ export function buildMenu(h: MenuHandlers): Menu {
       { label: m("cmdDailyNote"), accelerator: "CmdOrCtrl+Alt+D", click: () => h.send("daily-note") },
       { label: m("save"), accelerator: "CmdOrCtrl+S", click: () => h.send("save") },
       { type: "separator" },
+      // The accelerator is the page's own chord, spelled again because a menu
+      // accelerator is consumed by the OS before the window sees the key — the
+      // lesson the redo row above paid for. Alt, not the plain Cmd+P every
+      // other Mac app prints with, because Cmd+P is the command palette here
+      // and Cmd+Shift+P publishes; docs/keymap.md carries the argument.
+      { label: m("cmdPrintNote"), accelerator: "CmdOrCtrl+Alt+P", click: () => h.send("print") },
+      { type: "separator" },
       { label: m("menuRevealVault"), click: () => h.revealVault() },
       { type: "separator" },
       { label: m("menuCloseWindow"), accelerator: "CmdOrCtrl+W", role: "close" },

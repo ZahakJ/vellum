@@ -49,6 +49,7 @@ import { shortcutKey } from "../../keys.ts";
 import { notePathToUrl } from "../../router.ts";
 import { useStore } from "../../state.ts";
 import { toast } from "../../toast.ts";
+import { actionToast } from "../../undoToast.ts";
 import { confirmModal, isConfirmOpen } from "../Confirm.tsx";
 import { SegmentedControl, TextInput, Toggle } from "../controls/Fields.tsx";
 import { isSelectOpen } from "../controls/Select.tsx";
@@ -747,12 +748,25 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [dirty, busy, save]);
 
-  const setLayout = (next: string): void => {
+  const setLayout = (next: string, quiet = false): void => {
+    const from = publicLayout;
     setBusy(true);
     patchSettings({ publicLayout: next as "app" | "blog" | "designed" })
       .then(async () => {
         await useStore.getState().loadMe();
-        toast(next === "designed" ? t("designLayoutDesigned") : t("designLayoutStock"));
+        const message = next === "designed" ? t("designLayoutDesigned") : t("designLayoutStock");
+        // The reader who just pointed the PUBLIC SITE at something new is the
+        // reader most likely to want it pointed back, and "the switch is
+        // lossless in both directions" (DESIGN.md) is only a promise if the
+        // way back is on screen (v1.8 UX audit F26). `from` is where they
+        // actually came from — offering "the stock blog" to someone who was on
+        // the app layout would be a third destination, not an undo.
+        //
+        // The undo itself is quiet: a second toast saying "visitors now see
+        // the stock site" after the reader pressed a button labelled exactly
+        // that is a receipt for something they watched happen.
+        if (quiet || from === next) toast(message);
+        else actionToast(message, t("designLayoutBack"), () => setLayout(from, true));
       })
       .catch((err: unknown) => {
         console.error("vellum: switching the public layout failed", err);
@@ -1634,7 +1648,21 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
               {draft ? (
                 <PreviewStage design={draft} content={previewContent} route={previewRoute} />
               ) : (
-                <p className="s-dsgr-empty">{t("designNoneYet")}</p>
+                // "Make one" WAS A SENTENCE (v1.8 UX audit F41), sitting in the
+                // widest pane of the panel, two thirds of the screen from
+                // anything that could make one. It is a button now, and it goes
+                // to the tab that holds the list, the New-design door and the
+                // gallery door — the invitation, not a bare prompt dialog.
+                <div className="s-dsgr-empty s-dsgr-empty--door">
+                  <p className="s-dsgr-empty__body">{t("designNoneYetBody")}</p>
+                  <button
+                    type="button"
+                    className="s-btn s-btn--accent"
+                    onClick={() => setTab("designs")}
+                  >
+                    {t("designMakeOne")}
+                  </button>
+                </div>
               )}
             </div>
           )}

@@ -17,8 +17,12 @@ import type { PostMeta } from "../../shared/types.ts";
 import FolderGlyph from "../components/FolderGlyph.tsx";
 import { countPhrase, t } from "../i18n.ts";
 import { useStore } from "../state.ts";
-import { NavLink } from "./util.tsx";
-import PostList from "./PostList.tsx";
+import { BlogSkeleton, NavLink } from "./util.tsx";
+import PostList, { TagChips } from "./PostList.tsx";
+
+/** How many topics the empty state offers. Six is a row of doors; twenty is a
+ *  second navigation, and this page is not the place for one. */
+const EMPTY_TOPICS_MAX = 6;
 
 export default function BlogFolder({
   slug,
@@ -37,6 +41,20 @@ export default function BlogFolder({
     () => (posts ?? []).filter((p) => p.folders?.includes(slug)),
     [posts, slug],
   );
+
+  // The doors for an empty room (F29): the site's busiest topics, by the same
+  // frequency order the nav row uses, so the chips a reader meets here are the
+  // ones they already met at the top of the page.
+  const topics = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of posts ?? []) {
+      for (const tag of p.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, EMPTY_TOPICS_MAX)
+      .map(([tag]) => tag);
+  }, [posts]);
 
   // NO SUCH FOLDER. Deliberately the shell's own missing page rather than an
   // empty list: a hidden folder, a deleted one and a mistyped URL are the same
@@ -86,11 +104,38 @@ export default function BlogFolder({
         </div>
       </header>
       {posts === null ? (
-        <p className="s-blog-empty">…</p>
+        // The same skeleton the two homes draw, for the same reason (F41): a
+        // list still arriving and a list with nothing in it were both a "…".
+        <BlogSkeleton rows={3} />
       ) : filtered.length === 0 ? (
         // An empty DECLARED folder is not an error and not a filtered list —
         // the owner made the room and has not moved anything into it yet.
-        <p className="s-blog-empty">{t("blogFolderEmpty")}</p>
+        //
+        // BUT AN EMPTY ROOM NEEDS A DOOR (v1.8 UX audit F29). This page is
+        // reachable from the home band, from an article's folder chip and from
+        // a bare URL, and it used to answer all three with one italic sentence
+        // and no way onward but the browser's Back button. So the sentence
+        // keeps its honesty and gains the two exits a reader actually wants:
+        // the whole list, and the topics the site is really about.
+        <div className="s-blog-empty">
+          <p>{t("blogFolderEmpty")}</p>
+          <div className="s-blog-empty__doors">
+            <NavLink url="/" className="s-blog-empty__door">
+              {t("blogBrowseAll")}
+              {/* The arrow points the way the reader reads (blog.css mirrors
+                  it under RTL, like every other directional glyph here). */}
+              <span className="s-blog-fwdarrow" aria-hidden="true">
+                →
+              </span>
+            </NavLink>
+            {topics.length > 0 && (
+              <div className="s-blog-empty__topics">
+                <span className="s-blog-empty__topicslabel">{t("blogTopics")}</span>
+                <TagChips tags={topics} />
+              </div>
+            )}
+          </div>
+        </div>
       ) : (
         <PostList posts={filtered} locale={locale} />
       )}

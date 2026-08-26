@@ -50,6 +50,44 @@ export function siteDate(
   return formatCalendarDate(date, locale, calendar, getLang(), options);
 }
 
+/** How recent a moment has to be to be told as a DISTANCE rather than a date.
+ *  Inside a month, "three days ago" is the answer to "when did I write that";
+ *  beyond it, the reader wants the date, in this instance's own calendar. */
+const RELATIVE_MAX_DAYS = 30;
+
+/** "yesterday" / "3 days ago" / "2 hours ago", falling back to `siteDate()`
+ *  once the moment is old enough that a date is more use than a distance.
+ *
+ *  This lives here rather than in the one panel that needs it because of the
+ *  rule at the top of this file: FOUR surfaces used to hold their own
+ *  `Intl.DateTimeFormat` call and the note-history timeline would have been
+ *  the fifth. `Intl.RelativeTimeFormat` takes the instance's own locale tag,
+ *  so an `ar-EG-u-nu-latn` instance gets Latin digits here exactly as it does
+ *  everywhere else, and the absolute fallback goes through `siteDate()` — so
+ *  a Hijri instance dates its own history in Hijri.
+ *
+ *  There is no calendar question in the relative half: "three days ago" is
+ *  three days ago in every calendar there is. */
+export function relativeDate(
+  value: Date | string | number,
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+): string {
+  const date = value instanceof Date ? value : new Date(value);
+  const ms = date.getTime();
+  if (Number.isNaN(ms)) return "";
+  const elapsed = Date.now() - ms;
+  const days = elapsed / 86_400_000;
+  if (elapsed < 0 || days > RELATIVE_MAX_DAYS) return siteDate(date, locale, options);
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const minutes = elapsed / 60_000;
+  if (minutes < 1) return rtf.format(0, "second");
+  if (minutes < 60) return rtf.format(-Math.round(minutes), "minute");
+  const hours = minutes / 60;
+  if (hours < 24) return rtf.format(-Math.round(hours), "hour");
+  return rtf.format(-Math.round(days), "day");
+}
+
 /** Same, but forced to one calendar — the settings panel's specimen, which has
  *  to show what each of the three choices would produce. */
 export function siteDateIn(
