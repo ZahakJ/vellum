@@ -190,11 +190,22 @@ const api = (path, init) =>
 // gate that reached for a test-only global would be testing a test hook.
 const VIEW = `(() => { const c = document.querySelector(".cm-content"); const t = c && c.cmTile; return t && t.root && t.root.view; })()`;
 
+// UNSET IS A VALUE HERE, and reading it as "nothing to put back" is how this
+// gate left the next one in Arabic. A fresh instance stores no `language` at
+// all, so `/api/settings` answers `null`; the RTL phase then PATCHes "ar" and
+// the old guard (`restoreLang !== null`) skipped the restore entirely. The
+// instance kept the fixture's language after the run, and the very next gate
+// in the v1.8 order — check-board, which types an English command name into
+// the palette — matched nothing against an Arabic command table and timed out
+// looking for a designer that never opened. So the sentinel is a separate
+// flag, and `null` is PATCHed back deliberately: it clears the key to unset,
+// which is the state the run found.
 let restoreLang = null;
+let langRead = false;
 let wrote = false;
 
 const restore = async () => {
-  if (restoreLang !== null) {
+  if (langRead) {
     await api("/api/settings", json("PATCH", { language: restoreLang })).catch(() => {});
   }
   if (wrote) {
@@ -233,6 +244,7 @@ try {
 
   const settings = (await api("/api/settings")).body;
   restoreLang = settings?.language ?? null;
+  langRead = true;
 
   for (const [path, content] of [
     [GATE_PATH, FIXTURE],

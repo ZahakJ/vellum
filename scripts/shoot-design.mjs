@@ -101,6 +101,23 @@ if (!me.body.admin) {
   cookie = (login.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
 }
 
+// AN INSTANCE WITH NO DOOR HAS NO VISITORS, and this gate is a comparison of
+// two sessions. In open local mode (`ADMIN_PASSWORD_HASH` unset) every session
+// is the owner's, so the "visitor" context measured below is a second admin —
+// which lands on the APP, not on the public site, and reports every single
+// visitor assertion as a failure. Six of them, all false, and the run reads
+// exactly like a broken error boundary. Refuse instead, and say what to start.
+if (me.body.admin && !cookie) {
+  console.error(
+    "shoot-design: this instance is in OPEN LOCAL MODE — every session is an admin,\n" +
+      "  so there is no visitor to compare the owner with and every visitor check\n" +
+      "  below would fail for that reason alone.\n" +
+      "  Fix: run this against an instance with ADMIN_PASSWORD_HASH set (npm run\n" +
+      `  hash-password), then VELLUM_PASSWORD=<that password> PORT=${PORT} node scripts/shoot-design.mjs`,
+  );
+  process.exit(1);
+}
+
 const auth = cookie ? { Cookie: cookie } : {};
 const json = (method, payload) => ({
   method,
@@ -151,7 +168,7 @@ function build() {
 
 const FIXTURE = {
   name: "Boundary gate",
-  // zsh: command not found: site holds width and density and nothing else — the strict allowlist in
+  // `site` holds width and density and nothing else — the strict allowlist in
   // shared/design.ts refuses an unknown key by name, and a fixture carrying one
   // fails the gate before it can break anything on purpose.
   site: { width: 820, density: "regular" },
@@ -205,6 +222,22 @@ async function inspect({ asAdmin, preview, label }) {
   }
   await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
   if (preview) {
+    // CLEAR THE DESK BEFORE PUTTING THE EYE ON. The visitor preview shows the
+    // public face of WHERE THE OWNER IS — that is the promise, and exit lands
+    // back on the same note — so with a note open it opens that note's article
+    // page and not the site's front door. This gate is about the front door,
+    // and it used to get one by accident: a fresh session had nothing open.
+    // v1.8's first-run open (editor-ux F1: a new install landed on the empty
+    // state while the seed's guide sat in the tree) means a fresh session now
+    // ALWAYS has a note open, so on an instance that publishes it the owner's
+    // preview landed on the article and the failing-section card — which only
+    // the HOME page carries — was reported missing. So close the tabs first,
+    // with the reader's own chord (Ctrl+Alt+W, docs/keymap.md), and preview a
+    // vault with nothing in front of it.
+    for (let i = 0; i < 12 && (await page.$(".s-tab__main")) !== null; i++) {
+      await page.keyboard.press("Control+Alt+w");
+      await page.waitForTimeout(150);
+    }
     await page.click(".s-statusbar__eye").catch(() => {});
     await page.waitForTimeout(900);
   }

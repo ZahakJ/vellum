@@ -200,8 +200,199 @@ const app = APP_SHELL_ROOTS.reduce((acc, key) => closure(keyFor(key) ?? key, acc
 // any previous re-baseline in this file: the ratchet is kept, and the
 // by-language split remains the ~32 kB recovery that makes this line stop
 // moving.
+//
+// RE-BASELINED for THE SAFETY NET (511.2 kB actual → 516.0 kB; budget 518,
+// actual + ~0.4%). All three numbers below move by the same ~4.8 kB, because
+// what grew is in the entry closure and the entry closure is inside all three.
+// Named precisely, since this is the one re-baseline in this file that bought
+// no feature at all:
+//
+//   +~1.6 kB  client/ErrorBoundary.tsx + client/safety.ts — a React error
+//             boundary around the whole app, a window `unhandledrejection`
+//             handler and a window `error` handler. Before v1.8 this client
+//             had NONE of the three: a throw during render unmounted the tree
+//             and left `<div id="root">` empty, mid-sentence, with the unsaved
+//             buffers unflushed and no reload button on screen.
+//   +~1.0 kB  client/lazySurface.tsx — `lazy()` with the chunk-fetch failure
+//             caught. Every surface in the app arrives through a hashed chunk
+//             name; redeploy the server under an open session (`git pull &&
+//             npm start`) and the next surface the reader opens requests a
+//             file that no longer exists. The import rejected, React rethrew
+//             it at the boundary, and the app went white.
+//   +~1.2 kB  client/api.ts — the request deadline (`fetch` has none of its
+//             own) and the guard on a 2xx that is not JSON, which is what an
+//             auth proxy's 200 HTML login page had been arriving as: `null`,
+//             typed as a tree, a note or a settings object.
+//   +~1.0 kB  the dictionary's eight new keys — the crash card's three, the
+//             missing-chunk card, the two `ApiError.code` sentences, the
+//             stuck-save line and one honest fallback. `t()` reads one object
+//             on every surface, so they reach the blog reader too.
+//
+// WHY NO SPLIT TAKES ANY OF IT OFF: a net that arrives in its own request is a
+// net with a hole in it for exactly the window in which most first-paint
+// failures happen, and a crash card that has to fetch a chunk after the crash
+// is not a crash card. The by-language dictionary split remains the ~32 kB
+// recovery, and it is now worth seven times this bump.
+// RE-BASELINED for the EDITOR-UX round (519.2 kB actual → budget 521, actual
+// + ~0.35%; the two closures below move by the same bytes, because the entry
+// closure is inside both). What landed, and why none of it splits off:
+//
+//   +~1.2 kB  client/state.ts — the first-run open (F1: a fresh install landed
+//             on the empty state with the seed's guide sitting in the tree),
+//             the tab-strip actions `stepTab`/`closeActiveTab` (F12), and the
+//             attachment-folder fact the Move-to picker filters on (F11).
+//             `state.ts` IS the entry: it is the store every surface reads.
+//   +~0.6 kB  client/App.tsx + client/workspace.ts — the tab chords and the
+//             reducer they call. The window keydown listener is the shell's,
+//             so it cannot be anywhere but here.
+//   +~0.5 kB  the dictionary's six new keys — the two Move-to doors, the
+//             outline's empty line, the two tab-key rows in the shortcut
+//             sheet. `t()` reads one object on every surface (the debt named
+//             at length below; the by-language split is still the ~32 kB
+//             recovery that would make this line stop moving).
+//   +~0.9 kB  client/components/Editor.tsx and client/editor/livePreview.ts —
+//             the caret's home (F9), the caret memory a publish-remount
+//             restores from, and `interactedField`, the StateField that ended
+//             the raw-YAML bug for the block pass as well as the inline one.
+//             Both files are in the editor chunk rather than the entry, so
+//             they show up in the admin number and not in the blog reader's.
+// RE-BASELINED for MOMENTS (524.7 kB actual → budget 527, actual + ~0.44%;
+// the two closures below move by the same bytes, because the entry closure is
+// inside both). This is the toast round — F22/F23/F24/F13/F26/F40/F41/F45 —
+// and what landed in the ENTRY is:
+//
+//   +~1.1 kB  client/state.ts — `deletedToast` (F24: the three delete verbs
+//             named the trash and offered nothing, so each now carries the
+//             restore the `.trash` machinery has always been able to do) and
+//             the publish toast's first-ever branch (F22). `state.ts` IS the
+//             entry: it is the store every surface reads.
+//   +~0.5 kB  client/toast.ts + client/undoToast.ts — the toast STACK (F23).
+//             Every `toast()` used to erase every toast, action toasts
+//             included, so a plain confirmation killed the Undo under it. The
+//             column, the insert-above rule and the ✕ are these bytes.
+//   +~0.4 kB  client/sync.ts — the backup toast's short sha and the window
+//             event that opens the badge's panel from it (F40).
+//   +~1.7 kB  the dictionary's eighteen new keys — the first-publish line and
+//             its View door, the paste receipt, the empty vault's two doors,
+//             the three moderation outcomes and the switch that opens the
+//             margins, the designer's Switch back, the sha line, the owner
+//             dashboard's publish explanation, and the store's one honest
+//             localized failure line (F45: the fallback used to print the
+//             server's English log prose, or an English phrase built from a
+//             console label, at an Arabic reader).
+//
+// WHY NO SPLIT TAKES ANY OF IT OFF: a toast is what the app says when
+// something has already happened, so the code that draws one cannot arrive in
+// a later request than the event it is reporting. The by-language dictionary
+// split remains the ~32 kB recovery for the dictionary's share, as it is for
+// every line above.
 const AUDIENCES = [
-  { name: "entry (everyone)", keys: entry, budget: 512 * 1024 },
+// RE-BASELINED for NOTE HISTORY (529.4 kB actual → budget 532, actual +
+// ~0.5%). This round is the safety net the rest of the slate stands on — git
+// log over the open note, a read-only render of any revision, and one button
+// that puts it back — and almost all of it is in a chunk nobody downloads
+// until they open the section. What DID land in the entry, measured:
+//
+//   +~2.8 kB  the dictionary's thirty-two new keys — the timeline's chrome and
+//             its three empty states with their doors, the revision viewer,
+//             the restore toast and its undo, and the five Snapshot lines.
+//             `t()` reads one object on every surface, so a blog reader
+//             downloads them too; the by-language split named at length below
+//             is still the ~32 kB recovery that would make this line stop
+//             moving, and it is now worth eleven times this round's bump.
+//   +~0.5 kB  client/dates.ts — `relativeDate()`. A timeline is read in
+//             distances ("three days ago"), and the rule at the top of that
+//             file is that no surface holds its own Intl call: the history
+//             panel would have been the fifth to try.
+//   +~0.4 kB  client/api.ts — the two history fetchers and the snapshot POST.
+//   +~0.5 kB  client/sync.ts — `runSnapshotNow()` and the window event the
+//             timeline listens on, so a snapshot taken from the palette shows
+//             up in an open list without polling git once a second.
+//
+// WHY NO SPLIT TAKES ANY OF IT OFF: the panel itself already IS the split —
+// `client/components/HistoryPanel.tsx` and `client/styles/history.css` arrive
+// only when a reader opens the section, which starts collapsed. The four items
+// above are the entry's own modules (the dictionary, the date policy, the API
+// client, the shared sync status), and each is read by surfaces that are
+// already on screen when they are needed.
+// RE-BASELINED for LINK REPAIR AND TAG RENAME (533.3 kB actual → budget 535,
+// actual + ~0.3%). This round is two vault-wide rewrites — rename a tag (and
+// merge it onto another), and repair the `[[Note#Heading]]` links a heading
+// rename just broke — over one engine that previews, applies under a
+// precondition and keeps a way back. Almost none of it is the entry's:
+//
+//   +~3.0 kB  the dictionary's twenty-eight new keys. Both rewrites are
+//             CONVERSATIONS — an offer naming a count, a dry run naming a
+//             count, a merge warning, a done-toast, an undo, and the two
+//             sentences that name what was skipped and why — and a bulk tool
+//             that says only "done" is the bulk tool nobody presses twice. So
+//             the keys are the feature, and `t()` reads one object on every
+//             surface, so a blog reader downloads them too. The by-language
+//             split named at length below is still the ~32 kB recovery that
+//             would make this line stop moving; it is now worth ten of this
+//             round.
+//   +~0.6 kB  client/api.ts — the four fetchers (preview, rename, repair,
+//             undo).
+//
+// WHAT DID NOT LAND HERE, and deliberately: `client/tagRename.ts` (the two
+// dialogs) is reached only from the sidebar chunk, `client/bulkEdit.ts` (the
+// toasts and the undo) only from the sidebar and editor chunks, and the whole
+// server half — the surgeon, the engine, the rename detector — is server code
+// that no browser downloads at all.
+// RE-BASELINED for THE SEARCH SUITE (537.7 kB actual → budget 540, actual +
+// ~0.4%). This round is three answers in one box: diacritic folding, search
+// operators, and vault-wide search & replace. Its entry share is almost
+// entirely the dictionary again, and this time the reason is worth naming
+// rather than apologising for.
+//
+//   +~4.0 kB  the dictionary's forty new keys. Two of the three features are
+//             CONVERSATIONS a reader cannot have without words: a grammar
+//             nobody can guess (seven operator rows, an example and a gloss
+//             each, plus the sentence saying they narrow together), and a
+//             rewrite of four hundred notes that has to state its rule, its
+//             scope, its dry run, its snapshot offer, its confirm, its
+//             done-toast and the two sentences naming what it refused to
+//             touch. The third feature — the fold — added ZERO chrome and one
+//             help line, which is how you know it was the right shape.
+//             `t()` reads one object on every surface, so a blog reader
+//             downloads them too; the by-language split named at length below
+//             is still the ~32 kB recovery that would make this line stop
+//             moving, and it is now worth eight of this round.
+//   +~0.3 kB  client/api.ts — the two replace fetchers.
+//
+// WHAT DID NOT LAND HERE, deliberately: `client/components/ReplacePanel.tsx`
+// and `client/components/SearchHelp.tsx` are their own lazySurface chunks (the
+// panel carries the dry-run list, the selection model and its stylesheet, and
+// a fraction of sessions ever open it); `shared/searchQuery.ts` rides with the
+// panel that imports it; `shared/fold.ts` rides with the two matchers that
+// consult it — the palette's ranker and the editor's `[[` completion — both of
+// which are already split. The whole server half (the operator evaluator, the
+// replace engine, the nomination walk) is server code no browser fetches.
+// RE-BASELINED for THE EDITABLE PROPERTIES CARD (541.1 kB actual → budget 543,
+// actual + ~0.35%). The smallest re-baseline in this file, and the whole of it
+// is words:
+//
+//   +~0.8 kB  the dictionary's eight new keys — "Add property", the two field
+//             names, the empty-value word, "Add value", the two removal
+//             tooltips and the removed-toast. A properties card is chrome that
+//             has to NAME what each control does to somebody's file, and it
+//             does it in both languages. `t()` reads one object on every
+//             surface, so a blog reader pays for them too; the by-language
+//             split named at length below remains the ~32 kB recovery.
+//   +~0.3 kB  client/App.tsx and client/state.ts — the window-event listener
+//             the card writes through and the `setProperty` store action
+//             beside `setBanner`, which are both on the boot path by
+//             construction (the shell mounts the listener, the store IS the
+//             store) and cannot be split off.
+//
+// WHAT DID NOT LAND HERE, deliberately: `client/editor/propsEdit.ts` — the
+// whole editing layer, every input, chip and checkbox in it — is reached only
+// from the EDITOR chunk, because `buildPropsCard()` takes its editing callbacks
+// as parameters and the reading-view renderer passes none. A blog visitor's
+// copy of the same card is the display-only card it always was, byte for byte.
+// The surgical writer, the value grammar and the key policy are server code no
+// browser fetches at all.
+  { name: "entry (everyone)", keys: entry, budget: 543 * 1024 },
   // RE-BASELINED for the DICTIONARY, and this one deserves naming as a debt
   // rather than a measurement. `client/i18n.ts` is a single object read by
   // `t()` on every surface, so it lands whole in every first paint — and this
@@ -253,7 +444,72 @@ const AUDIENCES = [
   // The remaining ~2.4 kB of this round's growth is feature A's dictionary
   // keys (the twenty glyph names and the tree picker's strings), which reach a
   // blog reader only because `t()` reads one object on every surface.
-  { name: "anonymous blog reader", keys: blog, budget: 710 * 1024 },
+  // …and moved once more with the entry, for the safety net named above
+  // (708.4 kB actual → 713.3 kB; 716 is actual + ~0.4%). Same bytes, same
+  // argument: the blog closure contains the entry closure.
+  // …and moved once more with the entry, for the moments round above
+  // (723.8 kB actual → 727, actual + ~0.44%). Same bytes, same argument: the
+  // blog closure contains the entry closure. The blog's own share of the
+  // round is the loading skeleton that replaced the literal "…" on both public
+  // homes (F41), which is one small component and one block of CSS.
+  // …and once more for BLOG MOBILE (731.0 kB actual → 735, actual + ~0.55%).
+  // This round is the public site's, so unlike the three above it the growth
+  // is the blog reader's OWN and none of it is the entry's:
+  //
+  //   +~3.6 kB  client/styles/blog.css — the 44px pass (F34: this stylesheet
+  //             had one coarse-pointer block in 2,100 lines and what it did
+  //             was hide a keyboard hint), the phone nav that keeps the
+  //             collections out of the burger (F38), the compact phone
+  //             collections band, the hairline between the two runs of chip
+  //             (F28) and the empty collection page's doors (F29).
+  //   +~1.3 kB  client/blog/* — BlogFolder's doors and its topic tally,
+  //             NavTopics' separator and its arithmetic, the masthead's h1 on
+  //             the home route.
+  //   +~0.7 kB  client/banner.ts — the generated gradient's second hash word,
+  //             its hue-offset model and the crossed ruling (F42).
+  //
+  // NONE OF IT SPLITS. A stylesheet is first paint by definition, the nav is
+  // above the article, and a card's gradient is drawn before the reader has
+  // scrolled anywhere. The by-language dictionary split named above remains
+  // the ~32 kB recovery for this number, and it is still worth five of this
+  // round.
+  // …and once more with the entry, for LINK REPAIR AND TAG RENAME (738.1 kB
+  // actual → 740, actual + ~0.26%). Same bytes, same argument the three lines
+  // above make: the blog closure contains the entry closure, and the blog
+  // reader's OWN share of this round is zero — a visitor cannot rename a tag,
+  // and every surface that can is admin-only and in a chunk they never fetch.
+  // …and once more with the entry, for THE SEARCH SUITE (742.5 kB actual →
+  // budget 745, actual + ~0.3%). Same argument the two rounds above make: the
+  // blog closure contains the entry closure, and the blog reader's OWN share is
+  // zero — a visitor cannot run a replace, and the operator card and the panel
+  // are both sidebar chunks no public page mounts.
+  // …and once more with the entry, for THE EDITABLE PROPERTIES CARD (746.2 kB
+  // actual → 748, actual + ~0.24%). Same bytes, same argument every line above
+  // makes: the blog closure contains the entry closure, and the blog reader's
+  // OWN share of this round is exactly zero — the card a visitor sees is the
+  // read-only one, and the editing layer is in the editor chunk they never
+  // fetch.
+  // …and once more for PRINT AND PDF (751.3 kB actual → budget 754, actual
+  // + ~0.36%). Unlike the four rounds above it, this growth IS the blog
+  // reader's own and every byte of it is deliberate:
+  //
+  //   +~3.3 kB  client/reading/print.css, inlined into reading.css by the
+  //             `@import` at the top of that file. It is the whole of the
+  //             product's `@media print` answer — twenty-seven stylesheets
+  //             carried none before this release — and it reaches the visitor
+  //             because THE VISITOR IS WHO PRINTS AN ARTICLE. A published
+  //             piece is printed by people who did not write it, from a page
+  //             with no palette and no command on it, using their own Ctrl+P;
+  //             a print stylesheet that arrives with an admin chunk would be
+  //             absent from the one surface it matters most on.
+  //
+  // NO SPLIT TAKES IT OFF, and a media-query load is not one either: a
+  // `<link media="print">` in the HTML entry is merged into the single entry
+  // stylesheet by the build (losing the attribute, so the rules would apply on
+  // screen), and a stylesheet fetched at `beforeprint` arrives after the pages
+  // are cut. Riding with reading.css is what puts it in exactly the chunks
+  // that can show a document and in nobody else's.
+  { name: "anonymous blog reader", keys: blog, budget: 754 * 1024 },
   // RE-BASELINED for PER-FOLDER TREE ICONS (1089.4 kB actual → 1099.4 kB,
   // budget = actual + ~1.1%), and the growth here is almost all feature A's:
   // +3.4 kB FolderGlyph (now a shared chunk, since the sidebar and the blog
@@ -262,7 +518,45 @@ const AUDIENCES = [
   // keys. A folder mark is drawn on the first paint of the tree, so none of it
   // is splittable either; the dictionary split is the recovery for this number
   // as much as for the two above it.
-  { name: "admin first paint", keys: app, budget: 1112 * 1024 },
+  // …and once more with the entry, for the safety net (1111.4 kB actual →
+  // 1116.3 kB; 1120 is actual + ~0.3%).
+  // …and once more with the entry, for the moments round (1128.7 kB actual →
+  // 1133, actual + ~0.38%). The admin's own share on top of the entry's is the
+  // empty-vault invitation in the sidebar chunk and the settings panel's
+  // arrive-at-a-row effect — both in chunks the admin already loads.
+  // …and once more with the entry, for NOTE HISTORY (1136.0 kB actual → 1142,
+  // actual + ~0.5%). Same bytes, same argument: the admin closure contains the
+  // entry closure, and the admin's own share on top of it is zero — the
+  // history panel and its stylesheet are a dynamic import, so they are in
+  // neither closure until the reader opens the section.
+  // …and once more with the entry, for LINK REPAIR AND TAG RENAME (1143.3 kB
+  // actual → 1146, actual + ~0.24%). The admin's own share on top of the
+  // entry's is the two client modules named there — the tag dialogs in the
+  // sidebar chunk and the bulk toasts beside them — which together are under a
+  // kilobyte and arrive with surfaces the admin has already loaded.
+  // …and once more with the entry, for THE SEARCH SUITE (1149.5 kB actual →
+  // 1152, actual + ~0.22%). Same bytes, same argument once more: the admin's
+  // own share on top of the entry's is the sidebar chunk's two new mounts —
+  // the operator button and the replace toggle, a few hundred bytes — while
+  // the panel, the card, the query grammar and the stylesheet are all dynamic
+  // imports that are in neither closure until something is opened.
+  // …and once more, for THE EDITABLE PROPERTIES CARD (1158.0 kB actual → 1162,
+  // actual + ~0.35%) — and this is the ONE of the three numbers with a real
+  // feature in it. ~4.9 kB of `client/editor/propsEdit.ts` lands in the editor
+  // chunk, which the admin's first paint contains because the admin's first
+  // paint is an editor. It is not splittable any further and should not be: the
+  // card is drawn by the first note that opens, so a dynamic import here would
+  // buy a spinner where a property row belongs. The remaining ~1.1 kB is the
+  // entry's, named above.
+  // …and once more, for PRINT AND PDF (1163.1 kB actual → 1168, actual
+  // + ~0.42%). The whole of this round's growth is the SAME ~3.3 kB print
+  // stylesheet the blog line above names, and it lands here because
+  // `components/BacklinksPanel.tsx` — an app-shell root — already carries
+  // reading.css: the outline pane and the local graph are in `client/reading/`
+  // and the panel is drawn on the first paint. `client/print.ts` itself is NOT
+  // in this number: it is loaded by Editor.tsx and ReadingView.tsx, both behind
+  // the pane's lazy boundary, and reached from the palette by `import()`.
+  { name: "admin first paint", keys: app, budget: 1168 * 1024 },
 ];
 
 // ── things that must never be in a first paint ──────────────────────────────

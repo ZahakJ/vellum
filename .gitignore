@@ -16,3 +16,11 @@ desktop/release/
 
 # agent worktrees and session scratch
 .claude/
+
+# The scratch yard: gate fixtures, scratch vaults, perf harnesses, verification
+# screenshots. Every gate that needs a vault of its own builds one in here
+# (`scratchpad/gates/`), and the v1.8 rounds left scale harnesses and shot runs
+# beside them. None of it is the product, all of it is regenerable, and some of
+# it is a whole seeded vault — which is how a scratch directory ends up in a
+# release commit the one time somebody runs `git add -A`.
+scratchpad/
