@@ -21,10 +21,23 @@
              buffers. enableOnBackInvokedCallback lets MainActivity's
              OnBackPressedCallback drive Android 13+ predictive back instead of
              being bypassed by it; it is inert below 33, which is the whole
-             point of declaring it rather than branching in code. -->
+             point of declaring it rather than branching in code.
+
+             adjustResize is the keyboard, on the phones SystemBarInsets leaves
+             alone. Below Android 15 the window still fits itself to the system
+             bars and the IME still resizes it, and the default —
+             SOFT_INPUT_ADJUST_UNSPECIFIED — leaves which of resize and pan
+             happens to a heuristic reading the view tree. On a window whose
+             entire content is one WebView that heuristic has been known to pick
+             pan, which slides the editor out from under the caret instead of
+             making room for it. From 15 up the window is edge-to-edge, the IME
+             arrives as an inset, and this attribute is ignored; the listener in
+             SystemBarInsets is what answers there. Both cases are covered and
+             neither is left to a guess. -->
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:windowSoftInputMode="adjustResize"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
@@ -41,10 +54,13 @@
 
         <!-- The capture sheet. Its own taskAffinity so it never lands on top of
              an open note; excluded from recents because a one-shot sheet in the
-             task switcher is litter. -->
+             task switcher is litter. adjustResize for the same reason as
+             MainActivity, and with more at stake: this screen is a textarea
+             that the keyboard opens onto immediately. -->
         <activity
             android:name=".ShareActivity"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:windowSoftInputMode="adjustResize"
             android:label="@string/title_activity_share"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTop"

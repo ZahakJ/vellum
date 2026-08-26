@@ -33,6 +33,12 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(VellumPlugin.class);
         super.onCreate(savedInstanceState);
 
+        // The status bar and the gesture bar are drawn over this window from
+        // Android 15 on, and the page underneath is usually the owner's own
+        // instance, whose CSS this app does not get to edit. See
+        // SystemBarInsets for why the shell pads rather than delegating.
+        SystemBarInsets.apply(this, bridge);
+
         // Persisted, not session, cookies: the instance sets `vellum_session`
         // with a seven-day Max-Age precisely so a phone does not ask for the
         // password every morning.

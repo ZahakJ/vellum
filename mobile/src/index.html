@@ -2,11 +2,16 @@
 <html lang="en" dir="ltr">
   <head>
     <meta charset="utf-8" />
-    <!-- `viewport-fit=cover` is what lets Capacitor's SystemBars plugin pass the
-         real insets through to CSS instead of padding the WebView's parent.
-         Without it the screen would sit inside a letterbox on any phone with a
-         cutout. `user-scalable=no` is deliberate on a two-field shell: pinch
-         zoom here only ever strands someone at 2x with no way back. -->
+    <!-- `viewport-fit=cover` is what makes `env(safe-area-inset-*)` report a
+         real number instead of a flat zero; without it the fallback layer in
+         styles.css would be decoration. It is not what holds the notification
+         bar off this screen — SystemBarInsets.java does that natively, for this
+         page and for the instance's pages alike — and with the insets already
+         consumed there these values arrive as zero, which is the correct answer
+         and not a broken one. See the note beside them in styles.css.
+
+         `user-scalable=no` is deliberate on a two-field shell: pinch zoom here
+         only ever strands someone at 2x with no way back. -->
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"

@@ -37,9 +37,22 @@
   --font-ui: var(--font-ui-system);
   --font-serif: var(--font-serif-system);
 
-  /* Capacitor's SystemBars plugin sets these four on <html> once it has real
-     insets. The env() fallbacks keep the layout honest for the frame before
-     that, and anywhere the plugin declines to speak. */
+  /* THE SECOND LAYER, AND IT SHOULD READ ZERO.
+
+     The system bars are held off natively — SystemBarInsets.java pads the
+     WebView's container and hands the WebView a window with the bar insets
+     taken out of it, which is what `viewport-fit=cover` in index.html then
+     resolves these four env() values against: nothing. So on Android these are
+     0px and the padding below is the plain 40/28/24 it looks like.
+
+     They are still written this way on purpose. If the native layer ever fails
+     to run — an Android that dispatches insets we did not anticipate, a
+     Capacitor that reclaims the container, this file opened in a desktop
+     browser on a notched laptop — env() is the same number arriving by the
+     other road, and the wordmark stays out from under the notification bar
+     without anyone shipping a fix. Two layers, one source of truth, and they
+     cannot double up: whichever one consumes the inset leaves the other at
+     zero. */
   --safe-area-inset-top: env(safe-area-inset-top, 0px);
   --safe-area-inset-right: env(safe-area-inset-right, 0px);
   --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);

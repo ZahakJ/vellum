@@ -48,7 +48,19 @@ const config: CapacitorConfig = {
     SystemBars: {
       // Light glyphs, because every ground this app ever shows is iron-gall.
       style: "DARK",
-      insetsHandling: "css",
+
+      // The plugin still styles the bars; it no longer decides where the
+      // content stops. Its inset handler chooses between padding the WebView's
+      // container and passing the insets to CSS on two facts — the WebView's
+      // major version, and whether the loaded page declared
+      // `viewport-fit=cover` — and the second is learned from a script
+      // Capacitor injects into ONE origin, the bundled screens'. On the owner's
+      // instance, which is where this app lives, that flag is a leftover
+      // reading from the connection screen, so a phone with a current WebView
+      // gets the CSS branch for a page whose CSS knows nothing about it: the
+      // vault's tab bar under the notification bar. `disable` hands the whole
+      // question to SystemBarInsets.java, which pads unconditionally.
+      insetsHandling: "disable",
     },
   },
 };

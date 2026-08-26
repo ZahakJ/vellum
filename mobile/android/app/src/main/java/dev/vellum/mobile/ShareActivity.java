@@ -36,6 +36,13 @@ public class ShareActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(VellumPlugin.class);
         super.onCreate(savedInstanceState);
+
+        // The sheet is a full-height window like any other and gets the bars
+        // drawn over it the same way; it also has the app's only textarea, so
+        // it is the screen where the keyboard inset in SystemBarInsets earns
+        // its keep.
+        SystemBarInsets.apply(this, bridge);
+
         started = true;
     }
 

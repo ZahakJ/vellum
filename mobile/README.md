@@ -13,7 +13,7 @@ RTL, and this ships none of it twice.
 ```
 mobile/
   src/            the two screens — TypeScript, no framework, ~24 kB shipped
-  android/        the Capacitor shell: three Java classes and the resources
+  android/        the Capacitor shell: four Java classes and the resources
   icons/          make-icons.mjs — the ✦ mark, rendered to every raster
   scripts/        build-apk.mjs — one command to a signed APK
   out/            finished APKs (gitignored)
@@ -70,6 +70,7 @@ in the browser) have every other link in your notes.
 | `VellumPlugin` | `android/…/VellumPlugin.java` | The navigation gate, the share Intent, the trusted-host store |
 | `MainActivity` | `android/…/MainActivity.java` | Back = history back; leaves only from the connection screen |
 | `ShareActivity` | `android/…/ShareActivity.java` | The share target, in its own task so a capture never costs you your place |
+| `SystemBarInsets` | `android/…/SystemBarInsets.java` | Keeps the status bar and the gesture bar off the page, on both activities |
 
 **Why every network call goes through `CapacitorHttp` and not `fetch`.** The
 connection screen is served from `https://localhost`; your vault is on your own
@@ -78,6 +79,31 @@ since its API is not for other people's pages. `CapacitorHttp` performs the
 request natively, so there is no preflight to fail, and Capacitor installs its
 cookie manager over the WebView's own store, so the `vellum_session` cookie your
 instance set when you signed in rides along on the capture sheet's write.
+
+**Why the shell pads for the system bars instead of letting the page do it.**
+Android 15 draws every window edge to edge, and Android 16 does it whether the
+app asked or not: the status bar and the gesture bar become glass over the top
+and bottom of the WebView. Capacitor 8 ships a handler for this, and it decides
+between padding the WebView's container and passing the insets to the page as
+`env(safe-area-inset-*)` on two facts — the WebView's major version, and whether
+the loaded page declared `viewport-fit=cover`. This app cannot answer either
+one. Nearly every page it shows belongs to your instance, on your origin, and
+Capacitor only injects the script that reads that second fact into *its own*
+origin — so on your vault the flag is a leftover reading from the connection
+screen, and a phone with a current WebView hands the insets to CSS that was
+never told about them. The symptom is the vault's tab bar sitting under the
+notification bar, on a new phone, invisibly to an emulator with an older WebView.
+
+So `insetsHandling` is `disable` in `capacitor.config.ts` and
+`SystemBarInsets.java` pads unconditionally: status bar plus display cutout on
+top, navigation bar below, the side insets in landscape, and the keyboard's own
+inset in place of the bottom one when it opens — so the editor resizes rather
+than being covered. The strips are painted iron-gall, the same ground as the
+page. The bundled screens still carry `env(safe-area-inset-*)` in `styles.css`
+as a second layer; because the native layer consumes the insets, those read zero,
+and the two can never double up. What is deliberately *not* used is
+`android:windowOptOutEdgeToEdge`, which is deprecated already and ignored from
+API 36 — an escape hatch with an expiry date is a bug scheduled for later.
 
 **Why the capture is an append with a precondition, and why it retries.** The
 sheet reads today's inbox note, adds one timestamped bullet, and PUTs it back
@@ -99,8 +125,8 @@ cd mobile
 npm install
 
 npm run typecheck      # the shell's TypeScript
-npm run apk:debug      # → out/vellum-1.7.1-debug.apk
-npm run apk:release    # → out/vellum-1.7.1-release.apk   (signed, if you have a key)
+npm run apk:debug      # → out/vellum-1.8.0-debug.apk
+npm run apk:release    # → out/vellum-1.8.0-release.apk   (signed, if you have a key)
 ```
 
 `apk:*` runs `vite build` → `cap sync android` → `gradlew assemble…` and copies
@@ -197,7 +223,7 @@ The APK is not on any store. Install it yourself:
 **Over USB.** Enable Developer options → USB debugging on the phone, then:
 
 ```sh
-~/Android/Sdk/platform-tools/adb install -r mobile/out/vellum-1.7.1-release.apk
+~/Android/Sdk/platform-tools/adb install -r mobile/out/vellum-1.8.0-release.apk
 ```
 
 `-r` reinstalls over an existing copy and keeps its data — as long as it was
