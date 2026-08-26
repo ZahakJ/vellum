@@ -1,0 +1,448 @@
+/* Vellum — THE PRINTED PAGE. (v1.8, parity #3.)
+ *
+ * Before this file there were zero `@media print` rules in twenty-seven
+ * stylesheets, which means printing a note printed the ROOM: a viewport-locked
+ * grid clipped to one sheet, the sidebar's first inch, a status bar, and — from
+ * a dark theme — a black rectangle with the type dropped out of it by the
+ * printer's own background suppression. "Export to PDF" is the third most
+ * demanded thing in the Obsidian forum, and the thing everybody who ships it
+ * gets wrong is exactly this: they print the screen.
+ *
+ * So this sheet answers three questions, in order.
+ *
+ * 1. WHAT IS ON THE PAPER. Two surfaces, two answers, and they are different
+ *    because the surfaces are different:
+ *
+ *    - THE BLOG ARTICLE PRINTS ITSELF, IN PLACE. That page IS the document —
+ *      hero, byline, tags — its DOM is complete, and a visitor's own Ctrl+P
+ *      has to work with no JavaScript at all. Everything below under "the
+ *      published article" is chrome removal and nothing else.
+ *    - THE APP PRINTS A RENDERED COPY. `client/print.ts` builds `.s-print`
+ *      outside `#root` and sets `data-print` on <body>; this sheet then hides
+ *      `#root` outright. The app shell cannot be printed in place at any
+ *      price: it is a grid of up to N panes locked to the viewport, its
+ *      centre column is its own scrollport, and CodeMirror renders only the
+ *      lines near the caret — printing the editor's DOM prints the fragment
+ *      that happened to be on screen. That is the bug, not the layout.
+ *
+ * 2. WHAT COLOUR IT IS. A print palette, declared here, deliberately NOT the
+ *    theme in force and deliberately not a theme swap either (a document that
+ *    changes colour when you open the print dialog is the flash this codebase
+ *    keeps refusing elsewhere). The inks are `parchment`'s — the light room
+ *    the product has already solved for contrast, headings, callouts and
+ *    syntax — laid on white paper instead of parchment's own ground. Nothing
+ *    new is invented and nothing is left unsolved: every value below has been
+ *    through `check-contrast.mjs` as part of that theme, and each one only
+ *    gets lighter ground here than it was verified against.
+ *
+ * `!important`, HERE AND ONLY HERE, and the precedent is a11y.css's
+ * reduced-motion block. Two things make it the only lever this sheet has.
+ * First, cascade ORDER is against it: `@import` is legal only at the top of a
+ * file, so every rule in reading.css that names the same selector lands AFTER
+ * these and wins at equal specificity. Second, and decisively, the last
+ * stylesheet on any Vellum instance belongs to its owner — `VELLUM_DATA/
+ * custom.css` and a custom theme's injected token block are both served at
+ * runtime, after everything the build emits. A print sheet that can be turned
+ * off by a `custom.css` rule about screen colour is not a print sheet, and
+ * "the reader's chosen room" is not an argument about paper: the room is the
+ * screen's. The rules that only ADD (the break behaviour, the page box) carry
+ * no `!important` at all, because nothing else in the product declares them.
+ *
+ * 3. WHERE THE PAGES BREAK, which is the whole difference between a PDF and a
+ *    dump. Headings hold on to what follows them, callouts / tables / tracker
+ *    cards / figures / equations do not split, paragraphs keep three lines on
+ *    each side of a break, and a table that runs over repeats its header.
+ *
+ * PDF SEMANTICS. Chrome builds a PDF's bookmark outline from real h1–h6 and
+ * its internal link annotations from real `href="#id"` anchors — both of which
+ * the reading renderer now emits (see the `href` on footnote refs and the
+ * same-note heading pass in reading/render.ts). Nothing here may replace a
+ * heading with a styled div, and nothing may `display: none` a heading that is
+ * still in the outline.
+ */
+
+/* The print host is never on screen. Declared OUTSIDE the media block on
+   purpose: a class toggled at print time is a class that can be seen being
+   toggled. */
+.s-print {
+  display: none;
+}
+
+@media print {
+  /* ── The sheet ─────────────────────────────────────────────────────────
+     THE PAGE BOX IS THE MEASURE, and it is the only one: a max-width column
+     centred inside a page box is a second measure inside the first, which is
+     the rule DESIGN.md states for the designed site and the stock blog had to
+     learn twice. So the line length is set here, in the margins, and nothing
+     inside sets a width.
+
+     25mm at the sides is what makes it a document rather than a screenshot of
+     one. At the 11pt below it holds ~90 characters on A4 and ~95 on US Letter
+     — long by a typographer's standards and squarely inside what an office
+     printer has produced since Word shipped, which is the register a note
+     someone is about to hand to somebody else wants to be in.
+
+     Symmetric sides, and that is a decision rather than laziness: `@page` has
+     no logical margins in any shipping engine, so an asymmetric binding edge
+     would have to be mirrored by hand for RTL and would be silently wrong in
+     one of the two directions forever. */
+  @page {
+    margin: 20mm 25mm 22mm;
+  }
+
+  /* ── The inks ─────────────────────────────────────────────────────────── */
+  :root {
+    --bg: #fff !important;
+    --bg-raised: #fff !important;
+    --bg-hover: #f4f0e6 !important;
+    --text: #33291a !important;
+    --text-muted: #6e6250 !important;
+    /* 3.91:1 on paper — a non-text token doing non-text work (rules, glyphs),
+       exactly as DESIGN.md scopes it. */
+    --text-faint: #8d7f66 !important;
+    --accent: #7a5f14 !important;
+    --accent-soft: rgba(122, 95, 20, 0.13) !important;
+    --border: #d3c6aa !important;
+    --danger: #a23a2e !important;
+    --selection-bg: transparent !important;
+    --focus-ring: transparent !important;
+
+    --callout-note: #3b6e99 !important;
+    --callout-info: #3b6e99 !important;
+    --callout-todo: #3b6e99 !important;
+    --callout-abstract: #3f7d72 !important;
+    --callout-tip: #3f7d72 !important;
+    --callout-success: #4a7a38 !important;
+    --callout-question: #a3671f !important;
+    --callout-warning: #a3671f !important;
+    --callout-failure: #a23a2e !important;
+    --callout-danger: #a23a2e !important;
+    --callout-bug: #a23a2e !important;
+    --callout-example: #6d5a91 !important;
+    --callout-quote: #6e6250 !important;
+
+    /* A listing is still colour-coded on a colour printer and still legible on
+       a monochrome one, because these are ink-on-paper hues rather than a dark
+       theme's neon tuned for a near-black ground. */
+    --syn-keyword: #7a5f14 !important;
+    --syn-string: #5e7b34 !important;
+    --syn-number: #a05a26 !important;
+    --syn-comment: #8d7f66 !important;
+    --syn-func: #41688a !important;
+    --syn-type: #96543f !important;
+    --syn-prop: #6d5a91 !important;
+    --syn-operator: #6e6250 !important;
+  }
+
+  /* The app clips the document at the viewport (app.css: `overflow: clip` on
+     all three, and it says why). Paper has no viewport. */
+  html,
+  body,
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: var(--text);
+  }
+
+  /* ── The app: the rendered copy, and only it ──────────────────────────── */
+  body[data-print] > #root {
+    display: none !important;
+  }
+
+  .s-print {
+    display: block !important;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    color: var(--text);
+  }
+
+  /* The note's own name, and only when its markdown did not already open with
+     one — a printed page with no title is an anonymous stack of paper, and two
+     titles is worse than none. print.ts decides; this only dresses it. */
+  .s-print__title {
+    margin: 0 0 0.6em;
+    font-family: var(--font-serif);
+    font-size: 1.9em;
+    font-weight: 600;
+    line-height: 1.25;
+    color: color-mix(in srgb, var(--accent) 15%, var(--text));
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.2em;
+    break-after: avoid;
+  }
+
+  /* Nothing to print, and the app said so rather than spending a sheet on a
+     blank page. Reached when a reader prints from the graph or the empty
+     state, where there is no document at all. */
+  .s-print__hint {
+    margin: 0;
+    font-family: var(--font-ui);
+    font-size: 10pt;
+    color: var(--text-muted);
+  }
+
+  /* ── The published article: printed in place, undressed ───────────────── */
+  .s-blog {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  .s-blog-mast,
+  .s-blog-nav,
+  .s-blog-footer,
+  .s-blog-share,
+  .s-blog-pn,
+  .s-blog-related,
+  .s-blog-langnote,
+  .s-btt,
+  .s-skip,
+  .s-blog .s-marginalia {
+    display: none !important;
+  }
+
+  .s-blog-main {
+    min-height: 0;
+  }
+
+  .s-blog-page {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .s-blog-article {
+    padding-top: 0 !important;
+  }
+
+  .s-blog-article__title {
+    break-after: avoid;
+  }
+
+  .s-blog-article__foot {
+    break-inside: avoid;
+  }
+
+  /* The hero is the piece's own picture and prints; a GENERATED gradient is
+     furniture standing in for a picture the author never chose, and half a
+     page of flat ink is not what they meant by it. */
+  .s-blog-hero--gen {
+    display: none !important;
+  }
+
+  /* ── The document, on both paths ──────────────────────────────────────── */
+  .s-reading__content {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-family: var(--font-serif) !important;
+    /* Points, not rem: `html { font-size }` is the reader's screen preference
+       (tokens.css scales the whole app from it) and a 20% larger UI does not
+       mean a 20% larger sheet of A4. */
+    font-size: 11pt !important;
+    line-height: 1.5 !important;
+    color: var(--text) !important;
+  }
+
+  /* Frontmatter is the note's filing card, not its content: keys the app reads
+     (`id`, `dg-*`, `publish`) printed at the head of a document say nothing to
+     a reader holding paper. The blog already hides it for the same reason. */
+  .s-rv-props,
+  .s-reading__empty,
+  /* The "this banner names nothing" card is an admin repair affordance with a
+     button in it, and paper cannot press a button. (print.ts removes it from
+     the host outright — see stripChrome there for the second reason.) */
+  .s-rv-banner__missing {
+    display: none !important;
+  }
+
+  /* ── Breaks ───────────────────────────────────────────────────────────── */
+  .s-rv .s-rv-h,
+  .s-rv-h1,
+  .s-rv-h2,
+  .s-rv-h3,
+  .s-rv-h4,
+  .s-rv-h5,
+  .s-rv-h6 {
+    break-after: avoid;
+    break-inside: avoid;
+  }
+
+  .s-rv-p,
+  .s-rv-list li {
+    orphans: 3;
+    widows: 3;
+  }
+
+  .s-rv-callout,
+  .s-rv-quote,
+  .s-rv-figure,
+  .s-rv-table tr,
+  .s-rv-tracker-host,
+  .s-rv-transclude,
+  .s-rv-file,
+  .s-rv-mathblock,
+  .s-rv-math--display,
+  .katex-display {
+    break-inside: avoid;
+  }
+
+  /* A table that outruns the page repeats its header rather than leaving the
+     second sheet a grid of unlabelled cells. */
+  .s-rv-table thead {
+    display: table-header-group;
+  }
+
+  /* The scrollport is a screen affordance; on paper it CLIPS. */
+  .s-rv-tablewrap {
+    overflow: visible !important;
+    max-width: 100%;
+  }
+
+  /* Long lines wrap instead of running off the right edge of the sheet — the
+     one place a code block may not keep its horizontal scroll. */
+  .s-rv-pre,
+  .s-rv-pre code {
+    white-space: pre-wrap !important;
+    overflow-wrap: break-word;
+    break-inside: auto;
+  }
+
+  /* ── Links ────────────────────────────────────────────────────────────── */
+  /* A WIKILINK IS PLAIN TEXT ON PAPER. It points into a vault the person
+     holding the sheet does not have, so on the page it is simply the words the
+     author wrote — including the broken ones, whose dashed danger tint is an
+     invitation to click that paper cannot accept. */
+  .s-rv-wikilink,
+  .s-rv-wikilink--broken,
+  .s-rv-cite {
+    color: inherit !important;
+    text-decoration: none !important;
+    border: 0 !important;
+  }
+
+  /* AN EXTERNAL LINK PRINTS ITS DESTINATION, because the underline alone is a
+     dead end. Suppressed when the text already IS the url (a bare or autolinked
+     address renders as itself, and "https://x (https://x)" is noise), and
+     inside headings, where a url would land in the PDF's bookmark outline. */
+  .s-rv-ext {
+    color: var(--text) !important;
+    text-decoration: underline !important;
+    text-decoration-color: var(--text-faint) !important;
+  }
+
+  .s-rv-ext[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-family: var(--font-ui);
+    font-size: 0.82em;
+    color: var(--text-muted);
+    /* A url has no spaces to break at and would otherwise push the measure. */
+    overflow-wrap: anywhere;
+    word-break: break-all;
+  }
+
+  .s-rv-h .s-rv-ext::after,
+  .s-blog-article__title .s-rv-ext::after {
+    content: "";
+  }
+
+  /* ── Screen affordances that are not marks on paper ───────────────────── */
+  .s-rv-fnback,
+  .s-rv-callout__chevron,
+  .s-rv-props__chevron,
+  .s-rv-transclude__more,
+  .s-marginalia,
+  .s-rv-embed-chip {
+    display: none !important;
+  }
+
+  /* A FOLDED CALLOUT IS STILL THE DOCUMENT. The fold is a reading posture, not
+     an edit — printing a title with its body missing loses text the author
+     wrote, silently, which is the one failure a print feature must not have. */
+  .s-rv-callout--folded .s-rv-callout__body {
+    display: block !important;
+  }
+
+  /* Same argument, one element over: a transclusion clamped on screen prints
+     whole. */
+  .s-rv-transclude__body {
+    max-height: none !important;
+  }
+
+  .s-rv-transclude--overflow .s-rv-transclude__body::after {
+    display: none;
+  }
+
+  /* ── Pictures ─────────────────────────────────────────────────────────── */
+  .s-rv-img,
+  .s-rv-html img,
+  .s-rv-html svg {
+    max-width: 100%;
+    height: auto;
+    break-inside: avoid;
+  }
+
+  /* The banner is a hero at 100vw on screen and would take a third of a sheet
+     unattended. It stays — it is the note's own picture — at a height the page
+     can spend. */
+  .s-rv-banner,
+  .s-blog-hero {
+    max-height: 55mm !important;
+    height: auto !important;
+    margin-inline: 0 !important;
+    break-inside: avoid;
+    break-after: avoid;
+  }
+
+  .s-rv-banner__img,
+  .s-blog-hero__img {
+    max-height: 55mm !important;
+    height: auto !important;
+    object-fit: cover;
+  }
+
+  /* ── The marks whose MEANING is the colour ────────────────────────────── */
+  /* Everything else lets the printer drop its backgrounds — flooding a sheet
+     with ink to reproduce a hover ground is rude and slow. These four carry
+     information nothing else in the glyph stream carries: a callout's kind, a
+     quotation's bar, a highlight, and the divider that is content rather than
+     furniture (DESIGN.md). */
+  .s-rv-callout,
+  .s-rv-quote,
+  .s-rv-mark,
+  .s-rv-hr {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  /* ── Footnotes: at the end, and looking like it ───────────────────────── */
+  .s-rv-footnotes {
+    break-inside: auto;
+    margin-top: 2.4em !important;
+    padding-top: 0.9em !important;
+    border-top: 1px solid var(--border) !important;
+    font-size: 0.86em !important;
+    color: var(--text-muted) !important;
+  }
+
+  .s-rv-footnotes li {
+    break-inside: avoid;
+  }
+
+  /* ── Motion, focus, and everything else that has no meaning on paper ──── */
+  * {
+    animation: none !important;
+    transition: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* A focus ring is a statement about where the keyboard is, and paper has no
+     keyboard. Scoped to @media print, so it cannot reach the screen. */
+  :focus-visible {
+    outline: none !important; /* a11y-ok */
+  }
+}
