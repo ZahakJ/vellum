@@ -59,6 +59,15 @@ interface Instance {
   server: VaultServer;
   session: Electron.Session;
   credential: Credential;
+  /** What it takes to start this vault's server AGAIN — the two things
+   *  `openVault` resolved that `startVaultServer` cannot re-derive. Kept so a
+   *  server that died can be brought back without the reader reopening the
+   *  vault by hand (see onServerExit). */
+  restart: { dataDir: string; deployEnv: Record<string, string> | null };
+  /** One respawn per instance, and this is the record of it. A server that
+   *  dies, comes back and dies again is not having an accident; it is broken,
+   *  and looping on it would hide that behind a window that keeps flickering. */
+  respawned: boolean;
   stopKeepAlive: () => void;
   windows: Set<BrowserWindow>;
   /** A route that arrived before a window was ready to receive it. */
@@ -254,6 +263,10 @@ async function openVaultUnguarded(vault: string, route: string): Promise<void> {
   // graph (the root tsconfig excludes electron/), which is why check-desktop
   // now runs tsc over it.
   let deployEnv: Record<string, string> | null = null;
+  // Out here for the same reason, one line later: a respawn after a crash
+  // needs the data directory this open resolved, and it is not re-derivable
+  // from prefs alone once the row has been rewritten.
+  let dataDir = "";
   try {
     // The prefs row may name an EXISTING Vellum home — the door that lets the
     // desktop share settings, comments and reading state with a long-running
@@ -264,7 +277,7 @@ async function openVaultUnguarded(vault: string, route: string): Promise<void> {
     // without it the child got a minted password and PUBLIC=false over the
     // shared data — the owner's password refused, the public layout "private".
     const override = prefs.vaults.find((v) => v.path === vault)?.data;
-    const dataDir = override !== undefined && existsSync(override) ? override : dataDirFor(vault);
+    dataDir = override !== undefined && existsSync(override) ? override : dataDirFor(vault);
     if (dataDir === override) {
       const envFile = path.join(override, "..", ".env");
       if (existsSync(envFile)) {
@@ -320,6 +333,8 @@ async function openVaultUnguarded(vault: string, route: string): Promise<void> {
     server,
     session: ses,
     credential,
+    restart: { dataDir, deployEnv },
+    respawned: false,
     stopKeepAlive:
       deployEnv !== null
         ? () => {}
@@ -397,11 +412,55 @@ async function adoptLanguage(instance: Instance): Promise<void> {
   }
 }
 
+/** How long to wait before trying again. Long enough that a port genuinely
+ *  releases and a crash-loop cannot spin; short enough that the reader sees a
+ *  stall rather than an outage. */
+const RESPAWN_BACKOFF_MS = 1_500;
+
+/** THE SERVER DIED AND THE READER DID NOT ASK IT TO.
+ *
+ *  What used to happen: every window on the vault closed and an error box
+ *  named an exit code. That is the correct ending for a server that cannot
+ *  run — and the wrong one for a server that fell over once, which is what a
+ *  crash actually is most of the time (the audit's own reproduction: an
+ *  uncaught TypeError under two clients saving at once, server/indexer.ts).
+ *  The reader's text is safe either way — buffers are in the renderer and the
+ *  files are on disk — but their windows were taken from them for an accident
+ *  the app could have absorbed.
+ *
+ *  So: ONE attempt, after a backoff, then the old ending. The port is free
+ *  now that our child is gone, so `startVaultServer` almost always gets the
+ *  same one back and the windows simply resume — `localStorage` is keyed by
+ *  origin, and an origin that came back is a layout that never left. If it
+ *  lands somewhere else the windows are carried over to the new origin, which
+ *  costs the reader their tabs and folds for this session but not their work.
+ *
+ *  A second death gets no second attempt (`respawned`): a server that cannot
+ *  stay up is a bug to be shown, not a flicker to be hidden. */
 function onServerExit(vault: string, code: number | null, signal: NodeJS.Signals | null): void {
   if (quitting) return;
   const instance = instances.get(vault);
   if (!instance) return;
-  instances.delete(vault);
+  instance.stopKeepAlive();
+  if (!instance.respawned && instance.windows.size > 0) {
+    instance.respawned = true;
+    console.error(
+      `vellum: the server for ${vault} exited (${code === null ? String(signal) : `code ${code}`}) — restarting it once`,
+    );
+    setTimeout(() => {
+      void respawnServer(instance, code, signal);
+    }, RESPAWN_BACKOFF_MS);
+    return;
+  }
+  giveUpOnVault(instance, code, signal);
+}
+
+function giveUpOnVault(
+  instance: Instance,
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): void {
+  instances.delete(instance.vault);
   instance.stopKeepAlive();
   for (const win of instance.windows) if (!win.isDestroyed()) win.close();
   refreshMenu();
@@ -409,6 +468,57 @@ function onServerExit(vault: string, code: number | null, signal: NodeJS.Signals
     m("dlgServerFailedTitle"),
     `${instance.vault}\n\n${code === null ? String(signal) : `exit ${code}`}`,
   );
+}
+
+async function respawnServer(
+  instance: Instance,
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): Promise<void> {
+  // The reader closed the last window, or quit, while we were waiting.
+  if (quitting || instances.get(instance.vault) !== instance || instance.windows.size === 0) return;
+  const was = instance.server.origin;
+  try {
+    const server = await startVaultServer({
+      vault: instance.vault,
+      dataDir: instance.restart.dataDir,
+      prefs: loadPrefs(),
+      credential: instance.credential,
+      deployEnv: instance.restart.deployEnv,
+      onLog: (line) => process.stdout.write(line),
+      onExit: (c, s) => onServerExit(instance.vault, c, s),
+    });
+    instance.server = server;
+    // Sign in again against the NEW child. Its SESSION_SECRET is the same
+    // (this launch's credential, or the deployment's own .env), so the cookie
+    // in the partition is still valid — but the same call also re-establishes
+    // it for a port that moved, and re-arms the keep-alive that stopped when
+    // the child died.
+    const lifetime =
+      instance.restart.deployEnv !== null
+        ? 0
+        : await signIn(instance.session, server.origin, instance.credential);
+    instance.stopKeepAlive =
+      instance.restart.deployEnv !== null
+        ? () => {}
+        : keepSignedIn(instance.session, server.origin, instance.credential, lifetime, (err) =>
+            console.error("vellum: could not refresh the desktop session:", err),
+          );
+    savePrefs(rememberVault(loadPrefs(), instance.vault, server.port, Date.now()));
+    for (const win of instance.windows) {
+      if (win.isDestroyed()) continue;
+      const url = win.webContents.getURL();
+      // Same origin: a plain reload picks the server back up with every
+      // remembered thing intact. A different one: carry the route across.
+      void win.webContents.loadURL(
+        server.origin === was || !url.startsWith(was) ? url : server.origin + url.slice(was.length),
+      );
+    }
+    console.log(`vellum: ${instance.vault} is serving again on ${server.origin}`);
+  } catch (err) {
+    console.error(`vellum: could not restart the server for ${instance.vault}:`, err);
+    giveUpOnVault(instance, code, signal);
+  }
 }
 
 // ────────────────────────────────────────────────────────────────── windows

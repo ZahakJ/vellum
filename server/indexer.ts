@@ -7,8 +7,12 @@ import path from "node:path";
 import MiniSearch from "minisearch";
 import type { AliasEntry, Backlink, GraphData, GraphEdge, PageMeta, PostMeta, SearchHit, SearchMatch, TagCount, TrackerMeta, VaultEvent } from "../shared/types.ts";
 import { stripBidiControls } from "../shared/bidi.ts";
+import { findAnyMatches, foldQuery, foldTerm } from "../shared/fold.ts";
+import { parseSearchQuery, type QueryFilter } from "../shared/searchQuery.ts";
+import { numeralSystem, toNumerals } from "../shared/numerals.ts";
 import { isNotePath, isTexPath, noteCandidates, noteTitleOf, stripNoteExt } from "../shared/noteFormat.ts";
 import { markdownAnchors, type NoteAnchor } from "../shared/anchors.ts";
+import { uncomment } from "../shared/yaml.ts";
 import { countNoteWords, countWords, readingMinutes } from "../shared/wordCount.ts";
 import { cleanLabelEntry, tagKey, type TagLabelMap } from "../shared/tagLabels.ts";
 import { pageFlag } from "./pages.ts";
@@ -16,7 +20,7 @@ import { publishFlag, readFrontmatter } from "./publish.ts";
 import { parseAliases, parseFolders, readNoteFrontmatter } from "./noteFrontmatter.ts";
 import { scanTrackers, type Tracker } from "../shared/tracker.ts";
 import { readTexNote } from "./texNote.ts";
-import { excludedTags } from "./site.ts";
+import { blogLocale, excludedTags } from "./site.ts";
 // Cyclic with this module (settings.ts → site.ts → here) and inert: every
 // call below happens at request time, never while either module is loading.
 import { templatesFolder } from "./settings.ts";
@@ -145,6 +149,109 @@ const byAlias = new Map<string, Set<string>>();
 const byLabel = new Map<string, Set<string>>();   // lowercased \label id -> paths
 const byCitekey = new Map<string, Set<string>>(); // lowercased citekey  -> paths
 
+// ── The reverse link index ────────────────────────────────────────────────
+//
+// `backlinks()` answered "who points at this note?" by walking every note ×
+// every link and calling resolveLink() on each one — 40,000 resolutions and
+// 83 ms per note open on the 1,388-note fixture, paid again on every panel
+// refresh. The graph audit named it beside the graph view itself.
+//
+// The way out is in resolveLink()'s own shape: it is a lookup in THREE tables
+// — the path table, the basename table, the alias table — so the set of link
+// keys that could possibly answer with a given note is finite and readable off
+// that note alone (its path, its path minus the note extension, its basename,
+// every alias it declares). Same for `\cite`/`\ref`, one table over: a note's
+// citekeys and its non-heading labels. File every link under the key the
+// resolver would reduce it to, and a backlink query becomes "union the sources
+// filed under those keys, then verify each one with the real resolver".
+//
+// VERIFICATION STAYS, deliberately. The candidate set is a superset — a
+// basename key can name three notes and only one of them wins pickShortest,
+// and the visitor filter can move that winner — so every hit is still put
+// through resolveLink() before it is reported. What disappears is the walk
+// over the notes that were never candidates, not a single rule about which
+// candidate is right. One resolver, one answer, no second implementation to
+// drift.
+const linkSources = new Map<string, Set<string>>(); // link key -> notes carrying it
+const xrefSources = new Map<string, Set<string>>(); // \cite/\ref key -> notes carrying it
+
+function fileUnder(map: Map<string, Set<string>>, key: string, notePath: string): void {
+  if (!key) return;
+  let set = map.get(key);
+  if (!set) map.set(key, (set = new Set()));
+  set.add(notePath);
+}
+
+function unfileFrom(map: Map<string, Set<string>>, key: string, notePath: string): void {
+  const set = map.get(key);
+  if (!set) return;
+  set.delete(notePath);
+  if (set.size === 0) map.delete(key);
+}
+
+// ── The graph revision ────────────────────────────────────────────────────
+//
+// `/api/graph` is the largest response the product makes (534 kB on the
+// fixture, ~5 MB at 10k notes) and its memo used to be dropped by EVERY vault
+// event and EVERY non-GET request — so during a sync storm each poll paid a
+// full rebuild of an answer that had not changed. Most writes do not touch the
+// graph at all: typing a paragraph changes no link, no tag, no name and no
+// publish flag.
+//
+// So the index counts its own graph-shaped changes instead, and the memo is
+// validated against the count rather than thrown away on rumour. See
+// graphSignature() for exactly what "graph-shaped" means, and
+// server/graphCache.ts for the read side.
+let graphRev = 0;
+
+/** How many graph-shaped changes the index has applied. Monotonic; the only
+ *  promise is that it CHANGES whenever `graph()` would answer differently. */
+export function graphRevision(): number {
+  return graphRev;
+}
+
+/** Everything about one note that `graph()` — or the resolution tables it
+ *  leans on — can see. Two records with the same signature contribute the same
+ *  nodes, the same edges and the same resolution behaviour, so a reindex that
+ *  produces one is invisible to the graph and must not cost a rebuild.
+ *
+ *  It covers more than the graph's own fields on purpose: aliases, labels and
+ *  citekeys are how OTHER notes' links land here, and the note's own path and
+ *  basename are its entry in the name table. Miss one of those and the memo
+ *  survives a change it should not have survived — the one failure mode this
+ *  whole mechanism must not have. */
+function graphSignature(record: NoteRecord | undefined): string | null {
+  if (record === undefined) return null;
+  return [
+    record.path,
+    record.title,
+    record.published ? "1" : "0",
+    record.arabic === null ? "?" : record.arabic ? "ar" : "la",
+    record.tags.join(","),
+    record.aliases.join(","),
+    record.citekeys.join(","),
+    record.links.map((link) => link.target).join(SIG_SEP),
+    record.xrefs.map((xref) => `${xref.kind}:${xref.key}`).join(SIG_SEP),
+    // LABELS only — a heading slug is not in byLabel and no edge is ever drawn
+    // from one, so renaming an H2 must not cost the whole vault a rebuild.
+    labelAnchors(record).map((anchor) => anchor.id).join(SIG_SEP),
+  ].join(SIG_FIELD);
+}
+
+/** Separators no filename, tag, alias, label or link target can contain, so no
+ *  two different records can spell the same signature by accident. */
+const SIG_SEP = "\u0000";
+const SIG_FIELD = "\u0001";
+
+/** The anchors that go into `byLabel` — a `\label{…}`, an equation, a figure.
+ *  Heading and section slugs are NOT labels (`[[Note#Heading]]` resolves by the
+ *  note, never by the anchor), and addKeys(), removeKeys() and the graph
+ *  signature all have to agree on that or one of them registers a key another
+ *  forgets. */
+function labelAnchors(record: NoteRecord): NoteAnchor[] {
+  return record.anchors.filter((a) => a.kind !== "heading" && a.kind !== "section");
+}
+
 // Publish state: the set of published note paths, plus (derived lazily) the
 // set of attachment paths that published notes embed/link — the only files
 // /api/file will serve to non-admin visitors.
@@ -155,15 +262,26 @@ let allowedAttachmentsCache: Set<string> | null = null; // null = recompute
 // links it, published or not. `allowedAttachments()` answers "may a VISITOR
 // fetch this byte"; this answers "would deleting this file break something a
 // reader can see", which is the question a delete dialog has to ask and never
-// did. Same lifecycle, same invalidation — see invalidateRefCaches().
+// did. Same lifecycle, same invalidation — see invalidateDerived().
 let attachmentRefsCache: Map<string, Set<string>> | null = null;
 
-/** Both derived link caches go stale together: every mutation that changes a
- *  note's links, a note's existence or an attachment's existence changes both
- *  answers, and resolution itself shifts as files come and go. */
-function invalidateRefCaches(): void {
+/** Every cache derived from the shape of the index goes stale together: any
+ *  mutation that changes a note's links, a note's existence or an attachment's
+ *  existence changes all of these answers, and resolution itself shifts as
+ *  files come and go.
+ *
+ *  The templates memo joins them here rather than hanging off `onEvent` (where
+ *  treeCache and graphCache hang) DELIBERATELY: `detectTemplatesFolder()` is a
+ *  walk of the INDEX, not of the disk, and the index applies a vault event
+ *  asynchronously. A memo dropped when the event fires would be refilled from
+ *  the pre-event index by any request arriving in that window and would then
+ *  stay wrong until the next vault change — the exact stale-memo trap
+ *  graphCache.ts had to grow a `whenIndexed()` microtask for. These five call
+ *  sites ARE the index's mutations, so a memo dropped here cannot be early. */
+function invalidateDerived(): void {
   allowedAttachmentsCache = null;
   attachmentRefsCache = null;
+  templatesFolderMemo = null;
 }
 
 // Attachments (non-md files): known paths + lowercased basename (with
@@ -210,7 +328,83 @@ const mini = new MiniSearch<{ path: string; title: string; body: string; tags: s
   idField: "path",
   fields: ["title", "body", "tags", "aliases"],
   searchOptions: { prefix: true, fuzzy: 0.2, boost: { title: 6, aliases: 4, tags: 2 } },
+  // DIACRITICS ARE NOT PART OF A WORD'S IDENTITY — Obsidian's eighth
+  // most-requested feature of all time, and the one this vault's owner needs
+  // most. minisearch's default `processTerm` lowercases and stops there, so a
+  // note headed «الْمُقَدِّمَة» is filed under a term no reader will ever type;
+  // «المقدمة» answers "no matches" and the search box looks broken. The fold
+  // (shared/fold.ts) is applied HERE, which is the one place that fixes both
+  // directions at once: minisearch runs `processTerm` over the terms it FILES
+  // and over the terms it is ASKED for, so the plain spelling finds the pointed
+  // note and the pointed spelling finds the plain one — with no second copy of
+  // the query and no widening of the index.
+  //
+  // A term that folds away to nothing (a lone shadda a typist left behind) is
+  // dropped rather than filed: `null` is minisearch's own "skip this token",
+  // and an empty term in the index is a term every query matches.
+  processTerm: (term) => foldTerm(term) || null,
+  // THE SERVER USED TO DIE HERE, and it died in the most ordinary situation
+  // this product has: two clients saving into one vault. Reproduced 5/5 with
+  // two clients alternating precondition saves (~520 writes), always the same
+  // way — an uncaught TypeError thrown from inside minisearch, out of a
+  // promise nothing in this process owns, taking the whole server with it.
+  //
+  // Automatic vacuuming is an ASYNC BATCHED WALK of the term index
+  // (`performVacuuming`: `for (const [term] of this._index) … await
+  // setTimeout(batchWait)`), scheduled by `discard()` and running between
+  // ticks. Every save calls removeFile() → `mini.discard` and then
+  // `mini.add` — so a vacuum begun by one save is still walking the radix
+  // tree when the next save mutates it, and an iterator over a tree that has
+  // just had nodes spliced out from under it reads properties of undefined.
+  // No amount of care at OUR call sites fixes that: the two halves are the
+  // library's, and it hands us no way to await one of them.
+  //
+  // So the schedule becomes ours. `autoVacuum: false` means nothing ever
+  // vacuums behind a mutation's back; `scheduleVacuum()` below runs one
+  // explicitly, ON THE SAME `settled` CHAIN every index mutation now goes
+  // through, which makes "a vacuum is running" and "a save is applying"
+  // mutually exclusive states rather than a race. `mini.replace()` was the
+  // other candidate fix and is not one: it is `discard()` + `add()` with our
+  // own two lines moved inside the library, and it schedules the same vacuum.
+  autoVacuum: false,
 });
+
+/** How long the index must be quiet before the deferred vacuum runs. Long
+ *  enough that a burst of saves (or a `git pull`) is one vacuum rather than
+ *  fifty; short enough that a working session never carries dirt for long. */
+const VACUUM_IDLE_MS = 2_000;
+
+/** Dirt below this is not worth a walk — minisearch's own default trigger. */
+const VACUUM_MIN_DIRT = 20;
+
+let vacuumTimer: NodeJS.Timeout | null = null;
+
+/** What the term index is carrying. Diagnostics for the perf harness and for
+ *  the test that proves the deferred vacuum actually runs — a vacuum nobody
+ *  can observe is a vacuum that quietly stopped happening. */
+export function indexStats(): { notes: number; dirt: number; vacuuming: boolean } {
+  return { notes: notes.size, dirt: mini.dirtCount, vacuuming: mini.isVacuuming };
+}
+
+/** Book a vacuum for the next quiet moment, at most one at a time.
+ *
+ *  Deliberately NOT debounced-by-restart: under a sustained storm a restarting
+ *  timer would never fire and the index would grow dirt forever. One timer per
+ *  window, re-booked after it runs, so a long storm is vacuumed periodically
+ *  and a quiet vault is vacuumed once. */
+function scheduleVacuum(): void {
+  if (vacuumTimer !== null || mini.dirtCount < VACUUM_MIN_DIRT) return;
+  vacuumTimer = setTimeout(() => {
+    vacuumTimer = null;
+    // Enqueued, not called: the whole point is that no mutation runs while the
+    // walk is in the air. batchWait 0 keeps the yields (other requests still
+    // get served between batches) without the 10 ms sleep that made the
+    // library's own vacuum take seconds on a real index.
+    void enqueue(() => mini.vacuum({ batchSize: 4_000, batchWait: 0 }));
+  }, VACUUM_IDLE_MS);
+  // A pending vacuum must never be the reason a process refuses to exit.
+  vacuumTimer.unref?.();
+}
 
 /** Matches [[Name]], [[Name#heading]], [[Name|alias]], [[Name#heading|alias]]. */
 export function wikilinkRegex(): RegExp {
@@ -398,7 +592,11 @@ export async function initIndexer(): Promise<void> {
   const worker = async (): Promise<void> => {
     while (next < noteFiles.length) {
       const file = noteFiles[next++];
-      await indexFile(file);
+      // applyIndexFile, not indexFile: boot is the one moment nothing else can
+      // be touching the index (serve() has not been called, no vacuum is
+      // scheduled), so putting 1,388 files through the one-at-a-time chain
+      // would only throw away the overlap the fd budget above exists to buy.
+      await applyIndexFile(file);
     }
   };
   await Promise.all(
@@ -423,6 +621,24 @@ export function whenIndexed(): Promise<void> {
   return settled;
 }
 
+/** Put one unit of index work on the chain and hand back the promise for IT.
+ *
+ *  THE CHAIN IS NOW THE ONLY DOOR into the index's mutable state — watcher
+ *  events, the routes' own eager reindexes, and the minisearch vacuum all
+ *  queue here. That is what makes the vacuum safe (see `autoVacuum: false`
+ *  above): two things that both mutate the term index can no longer be in
+ *  flight at the same moment, whatever order the event loop wakes them in.
+ *
+ *  A task that throws is logged and swallowed, exactly as before: one bad file
+ *  must not poison the chain for every event behind it. */
+function enqueue(task: () => Promise<void>, describe = "task"): Promise<void> {
+  const next = settled
+    .then(task)
+    .catch((err) => console.error(`indexer: ${describe} failed:`, err));
+  settled = next;
+  return next;
+}
+
 function handleEvent(event: VaultEvent): void {
   const isNote = isNotePath(event.path);
   const apply = async (): Promise<void> => {
@@ -430,7 +646,7 @@ function handleEvent(event: VaultEvent): void {
       case "created":
       case "changed":
         if (event.dir) break;
-        if (isNote) await indexFile(event.path);
+        if (isNote) await applyIndexFile(event.path);
         else addAttachment(event.path);
         break;
       case "deleted":
@@ -451,27 +667,86 @@ function handleEvent(event: VaultEvent): void {
           break;
         }
         removeFile(event.path);
-        if (event.toPath) await indexFile(event.toPath);
+        if (event.toPath) await applyIndexFile(event.toPath);
+        break;
+      case "bulk":
+        // Never reaches here: the aggregate coalescer (server/vault.ts) only
+        // feeds the refetching subscribers, and the index is not one of them —
+        // it gets every path, always. Stated so the switch is honest about the
+        // kind existing on the type.
         break;
     }
   };
   // Chain on the previous apply so events land in order and whenIndexed()
   // always covers the newest event.
-  settled = settled
-    .then(apply)
-    .catch((err) => console.error(`indexer: failed to apply ${event.kind} ${event.path}:`, err));
+  void enqueue(apply, `apply ${event.kind} ${event.path}`);
 }
 
 /** Index (or reindex) one note immediately. Exported so API writes can update
  *  the index synchronously instead of waiting out the watcher debounce —
- *  otherwise a rename issued right after a save misses freshly written links. */
-export async function indexFile(relPath: string): Promise<void> {
+ *  otherwise a rename issued right after a save misses freshly written links.
+ *
+ *  "Immediately" now means "next on the chain", not "right now, on top of
+ *  whatever else is halfway through". Two clients saving into one vault put
+ *  two of these in flight at once — that is the ordinary case, not the exotic
+ *  one — and interleaving them was how the term index got mutated underneath
+ *  its own vacuum (see `autoVacuum: false`). Callers await it exactly as
+ *  before and get a stronger guarantee: when this resolves, every index
+ *  mutation queued before it has also landed. */
+export function indexFile(relPath: string): Promise<void> {
+  return enqueue(() => applyIndexFile(relPath), `index ${relPath}`);
+}
+
+/** True when a filesystem error means THE FILE IS NOT THERE, and only then.
+ *
+ *  Everything else — EMFILE under a `git pull`, EACCES on a file the owner
+ *  chmodded, EIO on a flaky external disk, EBUSY on a Windows share — says the
+ *  file could not be READ, which is a different fact and must lead somewhere
+ *  different. `safeAbs()` throws a VaultError for a path outside the vault;
+ *  that is not an errno and is not "absent" either. */
+function isMissing(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+/** A read that failed for a reason other than absence: say so, once, loudly.
+ *
+ *  The bug this replaces was silent and permanent. An untyped `catch` here
+ *  called `removeFile()`, so ONE EMFILE — the ordinary consequence of a big
+ *  `git pull` against a watcher — dropped that note out of search, out of the
+ *  graph, out of backlinks and out of the tag counts, with nothing written
+ *  anywhere and nothing to bring it back short of a restart. Keeping the
+ *  previous record is strictly better: it is stale by however much the file
+ *  changed, and the next event on that path fixes it.
+ *
+ *  THE DEFAULT IS "KEEP", and that is the deliberate half. A handful of
+ *  refusals that are not errnos land here too — `safeAbs()` answers a 404 for
+ *  a path it cannot resolve, which on an unreadable directory is the same
+ *  EACCES wearing a different coat, and for a dangling symlink is a genuinely
+ *  unservable note. Keeping a record for the second case costs a search hit
+ *  that 404s when clicked; evicting for the first costs a note that vanishes
+ *  from the whole product until a restart. Those are not close. */
+function keepStale(relPath: string, err: unknown, what: string): void {
+  const reason =
+    (err as NodeJS.ErrnoException | null)?.code ??
+    (err instanceof Error ? err.message : String(err));
+  console.warn(
+    `vellum: could not ${what} "${relPath}" (${reason}) — keeping the previous index entry; ` +
+      "it will refresh on the next change to that file",
+  );
+}
+
+async function applyIndexFile(relPath: string): Promise<void> {
   let stat;
   let abs;
   try {
     abs = safeAbs(relPath);
     stat = await fs.stat(abs);
-  } catch {
+  } catch (err) {
+    if (!isMissing(err)) {
+      keepStale(relPath, err, "stat");
+      return;
+    }
     removeFile(relPath);
     return;
   }
@@ -484,11 +759,20 @@ export async function indexFile(relPath: string): Promise<void> {
   let content: string;
   try {
     content = (await readNote(relPath)).content;
-  } catch {
-    removeFile(relPath); // vanished between event and read
+  } catch (err) {
+    if (!isMissing(err)) {
+      keepStale(relPath, err, "read");
+      return;
+    }
+    removeFile(relPath); // vanished between the stat and the read
     return;
   }
-  removeFile(relPath);
+  // Read BEFORE the record is torn down: the graph revision moves only if this
+  // reindex changes something the graph can see, and that comparison needs the
+  // old signature in hand. Typing a paragraph is the common case and it changes
+  // none of it.
+  const wasGraph = graphSignature(notes.get(relPath));
+  removeFile(relPath, true);
   // Display title: bidi controls out. A filename may legitimately be Arabic
   // or mixed-script, but an embedded RLO makes "invoice<U+202E>fdp.exe.md"
   // render as "invoiceexe.pdf" in the public post list, in RSS <title> and in
@@ -546,7 +830,8 @@ export async function indexFile(relPath: string): Promise<void> {
   byPathLower.set(relPath.toLowerCase(), relPath);
   addKeys(record);
   if (record.published) publishedSet.add(relPath);
-  invalidateRefCaches();
+  invalidateDerived();
+  if (graphSignature(record) !== wasGraph) graphRev++;
   // Tags are indexed too so "#tag" (and frontmatter-only tags) are findable.
   mini.add({
     path: relPath,
@@ -640,8 +925,7 @@ function citekeyOf(fm: Record<string, unknown>): string[] {
  *  incremental `indexFile()` leaves stale. A stale alias resolving to a deleted
  *  note is worse than no aliases at all. */
 function addKeys(record: NoteRecord): void {
-  for (const anchor of record.anchors) {
-    if (anchor.kind === "heading" || anchor.kind === "section") continue; // slugs are not labels
+  for (const anchor of labelAnchors(record)) {
     let set = byLabel.get(anchor.id.toLowerCase());
     if (!set) byLabel.set(anchor.id.toLowerCase(), (set = new Set()));
     set.add(record.path);
@@ -660,6 +944,16 @@ function addKeys(record: NoteRecord): void {
     if (!set) byAlias.set(alias.toLowerCase(), (set = new Set()));
     set.add(record.path);
   }
+  // …and the REVERSE direction, filed under the key the resolver will reduce
+  // each target to. It rides here for the same reason aliases do: one pair of
+  // functions owns every vault-wide table, so a table added later cannot be
+  // the one an incremental reindex leaves pointing at a note that moved.
+  for (const link of record.links) {
+    const { key, asPath } = linkKeys(link.target);
+    fileUnder(linkSources, key, record.path);
+    if (asPath !== key) fileUnder(linkSources, asPath, record.path);
+  }
+  for (const xref of record.xrefs) fileUnder(xrefSources, xref.key.toLowerCase(), record.path);
 }
 
 function removeKeys(record: NoteRecord): void {
@@ -672,6 +966,12 @@ function removeKeys(record: NoteRecord): void {
   for (const anchor of record.anchors) drop(byLabel, anchor.id);
   for (const key of record.citekeys) drop(byCitekey, key);
   for (const alias of record.aliases) drop(byAlias, alias);
+  for (const link of record.links) {
+    const { key, asPath } = linkKeys(link.target);
+    unfileFrom(linkSources, key, record.path);
+    if (asPath !== key) unfileFrom(linkSources, asPath, record.path);
+  }
+  for (const xref of record.xrefs) unfileFrom(xrefSources, xref.key.toLowerCase(), record.path);
 }
 
 /** A folder MOVED: drop every record under the old prefix, then index the
@@ -685,7 +985,10 @@ export async function reindexFolderMove(fromRel: string, toRel: string): Promise
   removeFolder(fromRel);
   const { notes: moved, attachments } = await listFolderFiles(toRel);
   for (const file of attachments) addAttachment(file);
-  for (const file of moved) await indexFile(file);
+  // Already ON the chain (the event that called us is a chain task), so this
+  // takes the un-enqueued form. Enqueuing from inside a chain task waits for a
+  // promise that cannot resolve until we return: a deadlock, not a slowdown.
+  for (const file of moved) await applyIndexFile(file);
 }
 
 /** Every note that a move of the subtree at `relFolder` could invalidate — the
@@ -732,16 +1035,21 @@ export function notesAffectedByFolderMove(relFolder: string): string[] {
  *  that follows a restore showed the folder while search, the graph and the
  *  publish count still thought it was gone. Symmetric with `removeFolder()`,
  *  which is what the delete side does. */
-export async function indexUnder(relFolder: string): Promise<void> {
-  const { notes: noteFiles, attachments } = await listVaultFiles(relFolder);
-  for (const file of attachments) addAttachment(file);
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    while (next < noteFiles.length) await indexFile(noteFiles[next++]);
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(BOOT_CONCURRENCY, noteFiles.length) }, worker),
-  );
+export function indexUnder(relFolder: string): Promise<void> {
+  // ONE chain task for the whole subtree — not one per file. A restore is a
+  // single logical mutation, and slicing it into hundreds of queue entries
+  // would let a save land in the middle of a half-restored folder.
+  return enqueue(async () => {
+    const { notes: noteFiles, attachments } = await listVaultFiles(relFolder);
+    for (const file of attachments) addAttachment(file);
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < noteFiles.length) await applyIndexFile(noteFiles[next++]);
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(BOOT_CONCURRENCY, noteFiles.length) }, worker),
+    );
+  }, `index under ${relFolder}`);
 }
 
 /** The first `bytes` of a file as UTF-8, without reading the rest of it. */
@@ -765,11 +1073,18 @@ async function indexOversized(relPath: string, abs: string, stat: { size: number
   let head: string;
   try {
     head = await readHead(abs, OVERSIZED_HEAD_BYTES);
-  } catch {
+  } catch (err) {
+    // Same rule as applyIndexFile's two reads: absence removes, anything else
+    // keeps what we had and says why.
+    if (!isMissing(err)) {
+      keepStale(relPath, err, "read the head of");
+      return;
+    }
     removeFile(relPath);
     return;
   }
-  removeFile(relPath);
+  const wasGraph = graphSignature(notes.get(relPath)); // see applyIndexFile
+  removeFile(relPath, true);
   const rawTitle = noteTitleOf(relPath);
   // The head is enough for frontmatter in BOTH formats: a `%--- … %---%` block
   // opens on line 1 exactly as a `---` block does.
@@ -822,7 +1137,8 @@ async function indexOversized(relPath: string, abs: string, stat: { size: number
   byPathLower.set(relPath.toLowerCase(), relPath);
   addKeys(record);
   if (record.published) publishedSet.add(relPath);
-  invalidateRefCaches();
+  invalidateDerived();
+  if (graphSignature(record) !== wasGraph) graphRev++;
   // Say it out loud, once per file: a silently unsearchable note is exactly
   // the kind of state this product must never keep to itself.
   oversized.add(relPath);
@@ -834,9 +1150,16 @@ async function indexOversized(relPath: string, abs: string, stat: { size: number
   }
 }
 
-function removeFile(relPath: string): void {
+/** Forget one note.
+ *
+ *  `reindexing` says the caller is about to put a record straight back at this
+ *  path and will move the graph revision itself, by comparing the old signature
+ *  with the new one. Every OTHER caller is a real deletion, and a deletion
+ *  always changes the graph. */
+function removeFile(relPath: string, reindexing = false): void {
   const record = notes.get(relPath);
   if (!record) return;
+  if (!reindexing) graphRev++;
   notes.delete(relPath);
   oversized.delete(relPath);
   removeKeys(record);
@@ -845,8 +1168,13 @@ function removeFile(relPath: string): void {
   removeName(noteTitleOf(relPath), relPath);
   if (byPathLower.get(relPath.toLowerCase()) === relPath) byPathLower.delete(relPath.toLowerCase());
   publishedSet.delete(relPath);
-  invalidateRefCaches();
-  if (mini.has(relPath)) mini.discard(relPath);
+  invalidateDerived();
+  if (mini.has(relPath)) {
+    mini.discard(relPath);
+    // The dirt this leaves is cleaned on OUR schedule now, never behind a
+    // save's back — see `autoVacuum: false`.
+    scheduleVacuum();
+  }
 }
 
 function removeFolder(relFolder: string): void {
@@ -862,7 +1190,7 @@ function removeFolder(relFolder: string): void {
 function addAttachment(relPath: string): void {
   if (attachmentPaths.has(relPath)) return;
   attachmentPaths.add(relPath);
-  invalidateRefCaches();
+  invalidateDerived();
   const key = path.posix.basename(relPath).toLowerCase();
   let set = attachmentsByName.get(key);
   if (!set) attachmentsByName.set(key, (set = new Set()));
@@ -872,7 +1200,7 @@ function addAttachment(relPath: string): void {
 
 function removeAttachment(relPath: string): void {
   if (!attachmentPaths.delete(relPath)) return;
-  invalidateRefCaches();
+  invalidateDerived();
   const key = path.posix.basename(relPath).toLowerCase();
   const set = attachmentsByName.get(key);
   if (attachmentsByPathLower.get(relPath.toLowerCase()) === relPath) {
@@ -1001,7 +1329,12 @@ function parseTags(body: string, frontmatter: string): string[] {
   // Frontmatter `tags:` — inline scalar, [a, b] flow list, or block list.
   const fmMatch = /^tags:[ \t]*(.*)$/m.exec(frontmatter);
   if (fmMatch) {
-    const inlineValue = fmMatch[1].trim();
+    // A trailing `# comment` is the author's aside, not part of the tag. The
+    // scan is quote-aware (shared/yaml.ts) because `tags: ["a # b"]` names one
+    // tag with a hash in it — the same verdict the frontmatter writer and the
+    // properties card now reach, so a note cannot be filed under a tag reading
+    // "alpha # why this one" that nothing else in the product agrees exists.
+    const inlineValue = uncomment(fmMatch[1].trim());
     let values: string[] = [];
     if (inlineValue.startsWith("[")) {
       values = inlineValue.replace(/^\[|\]$/g, "").split(",");
@@ -1011,7 +1344,7 @@ function parseTags(body: string, frontmatter: string): string[] {
       const rest = frontmatter.slice(fmMatch.index + fmMatch[0].length);
       for (const line of rest.split("\n")) {
         const item = /^[ \t]*-[ \t]+(.+)$/.exec(line);
-        if (item) values.push(item[1]);
+        if (item) values.push(uncomment(item[1].trim()));
         else if (line.trim()) break;
       }
     }
@@ -1058,20 +1391,35 @@ function filterCandidates(
  *  than the by-design /api/note allowance, which requires the exact path the
  *  caller is trying to learn. Direct access by full path stays allowed — this
  *  changes discovery, not reads. */
+/** The two forms a wikilink target reduces to before any table is consulted:
+ *  `key`, the anchor/alias-stripped lowercase name, and `asPath`, that key
+ *  normalized as a vault-relative path.
+ *
+ *  Extracted so resolveLink() and the reverse index cannot drift. A reverse
+ *  index keyed even slightly differently from the resolver is a backlinks panel
+ *  that quietly loses rows, which is the worst shape a perf fix can take: it
+ *  looks right and it is wrong. */
+function linkKeys(target: string): { key: string; asPath: string } {
+  // The extension comes off whatever it is: `[[Paper.tex]]` and `[[Paper]]`
+  // name the same note, exactly as `[[Note.md]]` and `[[Note]]` always did.
+  const key = stripNoteExt(target.split(/[#|]/)[0].trim().toLowerCase());
+  // Path-form targets ([[Folder/Note]]) are matched against the vault-relative
+  // path table, so `./Folder/Note` and `Folder/Note` have to arrive as one
+  // string.
+  const asPath = path.posix.normalize(key.replace(/\\/g, "/")).replace(/^\.?\/+/, "");
+  return { key, asPath };
+}
+
 export function resolveLink(
   name: string,
   publishedOnly: boolean,
   lang: FilterLang,
 ): string | null {
-  // The extension comes off whatever it is: `[[Paper.tex]]` and `[[Paper]]`
-  // name the same note, exactly as `[[Note.md]]` and `[[Note]]` always did.
-  const key = stripNoteExt(name.split(/[#|]/)[0].trim().toLowerCase());
-  // Path-form targets ([[Folder/Note]]): exact vault-relative match first
-  // (with or without an extension, case-insensitive), mirroring the client
-  // resolver. Candidate ORDER is the tie-break: `.md` first, so a vault that
-  // grows a `Fourier.tex` beside its `Fourier.md` does not silently
-  // re-point every existing link.
-  const asPath = path.posix.normalize(key.replace(/\\/g, "/")).replace(/^\.?\/+/, "");
+  const { key, asPath } = linkKeys(name);
+  // Path-form targets: exact vault-relative match first (with or without an
+  // extension, case-insensitive), mirroring the client resolver. Candidate
+  // ORDER is the tie-break: `.md` first, so a vault that grows a `Fourier.tex`
+  // beside its `Fourier.md` does not silently re-point every existing link.
   let pathHit: string | undefined;
   for (const candidate of noteCandidates(asPath)) {
     pathHit = byPathLower.get(candidate);
@@ -1102,6 +1450,40 @@ export function resolveLink(
     return pickShortest(candidates);
   }
   return null;
+}
+
+/** Every note that MIGHT point at `targetPath` — a superset the caller
+ *  verifies, and the whole of the reverse index's promise.
+ *
+ *  It is a superset by exactly one rule and no more: resolveLink() consults the
+ *  path table, then byName, then byAlias, so a key that answers with this note
+ *  is its path, its path minus the note extension, its basename, or one of its
+ *  aliases; resolveXref() consults byCitekey and byLabel, so an xref key that
+ *  answers with it is one of its citekeys or one of its labels. Anything filed
+ *  under any other key CANNOT resolve here, whatever the audience or language
+ *  scope — those filters only ever remove candidates, never add one — so
+ *  skipping the rest of the vault skips nothing a reader would have seen.
+ *
+ *  Sorted, so callers that sort by path afterwards keep their old tie-break
+ *  (hits from one note stay in that note's own link order). */
+function linkCandidates(targetPath: string): string[] {
+  const record = notes.get(targetPath);
+  const out = new Set<string>();
+  const pull = (map: Map<string, Set<string>>, key: string): void => {
+    const set = map.get(key);
+    if (!set) return;
+    for (const source of set) if (source !== targetPath) out.add(source);
+  };
+  const lower = targetPath.toLowerCase();
+  pull(linkSources, lower); // [[Folder/Note.md]]
+  pull(linkSources, stripNoteExt(lower)); // [[Folder/Note]]
+  pull(linkSources, noteTitleOf(targetPath).toLowerCase()); // [[Note]]
+  if (record !== undefined) {
+    for (const alias of record.aliases) pull(linkSources, alias.toLowerCase());
+    for (const key of record.citekeys) pull(xrefSources, key.toLowerCase());
+    for (const anchor of labelAnchors(record)) pull(xrefSources, anchor.id.toLowerCase());
+  }
+  return [...out].sort();
 }
 
 /** Every alias in the vault, as `{ alias, path, title }`, sorted by alias —
@@ -1368,7 +1750,20 @@ function looksLikeTemplatesFolder(name: string): boolean {
  *  field says which one to pick. A wrong guess here would hide a folder of
  *  real posts from the blog and offer the reader the wrong list of templates,
  *  which is strictly worse than asking. */
+/** The last answer, held until the index changes shape (invalidateDerived).
+ *  A box rather than a bare string, so "no templates folder" (null) memoizes
+ *  as firmly as a hit — the null answer is the common one, and it was the one
+ *  paying for the whole walk on every call. */
+let templatesFolderMemo: { value: string | null } | null = null;
+
 export function detectTemplatesFolder(): string | null {
+  // MEASURED: this walk is O(notes + attachments) and it was being run once
+  // PER PUBLISHED POST by isTemplateNote() inside posts(), publicFolderCounts()
+  // and trackers() — i.e. O(published × total) on the blog's home endpoint,
+  // 854 ms on a 3k-note vault, and eight concurrent anonymous GETs were enough
+  // to wedge a single-threaded server. The memo is half the fix; hoisting the
+  // lookup out of those three loops (templateMatcher() below) is the other.
+  if (templatesFolderMemo !== null) return templatesFolderMemo.value;
   const candidates = new Set<string>();
   const consider = (relPath: string): void => {
     const segments = relPath.split("/");
@@ -1379,9 +1774,11 @@ export function detectTemplatesFolder(): string | null {
   };
   for (const notePath of notes.keys()) consider(notePath);
   for (const attPath of attachmentPaths) consider(attPath);
-  if (candidates.size === 1) return [...candidates][0];
   const atRoot = [...candidates].filter((p) => !p.includes("/"));
-  return atRoot.length === 1 ? atRoot[0] : null;
+  const value =
+    candidates.size === 1 ? [...candidates][0] : atRoot.length === 1 ? atRoot[0] : null;
+  templatesFolderMemo = { value };
+  return value;
 }
 
 // --------------------------------------------------------------- tag pages
@@ -1430,13 +1827,26 @@ export function detectTagsFolder(): string | null {
  *  it) even when its frontmatter carries the `publish: true` it was written to
  *  hand DOWN to the notes made from it. */
 export function isTemplateNote(relPath: string): boolean {
-  // Called lazily, never at module-evaluation time: settings.ts imports this
-  // module (through site.ts), so the two are a cycle and only a RUNTIME call
-  // is safe in either direction. The merge rule — stored value over
-  // auto-detection — lives there and is not copied here.
+  return templateMatcher()(relPath);
+}
+
+/** The same question, asked once for a whole loop.
+ *
+ *  THE POINT IS THE HOIST. `isTemplateNote()` resolves the folder every time
+ *  it is asked — settings read, path normalized, containment checked, and
+ *  (before the memo above) the whole index walked — and three of this file's
+ *  hot loops asked it once per published note. A list is one folder lookup and
+ *  N string comparisons; anything else is the audit's 854 ms.
+ *
+ *  Resolved lazily, never at module-evaluation time: settings.ts imports this
+ *  module (through site.ts), so the two are a cycle and only a RUNTIME call is
+ *  safe in either direction. The merge rule — stored value over auto-detection
+ *  — lives there and is not copied here. */
+function templateMatcher(): (relPath: string) => boolean {
   const folder = templatesFolder();
-  if (folder === null) return false;
-  return relPath === folder || relPath.startsWith(`${folder}/`);
+  if (folder === null) return () => false;
+  const prefix = `${folder}/`;
+  return (relPath) => relPath === folder || relPath.startsWith(prefix);
 }
 
 /** Note paths inside the templates folder, sorted — the picker's list. */
@@ -1587,9 +1997,33 @@ export function notesReferencing(attachmentRel: string): string[] {
  *  Cheaper than `backlinks()`: no context line is read. */
 export function notesLinkingTo(noteRel: string): string[] {
   const out: string[] = [];
-  for (const record of notes.values()) {
-    if (record.path === noteRel) continue;
+  for (const candidate of linkCandidates(noteRel)) {
+    const record = notes.get(candidate);
+    if (record === undefined) continue;
     if (record.links.some((link) => resolveLink(link.target, false, null) === noteRel)) out.push(record.path);
+  }
+  return out.sort();
+}
+
+/** Every note carrying `tag` OR a tag nested under it, sorted.
+ *
+ *  The candidate list for a tag rename, and deliberately WIDER than what the
+ *  rewrite will change: the index reads `#define` inside a shell fence as a tag
+ *  (tests/tags.test.ts pins that known over-count) while `server/tagRewrite.ts`
+ *  refuses to edit code, so a file can arrive here and contribute nothing. That
+ *  asymmetry is the right one — the cheap in-memory scan proposes, the surgeon
+ *  disposes, and the number the dialog prints comes from the surgeon.
+ *
+ *  Nested tags come along because a tag hierarchy is one name with slashes in
+ *  it: renaming `zettel` and leaving `zettel/seed` behind is the failure every
+ *  Obsidian thread about this feature complains of. */
+export function notesWithTag(tag: string): string[] {
+  const root = tag.trim().replace(/^#/, "").toLowerCase();
+  if (root === "") return [];
+  const prefix = `${root}/`;
+  const out: string[] = [];
+  for (const record of notes.values()) {
+    if (record.tags.some((t) => t === root || t.startsWith(prefix))) out.push(record.path);
   }
   return out.sort();
 }
@@ -1761,7 +2195,54 @@ function cutExcerpt(para: string): string {
   return `${cut.replace(/[\s,;:.!?…·—–-]+$/, "")}…`;
 }
 
-function postMeta(record: NoteRecord): PostMeta {
+/** What a post whose body is only a fence says for itself.
+ *
+ *  A shelf note — one ```tracker fence per thing, or one ```tracker-board —
+ *  has no prose at all, so `firstParagraph()` correctly finds nothing and the
+ *  card, the dashboard, RSS and og:description all got a post with a title, a
+ *  date and a hole where the sentence goes. The fence IS the content; this
+ *  says what is in it.
+ *
+ *  TWO DECISIONS AT THIS SEAM.
+ *
+ *  1. It is computed HERE rather than folded into `record.post`, which is
+ *     memoized until the note is reindexed. The sentence depends on the site's
+ *     language, which is a settings row an owner can change at runtime — a
+ *     cached one would keep answering in the old language until every shelf
+ *     note happened to be saved again.
+ *  2. It is written on the SERVER, in both languages, rather than left to the
+ *     client's i18n. An excerpt is not chrome: the same string goes into RSS
+ *     and into the og:description a stranger's chat app renders, where there
+ *     is no client to translate it. `footerLine()` (server/site.ts) already
+ *     writes visitor prose this way, off the same setting, for the same
+ *     reason. Numerals go through the one policy (shared/numerals.ts), so the
+ *     count matches every other number on the card. */
+function fenceSummary(record: NoteRecord): string {
+  const locale = blogLocale();
+  const arabic = /^ar\b/i.test(locale);
+  const count = record.trackers.length;
+  if (count > 0) {
+    const n = toNumerals(String(count), numeralSystem(locale));
+    if (arabic) return count === 1 ? "رفّ فيه متتبِّع واحد." : `رفّ فيه ${n} من المتتبِّعات.`;
+    return count === 1 ? "A shelf of one tracker." : `A shelf of ${n} trackers.`;
+  }
+  // A board is a QUERY over the vault's trackers, so it carries none of its
+  // own — the note is a shelf of everything. Same sentence the palette uses
+  // for the command that inserts it (i18n `slashTrackerBoardDetail`).
+  for (const raw of record.body.split("\n")) {
+    if (raw.trim() === "") continue;
+    if (!/^\s*(?:```|~~~)\s*tracker-board\b/.test(raw)) break;
+    return arabic ? "رفّ بكل المتتبّعات في الخزانة." : "A shelf of every tracker in the vault.";
+  }
+  return "";
+}
+
+/** `hidden` is the visitor's EXCLUDE_TAGS set, passed IN rather than fetched.
+ *  `excludedTags()` builds a fresh Set out of settings on every call, and this
+ *  function is called once per published post — the same "resolve a
+ *  configuration value inside the loop that iterates the vault" shape as the
+ *  templates walk two screens up, one loop over. */
+function postMeta(record: NoteRecord, hidden: ReadonlySet<string>): PostMeta {
   if (record.post === null) {
     const flat = flatBody(record);
     record.post = {
@@ -1781,12 +2262,13 @@ function postMeta(record: NoteRecord): PostMeta {
         record.prose !== null ? countWords(record.prose) : countNoteWords(record.body),
     };
   }
-  const hidden = excludedTags();
   const meta: PostMeta = {
     path: record.path,
     title: record.title,
     date: new Date(record.dateMs).toISOString(),
-    excerpt: record.post.excerpt,
+    // A body that is only a fence has no paragraph to cut; say what the fence
+    // holds rather than shipping an empty slot. See fenceSummary().
+    excerpt: record.post.excerpt !== "" ? record.post.excerpt : fenceSummary(record),
     words: record.post.words,
     readingMinutes: readingMinutes(record.post.words),
     tags: record.tags.filter((t) => !hidden.has(t.toLowerCase())),
@@ -1816,11 +2298,12 @@ export function publicFolderCounts(
   const counts = new Map<string, number>();
   for (const slug of slugs) counts.set(slug, 0);
   if (counts.size === 0) return counts;
+  const isTemplate = templateMatcher(); // once for the loop — see templateMatcher()
   for (const notePath of publishedSet) {
     const record = notes.get(notePath);
     if (!record || record.folders.length === 0) continue;
     if (visitor && languageHidden(record, lang)) continue;
-    if (isTemplateNote(notePath)) continue;
+    if (isTemplate(notePath)) continue;
     for (const slug of record.folders) {
       const current = counts.get(slug);
       if (current !== undefined) counts.set(slug, current + 1);
@@ -1835,6 +2318,8 @@ export function publicFolderCounts(
  *  languageFilter (public lists only — admin surfaces are never filtered). */
 export function posts(visitor: boolean, lang: FilterLang, excludePages = false): PostMeta[] {
   const out: { dateMs: number; meta: PostMeta }[] = [];
+  const isTemplate = templateMatcher(); // once for the loop — see templateMatcher()
+  const hidden = excludedTags(); // likewise: one Set for the list, not one per post
   for (const notePath of publishedSet) {
     const record = notes.get(notePath);
     if (!record) continue;
@@ -1842,13 +2327,13 @@ export function posts(visitor: boolean, lang: FilterLang, excludePages = false):
     // A template is not a post — in EITHER list. The admin's post list is the
     // one that answers "what is on my blog", so a stencil sitting in it is the
     // same lie there as on the public page.
-    if (isTemplateNote(notePath)) continue;
+    if (isTemplate(notePath)) continue;
     // Static pages (frontmatter `page: true`) are part of the site, not of
     // the feed. The caller decides — `excludePages` is false everywhere the
     // stock blog calls this, so its lists are exactly what they always were;
     // designed mode passes staticPagesActive() (server/pages.ts).
     if (excludePages && record.page) continue;
-    out.push({ dateMs: record.dateMs, meta: postMeta(record) });
+    out.push({ dateMs: record.dateMs, meta: postMeta(record, hidden) });
   }
   return out
     .sort((a, b) => b.dateMs - a.dateMs || a.meta.path.localeCompare(b.meta.path))
@@ -1885,11 +2370,12 @@ export function pages(visitor: boolean, lang: FilterLang): PageMeta[] {
 export function trackers(visitor: boolean, lang: FilterLang): TrackerMeta[] {
   const out: TrackerMeta[] = [];
   const paths = visitor ? publishedSet : notes.keys();
+  const isTemplate = templateMatcher(); // once for the loop — see templateMatcher()
   for (const notePath of paths) {
     const record = notes.get(notePath);
     if (!record || record.trackers.length === 0) continue;
     if (visitor && languageHidden(record, lang)) continue;
-    if (isTemplateNote(notePath)) continue;
+    if (isTemplate(notePath)) continue;
     for (const tracker of record.trackers) {
       out.push({
         path: record.path,
@@ -1919,19 +2405,137 @@ export function isStaticPage(relPath: string): boolean {
   return notes.get(relPath)?.page === true;
 }
 
-export function search(query: string, publishedOnly: boolean, lang: FilterLang): SearchHit[] {
-  const q = query.trim();
-  if (!q) return [];
-  const qLower = q.toLowerCase();
+/** How a caller lets the operator layer speak the reader's own vocabulary.
+ *  `tag:برمجيات` has to reach `#software` for the same reason `/topic/برمجيات`
+ *  does — a reader copies the word off the chip in front of them — and the
+ *  labels live in `server/tagLabels.ts`, which imports THIS module. So the
+ *  resolver is handed in rather than imported, and the cycle never forms. */
+export interface SearchOptions {
+  canonicalTag?: (value: string) => string | null;
+  /** The free-TEXT half of the same favour: `expandTagQuery` appends a
+   *  canonical tag whenever the words hold one of its localised labels. It is
+   *  applied after the operators are peeled off, never before — run over the
+   *  raw string it reads `tag:برمجيات` as prose and appends `software` as a
+   *  loose term, widening the very query the operator was narrowing. */
+  expandTerms?: (text: string) => string;
+}
+
+/** Turn the parsed operators into one predicate over records.
+ *
+ *  Everything expensive happens HERE, once per query, not once per note: a
+ *  `linkto:` filter resolves its target and materialises the candidate set
+ *  from the reverse index before the walk starts, so a link operator over a
+ *  three-thousand-note vault is a set membership test rather than forty
+ *  thousand `resolveLink` calls. A filter naming a note that does not exist
+ *  compiles to "match nothing", which is the honest answer — `linkto:Ghost` is
+ *  a question with no results, not a question to ignore. */
+function compileFilters(
+  filters: readonly QueryFilter[],
+  publishedOnly: boolean,
+  lang: FilterLang,
+  opts: SearchOptions,
+): ((record: NoteRecord) => boolean) | null {
+  if (filters.length === 0) return null;
+  const tests: ((record: NoteRecord) => boolean)[] = [];
+  for (const filter of filters) {
+    let test: (record: NoteRecord) => boolean;
+    switch (filter.kind) {
+      case "tag": {
+        // Nested tags are a tree: `tag:zettel` means the topic and everything
+        // filed under it, exactly as the sidebar's own tag filter reads it.
+        const want = opts.canonicalTag?.(filter.value) ?? filter.value;
+        const prefix = `${want}/`;
+        test = (r) => r.tags.some((tag) => tag === want || tag.startsWith(prefix));
+        break;
+      }
+      case "path":
+        // Substring, not prefix: `path:recipes` finds `Cooking/Recipes/Dal.md`
+        // as readily as `Recipes/Dal.md`, and a reader who wants the anchor
+        // types the leading folder.
+        test = (r) => r.path.toLowerCase().includes(filter.value);
+        break;
+      case "is":
+        test = filter.value === "published" ? (r) => r.published : (r) => r.page;
+        break;
+      case "before":
+        test = (r) => r.dateMs < filter.ms;
+        break;
+      case "after":
+        // Inclusive from the start of the named day, while `before` is
+        // exclusive of it — so `after:2024 before:2025` is exactly 2024.
+        test = (r) => r.dateMs >= filter.ms;
+        break;
+      case "linkto": {
+        const target = resolveLink(filter.value, publishedOnly, lang);
+        if (target === null) {
+          test = () => false;
+          break;
+        }
+        const sources = new Set(
+          linkCandidates(target).filter((candidate) => {
+            const record = notes.get(candidate);
+            return (
+              record !== undefined &&
+              record.links.some((l) => resolveLink(l.target, publishedOnly, lang) === target)
+            );
+          }),
+        );
+        test = (r) => sources.has(r.path);
+        break;
+      }
+      case "linkfrom": {
+        const source = resolveLink(filter.value, publishedOnly, lang);
+        const record = source === null ? undefined : notes.get(source);
+        const targets = new Set<string>();
+        for (const link of record?.links ?? []) {
+          const to = resolveLink(link.target, publishedOnly, lang);
+          if (to !== null) targets.add(to);
+        }
+        test = (r) => targets.has(r.path);
+        break;
+      }
+    }
+    tests.push(filter.negated ? (r) => !test(r) : test);
+  }
+  return (record) => tests.every((t) => t(record));
+}
+
+export function search(
+  query: string,
+  publishedOnly: boolean,
+  lang: FilterLang,
+  opts: SearchOptions = {},
+): SearchHit[] {
+  // OPERATORS FIRST, words second (server/searchQuery.ts). What is left after
+  // the operators are peeled off is what minisearch is asked — and when
+  // NOTHING is left, the filters alone are the query: `tag:recipes` on its own
+  // must list every recipe, which is the most obvious thing anybody will type
+  // and the one shape a term index cannot answer.
+  const parsed = parseSearchQuery(query);
+  const keep = compileFilters(parsed.filters, publishedOnly, lang, opts);
+  const bare = parsed.text.trim();
+  if (!bare) return keep === null ? [] : filteredNotes(keep, publishedOnly, lang);
+  const q = (opts.expandTerms?.(bare) ?? bare).trim();
+  // The EXPANDED string is what minisearch is asked; the string the reader
+  // actually typed is what the exact-name tiers below are measured against. An
+  // appended canonical tag is a widening for the term index and a lie to
+  // "is this note titled exactly what I typed".
+  const qLower = bare.toLowerCase();
 
   // Rank tiers on top of minisearch's relevance score: a note TITLED what you
   // typed always beats a note that merely mentions it, and a title that starts
   // with the query beats a content-only match. Within a tier, minisearch's
   // order (score) is kept.
+  //
+  // The comparison is FOLDED, like the index it is re-ranking. A note titled
+  // «الْمُقَدِّمَة» is now found by a query for «المقدمة» — and would then have
+  // been sorted into the "merely mentions it" tier, under every note whose
+  // unpointed title matched literally, which is the same bug one rung up.
+  const qFold = foldTerm(qLower);
   const tierOf = (title: string): number => {
-    const t = title.toLowerCase();
-    if (t === qLower) return 0;
-    if (t.startsWith(qLower)) return 1;
+    const t = foldTerm(title.toLowerCase());
+    if (t === qFold) return 0;
+    if (t.startsWith(qFold)) return 1;
     return 2;
   };
 
@@ -1944,6 +2548,12 @@ export function search(query: string, publishedOnly: boolean, lang: FilterLang):
   };
   let results = mini.search(q);
   if (publishedOnly) results = results.filter((r) => !visitorHidden(String(r.id)));
+  if (keep !== null) {
+    results = results.filter((r) => {
+      const record = notes.get(String(r.id));
+      return record !== undefined && keep(record);
+    });
+  }
   const seen = new Set(results.map((r) => String(r.id)));
   const ranked = results
     .map((result, order) => {
@@ -1972,7 +2582,14 @@ export function search(query: string, publishedOnly: boolean, lang: FilterLang):
   // name they gave it would come back below notes that merely mention it.
   const forcedFrom = (table: Map<string, Set<string>>): string[] =>
     [...(table.get(qLower) ?? [])]
-      .filter((p) => !seen.has(p) && (!publishedOnly || !visitorHidden(p)))
+      .filter((p) => {
+        if (seen.has(p) || (publishedOnly && visitorHidden(p))) return false;
+        // The short-circuit is a RANK boost, never a bypass: a note forced to
+        // the top past an operator the reader typed would be the filter
+        // failing in the one row they are most likely to click.
+        const record = notes.get(p);
+        return keep === null || (record !== undefined && keep(record));
+      })
       .sort((a, b) => a.localeCompare(b));
   const exactPaths = forcedFrom(byName);
   const aliasPaths = forcedFrom(byAlias).filter((p) => !exactPaths.includes(p));
@@ -1988,7 +2605,7 @@ export function search(query: string, publishedOnly: boolean, lang: FilterLang):
         return [{
           path: p,
           title: record.title,
-          snippet: makeSnippet(record, [q]),
+          snippet: makeSnippet(record, [bare]),
           score,
           ...(alias === undefined ? {} : { alias: stripBidiControls(alias) }),
         }];
@@ -1999,6 +2616,66 @@ export function search(query: string, publishedOnly: boolean, lang: FilterLang):
     hits.length = Math.min(hits.length, 50);
   }
   return hits;
+}
+
+/** THE CANDIDATE SET FOR A VAULT-WIDE REPLACE: every note whose body holds the
+ *  needle, narrowed by whatever operators the reader typed into the same box.
+ *
+ *  Deliberately NOT `search()`. That one ranks, fuzzes, folds and caps at
+ *  fifty — every one of which is right for a reader looking at a list and
+ *  wrong for a rewrite, where "the top fifty of what might be four hundred" is
+ *  the worst possible answer. This walks the whole index, applies the filters
+ *  exactly, and tests the needle exactly (server/searchReplace.ts owns the
+ *  test, so it is the same matcher the preview and the write will use).
+ *
+ *  Admin-only by construction: the route is, and nothing here takes a visitor
+ *  scope, because there is no such thing as a visitor's replace. */
+export function replaceCandidates(
+  query: string,
+  bodyHolds: (body: string) => boolean,
+  opts: SearchOptions = {},
+): string[] {
+  const parsed = parseSearchQuery(query);
+  const keep = compileFilters(parsed.filters, false, null, opts);
+  const out: string[] = [];
+  for (const record of notes.values()) {
+    if (keep !== null && !keep(record)) continue;
+    if (!bodyHolds(record.body)) continue;
+    out.push(record.path);
+  }
+  return out.sort((a, b) => a.localeCompare(b));
+}
+
+/** A query made ENTIRELY of operators — `tag:recipes`, `is:published
+ *  after:2024`, `linkto:"Machine Learning"`.
+ *
+ *  There are no terms to rank, so the order is the vault's own: most recently
+ *  written first, which is what every other list of notes in this product
+ *  agrees on. The snippet is the note's opening rather than a match window,
+ *  because nothing was matched — quoting a line back and marking nothing in it
+ *  would suggest the words are in there somewhere. Same cap as a term search:
+ *  fifty rows is a sidebar, not a report. */
+function filteredNotes(
+  keep: (record: NoteRecord) => boolean,
+  publishedOnly: boolean,
+  lang: FilterLang,
+): SearchHit[] {
+  const out: { record: NoteRecord }[] = [];
+  for (const record of notes.values()) {
+    if (publishedOnly && (!record.published || languageHidden(record, lang))) continue;
+    if (!keep(record)) continue;
+    out.push({ record });
+  }
+  out.sort(
+    (a, b) => b.record.dateMs - a.record.dateMs || a.record.path.localeCompare(b.record.path),
+  );
+  return out.slice(0, 50).map(({ record }, i) => ({
+    path: record.path,
+    title: record.title,
+    snippet: makeSnippet(record, []),
+    // Descending, so a client that sorts by score keeps the order chosen here.
+    score: out.length - i,
+  }));
 }
 
 /** WHY this hit appeared, when the answer is "one of its other names".
@@ -2077,8 +2754,12 @@ export function backlinks(targetPath: string, publishedOnly: boolean, lang: Filt
   // the check the reader of this function expects to find.)
   if (publishedOnly && !isNoteVisibleToVisitor(targetPath, lang)) return hits;
   const seen = new Set<string>();
-  for (const record of notes.values()) {
-    if (record.path === targetPath) continue;
+  // The reverse index decides WHO to look at; resolveLink() below still decides
+  // whether each link actually lands here. On the 1,388-note fixture this turns
+  // 40,000 resolutions per panel open into a few dozen.
+  for (const candidate of linkCandidates(targetPath)) {
+    const record = notes.get(candidate);
+    if (record === undefined) continue;
     if (publishedOnly && (!record.published || languageHidden(record, lang))) continue;
     let bodyLines: string[] | null = null; // split lazily, once per record
     for (const link of record.links) {
@@ -2094,13 +2775,22 @@ export function backlinks(targetPath: string, publishedOnly: boolean, lang: Filt
       // (shared/tex.ts hands over the paragraph's text, never its source), so
       // the markdown line cleaner — which strips `#`, `>` and table pipes —
       // has nothing to do and the widening below would read raw TeX lines.
-      let context = record.prose !== null ? link.line : cleanContextLine(link.line);
+      // The needle is the link itself: inside a table row, the cell holding
+      // this link is the cell the card is about (see cleanContextLine).
+      const needle = [`[[${link.target.toLowerCase()}`];
+      let context = record.prose !== null ? link.line : cleanContextLine(link.line, needle);
       // A line that is little more than the link itself ("- [[History]]")
       // makes a useless card — widen to the surrounding lines so the card
       // reads like Obsidian's backlink context.
-      if (record.prose === null && contextProse(context).length < 16) {
+      // A short line widens into its neighbours so "- [[History]]" reads as a
+      // sentence. A TABLE CELL never does: its neighbours are the next row and
+      // the header, and gluing those on is the cell-join of F44 wearing the
+      // other coat — "Reading table Title worth a reread, see [[Target]]
+      // Piranesi". The cell is already the chosen unit.
+      const inTable = /^\s*\|/.test(link.line);
+      if (record.prose === null && !inTable && contextProse(context).length < 16) {
         bodyLines ??= record.body.split("\n");
-        context = expandedContext(bodyLines, link.lineIdx);
+        context = expandedContext(bodyLines, link.lineIdx, needle);
       }
       if (context.length > BACKLINK_CONTEXT_MAX) {
         // Center the window on THIS link when it can be found, else on the
@@ -2189,11 +2879,32 @@ const SEARCH_MATCH_LINE_MAX = 200;
  *  line — prose, with [[wikilinks]] kept for the client's gold spans. Text is
  *  escaped with matches in literal <mark>…</mark>, exactly like
  *  SearchHit.snippet. */
+/** The words a free-text query is actually looking FOR, as the line scanner
+ *  and the vault-wide replace both need them: whitespace-separated, a leading
+ *  `#` dropped (a reader clicking a tag pill searches for the word, not for the
+ *  punctuation), and anything that folds away to nothing thrown out — an
+ *  all-harakat "term" would match at every position in the note. */
+export function searchTerms(query: string, expand?: (text: string) => string): string[] {
+  // The operators are NOT words. `tag:recipes dal` looks for "dal" in the
+  // lines of a note the tag already chose; hunting for the literal string
+  // "tag:recipes" would quote back nothing and the expansion under every hit
+  // would read as broken. `expand` is applied to what is left, for the same
+  // reason and in the same order as in `search()`.
+  const bare = parseSearchQuery(query).text;
+  return [...new Set(
+    (expand?.(bare) ?? bare)
+      .split(/\s+/)
+      .map((t) => t.replace(/^#/, ""))
+      .filter((t) => foldQuery(t) !== ""),
+  )];
+}
+
 export function searchMatches(
   relPath: string,
   query: string,
   publishedOnly: boolean,
   lang: FilterLang,
+  opts: SearchOptions = {},
 ): SearchMatch[] {
   // The same refusal shape backlinks() makes for its target: a visitor asking
   // about a note the filter hides must get the same "nothing" a missing note
@@ -2201,43 +2912,24 @@ export function searchMatches(
   if (publishedOnly && !isNoteVisibleToVisitor(relPath, lang)) return [];
   const record = notes.get(relPath);
   if (!record) return [];
-  const terms = [...new Set(
-    query
-      .split(/\s+/)
-      .map((t) => t.replace(/^#/, "").toLowerCase())
-      .filter((t) => t.length > 0),
-  )];
+  const terms = searchTerms(query, opts.expandTerms);
   if (terms.length === 0) return [];
-  const marker = new RegExp(
-    terms.map(escapeRegExp).sort((a, b) => b.length - a.length).join("|"),
-    "gi",
-  );
   const out: SearchMatch[] = [];
   const lines = record.body.split("\n");
   for (let i = 0; i < lines.length && out.length < SEARCH_MATCHES_MAX; i++) {
     // `.tex` lines are quoted raw (same reasoning as backlink context: the
     // markdown cleaner would mangle them, and the editor shows this source).
-    const text = record.prose !== null ? lines[i].trim() : cleanContextLine(lines[i]);
+    // The search terms are the needle: in a table row, show the cell that
+    // actually matched rather than a join of the whole row (cleanContextLine).
+    const text = record.prose !== null ? lines[i].trim() : cleanContextLine(lines[i], terms);
     if (text === "") continue;
-    const lower = text.toLowerCase();
-    let at = -1;
-    let len = 0;
-    for (const term of terms) {
-      const hit = lower.indexOf(term);
-      if (hit !== -1 && (at === -1 || hit < at)) {
-        at = hit;
-        len = term.length;
-      }
-    }
-    if (at === -1) continue;
+    const first = findAnyMatches(text, terms, 1)[0];
+    if (first === undefined) continue;
     const windowed =
       text.length > SEARCH_MATCH_LINE_MAX
-        ? windowAround(text, at, len, Math.floor(SEARCH_MATCH_LINE_MAX / 2))
+        ? windowAround(text, first.start, first.end - first.start, Math.floor(SEARCH_MATCH_LINE_MAX / 2))
         : text;
-    out.push({
-      line: fileLine(record, i),
-      text: escapeHtml(windowed).replace(marker, "<mark>$&</mark>"),
-    });
+    out.push({ line: fileLine(record, i), text: markHtml(windowed, terms) });
   }
   return out;
 }
@@ -2308,15 +3000,45 @@ function stripLinePrefix(line: string): string {
     .replace(/^\s*(?:[-*+]|\d+[.)])\s+/, "");
 }
 
+/** A table's alignment row — `|---|:--:|` — which carries no words at all. */
+const TABLE_RULE_RE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+
 /** One source line → prose context: block prefixes and inline marks stripped,
- *  table pipes turned into dots, [[wikilinks]] kept for the client to gild. */
-function cleanContextLine(line: string): string {
-  return stripInlineMd(stripLinePrefix(line))
-    .replace(/^\s*\|\s*/, "")
-    .replace(/\s*\|\s*$/, "")
-    .replace(/\s\|\s/g, " · ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+ *  ONE table cell kept, [[wikilinks]] kept for the client to gild.
+ *
+ *  A TABLE ROW IS NOT A SENTENCE. This used to join every cell of a row with
+ *  " · ", so a backlink into a five-column table came back as "Dune · Herbert ·
+ *  1965 · ★★★★ · [[Read]]" — an unreadable cell-join in a card whose whole job
+ *  is to show the reader the sentence their link sits in. (And the joiner was
+ *  a `·` between two runs of text, which is banned everywhere else in this
+ *  product for the reason the status bar gives.)
+ *
+ *  So: pick ONE cell. `needles` — the wikilink being reported, or the search
+ *  terms being highlighted — decides which, because the cell the caller is
+ *  about is the only cell worth showing; with no needle, or no cell matching
+ *  one, the first cell that carries anything wins. The alignment row carries
+ *  nothing and comes back empty, which every caller already treats as "no
+ *  context here". */
+function cleanContextLine(line: string, needles?: readonly string[]): string {
+  const stripped = stripInlineMd(stripLinePrefix(line));
+  const tidy = (text: string): string => text.replace(/\s{2,}/g, " ").trim();
+  if (!/^\s*\|/.test(stripped)) return tidy(stripped);
+  if (TABLE_RULE_RE.test(stripped)) return "";
+  const cells = stripped
+    .replace(/^\s*\|/, "")
+    .replace(/\|\s*$/, "")
+    .split("|")
+    .map(tidy)
+    .filter((cell) => cell !== "");
+  if (cells.length === 0) return "";
+  if (needles && needles.length > 0) {
+    // Folded, like every other match in this file: an Arabic table whose cells
+    // are pointed must still give up the cell the reader's plain query meant,
+    // rather than falling through to cells[0].
+    const wanted = cells.find((cell) => findAnyMatches(cell, needles, 1).length > 0);
+    if (wanted !== undefined) return wanted;
+  }
+  return cells[0];
 }
 
 /** Letters/digits left once wikilinks and punctuation are removed — how much
@@ -2330,10 +3052,10 @@ function contextProse(context: string): string {
 /** Widen a bare-link line to its surroundings: pull in neighboring non-empty
  *  lines (following first, then preceding) until the context reads like a
  *  sentence or the paragraph runs out. Fence/frontmatter markers bound it. */
-function expandedContext(lines: string[], idx: number): string {
+function expandedContext(lines: string[], idx: number, needles?: readonly string[]): string {
   const isBoundary = (l: string | undefined): boolean =>
     l === undefined || /^\s*(```|~~~)/.test(l) || /^\s*---\s*$/.test(l);
-  const parts: string[] = [cleanContextLine(lines[idx] ?? "")];
+  const parts: string[] = [cleanContextLine(lines[idx] ?? "", needles)];
   let len = parts[0].length;
   let before = idx - 1;
   let after = idx + 1;
@@ -2454,6 +3176,23 @@ function stripMarkdown(body: string): string {
   for (const raw of body.split("\n")) {
     if (fences.skip(raw)) continue;
     if (isFurnitureLine(raw)) continue;
+    // A TABLE ROW IS FIELDS, NOT A SENTENCE — and it used to reach the reader
+    // with its `|` pipes standing, which is raw markdown syntax in a snippet
+    // (DESIGN.md's hard rule) as well as unreadable. Its alignment row says
+    // nothing at all and goes; the rest reads as the record it is. The
+    // backlink and per-line search surfaces answer the same finding one cell
+    // at a time — see cleanContextLine.
+    if (/^\s*\|/.test(raw)) {
+      if (TABLE_RULE_RE.test(raw)) continue;
+      const cells = raw
+        .replace(/^\s*\|/, "")
+        .replace(/\|\s*$/, "")
+        .split("|")
+        .map((cell) => proseLine(cell))
+        .filter((cell) => cell !== "");
+      if (cells.length > 0) out.push(cells.join(", "));
+      continue;
+    }
     const isHeading = /^\s{0,3}#{1,6}\s+/.test(raw);
     const line = proseLine(raw);
     if (!line) continue;
@@ -2475,10 +3214,6 @@ const MAX_SNIPPET_SOURCE_CHARS = 128 * 1024;
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Cut a word-boundary window out of `flat` around [at, at+len), returning
@@ -2519,24 +3254,44 @@ function flatBody(record: NoteRecord): string {
   return record.flat;
 }
 
+/** ESCAPE AND MARK IN ONE PASS, over the fold.
+ *
+ *  Two things forced this out of the regex it used to be. The fold is the
+ *  loud one: the terms the index matched on are folded, so «المقدمة» has to
+ *  light up the «الْمُقَدِّمَة» a line actually prints — and a regex built from
+ *  the typed term cannot see it. The quiet one is that marking AFTER escaping
+ *  searched the escaped text: a note containing `&amp;` had its own entity
+ *  hunted for the letters of a query, and `<` had become four characters that
+ *  the offsets no longer agreed with.
+ *
+ *  So the match runs on the RAW text (findAnyMatches reports offsets into it),
+ *  and each slice is escaped as it is emitted. `<mark>` is the only markup that
+ *  reaches the client, exactly as before. */
+function markHtml(text: string, terms: readonly string[]): string {
+  if (terms.length === 0) return escapeHtml(text);
+  const hits = findAnyMatches(text, terms, 200);
+  if (hits.length === 0) return escapeHtml(text);
+  let out = "";
+  let at = 0;
+  for (const hit of hits) {
+    out += escapeHtml(text.slice(at, hit.start));
+    out += `<mark>${escapeHtml(text.slice(hit.start, hit.end))}</mark>`;
+    at = hit.end;
+  }
+  return out + escapeHtml(text.slice(at));
+}
+
 function makeSnippet(record: NoteRecord, terms: string[]): string {
   const flat = flatBody(record);
-  const lower = flat.toLowerCase();
-  let hit = -1;
-  let hitLen = 0;
-  for (const term of terms) {
-    const at = lower.indexOf(term.toLowerCase());
-    if (at !== -1 && (hit === -1 || at < hit)) {
-      hit = at;
-      hitLen = term.length;
-    }
-  }
-  const windowed = windowAround(flat, Math.max(0, hit), hitLen, SNIPPET_RADIUS);
-  // Escape first, then mark: "…" prefixes survive because they're not HTML.
-  let snippet = escapeHtml(windowed);
-  if (terms.length > 0) {
-    const marker = new RegExp(terms.map(escapeRegExp).sort((a, b) => b.length - a.length).join("|"), "gi");
-    snippet = snippet.replace(marker, "<mark>$&</mark>");
-  }
-  return snippet;
+  const first = findAnyMatches(flat, terms, 1)[0];
+  const windowed = windowAround(
+    flat,
+    first?.start ?? 0,
+    first === undefined ? 0 : first.end - first.start,
+    SNIPPET_RADIUS,
+  );
+  // The window is re-matched rather than offset-shifted: windowAround snaps to
+  // word boundaries and prefixes an ellipsis, so the offsets it returns from
+  // are not the offsets it returns into.
+  return markHtml(windowed, terms);
 }

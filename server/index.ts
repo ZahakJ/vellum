@@ -1,6 +1,6 @@
 // Entrypoint: resolve + seed the vault, build the index, serve API and client.
 
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
@@ -21,46 +21,18 @@ import { warmAuthorSites } from "./authorSites.ts";
 import { getSettings } from "./settings.ts";
 import { initComments } from "./comments.ts";
 import { initIndexer } from "./indexer.ts";
-import { initVault, isIgnoredSegment, resolveVaultRoot, startWatcher, statAttachment } from "./vault.ts";
-import { isNotePath } from "../shared/noteFormat.ts";
+import { seedIfNew } from "./seed.ts";
+import { initVault, resolveVaultRoot, startWatcher, statAttachment } from "./vault.ts";
 
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const port = Number(process.env.PORT) || 6801;
 const host = process.env.HOST?.trim() || "0.0.0.0";
 const vaultDir = resolveVaultRoot(process.argv.slice(2), process.env);
 
-// Seed a fresh vault from vault-seed/ so a clean clone opens onto real notes.
-// "Fresh" means missing OR present but holding no markdown at all. Walk with
-// early exit and skip ignored dirs (.obsidian/.git/.trash) — a big real vault
-// must not be fully enumerated just to answer "is there any markdown?".
-function hasMarkdown(dir: string): boolean {
-  const stack = [dir];
-  while (stack.length > 0) {
-    const current = stack.pop() as string;
-    let entries;
-    try {
-      entries = readdirSync(current, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (isIgnoredSegment(entry.name)) continue;
-      if (entry.isFile() && isNotePath(entry.name)) return true;
-      if (entry.isDirectory()) stack.push(path.join(current, entry.name));
-    }
-  }
-  return false;
-}
-
-{
-  const seedDir = path.join(projectRoot, "vault-seed");
-  if (!existsSync(vaultDir)) {
-    if (existsSync(seedDir)) cpSync(seedDir, vaultDir, { recursive: true });
-    else mkdirSync(vaultDir, { recursive: true });
-  } else if (existsSync(seedDir) && !hasMarkdown(vaultDir)) {
-    cpSync(seedDir, vaultDir, { recursive: true });
-  }
-}
+// The starter vault. Seeded ONLY when the directory did not exist — the rule,
+// and why it stopped being "exists but holds no markdown", is in server/seed.ts;
+// the offer that replaced the old branch is `POST /api/seed`.
+seedIfNew(vaultDir);
 
 // A configuration that cannot mean what it says stops the process here, with
 // the sentence that fixes it and no stack trace — a startup banner nobody
@@ -308,6 +280,58 @@ if (existsSync(distDir)) {
 if (process.send) {
   process.on("disconnect", () => process.exit(0));
 }
+
+// ── THE LAST NET ────────────────────────────────────────────────────────────
+//
+// This process used to die of a TypeError thrown out of a promise nobody in it
+// owned — minisearch's batched auto-vacuum, racing the index mutations two
+// clients' saves make (server/indexer.ts has the whole story and the fix). The
+// fix removes that particular fault. This removes the CLASS of consequence:
+// one unowned rejection anywhere, in any dependency, taking a writer's server
+// down mid-sentence.
+//
+// KEEPING SERVING IS THE DECISION, and it is not the reflexive one. Node's own
+// documentation calls resuming after an uncaught exception undefined behavior,
+// and for a request-handling process that is usually right advice. It is wrong
+// HERE, for reasons this product can state:
+//
+//   · The state that matters is on DISK, not in this heap. Notes are written
+//     atomically (server/vault.ts::writeFileAtomic — temp file, fsync, rename)
+//     and every save carries an mtime precondition, so a request that dies
+//     halfway leaves a file that is either the old bytes or the new ones. The
+//     in-memory index is a derived cache with an event stream behind it; the
+//     worst it can be is stale, and the next change to a file corrects it.
+//   · The alternative is worse in the two deployments that exist. In the
+//     desktop app the child's death closes every window on that vault, and the
+//     reader watches their editor vanish. On the web the instance 502s until
+//     something restarts it, which for most people is nothing.
+//   · A reader whose save works but whose search is briefly wrong can carry on
+//     writing. A reader with no server cannot.
+//
+// But a process that keeps taking exceptions FOREVER is a process serving
+// something nobody can trust, and staying up then is just hiding. So: log every
+// one, loudly, with the stack; and if they arrive in a burst, stop pretending
+// and exit non-zero so a supervisor — systemd, or the desktop's respawn
+// (electron/main.ts::onServerExit) — gets a clean process instead of a haunted
+// one.
+const FAULT_BURST = 5;
+const FAULT_WINDOW_MS = 10_000;
+const faults: number[] = [];
+
+function survive(kind: string, err: unknown): void {
+  console.error(`vellum: ${kind} — the server is staying up:`, err);
+  const now = Date.now();
+  faults.push(now);
+  while (faults.length > 0 && now - faults[0] > FAULT_WINDOW_MS) faults.shift();
+  if (faults.length < FAULT_BURST) return;
+  console.error(
+    `vellum: ${faults.length} unhandled faults in ${FAULT_WINDOW_MS / 1000}s — exiting so this vault gets a clean process`,
+  );
+  process.exit(1);
+}
+
+process.on("uncaughtException", (err) => survive("uncaught exception", err));
+process.on("unhandledRejection", (reason) => survive("unhandled rejection", reason));
 
 serve({ fetch: app.fetch, port, hostname: host }, (info) => {
   // The port the OS actually gave us, not the one we asked for. They differ

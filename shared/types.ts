@@ -107,7 +107,12 @@ export interface SearchMatch { line: number; text: string }
 export interface TagCount { tag: string; count: number }
 
 export interface VaultEvent {
-  kind: "created" | "changed" | "deleted" | "renamed";
+  /** `"bulk"` is the ONE kind that names no file: "too much changed to
+   *  narrate — re-read everything you are holding". It is produced only by the
+   *  aggregate coalescer in server/vault.ts and only for subscribers that
+   *  answer an event by refetching (the SSE stream), never for the index,
+   *  which needs every path. `path` is "" on it. */
+  kind: "created" | "changed" | "deleted" | "renamed" | "bulk";
   path: string;
   toPath?: string; // renamed only
   dir?: boolean;   // true when the event is about a folder
@@ -395,6 +400,14 @@ export interface MeData {
    *  flat published-note list, which is precisely the promise that stops
    *  vault paths reaching them. Absent when nothing is marked. */
   folderIcons?: Record<string, FolderIcon>;
+  /** Where new attachments land, as the "Move to…" picker needs to know it
+   *  (v1.8 audit, F11: the picker offered `attachments/` as a destination for
+   *  NOTES, which is the one folder in the vault a note has no business in).
+   *  `mode` is the policy from shared/attachments.ts and `folder` its name;
+   *  only the two folder-bearing modes send anything, because the other two
+   *  name no folder to keep a note out of. ADMIN SESSIONS ONLY, on the same
+   *  grounds as folderIcons above: it is a vault path, and moving is admin. */
+  attachmentFolder?: { mode: "specified" | "subfolder"; folder: string };
 }
 
 // ── Visibility impact (ADMIN ONLY) ──────────────────────────────────────────
@@ -952,6 +965,136 @@ export interface PublishResult {
   published: boolean; // publish state after the toggle
 }
 
+// ------------------------------------------------- bulk rewrites (v1.8)
+//
+// Tag rename/merge and heading-link repair — and the vault-wide search and
+// replace beside them — all answer in this shape, because they are all the same
+// operation underneath (server/bulkRewrite.ts): read every candidate, transform
+// it, write what changed under a precondition, keep the way back.
+
+/** A file a bulk edit refused to touch. `conflict` is the important one: the
+ *  note changed between our read and our write, so it was left exactly as
+ *  somebody else left it. The dialogs name these files — a bulk edit that says
+ *  "done" while quietly skipping four notes is the bulk edit nobody trusts. */
+export interface BulkSkip {
+  path: string;
+  reason: "conflict" | "error";
+}
+
+export interface BulkResult {
+  changed: { path: string; count: number }[];
+  skipped: BulkSkip[];
+  /** Files actually written. */
+  notes: number;
+  /** Substitutions across all of them. */
+  edits: number;
+  /** Hand this to POST /api/bulk/undo to put the vault back. Null when the
+   *  edit was too large to hold in memory — the snapshot in Backup & sync is
+   *  the floor under that case. */
+  undoId: string | null;
+}
+
+/** GET /api/tags/rename-preview?from=&to= (admin only). The dry run every
+ *  rename dialog shows before it will let the reader press anything. */
+export interface TagRenamePreview {
+  from: string;
+  to: string;
+  /** The target tag already exists in the vault, so this is a MERGE — two
+   *  topics becoming one, which is not undone by renaming back. */
+  merge: boolean;
+  /** Notes that will actually be rewritten. */
+  notes: number;
+  /** Substitutions across them. */
+  edits: number;
+  /** A sample, for the dialog's list. */
+  files: { path: string; count: number }[];
+  /** The tag's own page under the tags folder, which follows the rename
+   *  (its path IS the tag). Null when there is no such page, or when a merge
+   *  means the destination page is already taken. */
+  page: string | null;
+}
+
+/** POST /api/tags/rename { from, to } (admin only). */
+export interface TagRenameResult extends BulkResult {
+  from: string;
+  to: string;
+  /** Where the tag page ended up, when one moved. */
+  page: string | null;
+}
+
+// ── Vault-wide search & replace (v1.8, parity #7) ──────────────────────────
+//
+// The scariest tool in the product, so the wire shape carries the evidence:
+// every file names the mtime its preview was read at, and the apply refuses
+// anything that has moved since. See server/searchReplace.ts.
+
+/** One matched line, as the preview lists it and as the reader ticks it. Plain
+ *  text on both sides — the client marks the difference itself, because a
+ *  replace preview is the one place `<mark>` from the server would be marking
+ *  something that does not exist yet. */
+export interface ReplaceLine {
+  /** 1-based line in the FULL file, frontmatter counted — the number the
+   *  editor's goto machinery uses, so a row can be clicked open. */
+  line: number;
+  count: number;
+  before: string;
+  after: string;
+}
+
+export interface ReplacePreviewFile {
+  path: string;
+  /** The mtime this preview was read at. Sent straight back on apply. */
+  mtimeMs: number;
+  /** Substitutions in this file. */
+  count: number;
+  /** A sample of matched lines. Empty for files past the sampling cap. */
+  lines: ReplaceLine[];
+  /** More matched lines than are listed — the file is offered whole rather
+   *  than line by line, and the row says so. */
+  truncated: boolean;
+}
+
+/** GET /api/replace/preview (admin only). */
+export interface ReplacePreview {
+  files: ReplacePreviewFile[];
+  notes: number;
+  edits: number;
+  /** More matching files than the ceiling allows; narrow the query. */
+  truncated: boolean;
+}
+
+/** POST /api/replace (admin only) — a BulkResult with the two things only this
+ *  tool has to report: files that moved between the preview and the press, and
+ *  the snapshot it took first. */
+export interface ReplaceResult extends BulkResult {
+  /** Paths refused because the file changed after the preview read it. */
+  conflicts: string[];
+  /** The short sha of the commit made before the rewrite, when one was asked
+   *  for and there was anything to commit. Null when the reader declined,
+   *  when the vault is not a repository, or when the tree was already clean. */
+  snapshot: string | null;
+}
+
+/** The offer a note write makes when the reader has just renamed a heading
+ *  that other notes link INTO. Rides on the write's own response — see
+ *  server/headingRepair.ts for why the write path is the seam. */
+export interface HeadingRepairOffer {
+  path: string;
+  /** The anchor id the vault's links actually name. */
+  from: string;
+  /** …and the heading text they may have spelled instead. */
+  fromTitle: string;
+  to: string;
+  toTitle: string;
+  /** How many links point at the old anchor. Never 0 — no links, no offer. */
+  links: number;
+}
+
+/** PUT /api/note → the note as written, plus the one thing the write noticed. */
+export interface NoteWriteResult extends NoteData {
+  headingRepair?: HeadingRepairOffer;
+}
+
 // POST /api/upload (admin only): multipart file (field "file") → saved under
 // the folder the attachment-location setting resolves to. The optional field
 // "dir" carries the vault folder the upload happened in (the open note's
@@ -969,13 +1112,29 @@ export interface UploadResult {
 // question is how two dialogs come to describe one delete differently.
 
 // POST /api/frontmatter { path, key, value } (admin only) → FrontmatterResult.
-// Surgical single-line frontmatter edit; key allowlisted ("banner" for now),
-// value null/"" removes the line.
+// Surgical frontmatter property edit; `value: null` removes the property.
+//
+// THE VALUE IS TYPED ON THE WIRE (v1.8, the editable properties card). A card
+// with a checkbox, a date picker and list chips in it cannot say what it means
+// with a string: `"true"` and `true` are different YAML, and so are
+// `2026-01-02` and `"2026-01-02"`. The kind travels with the value so the
+// writer spells it the way the reader picked it, instead of guessing from the
+// characters — guessing is how a note titled "no" becomes `title: false`.
+//
+// A bare string is still accepted by the route and read as `{kind:"text"}`,
+// because `banner:` has been written that way since v1.2 and its callers have
+// nothing to say about kinds.
+export type PropertyValue =
+  | { kind: "text"; text: string }
+  | { kind: "bool"; bool: boolean }
+  | { kind: "date"; date: string }   // YYYY-MM-DD, written unquoted
+  | { kind: "list"; items: string[] };
+
 export interface FrontmatterResult {
   ok: true;
-  path: string;         // normalized vault-relative path
+  path: string;                 // normalized vault-relative path
   key: string;
-  value: string | null; // value after the edit (null = removed)
+  value: PropertyValue | null;  // value after the edit (null = removed)
 }
 
 // Comments (COMMENTS=on): GET /api/comments?path= → CommentData[],
@@ -1041,6 +1200,17 @@ export interface GitSyncResult {
    *  Absent on a failed pass, and on results recorded before this field
    *  existed, which is why the client treats it as `=== true`. */
   remoteAdvanced?: boolean;
+  /** The ABBREVIATED sha of the commit this pass made, when it made one.
+   *
+   *  A backup that reports success and nothing else is a sentence the reader
+   *  cannot check against anything (v1.8 UX audit F40): "committed and pushed"
+   *  is true of every successful pass ever run, so it says the same thing on
+   *  the run that saved the chapter and on the run that saved a whitespace
+   *  fix. Seven characters make it a specific event — one an owner can find in
+   *  `git log`, or paste to whoever is helping them. Absent when the pass
+   *  committed nothing, when it failed, and on results recorded before this
+   *  field existed. */
+  sha?: string;
 }
 
 /** GET /api/sync/status, and the answer of POST /api/sync/{init,now}. */
@@ -1065,6 +1235,56 @@ export interface GitSyncStatus {
   authMode: "ssh" | "token";
   tokenSet: boolean;
   last: GitSyncResult | null;
+}
+
+// ── Note history (git log over one note) ────────────────────────────────────
+// The undo of last resort. Backup & sync already commits the whole vault; this
+// is the READ half — the same repository, asked "what did this note look like
+// before?". Admin-only, and a graceful empty answer on a vault that is not a
+// git repository yet, because the honest reply there is an invitation rather
+// than an error.
+
+/** One commit that touched a note, newest first. */
+export interface NoteRevision {
+  /** Full object name — what the blob route is asked for. */
+  sha: string;
+  /** git's own abbreviation, so a reader can paste it into `git log`. */
+  short: string;
+  /** Author date, ISO 8601 with offset. Formatted client-side through
+   *  client/dates.ts, so a Hijri instance dates its history in Hijri. */
+  iso: string;
+  /** Commit subject, token-scrubbed and length-capped. */
+  subject: string;
+  /** The note's path AT THAT REVISION. `git log --follow` crosses renames, so
+   *  an old revision of a note that has since moved lives under its old name
+   *  and `git show <sha>:<path>` must be asked for that one. */
+  path: string;
+  /** Lines added / removed by this commit, or null for a revision git
+   *  reported no numstat for (a binary blob, an empty merge).
+   *
+   *  This is what the spec's "sizes" became. A byte count of a markdown
+   *  revision answers nothing a reader is asking — "+42 −3" answers "how much
+   *  of this was that edit", which is the question the timeline exists for,
+   *  and both come out of the same single `git log` call. */
+  added: number | null;
+  removed: number | null;
+}
+
+/** GET /api/history?path= */
+export interface NoteHistoryResponse {
+  /** False when the vault is not a git work tree — the client offers Backup &
+   *  sync rather than reporting an empty history. */
+  repo: boolean;
+  revisions: NoteRevision[];
+  /** The listing hit its ceiling: older revisions exist. */
+  truncated: boolean;
+}
+
+/** GET /api/history/blob?path=&sha= */
+export interface NoteRevisionBlob {
+  sha: string;
+  path: string;
+  content: string;
 }
 
 // ── LaTeX notes: anchors & cross-references ─────────────────────────────────

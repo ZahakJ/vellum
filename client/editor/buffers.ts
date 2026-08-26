@@ -28,12 +28,18 @@
 // This module imports CodeMirror. Nothing in the first-paint closure may import
 // it — see bufferBridge.ts.
 
-import { Annotation, EditorState, type Transaction } from "@codemirror/state";
+import {
+  Annotation,
+  EditorState,
+  type Transaction,
+  type TransactionSpec,
+} from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { flushNoteBeacon, getNote, getNoteStates, isStaleWriteError, putNote } from "../api.ts";
-import type { NoteData } from "../../shared/types.ts";
+import type { HeadingRepairOffer, NoteData } from "../../shared/types.ts";
 import { markSelfWrite, recentSelfWrite } from "../state.ts";
 import { revalidationFor } from "./revalidate.ts";
+import { staleRetryStep } from "./saveRetry.ts";
 import { DOC_STATS_EVENT, registerBufferBridge, type DocStats } from "./bufferBridge.ts";
 import { countWords, noteProse } from "../../shared/wordCount.ts";
 import { announceWrite } from "../windows/coherence.ts";
@@ -69,6 +75,21 @@ const sibling = Annotation.define<boolean>();
  *  echo of THAT write comes back through the watcher — a loop whose only
  *  visible symptom is a vault where mtimes never settle. */
 const external = Annotation.define<boolean>();
+
+/** Marks a transaction whose EFFECTS belong to the NOTE, not to one view.
+ *
+ *  Mirroring used to carry `changes` and nothing else, which is right for
+ *  typing — a selection is per-caret, a scroll is per-pane — but wrong for the
+ *  one thing that is neither: an in-flight upload's placeholder. That decoration
+ *  is a fact about the document ("a picture is arriving HERE"), and leaving it
+ *  in one view's state made two failures at once. The visible one is the audit's
+ *  (v1.8 B3): the pill showed in the pane that pasted and nowhere else. The
+ *  worse one is that `buf.state` is whichever view dispatched last, so the
+ *  sibling merely FOCUSING the note replaced the canonical state with one that
+ *  had never heard of the upload — and the answer that then landed had nowhere
+ *  to land. Annotated transactions forward their effects to every other view,
+ *  and are mirrored even when they change no text. */
+export const bufferWide = Annotation.define<boolean>();
 
 /** Counting is O(document) and typing is not, so it trails the keystrokes
  *  rather than riding them. Long enough to skip most of a burst, short enough
@@ -126,6 +147,25 @@ export interface Buffer {
    *  response that re-bases us has come back — which would read as somebody
    *  else's edit and offer the reader a conflict with themselves. */
   saving: boolean;
+  /** How many times in a row a REFUSED write could not be re-based, because
+   *  the re-read of the file failed too. Zero is the healthy state and the
+   *  only one in which the autosave timer runs at its normal cadence; above
+   *  zero the buffer is on the backoff in `saveRetry.ts` and something has
+   *  already been said to the reader. See `save()`. */
+  staleRetries: number;
+}
+
+/** A refused write whose file we could not then read. Typed, because the
+ *  reader is told about it through the same listener a disk-full or a dropped
+ *  server goes through, and that listener keys its wording off `ApiError.code`
+ *  — an untyped `null` reached it as "Failed to save", which is true and says
+ *  nothing about the one thing that matters here: the text is still safe. */
+export class SaveStuckError extends Error {
+  readonly code = "saveStuck";
+  constructor(readonly cause: unknown) {
+    super("The note changed on disk and could not be re-read");
+    this.name = "SaveStuckError";
+  }
 }
 
 const buffers = new Map<string, Buffer>();
@@ -144,6 +184,16 @@ type DivergeListener = (path: string, disk: NoteData) => void;
 let onDiverge: DivergeListener = () => {};
 export function setDivergeListener(fn: DivergeListener): void {
   onDiverge = fn;
+}
+
+/** A save that noticed the reader had just renamed a heading other notes link
+ *  INTO. It rides on the write's own response (server/headingRepair.ts argues
+ *  the seam) and is announced rather than acted on: the repair is an OFFER, and
+ *  nothing in this module is allowed to rewrite files the reader did not name. */
+type HeadingRepairListener = (offer: HeadingRepairOffer) => void;
+let onHeadingRepair: HeadingRepairListener = () => {};
+export function setHeadingRepairListener(fn: HeadingRepairListener): void {
+  onHeadingRepair = fn;
 }
 
 type SaveErrorListener = (path: string, err: unknown) => void;
@@ -204,6 +254,7 @@ export function acquire(
         refs: 0,
         saveTimer: 0,
         saving: false,
+        staleRetries: 0,
       };
       buffers.set(path, buf);
       loading.delete(path);
@@ -288,25 +339,40 @@ export function dispatchFrom(path: string, origin: EditorView, trs: readonly Tra
   let changed = false;
   let echoed = false;
   let adopted = false;
+  let wide = false;
   for (const tr of trs) {
+    if (tr.annotation(bufferWide) === true && tr.effects.length > 0) wide = true;
     if (!tr.docChanged) continue;
     changed = true;
     if (tr.annotation(sibling) === true) echoed = true;
     if (tr.annotation(external) === true) adopted = true;
   }
-  if (changed && !echoed) {
+  if ((changed || wide) && !echoed) {
     for (const view of buf.views) {
       if (view === origin) continue;
       for (const tr of trs) {
-        if (!tr.docChanged) continue;
-        view.dispatch({ changes: tr.changes, annotations: sibling.of(true) });
+        const spec: TransactionSpec = { annotations: sibling.of(true) };
+        if (tr.docChanged) spec.changes = tr.changes;
+        // Buffer-wide effects ride along. Positions inside them need no
+        // remapping: the sibling is showing the SAME document, one transaction
+        // behind at most, and this is that transaction.
+        if (tr.annotation(bufferWide) === true && tr.effects.length > 0) {
+          spec.effects = tr.effects;
+        }
+        if (spec.changes !== undefined || spec.effects !== undefined) view.dispatch(spec);
       }
     }
   }
   if (changed && !echoed && !adopted && buf.diverged === null) {
     setDirty(buf, true);
-    window.clearTimeout(buf.saveTimer);
-    buf.saveTimer = window.setTimeout(() => void save(path), AUTOSAVE_MS);
+    // A buffer on the stale-retry backoff keeps ITS timer. Rescheduling here
+    // would let a reader who is still typing reset the wait to 600ms on every
+    // keystroke, which is the request storm the backoff exists to avoid — and
+    // the pending retry is going to write this same text anyway.
+    if (buf.staleRetries === 0) {
+      window.clearTimeout(buf.saveTimer);
+      buf.saveTimer = window.setTimeout(() => void save(path), AUTOSAVE_MS);
+    }
   }
   // Selection changes matter too: the bar reports the SELECTION's length the
   // moment there is one, and the caret count the moment there is more than one.
@@ -319,6 +385,69 @@ export function dispatchFrom(path: string, origin: EditorView, trs: readonly Tra
  *  something the reader typed here. */
 export function isSiblingEcho(tr: Transaction): boolean {
   return tr.annotation(sibling) === true;
+}
+
+/** Whether this buffer still has a view on screen, and which one. A view that
+ *  was detached and destroyed is not in `views` at all; one that is in `views`
+ *  but off the document is a pane React has unmounted this frame. */
+function liveViewOf(buf: Buffer): EditorView | null {
+  for (const view of buf.views) if (view.dom.isConnected) return view;
+  return null;
+}
+
+/** The buffer a view belongs to, while it is still attached to one. */
+export function pathForView(view: EditorView): string | null {
+  for (const buf of buffers.values()) if (buf.views.has(view)) return buf.path;
+  return null;
+}
+
+/** APPLY AN EDIT TO A NOTE WITHOUT HOLDING ONE OF ITS VIEWS.
+ *
+ *  The upload path is why this exists (v1.8 client-solidity audit, B3): an
+ *  attachment upload is an async round trip that outlives the pane it started
+ *  in, and `uploads.ts` used to answer that by checking `view.dom.isConnected`
+ *  and giving up. The document, though, is not the view's — the placeholder
+ *  decoration lives in the EditorState this registry PRESERVES, so a reader
+ *  who switched tabs mid-upload came back to a note wearing an "Uploading…"
+ *  pill that nothing could ever remove, and their picture nowhere in the text.
+ *
+ *  A live view is still the right target when there is one — it goes through
+ *  `dispatchFrom`, so mirroring, dirtying and the autosave timer all happen as
+ *  they do for typing. With no view, the same three things are done here by
+ *  hand against the stored state; a spec with no `changes` (the upload FAILED,
+ *  we are only removing the pill) is not an edit and does not dirty the note. */
+export function applyToBuffer(path: string, spec: TransactionSpec): boolean {
+  const buf = buffers.get(path);
+  if (!buf) return false;
+  const live = liveViewOf(buf);
+  if (live) {
+    live.dispatch(spec);
+    return true;
+  }
+  buf.state = buf.state.update(spec).state;
+  if (spec.changes === undefined) return true;
+  setDirty(buf, true);
+  if (buf.staleRetries === 0 && buf.diverged === null) {
+    window.clearTimeout(buf.saveTimer);
+    buf.saveTimer = window.setTimeout(() => void save(path), AUTOSAVE_MS);
+  }
+  return true;
+}
+
+/** A write was refused as stale AND the file could not be re-read. Schedule
+ *  another attempt on the backoff, and say so when the plan says to.
+ *
+ *  The whole save is retried, not the re-read: the write is the thing that has
+ *  to happen, a 409 that answers it re-enters this path with a fresher error,
+ *  and a re-read that succeeds next time lands the reader in the ordinary
+ *  conflict strip — which is the state they can actually resolve. */
+function retryStale(buf: Buffer, err: unknown): void {
+  const attempt = buf.staleRetries;
+  buf.staleRetries = attempt + 1;
+  const step = staleRetryStep(attempt);
+  if (step.announce) onSaveError(buf.path, new SaveStuckError(err));
+  window.clearTimeout(buf.saveTimer);
+  buf.saveTimer = window.setTimeout(() => void save(buf.path), step.waitMs);
 }
 
 export async function save(path: string, explicit = false): Promise<void> {
@@ -345,6 +474,11 @@ export async function save(path: string, explicit = false): Promise<void> {
   try {
     const written = await putNote(path, content, buf.baseMtimeMs);
     buf.baseMtimeMs = written.mtimeMs;
+    // "N links point at this heading" — see setHeadingRepairListener. Announced
+    // after the write has landed, so the offer can never be taken against a
+    // save that did not happen.
+    if (written.headingRepair) onHeadingRepair(written.headingRepair);
+    buf.staleRetries = 0; // the write landed; whatever was wrong is over
     // Tell the other windows, so their own precondition moves with the file
     // rather than tripping over a change they could have been told about.
     announceWrite(path, written.mtimeMs);
@@ -359,11 +493,27 @@ export async function save(path: string, explicit = false): Promise<void> {
       // written: the buffer stops autosaving (so the next keystroke's timer
       // cannot clobber the newer version) and the pane is told, with the disk
       // version in hand, so a resolution can show both.
-      const disk = await getNote(path).catch(() => null);
+      let disk: NoteData | null = null;
+      let readErr: unknown = null;
+      try {
+        disk = await getNote(path);
+      } catch (e) {
+        readErr = e;
+      }
       if (disk !== null) {
+        buf.staleRetries = 0;
         buf.diverged = disk;
         onDiverge(path, disk);
+        return;
       }
+      // AND THE RE-READ FAILED. This branch used to `return` here, which is
+      // how a save loop died in silence: no listener fired, `baseMtimeMs`
+      // stayed stale, and every autosave from then on took this same path and
+      // said nothing while the reader kept typing into a buffer that would
+      // never reach the disk (v1.8 audit B1 — the whole argument is in
+      // saveRetry.ts). Now it backs off and tries again, and the reader is
+      // told the first time it happens rather than the next morning.
+      retryStale(buf, readErr);
       return;
     }
     // Not a conflict: the write simply did not land. The buffer stays DIRTY on
@@ -445,6 +595,7 @@ export function keepMine(path: string): void {
   if (!buf || buf.diverged === null) return;
   buf.baseMtimeMs = buf.diverged.mtimeMs;
   buf.diverged = null;
+  buf.staleRetries = 0; // a resolution is a fresh start for the backoff
   void save(path);
 }
 
@@ -457,6 +608,7 @@ export function takeDisk(path: string): void {
   const disk = buf.diverged;
   buf.diverged = null;
   buf.baseMtimeMs = disk.mtimeMs;
+  buf.staleRetries = 0;
   const view = [...buf.views][0];
   const tr = { changes: { from: 0, to: buf.state.doc.length, insert: disk.content } };
   if (view) view.dispatch(tr);

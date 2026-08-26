@@ -23,6 +23,17 @@
  *  closure, and importing `buffers.ts` there would pull CodeMirror in with it. */
 export const DOC_STATS_EVENT = "vellum:doc";
 
+/** "Find in note" — the shell asking the editor to open CodeMirror's own
+ *  search panel (v1.8 audit, F19). `Ctrl/Cmd F` has always run it; nothing
+ *  named it, so it existed for readers who already knew, which is the
+ *  definition of an undiscoverable feature.
+ *
+ *  A window event and a constant HERE for this module's whole reason: the
+ *  palette must be able to ask without importing `@codemirror/search`, and the
+ *  editor must be able to answer without knowing the palette exists. Only the
+ *  pane the command was aimed at answers — see Editor.tsx. */
+export const FIND_IN_NOTE_EVENT = "vellum:find-in-note";
+
 export interface DocStats {
   path: string;
   words: number;

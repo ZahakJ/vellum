@@ -1,13 +1,26 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
+import ErrorBoundary from "./ErrorBoundary.tsx";
+import { installSafetyNet } from "./safety.ts";
+
+// FIRST, before a single component mounts. Half of what this catches happens
+// during bootstrap — a settings fetch that never answers, a rejected promise
+// inside an effect on the first paint — and a net installed after the render
+// is a net installed after the fall (v1.8 client-solidity audit, B2).
+installSafetyNet();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("vellum: #root element missing");
 
 createRoot(root).render(
   <React.StrictMode>
-    <App />
+    {/* OUTSIDE StrictMode's child, INSIDE the root: a boundary the whole app
+        renders under, so a throw anywhere in the tree becomes a card with a
+        reload button instead of an empty <div id="root">. */}
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>,
 );
 

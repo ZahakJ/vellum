@@ -36,6 +36,57 @@ export class VaultError extends Error {
   }
 }
 
+/** The errno of a filesystem rejection, or "" when the thrown thing is not one
+ *  (a VaultError from `safeAbs`, a TypeError, anything). */
+function errnoOf(err: unknown): string {
+  return (err as NodeJS.ErrnoException | null)?.code ?? "";
+}
+
+/** True when the filesystem said THE FILE IS NOT THERE, and only then.
+ *
+ *  Everything else it can say — the disk is full, the mount went read-only,
+ *  the file is not ours to read, the cable fell out — is a different fact and
+ *  has to lead somewhere different. Narrowing these catches is the whole of
+ *  finding A3: a bare `catch` on a `stat` treated "I could not look" as "there
+ *  is nothing there", and that particular confusion, on the write path, is how
+ *  a save precondition gets skipped. */
+function isMissing(err: unknown): boolean {
+  const code = errnoOf(err);
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+/** A raw errno from the write path → something a person can act on.
+ *
+ *  These used to reach the client as a bare 500 with "Internal server error":
+ *  the owner's disk was full, or their vault had been remounted read-only, and
+ *  the product's answer was the sentence it prints for a bug in its own code.
+ *  Every mapping below is a state the reader can DO something about, so each
+ *  gets a `code` the client can say in their language (i18n keys
+ *  `vaultDiskFull` / `vaultReadOnly` / …) and prose that already names the fix
+ *  for anyone reading a log or a curl. Anything unrecognised is re-thrown
+ *  untouched — inventing a friendly sentence for an error we have not
+ *  understood is how a real bug gets filed as "disk full". */
+export function writeFailure(err: unknown, relPath: string): unknown {
+  switch (errnoOf(err)) {
+    case "ENOSPC":
+      return new VaultError(507, `No space left on the device holding the vault (${relPath})`, "diskFull");
+    case "EDQUOT":
+      return new VaultError(507, `The disk quota for this vault is exhausted (${relPath})`, "diskFull");
+    case "EROFS":
+      return new VaultError(500, `The vault is on a read-only filesystem (${relPath})`, "readOnly");
+    case "EACCES":
+    case "EPERM":
+      return new VaultError(500, `No permission to write ${relPath}`, "writeDenied");
+    case "EIO":
+      return new VaultError(500, `The disk reported an I/O error writing ${relPath}`, "writeIO");
+    case "EMFILE":
+    case "ENFILE":
+      return new VaultError(503, `Too many open files — the vault is busy (${relPath})`, "vaultBusy");
+    default:
+      return err;
+  }
+}
+
 let vaultRoot = "";
 /** vaultRoot with its own symlinks resolved — the yardstick every containment
  *  check measures against. Pointing VELLUM_VAULT at a symlink (`~/notes` →
@@ -450,10 +501,18 @@ async function writeFileAtomic(abs: string, content: string): Promise<number> {
     // Never leave the temp file behind: it is invisible to the app by design,
     // so nothing else would ever clean it up.
     await fs.rm(tmp, { force: true }).catch(() => {});
-    throw err;
+    // A FULL DISK IS NOT AN INTERNAL SERVER ERROR. See writeFailure().
+    throw writeFailure(err, path.relative(vaultRoot, target) || path.basename(target));
   }
   await syncDir(dir);
-  return (await fs.stat(target)).mtimeMs;
+  try {
+    return (await fs.stat(target)).mtimeMs;
+  } catch (err) {
+    // The bytes ARE on disk (renamed and fsynced above) — we simply cannot
+    // read back the mtime the caller's next precondition needs. Named, not
+    // bare: this is the one failure here that does not mean the save was lost.
+    throw writeFailure(err, path.relative(vaultRoot, target) || path.basename(target));
+  }
 }
 
 /** Write a note.
@@ -489,16 +548,29 @@ export async function writeNote(
     let current: number | null = null;
     try {
       current = (await fs.stat(abs)).mtimeMs;
-    } catch {
-      // Gone since the caller read it. Writing recreates it, which is kinder
-      // than refusing to save work into a file somebody else deleted — and the
-      // caller hears about the deletion from the watcher either way.
+    } catch (err) {
+      // ENOENT ONLY. Gone since the caller read it: writing recreates it,
+      // which is kinder than refusing to save work into a file somebody else
+      // deleted — and the caller hears about the deletion from the watcher
+      // either way.
+      //
+      // ANY OTHER errno means we could not LOOK, which is not the same as
+      // nothing being there — and this `catch` used to swallow all of them,
+      // so one EACCES or EIO on the stat turned a guarded save into an
+      // unguarded one and the precondition this whole function exists for was
+      // skipped in silence. A write we cannot check is a write that can
+      // clobber, so it is refused and the reader is told why.
+      if (!isMissing(err)) throw writeFailure(err, relPath);
     }
     if (current !== null && current !== baseMtimeMs) {
       throw new VaultError(409, `Note changed on disk: ${relPath}`, "stale");
     }
   }
-  await fs.mkdir(path.dirname(abs), { recursive: true });
+  try {
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+  } catch (err) {
+    throw writeFailure(err, relPath);
+  }
   return { path: relPath, content, mtimeMs: await writeFileAtomic(abs, content) };
 }
 
@@ -1348,6 +1420,107 @@ export function onEvent(listener: EventListener): () => void {
   return () => listeners.delete(listener);
 }
 
+// ─────────────────────────────────────────────────── the aggregate coalescer
+//
+// `queueEvent` below debounces PER PATH, which is the right debounce for the
+// question it answers ("did this file settle?") and no debounce at all for the
+// question a subscriber asks ("did the vault just change under me?"). A `git
+// pull` that touches 1,000 files is 1,000 timers that all fire, 1,000 SSE
+// frames per connected client, and — measured — about 1.5 s in which the app
+// answers nothing, because every frame drags a tree refetch, a graph
+// invalidation and a backlinks refresh behind it.
+//
+// So there is a second, AGGREGATE debounce, and it lives here rather than in
+// the route because it is a fact about the vault, not about one socket. Above
+// BULK_THRESHOLD events inside BULK_WINDOW_MS the stream stops narrating and
+// says one thing instead: `{ kind: "bulk" }`, which means "stop tracking
+// individual paths and re-read everything you are holding".
+//
+// IT IS A SEPARATE SUBSCRIPTION, and that is the load-bearing part. The
+// INDEX's listeners must keep receiving every single event — an index that
+// missed 1,000 changes would be wrong until the process restarted, which is
+// infinitely worse than a busy socket. Only the surfaces that respond to an
+// event by REFETCHING (the SSE stream) may be told in bulk, because for them a
+// bulk event is a strictly stronger instruction than the events it replaces.
+
+/** Events inside one window before the stream switches to narrating in bulk. */
+const BULK_THRESHOLD = 25;
+/** The window the threshold is counted in. */
+const BULK_WINDOW_MS = 200;
+/** Quiet needed after a burst before the single bulk frame goes out. */
+const BULK_SETTLE_MS = 250;
+/** …and the longest a subscriber may be told nothing during an unending storm.
+ *  A `git pull` of a big repo trickles for many seconds; a client that hears
+ *  nothing for all of it is a client showing a vault that no longer exists. */
+const BULK_MAX_HOLD_MS = 2_000;
+
+const bulkListeners = new Set<EventListener>();
+let windowStart = 0;
+let windowCount = 0;
+let bulking = false;
+let bulkSettle: NodeJS.Timeout | null = null;
+let bulkStarted = 0;
+
+/** Subscribe to vault events with the aggregate coalescer in front. Same
+ *  contract as `onEvent`, except that a storm arrives as one `"bulk"` event
+ *  instead of hundreds of individual ones. */
+export function onEventCoalesced(listener: EventListener): () => void {
+  bulkListeners.add(listener);
+  return () => bulkListeners.delete(listener);
+}
+
+function emitBulk(event: VaultEvent): void {
+  for (const listener of bulkListeners) {
+    try {
+      listener(event);
+    } catch (err) {
+      console.error("vault bulk listener failed:", err);
+    }
+  }
+}
+
+function flushBulk(): void {
+  if (bulkSettle) clearTimeout(bulkSettle);
+  bulkSettle = null;
+  bulking = false;
+  emitBulk({ kind: "bulk", path: "" });
+}
+
+function armBulk(): void {
+  if (bulkSettle) clearTimeout(bulkSettle);
+  bulkSettle = setTimeout(flushBulk, BULK_SETTLE_MS);
+  bulkSettle.unref?.();
+}
+
+/** Feed one event to the coalescing layer: forward it, or swallow it into the
+ *  bulk frame that is being assembled. */
+function offerBulk(event: VaultEvent): void {
+  if (bulkListeners.size === 0) return;
+  const now = Date.now();
+  if (now - windowStart > BULK_WINDOW_MS) {
+    windowStart = now;
+    windowCount = 0;
+  }
+  windowCount++;
+  if (bulking) {
+    // A storm that never pauses still has to say something. Flush what is
+    // owed, then keep bulking — the next quiet moment ends it properly.
+    if (now - bulkStarted >= BULK_MAX_HOLD_MS) {
+      bulkStarted = now;
+      emitBulk({ kind: "bulk", path: "" });
+    }
+    armBulk();
+    return;
+  }
+  if (windowCount > BULK_THRESHOLD) {
+    bulking = true;
+    bulkStarted = now;
+    armBulk();
+    return;
+  }
+  emitBulk(event);
+}
+
 /** Broadcast a synthetic event (e.g. after a publish toggle) to all listeners
  *  without waiting for the watcher debounce. */
 export function emitEvent(event: VaultEvent): void {
@@ -1362,6 +1535,9 @@ function emit(event: VaultEvent): void {
       console.error("vault event listener failed:", err);
     }
   }
+  // The refetching subscribers hear the same event through the aggregate
+  // coalescer, which may hold it back and send one "bulk" instead.
+  offerBulk(event);
 }
 
 /** Ignore imminent watcher noise for a path we mutate deliberately (renames).
