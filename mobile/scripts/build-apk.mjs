@@ -16,7 +16,7 @@
 //                   an APK built without it ships whatever was there last time.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -62,7 +62,10 @@ if (!existsSync(built)) {
 const out = join(ROOT, "out");
 mkdirSync(out, { recursive: true });
 const suffix = variant === "release" && !signed ? "release-unsigned" : variant;
-const destination = join(out, `vellum-1.7.1-${suffix}.apk`);
+// The release owns the version string: read it from package.json rather than
+// pinning it here, which is how a 1.8.0 build once shipped named 1.7.1.
+const version = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
+const destination = join(out, `vellum-${version}-${suffix}.apk`);
 copyFileSync(built, destination);
 
 const mb = (statSync(destination).size / 1024 / 1024).toFixed(2);
