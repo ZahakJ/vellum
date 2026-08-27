@@ -1,7 +1,7 @@
 /* The two pieces of chrome the desktop adds, and nothing else.
  *
  * Both are built out of tokens — never a literal colour — for the same reason
- * every other surface in this product is: there are fifteen themes and a theme
+ * every other surface in this product is: there are twenty-one themes and a theme
  * builder behind them, and a hard-coded hex is a surface that stops belonging
  * to the room the moment a reader changes it. `npm run check-contrast` reads
  * the tokens; anything painted with them is covered by it.

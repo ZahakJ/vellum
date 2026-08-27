@@ -332,8 +332,8 @@
   align-items: center;
   justify-content: center;
   /* These sit on a fixed rgba(0,0,0,.72) scrim, so they cannot be styled as
-     if they were on the page: --bg-raised is a near-black on eleven of the
-     fifteen themes, which made the only way to walk a 60-image folder the
+     if they were on the page: --bg-raised is a near-black on every dark
+     theme, which made the only way to walk a 60-image folder the
      lowest-contrast control in the product — dark circles on a dark wash.
      An accent-tinted ground and a lit rim put them above the scrim in every
      theme, and the glyph steps up from --text-muted to --text. */

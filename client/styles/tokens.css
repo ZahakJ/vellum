@@ -1,5 +1,5 @@
-/* Vellum — design tokens. FIFTEEN themes: the default (no data-theme attr) is
-   "iron-gall", and every other one is a [data-theme="…"] block below.
+/* Vellum — design tokens. TWENTY-ONE themes: the default (no data-theme attr)
+   is "iron-gall", and every other one is a [data-theme="…"] block below.
 
      dark   iron-gall  warm near-black ink, ivory text, gold leaf (the default)
             void       true black, cold signal-cyan accent
@@ -12,10 +12,16 @@
             tallow     warm brown paper, candle-flame amber accent
             sumi       ink-grey ground, aizome indigo accent
             moss       olive-black forest floor, lichen accent
+            phosphor   CRT green-black, P1 phosphor accent, one-gun syntax
+            sidereal   blue-violet deep space, starlight accent
+            murex      violet-black, Tyrian purple accent
      light  parchment  warm paper, gold-leaf accent
             sandstone  dry desert paper, burnt-orange accent
             linen      cool neutral daylight, ink-blue accent
             solar      brightest white paper, burnt-gold accent
+            palimpsest scraped grey vellum, rubric-red accent
+            porcelain  glazed white, deep celadon accent
+            mauveine   pale lilac paper, aniline-violet accent
 
    EVERY theme defines the WHOLE set — ground, type, accent, selection, focus
    ring, graph colors, all thirteen callout hues and all eight syntax colors.
@@ -81,6 +87,24 @@
   --swatch-solar-bg: #fffdf4;
   --swatch-solar-text: #2b2620;
   --swatch-solar-accent: #a35c00;
+  --swatch-phosphor-bg: #050a06;
+  --swatch-phosphor-text: #ccd8cb;
+  --swatch-phosphor-accent: #35e08a;
+  --swatch-sidereal-bg: #070a17;
+  --swatch-sidereal-text: #e3e0e6;
+  --swatch-sidereal-accent: #c0c4ff;
+  --swatch-murex-bg: #150b1e;
+  --swatch-murex-text: #ece1f0;
+  --swatch-murex-accent: #d182e8;
+  --swatch-palimpsest-bg: #e9e4d5;
+  --swatch-palimpsest-text: #2f2b22;
+  --swatch-palimpsest-accent: #8f2f3f;
+  --swatch-porcelain-bg: #f4f7f5;
+  --swatch-porcelain-text: #1f2724;
+  --swatch-porcelain-accent: #16695c;
+  --swatch-mauveine-bg: #f3f1f7;
+  --swatch-mauveine-text: #26212e;
+  --swatch-mauveine-accent: #6a3ba0;
 
   --bg: #16130e;
   --bg-raised: #1e1a13;
@@ -978,6 +1002,336 @@
   --syn-type: #ba3645;
   --syn-prop: #9739c5;
   --syn-operator: #5c5347;
+}
+
+/* "phosphor" — a terminal, not a theme that gestures at one. The ground is the
+   glass of a switched-off CRT (a green-black one step above void's true
+   black), the type is the cooled bone-white a monitor's white actually is on
+   that glass, and the accent is the P1 phosphor itself.
+
+   THE SYNTAX PALETTE IS THE ROOM. A cathode tube has ONE gun, so a code fence
+   here is not the eight-hue rainbow every other room draws: keyword, function
+   and property are three strengths of the same green, type is the green pushed
+   to the cyan edge of the same phosphor, and the only colour that is not green
+   is the AMBER of a P3 tube (strings and numbers) plus the alarm red. That is
+   what a terminal looks like, and a room whose eight syntax colours could be
+   swapped with nocturne's is a wallpaper rather than a room. Every one of them
+   still clears 4.8:1 on this ground — the identity is the hue, never the
+   contrast. */
+[data-theme="phosphor"] {
+  color-scheme: dark;
+
+  --bg: #050a06;
+  --bg-raised: #0a1109;
+  --bg-hover: #111a0f;
+  --text: #ccd8cb;
+  --text-muted: #8ba088;
+  --text-faint: #5d6f5b;
+  --accent: #35e08a;
+  --accent-soft: rgba(53, 224, 138, 0.14);
+  --border: #17251a;
+  --danger: #ff6a5e;
+
+  --selection-bg: rgba(53, 224, 138, 0.24);
+  --focus-ring: #35e08a;
+  --banner-tint: 66%;
+  --banner-hue: 150;
+
+  --graph-node: #35e08a;
+  --graph-edge: #3d5241;
+  --graph-vignette: rgba(2, 5, 3, 0.55);
+
+  --callout-note: #4fb8c9;
+  --callout-info: #4fb8c9;
+  --callout-todo: #4fb8c9;
+  --callout-abstract: #3fb69a;
+  --callout-tip: #3fb69a;
+  --callout-success: #3fc063;
+  --callout-question: #c39a3c;
+  --callout-warning: #c39a3c;
+  --callout-failure: #ff6a5e;
+  --callout-danger: #ff6a5e;
+  --callout-bug: #ff6a5e;
+  --callout-example: #9a86d4;
+  --callout-quote: #8ba088;
+
+  --syn-keyword: #35e08a;
+  --syn-string: #e8b34a;
+  --syn-number: #d99b3f;
+  --syn-comment: #5d6f5b;
+  --syn-func: #8fe8b0;
+  --syn-type: #52d6c0;
+  --syn-prop: #b6e05f;
+  --syn-operator: #8ba088;
+}
+
+/* "sidereal" — the sky between the stars: a blue-violet ground far darker than
+   nocturne's, under starlight.
+
+   The accent is the hard part of a room like this and it is why the type is a
+   NEUTRAL silver rather than the blue-white it wants to be. Starlight is a
+   pale blue-white; so is body text on any dark ground; and an accent that is a
+   shade of its own type is the failure `sumi` shipped and the ΔE floor exists
+   to catch. Holding the type at #e3e0e6 (a warm-neutral silver) and the accent
+   at #c0c4ff (a hot star, blue-violet) puts 29.6 ΔE between them — the channel
+   is real, and the page still reads as moonlight. */
+[data-theme="sidereal"] {
+  color-scheme: dark;
+
+  --bg: #070a17;
+  --bg-raised: #0d1122;
+  --bg-hover: #151a30;
+  --text: #e3e0e6;
+  --text-muted: #9fa0b8;
+  --text-faint: #6a6c85;
+  --accent: #c0c4ff;
+  --accent-soft: rgba(192, 196, 255, 0.14);
+  --border: #1e2340;
+  --danger: #e8697a;
+
+  --selection-bg: rgba(192, 196, 255, 0.24);
+  --focus-ring: #c0c4ff;
+  --banner-tint: 66%;
+  --banner-hue: 236;
+
+  --graph-node: #c0c4ff;
+  --graph-edge: #4a4f6b;
+  --graph-vignette: rgba(2, 3, 8, 0.55);
+
+  --callout-note: #5b8ecb;
+  --callout-info: #5b8ecb;
+  --callout-todo: #5b8ecb;
+  --callout-abstract: #3a9498;
+  --callout-tip: #3a9498;
+  --callout-success: #3d9855;
+  --callout-question: #b0803f;
+  --callout-warning: #b0803f;
+  --callout-failure: #e8697a;
+  --callout-danger: #e8697a;
+  --callout-bug: #e8697a;
+  --callout-example: #9d76d6;
+  --callout-quote: #9fa0b8;
+
+  --syn-keyword: #c0c4ff;
+  --syn-string: #6fc2b4;
+  --syn-number: #d7a26a;
+  --syn-comment: #6a6c85;
+  --syn-func: #8fa8f0;
+  --syn-type: #d488a8;
+  --syn-prop: #b294e0;
+  --syn-operator: #9fa0b8;
+}
+
+/* "murex" — the sea snail Tyre boiled by the ton for one gram of dye, and the
+   only colour an emperor was allowed to wear. `porphyry` is the OTHER imperial
+   purple and the two must not be one room twice: porphyry's ground is a warm
+   red-purple near-black under a dusty, desaturated rose, and this one goes the
+   far side of the wheel — a saturated violet-black under the dye at full
+   strength, 39.6 ΔE of accent and 8.5 of ground apart. */
+[data-theme="murex"] {
+  color-scheme: dark;
+
+  --bg: #150b1e;
+  --bg-raised: #1c1028;
+  --bg-hover: #271738;
+  --text: #ece1f0;
+  --text-muted: #ab9bb4;
+  --text-faint: #776a80;
+  --accent: #d182e8;
+  --accent-soft: rgba(209, 130, 232, 0.14);
+  --border: #322044;
+  --danger: #e0715f;
+
+  --selection-bg: rgba(209, 130, 232, 0.24);
+  --focus-ring: #d182e8;
+  --banner-tint: 66%;
+  --banner-hue: 287;
+
+  --graph-node: #d182e8;
+  --graph-edge: #574a63;
+  --graph-vignette: rgba(8, 4, 12, 0.45);
+
+  --callout-note: #6a8fd6;
+  --callout-info: #6a8fd6;
+  --callout-todo: #6a8fd6;
+  --callout-abstract: #2f9a95;
+  --callout-tip: #2f9a95;
+  --callout-success: #4d9c3d;
+  --callout-question: #b87d3c;
+  --callout-warning: #b87d3c;
+  --callout-failure: #e0715f;
+  --callout-danger: #e0715f;
+  --callout-bug: #e0715f;
+  --callout-example: #b06ad0;
+  --callout-quote: #ab9bb4;
+
+  --syn-keyword: #d182e8;
+  --syn-string: #6ba63f;
+  --syn-number: #c9855a;
+  --syn-comment: #776a80;
+  --syn-func: #7093d6;
+  --syn-type: #d8749a;
+  --syn-prop: #ae7fe4;
+  --syn-operator: #ab9bb4;
+}
+
+/* "palimpsest" — older than parchment, which is the point. A sheet scraped
+   clean and written over: the ground is greyed and dulled where parchment's is
+   golden and fresh (2.8 ΔE of ground is close, so the ROOMS are separated on
+   the accent, 49.8 ΔE apart), and the accent is the rubricator's red — the one
+   colour a scriptorium spent on a capital, a heading and a saint's name.
+
+   It is also the light set's first red room. Four light themes carried a gold,
+   a burnt orange, an ink blue and a burnt gold; nothing lit had a red at all,
+   so a light-theme reader had never seen the accent channel shout. */
+[data-theme="palimpsest"] {
+  color-scheme: light;
+
+  --bg: #e9e4d5;
+  --bg-raised: #f2eee2;
+  --bg-hover: #ded8c5;
+  --text: #2f2b22;
+  --text-muted: #635c4b;
+  --text-faint: #837c6a;
+  --accent: #8f2f3f;
+  --accent-soft: rgba(143, 47, 63, 0.13);
+  --border: #d2cab4;
+  --danger: #9e2f26;
+
+  --selection-bg: rgba(143, 47, 63, 0.2);
+  --focus-ring: #8f2f3f;
+  --banner-tint: 34%;
+  --banner-hue: 350;
+
+  --graph-node: #8f2f3f;
+  --graph-edge: #b2aa93;
+  --graph-vignette: rgba(92, 80, 50, 0.26);
+
+  --callout-note: #33608f;
+  --callout-info: #33608f;
+  --callout-todo: #33608f;
+  --callout-abstract: #2b665d;
+  --callout-tip: #2b665d;
+  --callout-success: #3f6729;
+  --callout-question: #7f5417;
+  --callout-warning: #7f5417;
+  --callout-failure: #9e2f26;
+  --callout-danger: #9e2f26;
+  --callout-bug: #9e2f26;
+  --callout-example: #5f4f85;
+  --callout-quote: #635c4b;
+
+  --syn-keyword: #8f2f3f;
+  --syn-string: #4f6a2a;
+  --syn-number: #8a5320;
+  --syn-comment: #837c6a;
+  --syn-func: #365f83;
+  --syn-type: #874a38;
+  --syn-prop: #63508c;
+  --syn-operator: #635c4b;
+}
+
+/* "porcelain" — Song celadon: a glaze-white ground with a breath of green in
+   it, under the deep sea-green the kilns at Longquan were built for. The
+   refined room, and the light set's first green-family accent — `linen` is the
+   only other cool light theme and it is an INK BLUE, 45.1 ΔE away, which is
+   the whole reason this one is not a second blue. */
+[data-theme="porcelain"] {
+  color-scheme: light;
+
+  --bg: #f4f7f5;
+  --bg-raised: #fbfdfb;
+  --bg-hover: #e6ece8;
+  --text: #1f2724;
+  --text-muted: #4f5a56;
+  --text-faint: #7c8884;
+  --accent: #16695c;
+  --accent-soft: rgba(22, 105, 92, 0.13);
+  --border: #d5ded9;
+  --danger: #a8322a;
+
+  --selection-bg: rgba(22, 105, 92, 0.2);
+  --focus-ring: #16695c;
+  --banner-tint: 34%;
+  --banner-hue: 171;
+
+  --graph-node: #16695c;
+  --graph-edge: #a9b4b0;
+  --graph-vignette: rgba(40, 66, 60, 0.26);
+
+  --callout-note: #2f5f9e;
+  --callout-info: #2f5f9e;
+  --callout-todo: #2f5f9e;
+  --callout-abstract: #1c7365;
+  --callout-tip: #1c7365;
+  --callout-success: #2d6d2a;
+  --callout-question: #7d5f24;
+  --callout-warning: #7d5f24;
+  --callout-failure: #a8322a;
+  --callout-danger: #a8322a;
+  --callout-bug: #a8322a;
+  --callout-example: #6b46ad;
+  --callout-quote: #4f5a56;
+
+  --syn-keyword: #16695c;
+  --syn-string: #3f6b22;
+  --syn-number: #8a5228;
+  --syn-comment: #7c8884;
+  --syn-func: #2f5f9e;
+  --syn-type: #a03350;
+  --syn-prop: #6b46ad;
+  --syn-operator: #4f5a56;
+}
+
+/* "mauveine" — the accident that started the dye industry: Perkin, eighteen
+   years old, failed to synthesise quinine in 1856 and washed the flask out
+   with alcohol. The light set had no violet at all, and it is the one hue a
+   paper room can carry without turning warm. */
+[data-theme="mauveine"] {
+  color-scheme: light;
+
+  --bg: #f3f1f7;
+  --bg-raised: #fafafd;
+  --bg-hover: #e6e2ee;
+  --text: #26212e;
+  --text-muted: #575069;
+  --text-faint: #827b93;
+  --accent: #6a3ba0;
+  --accent-soft: rgba(106, 59, 160, 0.13);
+  --border: #dcd6e6;
+  --danger: #a8322a;
+
+  --selection-bg: rgba(106, 59, 160, 0.2);
+  --focus-ring: #6a3ba0;
+  --banner-tint: 34%;
+  --banner-hue: 268;
+
+  --graph-node: #6a3ba0;
+  --graph-edge: #b0a8bd;
+  --graph-vignette: rgba(60, 48, 84, 0.26);
+
+  --callout-note: #2f5fa8;
+  --callout-info: #2f5fa8;
+  --callout-todo: #2f5fa8;
+  --callout-abstract: #1f6f68;
+  --callout-tip: #1f6f68;
+  --callout-success: #2f6f2c;
+  --callout-question: #7f5f22;
+  --callout-warning: #7f5f22;
+  --callout-failure: #a8322a;
+  --callout-danger: #a8322a;
+  --callout-bug: #a8322a;
+  --callout-example: #7a44b4;
+  --callout-quote: #575069;
+
+  --syn-keyword: #6a3ba0;
+  --syn-string: #3f6b25;
+  --syn-number: #8c5227;
+  --syn-comment: #827b93;
+  --syn-func: #2f5fa8;
+  --syn-type: #a13058;
+  --syn-prop: #8438ac;
+  --syn-operator: #575069;
 }
 
 /* ── Arabic type compensation (settings.language = "ar") ───────────────────

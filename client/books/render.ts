@@ -47,7 +47,7 @@ export interface RenderOptions {
   /** Absolutely-positioned host for the selectable glyphs; omit for covers. */
   textLayer?: HTMLElement | null;
   /** The theme's ground, read from the live custom property by the caller —
-   *  never a literal, so the fifteen themes each get their own night. */
+   *  never a literal, so every theme gets its own night. */
   paper: string;
   signal?: AbortSignal;
 }

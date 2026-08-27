@@ -167,6 +167,55 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
   kbd hint or folder path --text-faint; selected row --accent-soft with gold left bar. Section
   labels ("Commands", "Notes") 10px uppercase --text-faint.
 
+## The tour
+
+A deck of illustrated folios, and the answer to the failure that produced it: a
+real reader used this product for months without discovering that it has a site
+designer. The designer was never hidden — it has three doors — but every one of
+them is a door you have to already know the name of. Depth reachable only by
+searching for it is depth nobody meets.
+
+- **A FOLIO, not a tooltip.** One feature per card, centred like a page from the
+  manuscript: a drawn miniature at 64×48 in `SectionGlyph`'s language
+  (`currentColor` only, the gold reached through `color` on a wrapper `<g>`, and
+  `aria-hidden` beside a name that is always present), the feature's name in the
+  serif, and **two sentences that sell the moment** — "Compose your public site
+  from fifty-nine designed sections", never "the designer panel allows". A tour
+  of an interface is not worth reading; a tour of what you could do is.
+- **Every card ends in a REAL action.** *Show me* opens the designer, opens the
+  theme picker, opens Settings scrolled to the exact row, writes a live
+  `tracker` fence into a new, clearly-named scratch note, runs a search with an
+  operator already in it. The deck **closes first**, so the thing it opened is
+  on screen alone rather than behind a modal — the shortcut sheet's action rows,
+  same rule, same reason. Admin-scoped folios are dropped for a read-only
+  session, and a folio whose prerequisite is off (comments, a git work tree)
+  says so in one quiet line rather than selling what this instance cannot do.
+- **THE TOUR IS ONLY EVER ENTERED, NEVER SHOWN.** No autoplay, no first-run
+  interstitial, no toast, nothing to dismiss. Four doors — a palette row, a
+  quiet line on the empty state, a footer on the `Ctrl/Cmd /` sheet, a line in
+  `Welcome.md` — and ONE mark: a 6px gold dot beside the empty state's line that
+  goes out for good the first time anybody opens the deck (a localStorage flag,
+  written on the click rather than when the chunk lands). The dot never moves,
+  pulses or animates: a dot that breathes is a notification.
+- **Flipping is LOGICAL, never physical.** ← → (and vim's h and l) mean previous
+  and next *according to the reading direction*, so an Arabic reader's → walks
+  backwards through the deck exactly as it walks backwards through a line; the
+  swipe reads the same way and the page-turn animation mirrors with it. The turn
+  is transform and opacity, ~180ms, and gone entirely under
+  `prefers-reduced-motion` — the deck still flips, instantly.
+- **Below 700px and on any coarse pointer the dot row is DROPPED, not shrunk.**
+  Fifteen targets at the 44px this shell promises is 660px of row inside a 390px
+  screen. The two things that are full targets stay (the arrows, at the two
+  edges where thumbs rest), the gesture stays, and the position is carried by
+  the count — which said it in words all along. The hint line swaps with it:
+  a keyboard legend on a device with no keyboard is a taunt.
+- **The deck is LAZY and its copy travels with it.** Fifteen names and thirty
+  sentences in two languages are ~9 kB the entry chunk must not carry to
+  describe a surface nobody has opened, so they live in `tourCards.ts` in the
+  `{ en, ar }` shape the fifty-nine presets already use, gated by
+  `tests/tour.test.ts` the way `assertPreset()` gates those. Only the four
+  DOOR strings are in the dictionary. Entry cost is the door and the row.
+
 ## Graph view
 
 - Fills center. Canvas bg --bg with a very faint radial vignette. Edges: --border color, 1px,
@@ -194,35 +243,65 @@ iron-gall dark default, parchment light, gold-leaf accent. Everything below is n
 - All interactive elements: 150ms ease transitions on color/bg/transform. `:focus-visible`: 2px
   --accent ring, radius-matched. Custom scrollbars: 8px, thumb --border hover --text-faint,
   transparent track. ::selection --accent-soft. No layout shift on hover anywhere.
-- **All fifteen** themes must pass: contrast ≥ 4.5:1 body text, ≥ 3:1 muted, accent ≥ 4.5:1 on its
+- **All twenty-one** themes must pass: contrast ≥ 4.5:1 body text, ≥ 3:1 muted, accent ≥ 4.5:1 on its
   own ground, ≥ 3:1 faint on **both** grounds **and ≥ 18 ΔE from its own body text** (`check-contrast.mjs` walks every block in
   tokens.css). That last one is not a contrast ratio and cannot be: a theme whose accent is a
   shade of its own type — sumi shipped one — has no accent channel at all, and every argument for
-  the lit mode pill collapses with it. "No two themes share a hex" is likewise satisfiable and
+  the lit mode pill collapses with it. `sidereal` is the room that had to be designed AROUND that
+  floor rather than checked against it afterwards: starlight and body text are the same pale
+  blue-white, so its type is held at a neutral silver to keep the pair 29.6 ΔE apart. "No two
+  themes share a hex" is likewise satisfiable and
   meaningless; the test is whether two swatches are separable at a glance. The accent is per theme, and only iron-gall/lapis/parchment
   are gold — a theme is a room, not a tint: it defines its own ground, type, accent, selection,
   focus ring, graph colors, thirteen callout hues and eight syntax colors, solved against its own
-  `--bg`. Readers browse them in the theme picker (grouped dark/light, arrow keys preview live,
-  Enter keeps, Esc restores); nothing in the product cycles blindly through fifteen looks, and
+  `--bg`. **A room's syntax palette is part of its identity, not a rainbow it wears**: `phosphor`
+  is a cathode tube with ONE gun, so its keyword, function and property are three strengths of the
+  same green and the only non-green inks are a P3 amber and the alarm red — a room whose eight
+  syntax colors could be swapped with nocturne's is wallpaper. Readers browse them in the theme
+  picker (grouped dark/light, arrow keys preview live,
+  Enter keeps, Esc restores); nothing in the product cycles blindly through twenty-one looks, and
   nothing LISTS them either — the palette carries one *Themes* row (with a dot showing the theme
-  in force) and not fifteen jumps into rooms the reader has not seen.
+  in force) and not twenty-one jumps into rooms the reader has not seen.
 - **Contrast: `--text-faint` is not a text color.** Its bar is 3:1 — the NON-TEXT bar — and it is
   enforced on `--bg` and `--bg-raised` for every theme, so the token may carry UI glyphs (the
   heading fold chevron, the attachment type glyph, the OFF paperclip) and deliberately
   de-emphasized machine bookkeeping (the properties card's `dg-*`/uuid rows). Anything the
   reader has to READ — a filename, a count, a label naming a thing — is `--text-muted` (4.5:1 or
-  better in all fifteen) or `--text`. The pair used to print `(info)` against a minimum of zero;
+  better in all twenty-one) or `--text`. The pair used to print `(info)` against a minimum of zero;
   parchment sat at 2.50:1 and text kept moving onto the one token nothing could fail. **Opacity
   is invisible to the gate**: `--text-faint` at 0.85 is 2.56:1 on iron-gall, so a fade over a
   token that is already at its floor is a way of failing the floor without failing the check.
 - **`--bg-hover` is a THIRD ground, not a shade.** Every hovered row, every highlighted menu row
   and every tag pill is painted with it, so `check-contrast.mjs` walks it too: `--text` ≥ 4.5:1
-  and `--text-muted` ≥ 3:1 on all fifteen (worst measured 4.53:1). `--text-faint` is NOT checked
+  and `--text-muted` ≥ 3:1 on all twenty-one (worst measured 4.53:1). `--text-faint` is NOT checked
   there and may not be USED there — it is a two-ground token by construction, and on `--bg-hover`
   it measures 2.74:1 (iron-gall), 2.89 (sumi, tallow), 2.98 (parchment). The selection menu's
   keycaps and group titles shipped exactly that: passing on `--bg` and `--bg-raised`, failing one
   substrate over, which is the same "failing the floor without failing the check" as the opacity
   case above.
+- **The ambient masthead: motion is DECORATION, never a token.** Themes are static token rooms by
+  architecture — every gate here measures those hexes against one another, and a value that moves
+  is a value nobody screenshotted at the frame where it failed. So the rooms stay still and a
+  separate layer moves behind the words: an empty `aria-hidden` div (`.s-amb`,
+  `client/styles/ambient.css`) at `z-index: -1` inside a masthead carrying `isolation: isolate`,
+  on the stock blog's `.s-blog-mast` and the designed shell's `.s-dsg-head`. **Off by default**,
+  behind one boolean (`settings.ambient`) — one switch for the whole feature, because *which*
+  air a room gets is a CSS question answered per theme, so a theme change repaints the atmosphere
+  live with no re-render. THREE AIRS, not twenty-one: drifting stars (sidereal, nocturne, lapis,
+  murex), a creeping scanline grating under the gun's glow (phosphor, void), rising gold dust
+  (iron-gall, tallow, parchment, palimpsest, solar). Every other room is deliberately still — a
+  room gets an air when it has something to say with one. Every mark is that room's own
+  `--accent` through `color-mix`, so twenty-one rooms cost three airs. Four properties are
+  normative: pure CSS (no canvas, no rAF, both animated properties compositor-only); unreachable
+  (`pointer-events: none`, empty, `aria-hidden`, out of the tab order); a WHISPER, and that is a
+  measurement rather than an opacity — the worst *composited* ground under the masthead title,
+  read off real pixels with the animation running, is 11.41:1 (phosphor), 10.74 (murex), 9.63
+  (sidereal), 9.08 (iron-gall), 8.31 (parchment) against a floor of 4.5; and
+  `prefers-reduced-motion` **deletes** it — `display: none` on the container, so neither layer
+  gets a box and two screenshots 2.6s apart come back byte-identical. The magazine hero
+  (`.s-dash-hero`) gets none: it is a photograph under a scrim tuned so white type survives a
+  near-white banner, and an atmosphere over that scrim is fighting the one thing guaranteeing the
+  contrast. The stylesheet rides the two public shells' own lazy chunks, never the entry.
 
 ## The divider
 
@@ -289,7 +368,7 @@ A third visitor shell, composed from a design config, beside the two that exist.
 
 ## Custom themes
 
-A sixteenth room is MADE, not shipped: `{ base, tokens }` — one of the fifteen plus a sparse map
+One more room is MADE, not shipped: `{ base, tokens }` — one of the built-ins plus a sparse map
 of overrides, applied as `data-theme="<base>" data-custom-theme="<slug>"` so every token the
 author did not touch still comes from `tokens.css` and an upstream retune reaches them for free.
 
@@ -307,7 +386,7 @@ author did not touch still comes from `tokens.css` and an upstream retune reache
 - The gate now walks THREE grounds for `--text` and `--text-muted` (`--bg`, `--bg-raised`,
   `--bg-hover` — the tag pill's ground, painted at rest) and two for `--text-faint`, which is a
   statement about that token's remit rather than an exemption: faint measures 2.7:1 on hover in
-  twelve of the fifteen, which is exactly why the pill's count is `--text-muted`.
+  most of the rooms, which is exactly why the pill's count is `--text-muted`.
 
 ## Hard rules
 

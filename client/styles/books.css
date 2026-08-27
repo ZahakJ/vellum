@@ -607,8 +607,8 @@
    coloured rectangle announced on top of the words it sits over would say
    everything twice.
 
-   The six inks live on `:root` in tokens.css and are the same six in all
-   fifteen themes — see the comment there. They are PAGE inks. */
+   The six inks live on `:root` in tokens.css and are the same six in every
+   theme — see the comment there. They are PAGE inks. */
 
 .s-book__ink-layer {
   position: absolute;

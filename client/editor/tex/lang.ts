@@ -112,7 +112,7 @@ export const texFolding: Extension = [
 
 /** Highlighting for the LaTeX tags the stex mode emits, on top of the shared
  *  code-fence palette in editor/theme.ts. Every colour is a `--syn-*` token, so
- *  a `.tex` note follows all fifteen themes for free — and the contrast gate,
+ *  a `.tex` note follows every theme for free — and the contrast gate,
  *  which walks tokens.css, keeps covering it. */
 export function texHighlighting(): Extension {
   return syntaxHighlighting(

@@ -25,6 +25,7 @@ import { insertTemplateCommand, newNoteFromTemplateCommand } from "../templateAc
 import { t, type I18nKey } from "../i18n.ts";
 import { layoutHints, loadLayoutHints } from "../layoutMap.ts";
 import { useStore } from "../state.ts";
+import { openTour } from "../tour.ts";
 import { openThemePicker } from "./ThemePicker.tsx";
 
 /** Which shell is mounted around the sheet. */
@@ -498,6 +499,31 @@ export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
             <div className="s-palette-empty">{t("paletteNoMatches")}</div>
           )}
         </div>
+        {/* THE OTHER HALF OF THE QUESTION. This sheet answers "how do I do X"
+            for a reader who already knows the product does X. The reader this
+            product actually lost used it for months without discovering the
+            designer — they never had an X to look up. So the sheet ends by
+            naming the surface for that reader, and it is a LINE, not a banner:
+            the tour is only ever entered.
+
+            App shell only. The deck's folios open the designer, split panes,
+            reach Settings rows and write notes — none of which a blog page
+            has, and a row that lights up must do something. */}
+        {shell === "app" && (
+          <div className="s-shortcuts__foot">
+            <span className="s-shortcuts__footlead">{t("tourFooterLead")}</span>
+            <button
+              type="button"
+              className="s-shortcuts__tour"
+              onClick={() => {
+                setOpen(false);
+                openTour();
+              }}
+            >
+              {t("tourTake")}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

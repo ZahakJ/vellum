@@ -845,6 +845,9 @@ authRoutes.get("/me", (c) => {
     me.footer = footerLine();
     me.bannerFallback = bannerFallback();
     if (getSettings().shareButtons !== false) me.shareButtons = true;
+    // Sent only when ON — the field's absence IS the default, so a visitor to
+    // an instance that never turned it on carries no key for it at all.
+    if (getSettings().ambient === true) me.ambient = true;
     // Runtime settings the blog shell renders from (settings.json): the
     // home config (mode/banner, plus the note when it is visible to this
     // session — same gating as me.homeNote above). Visitor-safe by

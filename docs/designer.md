@@ -82,7 +82,7 @@ Beyond the sections, a design carries the frame:
 - **Article page** — which furniture an article keeps: banner, meta line, tags, related posts,
   the back link.
 - **Theme** — a design is a look, and a look is a theme plus a layout, so the design names one of
-  the [fifteen themes](theming.md) (or a custom one). It applies to visitors who have not chosen a
+  the [twenty-one themes](theming.md) (or a custom one). It applies to visitors who have not chosen a
   theme of their own; `null` leaves `settings.defaultTheme` alone.
 - **Site** — the section column's width in px, and `compact` / `regular` / `roomy` density.
 
@@ -104,7 +104,7 @@ for adding another:
    filter, no image path. A shipped design cannot know what is in somebody else's vault, and a
    preset that guessed would render as your very first error card. What it leans on instead is the
    fallback that already exists.
-3. **A preset is a look, so it names a theme** — one of the fifteen, chosen because the layout was
+3. **A preset is a look, so it names a theme** — one of the built-ins, chosen because the layout was
    drawn against it. A broadsheet is a broadsheet on `parchment`.
 
 `npm run check-presets` holds the catalog to those rules: unique ids, a bilingual name and blurb

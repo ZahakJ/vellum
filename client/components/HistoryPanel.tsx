@@ -54,6 +54,13 @@ import "../styles/history.css";
 
 const COLLAPSED_KEY = "vellum.history-collapsed";
 
+/** "Open the history section." Rung by any surface that wants to SHOW this
+ *  list rather than merely reveal the pane around it — the tour's history
+ *  folio is the first. Declared here because the listener is here; callers
+ *  outside this chunk dispatch the literal rather than import it, so pressing
+ *  a button never fetches the revision reader. */
+export const HISTORY_REVEAL_EVENT = "vellum:history-reveal";
+
 /** Collapsed BY DEFAULT — see decision 1 above. An unreadable stored value is
  *  the default, not a crash: private windows throw on the accessor. */
 function readCollapsed(): boolean {
@@ -333,6 +340,25 @@ export default function HistoryPanel() {
       // storage unavailable — the collapse still works for this session
     }
   };
+
+  // "Show me the history" from somewhere that is not this header. The section
+  // is collapsed by default and its collapse is component-local (decision 1
+  // above), so there is no store flag another surface could set — and a
+  // caller that wrote `COLLAPSED_KEY` itself would be a second copy of this
+  // component's state living in another file. A bus instead: the tour's
+  // history folio rings it, and anything else that grows a door can too.
+  useEffect(() => {
+    const onReveal = () => {
+      setCollapsed(false);
+      try {
+        localStorage.setItem(COLLAPSED_KEY, "false");
+      } catch {
+        // storage unavailable — it still opens for this session
+      }
+    };
+    window.addEventListener(HISTORY_REVEAL_EVENT, onReveal);
+    return () => window.removeEventListener(HISTORY_REVEAL_EVENT, onReveal);
+  }, []);
 
   // A visitor has no history at all (both routes 404 to one), and an admin
   // PREVIEWING as a visitor must see exactly what a stranger would.

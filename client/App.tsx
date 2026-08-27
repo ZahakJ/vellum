@@ -2,7 +2,15 @@
 // global keyboard shortcuts, and the single SSE subscription that keeps the
 // tree, backlinks, and externally-changed open notes fresh.
 
-import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { lazySurface } from "./lazySurface.tsx";
 import type { PropertyValue, VaultEvent } from "../shared/types.ts";
 import { subscribeEvents } from "./api.ts";
@@ -32,6 +40,7 @@ import { isKey, shortcutKey } from "./keys.ts";
 import { promptNewNote } from "./prompts.ts";
 import { insertTemplateCommand, newNoteFromTemplateCommand } from "./templateActions.ts";
 import { applyUrl, installRouter, syncUrl } from "./router.ts";
+import { openTour, subscribeTourSeen, tourSeen } from "./tour.ts";
 import { recentSelfWrite, sidebarIsDrawer, useStore } from "./state.ts";
 import {
   adoptExternalChange,
@@ -354,6 +363,23 @@ export default function App() {
       .slice(0, RECENT_SHOWN)
       .map((p) => ({ path: p, title: live.get(p)! }));
   }, [recent, tree]);
+
+  // THE ONE-TIME MARK. A small gold dot on the empty state's tour line, and
+  // it is the entire nudge this feature is allowed: no popup, no toast, no
+  // first-run modal, nothing that has to be dismissed. It goes out for good
+  // the first time anybody opens the tour (client/tour.ts writes the flag on
+  // the click, before the chunk lands, so the mark disappears on the press
+  // rather than a network round-trip later).
+  //
+  // The seen-flag alone is the whole condition, and an earlier draft that
+  // ALSO required an empty recents ledger was wrong twice over. It never fired
+  // — the first run opens the home note, which is a visit, so the ledger is
+  // never empty on the screen this mark lives on — and it was answering the
+  // wrong question: the reader this exists for is the one who has been here
+  // for months without finding the designer, not the one who arrived
+  // yesterday. Per browser, once, ever.
+  const seen = useSyncExternalStore(subscribeTourSeen, tourSeen, tourSeen);
+  const nudgeTour = !seen;
 
   // Navigating to another note dismisses lingering PLAIN toasts — a message
   // about the previous interaction must not overlay unrelated content. An
@@ -1132,6 +1158,22 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              {/* THE QUIET DOOR. Outside both halves above, because it is the
+                  one line that belongs on a laptop and on a phone alike: the
+                  keymap answers "which key", the touch column answers "where
+                  to", and neither answers "what is in here". A real reader
+                  used this vault for months without discovering the designer,
+                  and this line is the whole remedy — a link, wearing the
+                  wordmark's star, that has to be pressed. Never a popup. */}
+              <button
+                type="button"
+                className="s-empty__tour"
+                onClick={openTour}
+              >
+                <span className="s-empty__tourstar" aria-hidden="true">✦</span>
+                {t("tourDoor")}
+                {nudgeTour && <span className="s-empty__tourdot" aria-hidden="true" />}
+              </button>
             </div>
               )}
             </Workspace>

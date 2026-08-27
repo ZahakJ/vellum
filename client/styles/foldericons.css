@@ -26,7 +26,7 @@
   border-radius: calc(var(--radius) + 2px);
   /* The shell's one elevation idiom: a black-alpha drop, not a token. Every
      raised surface here uses it (.s-menu, .s-modal, .s-skip) because a shadow
-     is depth rather than colour and must read the same in all fifteen themes. */
+     is depth rather than colour and must read the same in every theme. */
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
   animation: s-pop-in 0.12s ease;
 }

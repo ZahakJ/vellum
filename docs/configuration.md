@@ -35,7 +35,7 @@ summary.
 | `SITE_TAGLINE` | Masthead subtitle under the site name (blog mode) |
 | `SITE_FOOTER` | Blog footer line; `{year}`/`{siteName}` substituted (default `© {year} {siteName}`) |
 | `SITE_URL` | Canonical origin for RSS/canonical links, e.g. `https://notes.example.com`; unset → derived from request headers. **Env-only — it has no Settings-panel counterpart** |
-| `DEFAULT_THEME` | Theme for visitors who haven't picked one — any of the fifteen, or `custom:<name>` for one you built (see [Theming](theming.md)), or `follow`, which is also what unset means: visitors get the theme *you* edit in; case-insensitive; unknown names are ignored with one line on stderr |
+| `DEFAULT_THEME` | Theme for visitors who haven't picked one — any of the twenty-one, or `custom:<name>` for one you built (see [Theming](theming.md)), or `follow`, which is also what unset means: visitors get the theme *you* edit in; case-insensitive; unknown names are ignored with one line on stderr |
 | `EXCLUDE_TAGS` | Comma-separated tags hidden from the visitor site's topic sections and tag pills (workflow/status tags like `draft,seedling`); case-insensitive, a leading `#` is fine; admin views unaffected |
 | `PUBLIC_LAYOUT` | `blog` gives visitors a classic blog layout instead of the app shell (see [Blog mode](blog-mode.md)); `designed` composes it from a design you author (see [Designer](designer.md)); anything else → `app` (the default) |
 | `SITE_LANG` | Site language: `en` (default) or `ar`. `ar` localizes every chrome string and mirrors the whole UI right-to-left (see [Arabic & RTL](arabic-and-rtl.md)). What *you* edit in is a separate per-browser choice — Settings → *Editor language* |
@@ -164,7 +164,7 @@ write them. Anything absent falls back to the env default in the table above.
 | `siteName` | string, ≤ 80 chars | `SITE_NAME`, else `Vellum` |
 | `tagline` | string, ≤ 160 | `SITE_TAGLINE`, else none |
 | `footer` | string, ≤ 200 | `SITE_FOOTER`, else `© {year} {siteName}` |
-| `defaultTheme` | one of the fifteen ids, `custom:<name>` for a theme that exists, or `follow` (visitors track your editor theme) | `DEFAULT_THEME`, else `follow` |
+| `defaultTheme` | one of the twenty-one ids, `custom:<name>` for a theme that exists, or `follow` (visitors track your editor theme) | `DEFAULT_THEME`, else `follow` |
 | `adminTheme` | one theme id — **written by the app, not by hand**: your own editor theme, mirrored from your browser so `follow` has something to serve | none until you pick a theme |
 | `publicLayout` | `app` · `blog` · `designed` | `PUBLIC_LAYOUT`, else `app` |
 | `blogLocale` | BCP47 tag, ≤ 35 chars, canonicalized on save | `BLOG_LOCALE`, else `ar` when the language is Arabic, else `en` |
@@ -174,6 +174,7 @@ write them. Anything absent falls back to the env default in the table above.
 | `excludeTags` | array of strings, ≤ 200 entries, ≤ 50 chars each | `EXCLUDE_TAGS`, else empty |
 | `commentsEnabled` | boolean | `COMMENTS`, else `false` |
 | `shareButtons` | boolean — the share row under blog articles | `true` |
+| `ambient` | boolean — a slow decorative atmosphere behind the public masthead, drawn per theme (see [Theming](theming.md#the-ambient-masthead)) | `false` |
 | `favicon` | vault-relative image (`.ico .png .svg .jpg .jpeg .gif .webp .avif`) | none |
 | `logo` | https URL or vault-relative image | none |
 | `home.mode` | `note` · `dashboard` | `note` |

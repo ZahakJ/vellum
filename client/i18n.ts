@@ -313,20 +313,20 @@ const DICT = {
     en: "Preview as visitor — see exactly what the public site serves",
     ar: "معاينة كزائر — شاهد الموقع تمامًا كما يظهر للزوار",
   },
-  // The button opens the PICKER (fifteen themes are browsed, not cycled), so
+  // The button opens the PICKER (a room is browsed, not cycled into), so
   // its tooltip names where you are and what the click does — not the one
   // theme a "next" step would have landed on.
   themeTitle: {
-    // "all fifteen" was true until an instance could make a sixteenth: custom
-    // themes are selectable everywhere a built-in is, so the tooltip counts
-    // nothing it cannot count.
+    // A count here was true until an instance could make one more of its own:
+    // custom themes are selectable everywhere a built-in is, so the tooltip
+    // counts nothing it cannot count.
     en: "Theme: {theme} — click to browse them all",
     ar: "السمة: {theme} — انقر لتصفح جميع السمات",
   },
 
   // ── Theme picker ────────────────────────────────────────────────────────
   // Theme names USED to stay untranslated "because they are proper nouns".
-  // Fifteen rooms were therefore identified by fifteen obscure pigment nouns —
+  // Every room was therefore identified by an obscure pigment noun —
   // verdigris, porphyry, iron-gall — which an Arabic reader met in Latin
   // script and an English one mostly could not decode either. The raw id is
   // still the value DEFAULT_THEME and the palette take (shared/themes.ts is
@@ -355,6 +355,12 @@ const DICT = {
   thSumiDesc: { en: "Indigo on ink-stick grey", ar: "نيلي على رمادي حبر الصين" },
   thMoss: { en: "Moss", ar: "طحلب" },
   thMossDesc: { en: "Lichen green on olive-black", ar: "أخضر أشن على زيتوني داكن" },
+  thPhosphor: { en: "Phosphor", ar: "فوسفور" },
+  thPhosphorDesc: { en: "P1 green on a cold screen", ar: "أخضر الفوسفور على شاشة باردة" },
+  thSidereal: { en: "Sidereal", ar: "نجميّة" },
+  thSiderealDesc: { en: "Starlight on a moonless sky", ar: "ضوء النجوم على سماء بلا قمر" },
+  thMurex: { en: "Murex", ar: "أرجوان" },
+  thMurexDesc: { en: "Tyrian purple on a violet night", ar: "أرجوان صُوري على ليل بنفسجي" },
   thParchment: { en: "Parchment", ar: "رَقّ" },
   thParchmentDesc: { en: "Gold leaf on warm paper", ar: "ذهب على ورق دافئ" },
   thSandstone: { en: "Sandstone", ar: "حجر رملي" },
@@ -363,6 +369,12 @@ const DICT = {
   thLinenDesc: { en: "Ink blue on cool daylight", ar: "أزرق حبري على ضوء نهار بارد" },
   thSolar: { en: "Solar", ar: "شمسيّة" },
   thSolarDesc: { en: "Burnt gold on the brightest paper", ar: "ذهب محروق على أنصع ورق" },
+  thPalimpsest: { en: "Palimpsest", ar: "طِرْس" },
+  thPalimpsestDesc: { en: "Rubric red on scraped vellum", ar: "أحمر التّرقين على رقّ مكشوط" },
+  thPorcelain: { en: "Porcelain", ar: "خَزَف" },
+  thPorcelainDesc: { en: "Deep celadon on glazed white", ar: "أخضر خزفي على بياض مطليّ" },
+  thMauveine: { en: "Mauveine", ar: "موفين" },
+  thMauveineDesc: { en: "Aniline violet on pale lilac", ar: "بنفسجي الأنيلين على ليلكيّ شاحب" },
   themeIdTitle: { en: "{name} — theme id “{id}”", ar: "{name} — معرّف السمة «{id}»" },
   themePicker: { en: "Theme", ar: "السمة" },
   themePickerHint: {
@@ -553,7 +565,7 @@ const DICT = {
   cmdToggleGraph: { en: "Toggle graph", ar: "تبديل المخطط" },
   cmdViewHint: { en: "view", ar: "عرض" },
   cmdToggleReading: { en: "Toggle reading view", ar: "تبديل وضع القراءة" },
-  // No longer a command label — the fifteen `Theme: <id>` palette rows are
+  // No longer a command label — the per-theme `Theme: <id>` palette rows are
   // gone — but still the blog's theme-button tooltip, which names the theme
   // in force.
   cmdTheme: { en: "Theme: {t}", ar: "السمة: {t}" },
@@ -663,8 +675,8 @@ const DICT = {
     ar: "لا شيء لطباعته — افتح ملاحظة أولًا.",
   },
   // ONE row, whose label says where it goes. A row called "Toggle theme" in a
-  // product with fifteen rooms answers "which one?" with silence, and blind
-  // cycling is the failure the fifteen `Theme:` rows were deleted for.
+  // product with twenty-one rooms answers "which one?" with silence, and blind
+  // cycling is the failure the per-theme `Theme:` rows were deleted for.
   cmdThemeFlip: { en: "Switch to {theme}", ar: "التبديل إلى {theme}" },
   couldNotCreateNote: { en: "Could not create note", ar: "تعذر إنشاء الملاحظة" },
   couldNotRenameNote: { en: "Could not rename note", ar: "تعذرت إعادة تسمية الملاحظة" },
@@ -1159,6 +1171,15 @@ const DICT = {
   hintShareButtons: {
     en: "A row of share links under every blog article.",
     ar: "صف روابط مشاركة أسفل كل مقالة في المدونة.",
+  },
+  rowAmbient: { en: "Ambient masthead", ar: "ترويسة بأجواء" },
+  // The hint has to say all three things an owner needs before switching this
+  // on: it is theme-dependent (not every room has one), it is behind the
+  // words, and a reader who has asked their system for less motion gets none
+  // of it. Naming the three airs would date the moment a fourth ships.
+  hintAmbient: {
+    en: "A slow, faint atmosphere behind the site name — drifting stars, a phosphor shimmer or rising gold dust, depending on the theme. Purely decorative, behind the text, and off entirely for readers who prefer reduced motion.",
+    ar: "أجواء بطيئة خافتة خلف اسم الموقع — نجوم سابحة أو وميض فوسفوري أو غبار ذهبي صاعد، بحسب السمة. زخرفة محضة خلف النص، وتُلغى تمامًا لمن يفضّل تقليل الحركة.",
   },
   phVaultImageOrUrl: {
     en: "vault image path or https:// URL",
@@ -2292,8 +2313,8 @@ const DICT = {
   // between them is a real one and the reader is making it here.
   colorThemeAware: { en: "Theme-aware", ar: "متوافق مع السمة" },
   colorThemeAwareNote: {
-    en: "Follows the theme — stays legible in all fifteen, light and dark.",
-    ar: "يتبع السمة — يبقى مقروءًا في السمات الخمس عشرة، الفاتحة والداكنة.",
+    en: "Follows the theme — stays legible in every room, light and dark.",
+    ar: "يتبع السمة — يبقى مقروءًا في كل غرفة، الفاتحة والداكنة.",
   },
   colorFixed: { en: "Fixed ink", ar: "لون ثابت" },
   colorFixedNote: {
@@ -3668,6 +3689,18 @@ const DICT = {
     ar: "لا شيء على الرف بعد. افتح كتلة كهذه في أي ملاحظة لتظهر هنا.",
   },
   trackerBoardFailed: { en: "The shelf could not be read.", ar: "تعذّرت قراءة الرف." },
+  // ── The tour: its DOORS, and only its doors ──────────────────────────────
+  // Four strings, and the deck's fifteen names and thirty sentences are not
+  // among them — they live in client/components/tourCards.ts, in the same
+  // `{ en, ar }` shape the fifty-nine presets carry their names in, for the
+  // reason written out at the top of that file: the DICT is entry-chunk code
+  // and every string in it is downloaded by a visitor reading one article.
+  // What IS here is exactly what gets painted before the deck exists — the
+  // palette row, the empty state's line, the shortcut sheet's footer.
+  tourTake: { en: "Take the tour", ar: "خُذ جولة في القبو" },
+  tourHint: { en: "A deck of what this vault can do", ar: "بطاقاتٌ بما يستطيعه هذا القبو" },
+  tourDoor: { en: "See what the vault can do", ar: "انظر ما يستطيعه القبو" },
+  tourFooterLead: { en: "Not sure what to look for?", ar: "ألا تدري ما الذي تبحث عنه؟" },
 } satisfies Record<string, Entry>;
 
 export type I18nKey = keyof typeof DICT;

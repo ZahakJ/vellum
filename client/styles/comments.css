@@ -353,7 +353,7 @@
   text-align: center;
   font-family: var(--font-serif);
   font-size: 1rem;
-  /* A SENTENCE THE READER READS, so --text-muted (4.5:1 in all fifteen).
+  /* A SENTENCE THE READER READS, so --text-muted (4.5:1 in every theme).
      --text-faint's bar is the 3:1 non-text one and it was carrying the whole
      of this panel's empty states — DESIGN.md, "Contrast". */
   color: var(--text-muted);

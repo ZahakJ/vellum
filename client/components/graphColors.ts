@@ -33,7 +33,7 @@ export function readThemeColors(): ThemeColors {
   const border = token("--border", "#333");
   const muted = token("--text-muted", "#999");
   // Ask the THEME whether it is a dark room, not the attribute: there are
-  // eleven dark themes and four light ones, so `!== "parchment"` painted every
+  // fourteen dark themes and seven light ones, so `!== "parchment"` painted every
   // light theme but one with a dark theme's edges. Every block in tokens.css
   // declares its own color-scheme.
   const dark = cs.getPropertyValue("color-scheme").trim() !== "light";

@@ -19,6 +19,7 @@ import { bannerSrc } from "../banner.ts";
 import { t } from "../i18n.ts";
 import { NavLink } from "../blog/util.tsx";
 import DesignNav from "./DesignNav.tsx";
+import Ambient from "../ambient.tsx";
 
 export default function DesignHeader({
   header,
@@ -95,6 +96,7 @@ export default function DesignHeader({
   if (inline) {
     return (
       <header className={`${headClass}${menuOpen ? " s-dsg-head--menu" : ""}`}>
+        <Ambient />
         <div className="s-dsg-head__row">
           <div className="s-dsg-head__block">
             {identity}
@@ -115,6 +117,11 @@ export default function DesignHeader({
   return (
     <>
       <header className={headClass}>
+        {/* The same optional atmosphere the stock masthead carries — one
+            component, one stylesheet, both public shells. It is decoration, so
+            it is not a design-config field: a design decides arrangement, and
+            an owner's "should my site shimmer" is an instance setting. */}
+        <Ambient />
         {identity}
         {header.showTagline && tagline && (
           <p className="s-dsg-head__tagline" dir="auto">

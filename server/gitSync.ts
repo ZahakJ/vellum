@@ -33,6 +33,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { hostname } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -44,6 +45,7 @@ import type {
   NoteRevision,
   NoteRevisionBlob,
 } from "../shared/types.ts";
+import { acquireLock, inspectLock, type LockHandle, type LockHolder } from "./processLock.ts";
 import { getSettings } from "./settings.ts";
 import { dataDir } from "./site.ts";
 import { getVaultRoot, TRASH_DIR, VaultError } from "./vault.ts";
@@ -547,6 +549,10 @@ async function gitTry(args: string[], opts: { network?: boolean } = {}): Promise
 
 // -------------------------------------------------------------------- status
 
+/** Re-entry guard for THIS process. Cheap (a boolean, no syscall), claimed in
+ *  the same synchronous step as its check, and it stays exactly as it was: the
+ *  file lock below is a second layer UNDERNEATH it, not a replacement. Four
+ *  clicks in one browser should never reach the filesystem to find that out. */
 let busy = false;
 let lastResult: GitSyncResult | null = null;
 /** Set while the interval timer is failing, so the log says it once. */
@@ -610,7 +616,13 @@ export async function gitStatus(): Promise<GitSyncStatus> {
     behind: null,
     remoteHost: remoteHost(eff.remote),
     originSet: false,
-    busy,
+    // "A sync is running right now" — ANYWHERE over this vault, not just in
+    // this process. The panel's glyph and the disabled "Sync now" button are
+    // the honest answer for the desktop-plus-service install: a button whose
+    // only possible outcome is "another Vellum is syncing" is better shown as
+    // busy. A stale lock (dead holder) reads false, so a crash never leaves
+    // the button wedged.
+    busy: busy || syncingElsewhere(),
     intervalMinutes: eff.intervalMinutes,
     authMode: eff.authMode,
     tokenSet: eff.tokenSet,
@@ -925,11 +937,101 @@ async function protectDataDir(): Promise<void> {
   }
 }
 
+// ------------------------------------------------- the cross-process lock
+//
+// TODAY'S INCIDENT SHAPE, written down so nobody removes this later thinking
+// `busy` covers it: the owner runs the DESKTOP APP and a systemd `vellum`
+// service against ONE vault directory. That is a supported arrangement — the
+// docs tell you to do it, with separate VELLUM_DATA — and it means two
+// processes, two `busy` flags, one `.git`. Both can therefore be inside
+// `git add -A` / `commit` / `merge --ff-only` at the same moment and collide
+// on `.git/index.lock`, which is git's lock and not a queue: the loser aborts
+// with "Another git process seems to be running", possibly having already
+// staged half the vault. The comment inside syncNow() feared four concurrent
+// CLICKS; this is the same fight one level up, between processes, and the flag
+// cannot see it. The consequence was operational, not theoretical: sync was
+// configured manual-only to avoid it. With the lock below, an unattended
+// interval is safe again.
+//
+// The lock lives INSIDE `.git`, beside git's own locks, because that is what
+// it is keyed to: the vault's repository, not this instance. It must not live
+// in VELLUM_DATA — the whole point of the two-server arrangement is that the
+// data directories are DIFFERENT, so a lock there would be two locks and no
+// exclusion at all. `.git/` is never committed, never staged by `add -A`, and
+// `git init` is perfectly happy to initialize into a directory that already
+// holds this one file (checked, not assumed). Taking the lock on a vault that
+// is NOT yet a repository therefore creates an empty `.git/` — which initRepo
+// is about to fill anyway, which git treats as absent (it walks past an
+// invalid `.git`, and repoRoot() rejects the parent it then finds), and which
+// the tree, indexer and watcher never see because the name starts with a dot.
+//
+// See server/processLock.ts for the mechanism and the failure modes (O_EXCL
+// atomicity, dead-pid and age staleness, the NFS caveat).
+
+const SYNC_LOCK = "vellum-sync.lock";
+
+function syncLockPath(): string {
+  return path.join(getVaultRoot(), ".git", SYNC_LOCK);
+}
+
+/** What a contested pass says. It names the OTHER process, because on a box
+ *  running both a desktop app and a service "something else is syncing" is a
+ *  sentence the operator can act on only if it says which something. */
+function contestedMessage(holder: LockHolder | null): string {
+  if (holder === null) return "Another Vellum is syncing this vault — this pass did nothing";
+  const where = holder.host === hostname() ? `pid ${holder.pid}` : `pid ${holder.pid} on ${holder.host}`;
+  return `Another Vellum is syncing this vault (${where}, since ${holder.at}) — this pass did nothing`;
+}
+
+/** True when SOME OTHER process holds a live lock on this vault. A probe, not
+ *  an acquisition: the timer and the status panel ask this, and neither may
+ *  create a lock it is not going to hold. A stale lock answers false — a
+ *  crashed process must not read as "busy forever". */
+function syncingElsewhere(): boolean {
+  try {
+    const state = inspectLock(syncLockPath());
+    return state !== null && !state.stale && state.holder?.pid !== process.pid;
+  } catch {
+    return false; // an unreadable vault root is the next call's problem, not this probe's
+  }
+}
+
+/** Take the vault-wide lock or explain who has it. Callers hold it for the
+ *  WHOLE mutating pass and release in a `finally` — a pass that throws must
+ *  never leave the lock behind, because the next attempt would then wait out
+ *  the full staleness ceiling for nothing. */
+function claimVault(): { lock: LockHandle | null; message: string } {
+  let result;
+  try {
+    result = acquireLock(syncLockPath());
+  } catch (err) {
+    // The lock could not even be ATTEMPTED — a read-only `.git`, a full disk,
+    // a vault root that has gone away. Fail CLOSED: a pass that cannot take
+    // the lock must not run without it. Every caller has already set `busy`,
+    // and this is the one exit that does not reach their `finally`, so the
+    // flag is cleared here rather than left true for the life of the process.
+    busy = false;
+    throw new VaultError(500, `Could not take the vault sync lock: ${gitMessage(err)}`);
+  }
+  return result.held
+    ? { lock: result.lock, message: "" }
+    : { lock: null, message: contestedMessage(result.holder) };
+}
+
 /** Make the vault a git repository (if it is not one already) and point
  *  `origin` at the configured remote. Idempotent. */
 export async function initRepo(): Promise<GitSyncStatus> {
   if (busy) throw new VaultError(409, "A sync is already running");
   busy = true;
+  // 409 rather than syncNow()'s recorded-result treatment: "Make it a repo" has
+  // no last-result line to speak through (it answers a status, not a pass), and
+  // its existing contention answer — the same 409 the flag above throws — is
+  // already what the panel renders. Same message shape, one layer deeper.
+  const claim = claimVault();
+  if (claim.lock === null) {
+    busy = false;
+    throw new VaultError(409, claim.message);
+  }
   try {
     const eff = gitSyncEffective();
     const branch = eff.branch;
@@ -973,6 +1075,7 @@ export async function initRepo(): Promise<GitSyncStatus> {
     if (err instanceof VaultError) throw err;
     throw new VaultError(500, gitMessage(err));
   } finally {
+    claim.lock.release();
     busy = false;
   }
   // Sampled after the flag clears, so the answer never reports itself as busy.
@@ -995,6 +1098,16 @@ export async function initRepo(): Promise<GitSyncStatus> {
 export async function snapshotNow(): Promise<{ committed: boolean; sha: string | null }> {
   if (busy) throw new VaultError(409, "A sync is already running");
   busy = true;
+  // It writes a commit, so it takes the same vault-wide lock as a full pass:
+  // "commits the same working tree" is the collision, and whether bytes leave
+  // the machine afterwards has nothing to do with it. 409 for the same reason
+  // as initRepo — this call answers a commit, not a status line, and its
+  // caller (the palette, the bulk editors' pre-flight) already renders a 409.
+  const claim = claimVault();
+  if (claim.lock === null) {
+    busy = false;
+    throw new VaultError(409, claim.message);
+  }
   try {
     if ((await repoRoot()) === null) {
       throw new VaultError(400, "The vault is not a git repository yet — initialize it first");
@@ -1009,6 +1122,7 @@ export async function snapshotNow(): Promise<{ committed: boolean; sha: string |
     if (err instanceof VaultError) throw err;
     throw new VaultError(500, gitMessage(err));
   } finally {
+    claim.lock.release();
     busy = false;
   }
 }
@@ -1052,6 +1166,24 @@ export async function syncNow(trigger: SyncTrigger = "manual"): Promise<GitSyncS
   const startedAt = new Date().toISOString();
   let committed = false;
   let pushed = false;
+
+  // ...and the same claim across PROCESSES. Contention here is not an error
+  // condition: another Vellum backing up this vault means the backup is
+  // happening, so this reports through the panel's last-result line — the
+  // surface whose entire job is "what did the most recent attempt do" — and
+  // answers a normal status. Throwing would make an ordinary, expected outcome
+  // of a two-process install look like a failure to the caller, and would give
+  // the timer an exception to swallow every tick.
+  const claim = claimVault();
+  if (claim.lock === null) {
+    busy = false;
+    lastResult = { at: startedAt, ok: false, message: claim.message, committed: false, pushed: false };
+    // Not `loggedFailure`: that channel exists to keep a BROKEN remote from
+    // filling the log, and this is the healthy case.
+    console.warn(`vellum: ${claim.message}`);
+    return gitStatus();
+  }
+
   try {
     const eff = gitSyncEffective();
     if (eff.remote === null) throw new VaultError(400, "No git remote is configured");
@@ -1166,6 +1298,11 @@ export async function syncNow(trigger: SyncTrigger = "manual"): Promise<GitSyncS
     if (err instanceof VaultError) throw err;
     throw new VaultError(500, message);
   } finally {
+    // Release BEFORE the flag clears, and unconditionally: a pass that threw
+    // still holds the vault until this line, and a lock left behind by a
+    // failure would make every later attempt wait out the full staleness
+    // ceiling before anything could sync again.
+    claim.lock.release();
     busy = false;
   }
   // Sampled after the flag clears, so a successful pass never answers "busy".
@@ -1188,6 +1325,11 @@ export function startGitSyncTimer(): void {
     const eff = gitSyncEffective();
     if (!eff.enabled || eff.remote === null || eff.intervalMinutes <= 0) return;
     if (busy) return;
+    // Another Vellum over this vault is mid-pass: skip the tick entirely
+    // rather than start one that would only record "another Vellum is
+    // syncing". An unattended timer must leave no trace when it does nothing,
+    // and the next tick is sixty seconds away.
+    if (syncingElsewhere()) return;
     const due = lastAttemptMs + eff.intervalMinutes * 60_000;
     if (Date.now() < due) return;
     lastAttemptMs = Date.now();

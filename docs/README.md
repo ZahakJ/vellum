@@ -2,6 +2,11 @@
 
 *The long-form manual. The [project README](../README.md) is the one-minute version.*
 
+**Before reading any of it**, the running app will show you most of what is below: press
+`Ctrl/Cmd P` and run **Take the tour** — fifteen illustrated cards, one feature each, and every one
+of them has a *Show me* that opens the real thing rather than a picture of it. It is also on the
+empty vault and at the foot of the `Ctrl/Cmd /` sheet, and it never opens by itself.
+
 ---
 
 ## Getting it running
@@ -35,7 +40,7 @@
 
 | | |
 | --- | --- |
-| [Theming](theming.md) | The fifteen themes, the custom-theme builder, the CSS token API, `custom.css` |
+| [Theming](theming.md) | The twenty-one themes, the custom-theme builder, the CSS token API, `custom.css` |
 | [Typography](typography.md) | The self-hosted font catalog, your own uploads, per-character Arabic |
 | [Arabic & RTL](arabic-and-rtl.md) | The mirrored interface, the visitor switch, the language filter, Hijri dates, tag labels |
 

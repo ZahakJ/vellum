@@ -2,7 +2,7 @@
 // server validates against the same list), and this module adds what only the
 // chrome needs — the picker's grouping and the ☾/☀ counterpart map.
 //
-// It is deliberately not part of state.ts: fifteen themes are a catalog, and
+// It is deliberately not part of state.ts: twenty-one themes are a catalog, and
 // three surfaces outside the store read it (the theme picker, the palette's
 // per-theme commands, the settings panel's default-theme row). state.ts
 // re-exports THEMES/Theme so the store's contract in CONTRACTS.md still reads
@@ -26,8 +26,10 @@ export type { ThemeChoice } from "../shared/customTheme.ts";
 
 /** The other side of the day for a theme: the light room that matches a dark
  *  one, and back again. A ☾/☀ button (the public blog's) means "the same site,
- *  lit differently" — with fifteen themes, walking the whole list from one is
- *  not that, so the pairs are named rather than derived. */
+ *  lit differently" — with twenty-one themes, walking the whole list from one
+ *  is not that, so the pairs are named rather than derived. The map is not
+ *  required to be involutive and never was: several dark rooms share one lit
+ *  counterpart, because the light set is the smaller half. */
 const COUNTERPART: Record<Theme, Theme> = {
   "iron-gall": "parchment",
   cinnabar: "sandstone",
@@ -40,10 +42,16 @@ const COUNTERPART: Record<Theme, Theme> = {
   moss: "sandstone",
   porphyry: "linen",
   tallow: "solar",
+  phosphor: "porcelain",
+  sidereal: "mauveine",
+  murex: "mauveine",
   parchment: "iron-gall",
   sandstone: "cinnabar",
   solar: "tallow",
   linen: "void",
+  palimpsest: "tallow",
+  porcelain: "verdigris",
+  mauveine: "sidereal",
 };
 
 export function counterpartTheme(theme: Theme): Theme {
@@ -76,7 +84,7 @@ export function counterpartChoice(choice: string): string {
 }
 
 /** What a reader is SHOWN for a theme choice: a custom theme's own name, or
- *  the localized label of one of the fifteen. Every surface that names the
+ *  the localized label of one of the twenty-one. Every surface that names the
  *  theme in force (the settings trigger, the picker's rows, the status-bar
  *  tooltip) goes through this, so a custom theme is named rather than
  *  described as the room it was built on. */
@@ -96,8 +104,8 @@ export function choiceBase(choice: string): Theme {
 
 /** Human label + one-line room description per theme id. The IDS are the
  *  contract (shared/themes.ts, `DEFAULT_THEME`, the palette, settings) and do
- *  not move; this is only what a reader is shown. Fifteen raw Latin pigment
- *  nouns identified fifteen rooms in BOTH languages before this — obscure in
+ *  not move; this is only what a reader is shown. Raw Latin pigment nouns
+ *  identified every room in BOTH languages before this — obscure in
  *  English and untranslated in Arabic — with nothing anywhere saying what any
  *  of them looks like. */
 export const THEME_LABELS: Record<Theme, { name: I18nKey; desc: I18nKey }> = {
@@ -112,10 +120,16 @@ export const THEME_LABELS: Record<Theme, { name: I18nKey; desc: I18nKey }> = {
   tallow: { name: "thTallow", desc: "thTallowDesc" },
   sumi: { name: "thSumi", desc: "thSumiDesc" },
   moss: { name: "thMoss", desc: "thMossDesc" },
+  phosphor: { name: "thPhosphor", desc: "thPhosphorDesc" },
+  sidereal: { name: "thSidereal", desc: "thSiderealDesc" },
+  murex: { name: "thMurex", desc: "thMurexDesc" },
   parchment: { name: "thParchment", desc: "thParchmentDesc" },
   sandstone: { name: "thSandstone", desc: "thSandstoneDesc" },
   linen: { name: "thLinen", desc: "thLinenDesc" },
   solar: { name: "thSolar", desc: "thSolarDesc" },
+  palimpsest: { name: "thPalimpsest", desc: "thPalimpsestDesc" },
+  porcelain: { name: "thPorcelain", desc: "thPorcelainDesc" },
+  mauveine: { name: "thMauveine", desc: "thMauveineDesc" },
 };
 
 /** The picker's two groups, in list order. */

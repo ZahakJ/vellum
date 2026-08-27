@@ -123,6 +123,7 @@ interface Form {
   authorSites: string;  // one per line: "https://url | optional title"
   comments: string;     // "" | "on" | "off"
   share: string;        // "" | "on" | "off" (blog article share row; default on)
+  ambient: string;      // "" | "on" | "off" (public masthead ambient layer; default off)
   favicon: string;      // vault path or ""
   logo: string;         // vault path / https URL or ""
   homeMode: string;     // "" | "note" | "dashboard"
@@ -239,6 +240,7 @@ function formFrom(s: SettingsResponse): Form {
       .join("\n"),
     comments: s.commentsEnabled === undefined ? "" : s.commentsEnabled ? "on" : "off",
     share: s.shareButtons === undefined ? "" : s.shareButtons ? "on" : "off",
+    ambient: s.ambient === undefined ? "" : s.ambient ? "on" : "off",
     favicon: s.favicon ?? "",
     logo: s.logo ?? "",
     homeMode: s.home?.mode ?? "",
@@ -865,6 +867,9 @@ function buildPatch(initial: Form, f: Form): SettingsPatch {
     patch.commentsEnabled = f.comments === "" ? null : f.comments === "on";
     patch.shareButtons = f.share === "" ? null : f.share === "on";
   }
+  if (f.ambient !== initial.ambient) {
+    patch.ambient = f.ambient === "" ? null : f.ambient === "on";
+  }
   if (
     f.attachMode !== initial.attachMode ||
     f.attachFolder.trim() !== initial.attachFolder.trim()
@@ -1354,7 +1359,7 @@ function VisitorThemeLine({
   const following = pref === null || pref === "" || pref === FOLLOW_THEME;
   // Following: the owner's own theme is what visitors get (the server mirrors
   // it within a second of a pick). Pinned: the pin, whoever is editing.
-  // A pin may name a CUSTOM theme as readily as one of the fifteen, so the
+  // A pin may name a CUSTOM theme as readily as a built-in, so the
   // value is passed through as-is: themeLabel() below is what knows how to
   // name either kind (and how to fall back for an id this instance lost).
   const shown = following ? theme : pref !== null && pref !== "" ? pref : effective ?? THEMES[0];
@@ -1396,7 +1401,7 @@ function noteIsDerivable(label: string, id: string): boolean {
 }
 
 /** The theme rows the default-theme picker offers: an "inherit" row naming
- *  the value in force, then the fifteen themes grouped dark/light. The human
+ *  the value in force, then the built-in themes grouped dark/light. The human
  *  label is the option's text and the raw id is its muted note (see above). */
 function themeChoices(effective: string | null): SelectGroup[] {
   return [
@@ -1405,7 +1410,7 @@ function themeChoices(effective: string | null): SelectGroup[] {
       label: "",
       options: [
         { value: "", label: tf("inheritOption", { value: themeLabel(effective) }) },
-        // The third state, offered as plainly as the fifteen rooms: not a
+        // The third state, offered as plainly as the rooms themselves: not a
         // theme but a rule, and the one this product now defaults to. It is a
         // STORABLE value rather than merely the absence of one, because an
         // instance whose .env pins DEFAULT_THEME needs a way to say "no,
@@ -2859,7 +2864,7 @@ export default function SettingsModal() {
                       />
                     }
                   >
-                    {/* Grouped, because fifteen names in one flat list is the
+                    {/* Grouped, because twenty-one names in one flat list is the
                         same "which of these is dark?" guess the picker exists
                         to end. The GROUP names and the theme labels are both
                         chrome copy — an Arabic reader met "verdigris" and
@@ -2967,6 +2972,19 @@ export default function SettingsModal() {
                       label={t("rowShareButtons")}
                       segments={onOffSegments(eff.shareButtons)}
                       {...field("share")}
+                    />
+                  </Row>
+                  {/* Decoration, and the only row in this panel that is
+                      one — so it sits with the other visitor-facing switches
+                      rather than anywhere near the theme, which it does not
+                      change. The air a room gets is decided in
+                      client/styles/ambient.css; this is the master switch and
+                      the whole of the feature's configuration. */}
+                  <Row label={t("rowAmbient")} hint={t("hintAmbient")}>
+                    <SegmentedControl
+                      label={t("rowAmbient")}
+                      segments={onOffSegments(eff.ambient)}
+                      {...field("ambient")}
                     />
                   </Row>
                   {/* The author's other homes. One per line, because a URL

@@ -55,6 +55,7 @@ beforeEach(() => {
     languageToggle: null,
     commentsEnabled: null,
     shareButtons: null,
+    ambient: null,
     excludeTags: null,
     favicon: null,
     logo: null,
@@ -201,12 +202,17 @@ describe("enum keys", () => {
     // languageFilter is NOT in this list any more: it grew from a boolean into
     // a four-value enum (off / follow / ar / en), so "must be a boolean" is no
     // longer the thing it says. Its own case is below.
-    for (const key of ["languageToggle", "commentsEnabled", "shareButtons"]) {
+    for (const key of ["languageToggle", "commentsEnabled", "shareButtons", "ambient"]) {
       assert.match(refuse({ [key]: "true" }), /must be a boolean or null/, `accepted "${key}": "true"`);
       assert.match(refuse({ [key]: 1 }), /must be a boolean or null/);
       patchSettings({ [key]: true });
     }
     assert.equal(getSettings().commentsEnabled, true);
+    // The one in this list whose EFFECTIVE default is off rather than on, so
+    // absence and `false` are the same answer and only `true` is a decision.
+    assert.equal(effectiveSettings().ambient, true);
+    patchSettings({ ambient: null });
+    assert.equal(effectiveSettings().ambient, false, "absence is off");
   });
 
   it("languageFilter is an enum, and still takes the booleans it used to", () => {

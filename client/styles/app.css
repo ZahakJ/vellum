@@ -1695,6 +1695,52 @@ select:focus,
   border-color: var(--accent);
 }
 
+/* ── The door to the tour ─────────────────────────────────────────────────
+   One line under both halves of the pane, and deliberately QUIETER than the
+   actions above it: it is an invitation, not the errand this reader came to
+   run. --text-muted, because a label naming a thing is held to 4.5:1; the
+   star is the wordmark's, in gold, and it is the only decoration. */
+.s-empty__tour {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 26px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.857rem;
+  cursor: pointer;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+.s-empty__tour:hover,
+.s-empty__tour:active {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.s-empty__tourstar {
+  color: var(--accent);
+  font-size: 0.929rem;
+  line-height: 1;
+}
+
+/* THE ONE-TIME MARK. 6px of gold beside the words on a fresh vault's first
+   run, gone for good the moment the tour is opened once. It carries no fact
+   the sentence does not already carry, so it is aria-hidden — and it never
+   moves, pulses or animates: a dot that breathes is a notification, and this
+   product does not have those. */
+.s-empty__tourdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 /* The one thing this reader is most likely to want on a fresh phone session. */
 .s-empty__action--go {
   flex-basis: 100%;
@@ -1720,6 +1766,12 @@ select:focus,
 
   .s-empty__title {
     margin-bottom: 16px;
+  }
+
+  /* The full 44px, like every other target in this pane. */
+  .s-empty__tour {
+    min-height: 44px;
+    margin-top: 20px;
   }
 }
 
@@ -2719,8 +2771,8 @@ select:focus,
    identity tokens (themes.css maps every theme in one generic rule), never
    from the live cascade — the four per-theme rules that used to sit here
    named iron-gall, void, lapis and parchment one at a time and were already
-   dead: themes.css's `[data-theme-dot]` matches the same shape, covers all
-   fifteen and wins on order. */
+   dead: themes.css's `[data-theme-dot]` matches the same shape, covers every
+   theme and wins on order. */
 .s-palette-dot {
   display: inline-block;
   width: 12px;
@@ -4111,6 +4163,51 @@ select:focus,
   color: var(--text-muted);
 }
 
+/* THE DOOR TO THE TOUR, at the foot of the sheet. One line, outside the
+   scrolling list so it does not scroll away, and hairline-separated from it
+   like every other group boundary in this product. It is not a row: rows
+   answer "which key", and this answers "I do not know what to ask for". */
+.s-shortcuts__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 0.786rem;
+}
+
+.s-shortcuts__footlead {
+  color: var(--text-muted);
+}
+
+.s-shortcuts__tour {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+  transition: text-decoration-color 150ms ease;
+}
+
+.s-shortcuts__tour:hover,
+.s-shortcuts__tour:focus-visible {
+  text-decoration: underline;
+}
+
+@media (max-width: 700px), (pointer: coarse) {
+  .s-shortcuts__foot {
+    min-height: 44px;
+  }
+
+  .s-shortcuts__tour {
+    min-height: 44px;
+    padding-inline: 4px;
+  }
+}
+
 /* A row with no keystroke still belongs in the list — it names the surface
    that carries the action instead ("Command palette", "Status bar"). */
 .s-shortcuts__via {
@@ -4186,9 +4283,9 @@ select:focus,
    It is the sentence the folder dialog never said — "4 attachments in here
    are embedded by “essay.md”" — so it must not read as more of the calm
    paragraph above it. A danger-tinted left bar and a tinted ground make it a
-   separate object at a glance; the TEXT stays --text (4.5:1 in all fifteen)
+   separate object at a glance; the TEXT stays --text (4.5:1 in every theme)
    rather than being painted --danger, because a whole paragraph in the danger
-   hue is a color the reader stops seeing, and several of the fifteen themes
+   hue is a color the reader stops seeing, and several of the built-in themes
    solve their danger against the ground for a BUTTON fill, not for prose. */
 .s-confirm__warn {
   margin: 10px 0 0;

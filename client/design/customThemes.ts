@@ -54,7 +54,7 @@ export function resolveBaseTheme(choice: string): Theme {
   return baseThemeOf(choice, registry);
 }
 
-/** The custom theme behind a choice, or null for the fifteen. */
+/** The custom theme behind a choice, or null for the built-ins. */
 export function lookupCustomTheme(choice: string): CustomTheme | null {
   return findCustomTheme(choice, registry);
 }
@@ -98,7 +98,7 @@ export function applyThemeChoice(choice: string): void {
  * The designer's preview frame is a second document, and a theme has to reach
  * it as a pair of attributes on ITS root — a custom theme is keyed at `:root`
  * and can be painted nowhere else, which is why a nested `<div data-theme>`
- * (what a scaled canvas can do) is only ever right for the fifteen. One
+ * (what a scaled canvas can do) is only ever right for the built-ins. One
  * function decides "which attributes does this choice mean"; two callers write
  * them in two documents.
  */

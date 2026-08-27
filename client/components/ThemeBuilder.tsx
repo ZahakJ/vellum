@@ -1,6 +1,6 @@
 // THE CUSTOM THEME BUILDER.
 //
-// Pick one of the fifteen as a base, override any token, watch the whole app
+// Pick one of the built-ins as a base, override any token, watch the whole app
 // change under the panel while you do it, and be told — inline, next to the
 // swatch you are dragging — when a choice breaks one of the product's own
 // contrast rules.
@@ -104,7 +104,7 @@ function toHex(value: string): string {
  * The base theme's resolved tokens, read off the LIVE document.
  *
  * Not a copy of tokens.css and deliberately not one: a table in the client
- * would be a second definition of fifteen themes, and it would go stale the
+ * would be a second definition of the built-in themes, and it would go stale the
  * first time a theme is retuned. A detached probe element carrying
  * `data-theme` gets the real cascade — including `custom.css`, which an
  * operator may legitimately have used to change a base — so what the builder
@@ -387,11 +387,11 @@ function ThemeBuilder({ theme, onClose }: { theme: CustomTheme | null; onClose: 
             </label>
             <div className="s-tb__field s-tb__field--wide">
               <span className="s-tb__label">{t("tbBase")}</span>
-              {/* One of the fifteen, CHOSEN BY LOOKING AT IT — the theme
+              {/* One of the built-ins, CHOSEN BY LOOKING AT IT — the theme
                   picker's whole argument, applied to the one control that
                   decides where every unset token comes from. A native select
                   would draw an OS window this room cannot reach (the rule the
-                  settings panel states) and would name fifteen pigment nouns
+                  settings panel states) and would name a column of pigment nouns
                   with nothing saying what any of them looks like. The swatches
                   are the CONSTANT --swatch-<id>-* tokens, so each one is
                   painted in its own theme rather than in the draft on screen.

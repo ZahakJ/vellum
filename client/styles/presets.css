@@ -7,7 +7,7 @@
 
    EVERY COLOUR HERE IS A TOKEN. Not one hex value: the miniature must repaint
    when the operator switches theme, and a hard-coded grey is a fifty-card
-   gallery that is wrong in fourteen of the fifteen rooms. Logical properties
+   gallery that is wrong in all but one of the rooms. Logical properties
    throughout (inline-start / inline-end, margin-inline), so the whole surface
    mirrors under [dir="rtl"] without a second rule. */
 

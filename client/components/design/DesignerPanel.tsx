@@ -406,7 +406,7 @@ function DesignsTab({
           </Row>
           {/* A design is a look, and a look is a theme plus a layout. Keeping
               them in two panels is how they drift apart — and keeping the
-              fifteen built-ins OUT of the only control that sets it (this was
+              built-ins OUT of the only control that sets it (this was
               a `<Select>` over `admin.themes`, i.e. the instance's CUSTOM
               themes and nothing else) meant the first thing a blogger changes
               was the one thing they could not. Cards, in their own colours,

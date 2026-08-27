@@ -164,7 +164,7 @@ function hashTitle(title: string, basis = 0x811c9dc5): number {
  * Deterministic abstract mesh gradient for a banner-less post. Three blobs on
  * a ruled field, every one of them mixed into the theme's raised background
  * via color-mix — colorful enough to tell posts apart, never garish, and
- * automatically harmonious in all fifteen themes (the tokens carry the theme;
+ * automatically harmonious in every theme (the tokens carry the theme;
  * the hash names a SWING around the theme's own accent hue, never a point on
  * the wheel — see `hue()`).
  *
@@ -186,7 +186,7 @@ export function generatedBannerCss(title: string, variant: "hero" | "thumb" = "h
   // clamping the hue back toward `--accent`: a 55% accent floor over a 45%
   // tint left roughly a quarter of the blob's colour to the hash, and about
   // eight percent of the finished pixel. Four consecutive cards on iron-gall
-  // measured as the same olive rectangle, and on the four light themes — which
+  // measured as the same olive rectangle, and on the light themes — which
   // set `--banner-tint: 0%` precisely because a paper ground shows a foreign
   // hue at any strength — they were the same rectangle by construction.
   //
@@ -265,10 +265,10 @@ export function generatedBannerCss(title: string, variant: "hero" | "thumb" = "h
   // angle, its spacing and whether it is hatched once or crossed) gives the
   // field a grain, so it reads as a made thing at hero size and as texture
   // rather than mush at 130px. Painted from --text, so it is the theme's own
-  // ink at 6–12% and cannot fight any of the fifteen grounds; the accent stays
+  // ink at 6–12% and cannot fight any theme's ground; the accent stays
   // where the accent belongs.
   //
-  // ON A ROOM WITH LITTLE HUE TO SPEND, THE HASH SPENDS TEXTURE. Four light
+  // ON A ROOM WITH LITTLE HUE TO SPEND, THE HASH SPENDS TEXTURE. The light
   // themes hold their swing well below the dark rooms', because a paper ground
   // shows a foreign hue at half the strength a dark one does. Every lever
   // below survives that, because none of them is a colour:

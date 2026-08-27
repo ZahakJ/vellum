@@ -151,15 +151,15 @@ export type SidebarSide = "left" | "right";
 export type SidebarSidePref = "auto" | "left" | "right";
 
 /** Every built-in theme, and its identity, live in `client/themes.ts` — the
- *  list outgrew the store when it reached fifteen, and three surfaces outside
- *  the store read it (the theme picker, the palette's per-theme commands, the
- *  settings panel). Re-exported here so the store's published surface is
+ *  list outgrew the store at fifteen and stands at twenty-one, and three
+ *  surfaces outside the store read it (the theme picker, the palette's
+ *  per-theme commands, the settings panel). Re-exported here so the store's published surface is
  *  unchanged for everything that already imports THEMES/Theme from state. */
 export { THEMES, isTheme, counterpartTheme } from "./themes.ts";
 export type { Theme } from "./themes.ts";
-/** The store's theme is a CHOICE, not a built-in: one of the fifteen ids, or
+/** The store's theme is a CHOICE, not a built-in: one of the built-in ids, or
  *  a `custom:<slug>` naming an override layer in the design store
- *  (shared/customTheme.ts). Everything that only ever handled the fifteen
+ *  (shared/customTheme.ts). Everything that only ever handled the built-ins
  *  keeps working — `Theme` is unchanged and still re-exported above — and the
  *  surfaces that must cope with both ask client/themes.ts's choiceGroup /
  *  counterpartChoice / choiceBase instead of the built-in-only functions. */
@@ -353,6 +353,10 @@ export interface State {
   /** SITE_TAGLINE — masthead subtitle (blog mode). */
   tagline: string | null;
   shareButtons: boolean;
+  /** settings.ambient — the public masthead's ambient layer. Default OFF, so
+   *  `false` is also what every non-blog surface and every unloaded session
+   *  carries; client/ambient.tsx is its only reader. */
+  ambient: boolean;
   /** SITE_FOOTER resolved server-side (blog mode; always set when blog). */
   footerLine: string | null;
   /** BCP47 locale for post dates (BLOG_LOCALE, default "en"). */
@@ -1235,6 +1239,7 @@ export const useStore = create<State>()((set, get) => {
     designNotice: null,
     tagline: null,
     shareButtons: false,
+    ambient: false,
     footerLine: null,
     blogLocale: "en",
     bannerFallback: "generated",
@@ -1364,6 +1369,7 @@ export const useStore = create<State>()((set, get) => {
           designNotice: me.designNotice ?? null,
           tagline: me.tagline?.trim() || null,
           shareButtons: me.shareButtons === true,
+          ambient: me.ambient === true,
           footerLine: me.footer?.trim() || null,
           blogLocale: locale,
           bannerFallback: me.bannerFallback === "none" ? "none" : "generated",

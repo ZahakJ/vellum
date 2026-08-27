@@ -359,6 +359,11 @@ export interface MeData {
   blogLocale?: string; // BLOG_LOCALE — BCP47 tag the client uses for date formatting (default "en")
   bannerFallback?: "generated" | "none"; // BANNER_FALLBACK — blog list/article hero for notes without a banner
   shareButtons?: boolean; // blog article share row (settings.shareButtons, default ON; absent = on)
+  /** The masthead's ambient layer (settings.ambient, default OFF; absent =
+   *  off). One boolean for the whole feature: which air a room gets is a CSS
+   *  question answered per theme in client/styles/ambient.css, not a second
+   *  setting. */
+  ambient?: boolean;
   home?: HomeSettings; // settings.home — what "/" renders for blog visitors (absent = note mode)
   /** settings.publicFolders, resolved into ready-to-render cards. Present only
    *  in blog mode, only when the feature is enabled, and only when at least one
@@ -570,7 +575,7 @@ export interface SettingsData {
   /** Footer template, {year}/{siteName} substituted (overrides SITE_FOOTER). ≤ 200 chars. */
   footer?: string;
   /** What visitors without a stored choice get (overrides DEFAULT_THEME).
-   *  One of the fifteen ids in `shared/themes.ts` — the list both the client's
+   *  One of the ids in `shared/themes.ts` — the list both the client's
    *  picker and the server's validator read, so they cannot drift — or the
    *  word "follow" (FOLLOW_THEME), which serves `adminTheme` instead.
    *  ABSENT = "follow": a fresh instance's blog wears its author's theme. */
@@ -578,7 +583,7 @@ export interface SettingsData {
   /** The admin's own editor theme, mirrored here from their browser (their
    *  pick lives in localStorage; the server has no other way to know it).
    *  Written by POST /api/theme, debounced client-side so flicking through the
-   *  picker does not write fifteen times. Kept SEPARATE from `defaultTheme` on
+   *  picker does not write once per room walked. Kept SEPARATE from `defaultTheme` on
    *  purpose: pinning a theme and going back to following must lose neither
    *  the pin nor the mirror. Read only while `defaultTheme` is "follow". */
   adminTheme?: string;
@@ -618,6 +623,9 @@ export interface SettingsData {
   commentsEnabled?: boolean;
   /** Show the share-links row under blog articles (default ON). */
   shareButtons?: boolean;
+  /** The public masthead's ambient layer — a slow, decorative atmosphere
+   *  behind the site name, drawn per theme (default OFF). */
+  ambient?: boolean;
   /** Favicon: vault-relative image path (uploaded attachment), served at
    *  /favicon.ico. Absent → the built-in glyph. */
   favicon?: string;
@@ -754,6 +762,7 @@ export interface EffectiveSettings {
   authorSites: AuthorSiteRef[];
   commentsEnabled: boolean;
   shareButtons: boolean;
+  ambient: boolean;
   favicon: string | null;
   logo: string | null;
   /** The templates folder actually in force: the stored value when set, the
@@ -810,6 +819,7 @@ export interface SettingsPatch {
   authorSites?: AuthorSiteRef[] | null;
   commentsEnabled?: boolean | null;
   shareButtons?: boolean | null;
+  ambient?: boolean | null;
   favicon?: string | null;
   home?: {
     mode?: "note" | "dashboard" | null;

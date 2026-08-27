@@ -52,6 +52,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { tab: "publishing", label: "rowExcludeTags", hint: "hintExcludeTags", env: "EXCLUDE_TAGS" },
   { tab: "publishing", label: "rowComments", hint: "hintComments", env: "COMMENTS" },
   { tab: "publishing", label: "rowShareButtons", hint: "hintShareButtons" },
+  { tab: "publishing", label: "rowAmbient", hint: "hintAmbient" },
   { tab: "publishing", label: "rowAuthorSites", hint: "hintAuthorSites" },
   { tab: "publishing", label: "rowPublicFolders", hint: "hintPublicFolders" },
   { tab: "publishing", label: "rowPublicFoldersList", hint: "hintPublicFoldersList" },

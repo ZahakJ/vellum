@@ -1106,7 +1106,7 @@
 /* ── The design's theme, as cards ────────────────────────────────────────── */
 
 /* A stacked control row: the label sits above a control that is a GRID rather
-   than a field, because fifteen rooms do not fit in the 58% a field gets. */
+   than a field, because twenty-one rooms do not fit in the 58% a field gets. */
 .s-dsgr-ctlrow--stack {
   display: block;
 }

@@ -619,12 +619,13 @@ export default function StatusBar() {
           <PaneIcon kind="help" />
         </button>
       </span>
-      {/* Fifteen themes cannot hang off a button that steps to the next one:
+      {/* Twenty-one themes cannot hang off a button that steps to the next one:
           blind cycling is the same invisible state as a silent reading mode —
           the only feedback is that everything changed. It opens the PICKER,
           which shows what is available, previews live and can be cancelled.
-          The glyph reads the theme's GROUP, not one theme's name: with four
-          light rooms, `theme === "parchment"` drew a moon on three of them. */}
+          The glyph reads the theme's GROUP, not one theme's name: with a whole
+          group of light rooms, `theme === "parchment"` drew a moon on every one
+          of them but parchment. */}
       {/* View group: what the centre column shows, and in what light. */}
       <span className="s-statusbar__group">
         <button

@@ -1,0 +1,298 @@
+/* Vellum — the ambient layer: a slow, optional atmosphere behind the public
+   site's masthead.
+   ==========================================================================
+
+   WHY THIS IS NOT A THEME FEATURE. A theme in this product is a room made of
+   STATIC TOKENS — a ground, a type colour, an accent, thirteen callout hues,
+   eight syntax colours — and every gate in the repo (check-contrast,
+   textColors, the custom-theme builder) is built on that being a fixed set of
+   hexes solved against one another. Animating a theme would mean animating the
+   values those gates measure, and the first frame nobody screenshotted would
+   be the one that failed AA. So the rooms stay still and the DECORATION moves,
+   in its own layer, behind the words, at an opacity where it cannot move any
+   measured ratio far enough to matter.
+
+   FOUR RULES, and they are the whole design:
+
+     1. IT IS BEHIND THE CONTENT AND IT IS NOT CONTENT. `z-index: -1` inside a
+        host that carries `isolation: isolate`, so the negative index cannot
+        escape the masthead and slide under the page. `aria-hidden`, empty, and
+        `pointer-events: none`: nothing here is reachable by a pointer, a
+        caret, a screen reader or the tab order.
+     2. IT IS PURE CSS. No canvas, no requestAnimationFrame, no JS at all — the
+        only JavaScript in this feature is the one `if` that decides whether
+        the div is in the DOM. Both animated properties (`transform` and
+        `opacity`) are compositor properties, so a masthead that is scrolled
+        past costs nothing and a phone does not warm up.
+     3. IT IS A WHISPER, AND THAT IS A MEASUREMENT. Every air is built from the
+        room's OWN `--accent` through `color-mix`. The number that matters is
+        not an opacity but the WORST COMPOSITED GROUND under the masthead
+        title, taken from real pixels with the animation running (hide every
+        child of the masthead except this layer, screenshot the box, take the
+        extreme pixel, ratio it against the title's own colour):
+
+          phosphor 11.41:1 · murex 10.74:1 · sidereal 9.63:1 ·
+          iron-gall 9.08:1 · parchment 8.31:1        — the floor is 4.5.
+
+        Sidereal's stars are why that method exists rather than an arithmetic
+        estimate; see the note on their opacity below.
+     4. `prefers-reduced-motion` DELETES IT. Not "pauses it", not "slows it" —
+        `display: none` on the container, so neither pseudo-element gets a box
+        and nothing is composited at all. Measured: two screenshots of the
+        masthead 2.6s apart are byte-identical. A drifting star field is
+        exactly the peripheral motion that setting exists to turn off, and
+        there is no static residue worth keeping.
+
+   THREE AIRS, NOT TWENTY-ONE. A room only gets one if it has something to say
+   with it, and the mapping lives here in CSS rather than in a table in TS, so
+   a theme switch repaints the atmosphere live with no re-render:
+
+     stars      sidereal, nocturne, lapis, murex   — the night rooms
+     scanlines  phosphor, void                     — the screens
+     dust       iron-gall, tallow, parchment, palimpsest, solar — the papers
+
+   Everything else is intentionally still. `.s-amb` in an unmapped room
+   generates no pseudo-elements at all (`content: none`), so it is an empty
+   div and costs one node. */
+
+.s-amb {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+
+  /* Every mark in every air is the ROOM'S OWN accent, mixed down here once.
+     That is what makes twenty-one rooms cost three airs: sidereal's stars are
+     starlight, murex's are Tyrian, iron-gall's dust is gold and palimpsest's is
+     rubric red, and not one of them needs a rule of its own. */
+  --amb-star: color-mix(in srgb, var(--accent) 78%, #ffffff);
+  --amb-star-far: color-mix(in srgb, var(--accent) 45%, transparent);
+  --amb-mote: color-mix(in srgb, var(--accent) 46%, transparent);
+  --amb-mote-far: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+/* The two layers every air is built from. `content: none` is the default, so a
+   room with no air draws nothing — the per-air blocks below switch it on. Both
+   layers are taller than the host and translate by exactly one background
+   tile, which is what makes every loop seamless without a keyframe that snaps. */
+.s-amb::before,
+.s-amb::after {
+  content: none;
+  position: absolute;
+  inset-inline: -10%;
+  top: -60%;
+  height: 220%;
+  background-repeat: repeat;
+}
+
+/* The hosts. Two surfaces carry an ambient layer: the stock blog's masthead
+   and the designed site's header — the two places where a site says its own
+   name. `isolation: isolate` is the load-bearing half: without it the layer's
+   negative z-index would escape into the page's stacking context and paint
+   under the body, which is a very quiet way of shipping nothing.
+
+   The magazine hero (`.s-dash-hero`) deliberately does NOT carry one. It is a
+   photograph under a scrim tuned so white type survives a near-white banner;
+   an atmosphere under the picture is invisible and one over it is fighting the
+   scrim for the contrast the scrim exists to guarantee. */
+.s-blog-mast,
+.s-dsg-head {
+  position: relative;
+  isolation: isolate;
+}
+
+/* ── stars ───────────────────────────────────────────────────────────────────
+   Two fields at different scales and different speeds, which is the whole
+   trick: one tile of dots drifting at one rate reads as a moving texture, and
+   two reads as depth. The near field twinkles (a slow opacity breathe on the
+   far one only — both layers twinkling is a strobe). */
+
+[data-theme="sidereal"] .s-amb::before,
+[data-theme="nocturne"] .s-amb::before,
+[data-theme="lapis"] .s-amb::before,
+[data-theme="murex"] .s-amb::before {
+  content: "";
+  /* 0.22, and the number was MEASURED rather than chosen. A star is a 1px dot
+     of near-white on a near-black ground, which is the one mark in this file
+     that can lift the ground under a letter: at 0.5 the worst composited pixel
+     behind the masthead title read 4.69:1 on sidereal — above the floor, and
+     far too close to it to be called a whisper. At 0.22 the same measurement
+     is 9.63:1 and the stars are still plainly stars. */
+  opacity: 0.22;
+  background-size: 340px 340px;
+  background-image:
+    radial-gradient(1px 1px at 14% 11%, var(--amb-star) 50%, transparent 52%),
+    radial-gradient(1px 1px at 62% 24%, var(--amb-star) 50%, transparent 52%),
+    radial-gradient(1px 1px at 33% 47%, var(--amb-star) 50%, transparent 52%),
+    radial-gradient(1px 1px at 88% 58%, var(--amb-star) 50%, transparent 52%),
+    radial-gradient(1px 1px at 51% 72%, var(--amb-star) 50%, transparent 52%),
+    radial-gradient(1px 1px at 8% 84%, var(--amb-star) 50%, transparent 52%),
+    radial-gradient(1px 1px at 74% 91%, var(--amb-star) 50%, transparent 52%);
+  animation: s-amb-drift 150s linear infinite;
+}
+
+[data-theme="sidereal"] .s-amb::after,
+[data-theme="nocturne"] .s-amb::after,
+[data-theme="lapis"] .s-amb::after,
+[data-theme="murex"] .s-amb::after {
+  content: "";
+  opacity: 0.34;
+  background-size: 620px 620px;
+  background-image:
+    radial-gradient(2px 2px at 27% 19%, var(--amb-star-far) 50%, transparent 60%),
+    radial-gradient(2px 2px at 71% 41%, var(--amb-star-far) 50%, transparent 60%),
+    radial-gradient(2px 2px at 44% 66%, var(--amb-star-far) 50%, transparent 60%),
+    radial-gradient(2px 2px at 91% 82%, var(--amb-star-far) 50%, transparent 60%),
+    radial-gradient(2px 2px at 12% 93%, var(--amb-star-far) 50%, transparent 60%);
+  animation:
+    s-amb-drift-far 260s linear infinite,
+    s-amb-breathe 11s ease-in-out infinite alternate;
+}
+
+@keyframes s-amb-drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-340px, 340px, 0);
+  }
+}
+
+@keyframes s-amb-drift-far {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-620px, 620px, 0);
+  }
+}
+
+@keyframes s-amb-breathe {
+  from {
+    opacity: 0.16;
+  }
+  to {
+    opacity: 0.38;
+  }
+}
+
+/* ── scanlines ───────────────────────────────────────────────────────────────
+   A tube, not a filter over one. The line pitch is 3px and the whole grating
+   creeps exactly one pitch every twelve seconds, so it never snaps and never
+   reads as a moving stripe — it reads as a screen that is on. The second layer
+   is the gun's own glow at the top of the tube, breathing on a prime-ish period
+   so it never locks step with the creep. */
+
+[data-theme="phosphor"] .s-amb::before,
+[data-theme="void"] .s-amb::before {
+  content: "";
+  opacity: 0.55;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--accent) 17%, transparent) 0 1px,
+    transparent 1px 3px
+  );
+  animation: s-amb-scan 12s linear infinite;
+}
+
+[data-theme="phosphor"] .s-amb::after,
+[data-theme="void"] .s-amb::after {
+  content: "";
+  background: radial-gradient(
+    120% 70% at 50% 0%,
+    color-mix(in srgb, var(--accent) 11%, transparent),
+    transparent 72%
+  );
+  animation: s-amb-glow 8s ease-in-out infinite alternate;
+}
+
+@keyframes s-amb-scan {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 3px, 0);
+  }
+}
+
+@keyframes s-amb-glow {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── dust ────────────────────────────────────────────────────────────────────
+   Gold leaf is beaten thin enough that a scriptorium was full of it in the
+   air. Motes rise rather than fall, slowly enough that a reader who looks
+   straight at the masthead sees a still page and one who looks away catches
+   something moving at the edge of the eye. */
+
+[data-theme="iron-gall"] .s-amb::before,
+[data-theme="tallow"] .s-amb::before,
+[data-theme="parchment"] .s-amb::before,
+[data-theme="palimpsest"] .s-amb::before,
+[data-theme="solar"] .s-amb::before,
+:root:not([data-theme]) .s-amb::before {
+  content: "";
+  opacity: 0.6;
+  background-size: 420px 420px;
+  background-image:
+    radial-gradient(2px 2px at 18% 26%, var(--amb-mote) 40%, transparent 62%),
+    radial-gradient(2px 2px at 57% 12%, var(--amb-mote) 40%, transparent 62%),
+    radial-gradient(1px 1px at 81% 44%, var(--amb-mote) 40%, transparent 62%),
+    radial-gradient(2px 2px at 36% 61%, var(--amb-mote) 40%, transparent 62%),
+    radial-gradient(1px 1px at 69% 78%, var(--amb-mote) 40%, transparent 62%),
+    radial-gradient(2px 2px at 9% 89%, var(--amb-mote) 40%, transparent 62%);
+  animation: s-amb-rise 170s linear infinite;
+}
+
+[data-theme="iron-gall"] .s-amb::after,
+[data-theme="tallow"] .s-amb::after,
+[data-theme="parchment"] .s-amb::after,
+[data-theme="palimpsest"] .s-amb::after,
+[data-theme="solar"] .s-amb::after,
+:root:not([data-theme]) .s-amb::after {
+  content: "";
+  opacity: 0.34;
+  background-size: 680px 680px;
+  background-image:
+    radial-gradient(3px 3px at 31% 22%, var(--amb-mote-far) 30%, transparent 68%),
+    radial-gradient(3px 3px at 76% 49%, var(--amb-mote-far) 30%, transparent 68%),
+    radial-gradient(3px 3px at 48% 74%, var(--amb-mote-far) 30%, transparent 68%),
+    radial-gradient(3px 3px at 14% 96%, var(--amb-mote-far) 30%, transparent 68%);
+  animation:
+    s-amb-rise-far 280s linear infinite,
+    s-amb-breathe 17s ease-in-out infinite alternate;
+}
+
+@keyframes s-amb-rise {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(28px, -420px, 0);
+  }
+}
+
+@keyframes s-amb-rise-far {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-44px, -680px, 0);
+  }
+}
+
+/* ── the off switch that is not a preference ─────────────────────────────────
+   Rule 4 at the top of this file. `display: none` on the container, so both
+   pseudo-elements and all four animations stop existing rather than pausing at
+   an arbitrary frame. */
+@media (prefers-reduced-motion: reduce) {
+  .s-amb {
+    display: none;
+  }
+}

@@ -1,7 +1,7 @@
-// The theme picker — fifteen looks, browsed instead of cycled.
+// The theme picker — twenty-one looks, browsed instead of cycled.
 //
 // Four themes could hang off one status-bar button that stepped to the next
-// one; fifteen cannot. Blind cycling is exactly the "invisible state" this
+// one; twenty-one cannot. Blind cycling is exactly the "invisible state" this
 // round is about: a control whose only feedback is that everything changed,
 // with no way to see what is available or to get back to what you had.
 //
@@ -264,8 +264,8 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
           <span className="s-tpick__title">{t("themePicker")}</span>
           <span className="s-tpick__hint">{t("themePickerHint")}</span>
           {/* THE DOOR to the builder. It lives here because this is the panel
-              that already answers "what looks are there" — a sixteenth room is
-              made from the fifteen, and the base picker inside the builder is
+              that already answers "what looks are there" — a new room is
+              made from the built-ins, and the base picker inside the builder is
               this same list. */}
           <button
             type="button"
@@ -332,7 +332,7 @@ function ThemePicker({ onClose }: { onClose: () => void }) {
                           and an accent chip shows what the theme does with
                           them. Still painted from the CONSTANT --swatch-*
                           tokens, so it is never the theme on screen. */}
-                      {/* The swatch trio is keyed on the fifteen built-in ids
+                      {/* The swatch trio is keyed on the built-in ids
                           and is CONSTANT across themes, so a custom room shows
                           the one it was built on — under its own name. */}
                       <span

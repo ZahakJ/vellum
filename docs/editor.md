@@ -68,7 +68,7 @@
   overflows the viewport, and mirrors in Arabic. A Notion-style strip with the six most-used
   actions floats over every selection unless you turn it off from the menu's last row (the palette
   turns it back on)
-- **Coloured text in two tiers** — a theme-aware palette that clears AA on all fifteen themes, and
+- **Coloured text in two tiers** — a theme-aware palette that clears AA on every built-in theme, and
   a fixed-ink one for when you mean *that* colour; see
   [Theming](theming.md#colored-text-in-two-tiers)
 - **Deletes that say what they are taking**, and a **trash browser** — see

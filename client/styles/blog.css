@@ -74,7 +74,7 @@
    contrast; it does not stop a reader parsing letterforms, and the one thing a
    masthead may never do is compete with the article it sits over. The two
    hairlines are what separate it from the page, as they always were; the
-   ground behind them is now the page's own, at full strength, in all fifteen
+   ground behind them is now the page's own, at full strength, in every
    themes and with no dependency on whether the device composites a backdrop
    filter at all. */
 .s-blog-nav {
@@ -530,7 +530,7 @@
   font-family: var(--font-serif);
   font-style: italic;
   font-size: 1.071rem;
-  /* A sentence the reader READS, so --text-muted (4.5:1 in all fifteen), not
+  /* A sentence the reader READS, so --text-muted (4.5:1 in every room), not
      --text-faint, whose bar is the 3:1 non-text one. */
   color: var(--text-muted);
 }
@@ -2175,7 +2175,7 @@
 }
 /* The count as a quiet pill, on --bg-hover like every other chip on this page.
    --text-muted, because a count is text: --text-faint measures 2.7:1 on that
-   ground in twelve of the fifteen themes and may not be used there. */
+   ground in most of the themes and may not be used there. */
 .s-blog-folders__count {
   margin-block-start: 2px;
   display: inline-block;

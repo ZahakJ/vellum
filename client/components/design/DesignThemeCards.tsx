@@ -4,13 +4,13 @@
 // — the instance's HAND-BUILT themes and nothing else. On a fresh instance
 // there are none, so the menu opened with exactly one row ("Site default"),
 // the control's own value rendered as a raw slug (`iron-gall`) with no label
-// and no colour, and not one of the fifteen built-in themes was reachable.
+// and no colour, and not one of the built-in themes was reachable.
 // The field decides what EVERY first-time visitor sees; it was inoperable.
 //
 // Two rules, and the product already states both:
 //
-//  1. A THEME IS CHOSEN BY LOOKING AT IT (CONTRACTS: ThemeBuilder). Fifteen
-//     pigment nouns in a dropdown say nothing about what any of them looks
+//  1. A THEME IS CHOSEN BY LOOKING AT IT (CONTRACTS: ThemeBuilder). A column
+//     of pigment nouns in a dropdown says nothing about what any of them looks
 //     like, and a native popover cannot be painted anyway. So: cards, each in
 //     ITS OWN palette, from the CONSTANT `--swatch-<id>-*` tokens — the same
 //     `[data-theme-swatch]` hook the theme picker and the builder use, so a
@@ -20,7 +20,7 @@
 //     decision an author makes on purpose — so it is the first card, drawn as
 //     the room the app is standing in rather than as a blank.
 //
-// Custom themes appear after the fifteen, painted from their OWN overrides
+// Custom themes appear after the built-ins, painted from their OWN overrides
 // where they set one and from their base's swatch where they do not — a custom
 // theme is a sparse layer over a built-in (shared/customTheme.ts), and that is
 // exactly what its card should say.

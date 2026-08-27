@@ -6,7 +6,7 @@
 // TRUSTED_PROXIES, PORT, HOST, VELLUM_VAULT, VELLUM_DATA, PUBLIC.
 // Keys: siteName, tagline, footer, defaultTheme, adminTheme, publicLayout, blogLocale,
 // language, languageFilter, languageToggle, excludeTags, commentsEnabled, shareButtons,
-// favicon, logo, home { mode, note, banner }, attachments { mode, folder },
+// ambient, favicon, logo, home { mode, note, banner }, attachments { mode, folder },
 // templatesFolder, defaultTemplate, dateCalendar, textDirection, textAlign,
 // tagsFolder, tagLabels, folderIcons,
 // publicFolders { enabled, nav, home, folders }.
@@ -169,11 +169,11 @@ const FOLDER_PROBLEM: Record<FolderProblem, string> = {
 
 /** The built-in themes. NOT a copy of the client's list — the same list:
  *  `shared/themes.ts` is the single definition both sides validate against,
- *  because at fifteen ids a hand-kept mirror means the panel offers a theme
+ *  because at twenty-one ids a hand-kept mirror means the panel offers a theme
  *  the PATCH answers 400 to. */
 const THEMES = new Set<string>(THEME_IDS);
 
-/** A theme id this file may STORE: one of the fifteen, or a well-formed
+/** A theme id this file may STORE: one of the built-ins, or a well-formed
  *  `custom:<name>`. Shape only — whether the custom theme still exists is
  *  asked on the PATCH path (which can afford the read) and again by /api/me,
  *  never on this read path, which must never throw and never touch a second
@@ -435,6 +435,7 @@ export function getSettings(): SettingsData {
   if (typeof raw.languageToggle === "boolean") out.languageToggle = raw.languageToggle;
   if (typeof raw.commentsEnabled === "boolean") out.commentsEnabled = raw.commentsEnabled;
   if (typeof raw.shareButtons === "boolean") out.shareButtons = raw.shareButtons;
+  if (typeof raw.ambient === "boolean") out.ambient = raw.ambient;
   str("favicon", VALUE_MAX);
   str("logo", VALUE_MAX);
   // ── Attachments ──────────────────────────────────────────────────────────
@@ -582,6 +583,9 @@ export function effectiveSettings(): EffectiveSettings {
     authorSites: (s.authorSites ?? []).map((site) => ({ ...site })),
     commentsEnabled: commentsEnabled(),
     shareButtons: s.shareButtons ?? true,
+    // Decoration defaults OFF, unlike the share row above: a site that has
+    // never heard of this feature must not start moving on upgrade.
+    ambient: s.ambient ?? false,
     favicon: s.favicon ?? null,
     logo: s.logo ?? null,
     // Always resolved: what the next upload will actually do.
@@ -818,7 +822,7 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     // closed lowercase enum, so there is one canonical form to coerce to.
     const clean = cleanValue(v, "defaultTheme")?.toLowerCase() ?? null;
     if (clean === null) return null;
-    // "follow" joins the fifteen ids: it is how the panel and the theme
+    // "follow" joins the built-in ids: it is how the panel and the theme
     // picker say "unpin — visitors go back to my editor theme", and it has to
     // be storable rather than merely absent, because an instance with
     // DEFAULT_THEME set in its .env needs a way to override that pin.
@@ -938,6 +942,11 @@ const PATCH_HANDLERS: Record<string, PatchHandler> = {
     if (value === null) delete raw.shareButtons;
     else if (typeof value === "boolean") raw.shareButtons = value;
     else throw new VaultError(400, 'Settings key "shareButtons" must be a boolean or null');
+  },
+  ambient: (raw, value) => {
+    if (value === null) delete raw.ambient;
+    else if (typeof value === "boolean") raw.ambient = value;
+    else throw new VaultError(400, 'Settings key "ambient" must be a boolean or null');
   },
   favicon: stringKey("favicon", (v) => cleanVaultImage(v, "favicon")),
   // A logo may be an https URL or a vault image path.
@@ -1500,7 +1509,7 @@ export function patchSettings(patch: Record<string, unknown>): SettingsResponse 
  *  rewrite a file (or bump its mtime, which invalidates the read cache for
  *  every other reader). Returns true when something actually changed. */
 export function setAdminTheme(theme: unknown): boolean {
-  // A custom theme is a theme: the picker offers them beside the fifteen, so
+  // A custom theme is a theme: the picker offers them beside the built-ins, so
   // refusing them here would mean an owner editing in their own palette
   // silently stops mirroring anything at all. Shape check only — a custom
   // theme deleted later behaves like any stale id and falls back client-side.

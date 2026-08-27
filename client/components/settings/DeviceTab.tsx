@@ -85,7 +85,7 @@ export default function DeviceTab() {
             languages. It is ONE trigger, built on `.s-ctl-select` like the
             default-theme row it is now a whole tab away from: same measure,
             same border, same chevron. What it opens is a browsing panel rather
-            than a list, and that is the honest difference — fifteen rooms are
+            than a list, and that is the honest difference — twenty-one rooms are
             chosen by looking at them, which is why the trigger carries the
             miniature the picker itself draws. */}
         <button
@@ -95,7 +95,7 @@ export default function DeviceTab() {
           aria-label={t("rowYourTheme")}
           onClick={openThemePicker}
         >
-          {/* The swatch tokens are keyed on the fifteen built-in ids and are
+          {/* The swatch tokens are keyed on the built-in ids and are
               CONSTANT by design, so a custom theme shows the room it was built
               on — under its OWN name, beside it. */}
           <span className="s-tpick__card" data-theme-swatch={choiceBase(theme)} aria-hidden="true">

@@ -286,6 +286,51 @@ const app = APP_SHELL_ROOTS.reduce((acc, key) => closure(keyFor(key) ?? key, acc
 // a later request than the event it is reporting. The by-language dictionary
 // split remains the ~32 kB recovery for the dictionary's share, as it is for
 // every line above.
+// RE-BASELINED for THE SIX NEW ROOMS: +8.1 kB on the entry, and therefore the
+// same +8.1 kB on both closures below, since the entry closure sits inside
+// both. Stated as a DELTA rather than as an absolute, because this file's
+// absolutes have always been measured at one instant and the thing worth
+// holding anyone to is what a change cost. 543 → 554 / 754 → 770 /
+// 1168 → 1178, which is the measured overshoot plus this file's usual ~0.4%.
+// This is the only re-baseline here whose cause is a STYLESHEET rather than
+// the dictionary, and it is worth naming precisely because a theme is the one
+// kind of feature that cannot be split:
+//
+//   +5.79 kB  client/styles/tokens.css — six complete rooms (phosphor,
+//             sidereal, murex, palimpsest, porcelain, mauveine), and
+//             "complete" is the cost. DESIGN.md's rule is that a theme
+//             defines its WHOLE set — ground, raised, hover, three text
+//             tokens, accent, accent-soft, border, danger, selection, focus
+//             ring, three graph tokens, two banner tokens, thirteen callout
+//             hues and eight syntax colours — because a block that inherits
+//             another theme's leftovers wears iron-gall's amber on a green
+//             ground. That is ~46 declarations a room, and there is no
+//             version of it that is smaller and still correct.
+//   +1.02 kB  client/styles/themes.css — the six --swatch-* trios and their
+//             two-hook rules. These are CONSTANT across themes on purpose:
+//             the picker paints a preview of a room in THAT room's colours,
+//             never in the one currently on screen, so they cannot be derived
+//             from the live tokens.
+//   +0.09 kB  client/styles/textcolor.css — three selectors, joining the
+//             light group's one existing rule.
+//   +~1.3 kB  client/i18n.ts — the six rooms' names and one-line descriptions
+//             in both languages, plus the ambient row's label and hint. `t()`
+//             reads one object on every surface, as every note below says.
+//
+// WHY NO SPLIT TAKES ANY OF IT OFF: tokens.css is linked from index.html and
+// paints the FIRST FRAME. A theme that arrives in a second request is a page
+// that flashes the default room and then repaints, which is the one failure a
+// theme system is not allowed to have. The by-language dictionary split
+// remains the ~32 kB recovery for the dictionary's share.
+//
+// WHAT DID NOT LAND HERE, deliberately: the ambient masthead. Its stylesheet
+// (client/styles/ambient.css, 4.5 kB) is imported by client/ambient.tsx, which
+// is reached only from the blog shell and the design engine — both lazy — so
+// it is inside the blog reader's number below and outside the entry's
+// entirely. An instance with the setting off still downloads it with the blog
+// shell, which is the honest price of keeping the mapping in CSS where a theme
+// switch can repaint it live; an admin who never opens the public site pays
+// nothing.
 const AUDIENCES = [
 // RE-BASELINED for NOTE HISTORY (529.4 kB actual → budget 532, actual +
 // ~0.5%). This round is the safety net the rest of the slate stands on — git
@@ -392,7 +437,7 @@ const AUDIENCES = [
 // copy of the same card is the display-only card it always was, byte for byte.
 // The surgical writer, the value grammar and the key policy are server code no
 // browser fetches at all.
-  { name: "entry (everyone)", keys: entry, budget: 543 * 1024 },
+  { name: "entry (everyone)", keys: entry, budget: 554 * 1024 },
   // RE-BASELINED for the DICTIONARY, and this one deserves naming as a debt
   // rather than a measurement. `client/i18n.ts` is a single object read by
   // `t()` on every surface, so it lands whole in every first paint — and this
@@ -509,7 +554,7 @@ const AUDIENCES = [
   // screen), and a stylesheet fetched at `beforeprint` arrives after the pages
   // are cut. Riding with reading.css is what puts it in exactly the chunks
   // that can show a document and in nobody else's.
-  { name: "anonymous blog reader", keys: blog, budget: 754 * 1024 },
+  { name: "anonymous blog reader", keys: blog, budget: 770 * 1024 },
   // RE-BASELINED for PER-FOLDER TREE ICONS (1089.4 kB actual → 1099.4 kB,
   // budget = actual + ~1.1%), and the growth here is almost all feature A's:
   // +3.4 kB FolderGlyph (now a shared chunk, since the sidebar and the blog
@@ -556,7 +601,7 @@ const AUDIENCES = [
   // and the panel is drawn on the first paint. `client/print.ts` itself is NOT
   // in this number: it is loaded by Editor.tsx and ReadingView.tsx, both behind
   // the pane's lazy boundary, and reached from the palette by `import()`.
-  { name: "admin first paint", keys: app, budget: 1168 * 1024 },
+  { name: "admin first paint", keys: app, budget: 1178 * 1024 },
 ];
 
 // ── things that must never be in a first paint ──────────────────────────────
@@ -610,6 +655,14 @@ const MUST_SPLIT = [
   // The books surface. Its own chunk, and the parent of two more (the shelf
   // and the reader split from each other inside it) — see BooksSurface.tsx.
   "books/BooksSurface.tsx",
+  // The tour. Fifteen folios, fifteen drawings and two languages of prose —
+  // ~30 kB of chunk to describe a product to somebody who has not asked yet.
+  // Its four doors (the palette, the empty state, the shortcut sheet, and the
+  // deck's own re-entry) all live in first-paint surfaces, so the ONLY thing
+  // standing between the deck and everybody's entry chunk is the dynamic
+  // import in client/tour.ts. That is exactly the kind of boundary a later
+  // refactor removes by accident, so it is asserted here rather than trusted.
+  "components/Tour.tsx",
 ];
 
 let failed = false;

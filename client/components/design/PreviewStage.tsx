@@ -117,7 +117,7 @@ export default function PreviewStage({ design, content, route }: PreviewStagePro
    * a Front Page design (linen) previewed dark on an iron-gall operator while
    * the live page was light, and the gallery card that sold it was a third
    * colour again. The frame is a document of its own, so unlike a scaled
-   * canvas it can honour a `custom:` choice as well as one of the fifteen.
+   * canvas it can honour a `custom:` choice as well as one of the built-ins.
    */
   const ownTheme: FrameTheme | null = useMemo(
     () => (shown.theme ? themeChoiceAttrs(shown.theme) : null),

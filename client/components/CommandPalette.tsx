@@ -33,6 +33,7 @@ import type { SearchHit } from "../../shared/types.ts";
 import { renderSnippet, snippetIsEmpty } from "./snippet.tsx";
 import { openThemePicker } from "./ThemePicker.tsx";
 import { openDesigner } from "./design/openDesigner.ts";
+import { openTour } from "../tour.ts";
 import { installRecents, recentNotes } from "../recents.ts";
 import { getNote } from "../api.ts";
 import { noteAnchors, type NoteAnchor } from "../../shared/anchors.ts";
@@ -284,7 +285,7 @@ const COMMANDS: Command[] = [
     available: ({ openPath, admin }) => admin && openPath !== null,
   },
   {
-    // ONE row for fifteen rooms. There used to be sixteen: this one plus a
+    // ONE row for twenty-one rooms. There used to be sixteen: this one plus a
     // `Theme: <id>` command per theme, which is 15 of the palette's 41
     // entries — 37% of the command list spent on one preference, and every
     // one of them a blind jump. The picker it opens is strictly the better
@@ -298,14 +299,14 @@ const COMMANDS: Command[] = [
     label: () => t("browseThemes"),
     hint: () => t("cmdAppearanceHint"),
     // choiceBase, not the raw choice: the dot is painted from the CONSTANT
-    // --swatch-<id>-* tokens, which are keyed on the fifteen built-in ids, so
+    // --swatch-<id>-* tokens, which are keyed on the built-in ids, so
     // a custom theme previews as the room it was built on.
     themeDot: () => choiceBase(useStore.getState().theme),
     available: () => true,
   },
   {
     // THE DIRECT FLIP, beside the browsing surface rather than instead of it
-    // (v1.8 audit, F19). The picker above answers "which of the fifteen"; this
+    // (v1.8 audit, F19). The picker above answers "which of the rooms"; this
     // answers "it is dark in here" — one keystroke to the curated counterpart,
     // which is exactly the promise the status bar's ☾/☀ glyph has always
     // looked like it was making and never made. The label NAMES the room it
@@ -391,6 +392,19 @@ const COMMANDS: Command[] = [
     id: "shortcuts",
     label: () => t("shortcutsTitle"),
     hint: () => "Ctrl/Cmd /",
+    available: () => true,
+  },
+  {
+    // THE TOUR, beside the sheet that lists the keys — the same shelf, because
+    // they answer the two halves of one question. The sheet says how to do a
+    // thing you already know the product does; the tour is for the reader who
+    // does not know it does it, which is the failure this row exists for: a
+    // real reader used this vault for months without discovering the designer.
+    // Everybody gets it, including a visitor — the deck drops the folios a
+    // read-only session cannot act on rather than the row.
+    id: "take-the-tour",
+    label: () => t("tourTake"),
+    hint: () => t("tourHint"),
     available: () => true,
   },
   {
@@ -984,6 +998,9 @@ export default function CommandPalette() {
           break;
         case "shortcuts":
           store.setShortcutsOpen(true);
+          break;
+        case "take-the-tour":
+          openTour();
           break;
         case "theme-picker":
           openThemePicker();

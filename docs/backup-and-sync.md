@@ -196,13 +196,49 @@ resolution strip immediately, while you are looking at it, instead of interrupti
 
 Two things worth knowing about the arrangement:
 
-- **Nothing is locked.** Neither server owns the vault, and either can be stopped at any time.
+- **No note is locked.** Neither server owns the vault, and either can be stopped at any time —
+  the refusal above is a check made at the moment of writing, not a claim staked in advance.
+  Backup & sync is the one deliberate exception, for the reason in the next section: a commit is
+  a whole-vault operation with a single git index, so it cannot be two things at once.
 - **Scripts and older clients still work.** A write with no modification time attached — `curl`, a
   script of your own, an older desktop build — behaves exactly as it always did: last writer wins.
   The check is opt-in, and only clients that can handle a refusal ask for one.
 
 If you run two servers, point both at the same vault directory and give them **different data
 directories** (`VELLUM_DATA`) unless you also want them to share sessions and settings.
+
+### One sync at a time — across every server
+
+Notes are written one at a time; a **commit is written for the whole vault at once**, through a
+single `.git/index` that git guards with a lock of its own. Two Vellums committing the same folder
+in the same second do not produce two backups — one of them dies with *"Another git process seems
+to be running in this repository"*, possibly having already staged half the vault. That is not
+hypothetical: it is why sync used to be worth running only by hand on a machine that also ran the
+desktop app.
+
+So a mutating pass — **Sync now**, **Snapshot now**, **Make it a repo**, and every scheduled tick —
+takes a lock file at `.git/vellum-sync.lock` first, and holds it until the pass is over. Only one
+of them exists, so only one pass runs at a time **across every process sharing that vault**: the
+desktop app, a systemd service, a second terminal, a scheduled interval. This is what makes an
+automatic interval safe to leave switched on next to a desktop app.
+
+- **What contention looks like.** A **Sync now** that arrives while another Vellum is mid-pass is
+  not an error and does not retry: the backup panel's last line says *"Another Vellum is syncing
+  this vault (pid …) — this pass did nothing"*, naming the process that has it, and the status
+  glyph reads as busy for as long as the other one is working. **Snapshot now** and **Make it a
+  repo** answer `409` with the same sentence. A scheduled tick that finds the vault locked simply
+  skips and tries again on the next one; it records nothing.
+- **How a crash recovers.** A lock file is not a file descriptor — nothing in the kernel removes it
+  when its owner dies — so a Vellum killed mid-sync would otherwise wedge backup forever. Any other
+  process may break the lock when **the process that took it is gone** (it records its pid and
+  hostname, checked against the machine's own process table) or when **nothing has touched it for
+  fifteen minutes**. Either way the break is logged as a warning naming the dead holder. A pass
+  that is merely slow is never mistaken for a dead one: a live holder refreshes the lock every
+  minute while it works.
+- **What it does not cover.** The lock is advisory, so your own `git commit` in a terminal is
+  unaffected — that has always been git's `index.lock` to arbitrate. And two *machines* sharing one
+  vault over a network filesystem is outside what this buys: exclusive creation is only as atomic
+  as the filesystem makes it, and the fifteen-minute age check is the only recovery there.
 
 ## Things worth knowing
 
@@ -224,7 +260,9 @@ directories** (`VELLUM_DATA`) unless you also want them to share sessions and se
   yet"** rather than "0 ahead · 0 behind" — which is what a fully backed-up vault reads.
 - Sync is admin-only, including for an admin previewing the public site. Visitors cannot even
   read the status — the branch, the dirty count and the remote host say too much about you.
-- Only one sync runs at a time: a second request while one is in flight answers `409`.
+- Only one sync runs at a time, and that means *at a time on this vault*, not merely in this
+  server: a second request inside the same process answers `409` immediately, and a pass started by
+  another Vellum over the same folder is held off by the lock file described above.
 - A failing scheduled sync is logged **once**, not once per tick.
 - If the machine has no git identity configured, commits are made as `Vellum
   <vellum@localhost>`; set `user.name`/`user.email` in the vault (or globally) to use your own.

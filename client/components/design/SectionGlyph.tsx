@@ -11,7 +11,7 @@
 //
 //  * `currentColor` only — never a named colour. The glyph inherits whatever
 //    the row is painting (`--text-muted` at rest, `--accent` when the row is
-//    open or hovered), so it is correct in all fifteen themes and on all three
+//    open or hovered), so it is correct in every theme and on all three
 //    grounds without one rule of its own. The interior shading IS opacity, and
 //    that is legal here for the reason the miniature's is: this is a picture,
 //    the token under it is never `--text-faint` (which is at its floor already

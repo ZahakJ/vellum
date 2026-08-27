@@ -141,6 +141,19 @@ Every modal, popover and picker in the product answers the same four keys — `E
 to move, `Enter` to commit, type-ahead where there is a list — and `Esc` always belongs to the
 innermost layer that is open.
 
+## The tour
+
+A deck of illustrated cards, one feature each, with a **Show me** that really opens the thing it
+describes. It claims no keystroke of its own — it is only ever entered, never shown — so its doors
+are the palette (*Take the tour*), the quiet line on an empty vault, the foot of this sheet's own
+`Ctrl/Cmd /` panel, and a line in `Welcome.md`.
+
+| Keys | Action |
+| ---- | ------ |
+| `←` / `→`, or `h` / `l` | Flip a card. **Logical**: in Arabic, `←` goes forward |
+| Swipe | The same flip, on a touch screen — mirrored the same way |
+| `Esc` | Leave. The card you were on is where you come back |
+
 ## The designer
 
 | Keys | Action |

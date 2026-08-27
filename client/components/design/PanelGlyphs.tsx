@@ -5,7 +5,7 @@
 // not files — they are the PARTS OF A SITE, and a part of a site has a shape.
 //
 // Same rules as `SectionGlyph`: `currentColor` only, so the rail is right in
-// all fifteen themes and on every ground without a colour of its own; the
+// every theme and on every ground without a colour of its own; the
 // glyph is `aria-hidden` decoration beside a name that is always present; and
 // nothing here is the sole carrier of any fact.
 

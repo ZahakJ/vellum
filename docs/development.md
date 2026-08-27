@@ -49,7 +49,7 @@ is excluded from the usage scan, because a key whose English value happens to be
 
 ### `npm run check-contrast` — the accessibility gate
 
-Holds every one of the fifteen themes in `client/styles/tokens.css` to WCAG on the four text
+Holds every one of the twenty-one themes in `client/styles/tokens.css` to WCAG on the four text
 tokens: body text and secondary text against all three grounds (`--bg`, the raised surfaces and
 the hover ground the tag pills sit on), the accent against the page, and `--text-faint` at the 3:1
 non-text bar on the two grounds it is licensed to paint on. The accent pair is read as text twice
@@ -63,9 +63,9 @@ builder would eventually bless a theme the gate rejects.
 It also holds the **text-colour palettes** (`shared/textColors.ts`,
 `client/styles/textcolor.css`), which exist in two tiers for an arithmetic reason: against
 `void`'s `#050508` a colour needs relative luminance ≥ 0.186 and against `solar`'s `#ffffff` it
-needs ≤ 0.183, so **no single colour clears AA on all fifteen themes**. The theme-aware tier
+needs ≤ 0.183, so **no single colour clears AA on every theme**. The theme-aware tier
 (`var(--vc-*)`, the default) therefore carries one value per theme *group* and is held to 4.5:1
-against every ground in its group; the fixed-ink tier carries one hex for all fifteen and is held
+against every ground in its group; the fixed-ink tier carries one hex for all of them and is held
 to 3:1, WCAG 1.4.11's non-text floor, which is the most a fixed colour can promise. The gate
 prints both, and checks the stylesheet's values against the module's.
 

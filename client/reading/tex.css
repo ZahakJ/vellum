@@ -8,7 +8,7 @@
    links and a \bibitem bibliography.
 
    Every colour is a token from tokens.css — no literal colour lives here, so
-   all fifteen themes get this for free and check-contrast.mjs keeps covering
+   every theme gets this for free and check-contrast.mjs keeps covering
    it. Every inline offset is a LOGICAL property, so the Arabic RTL chrome
    mirrors without a second rule. */
 

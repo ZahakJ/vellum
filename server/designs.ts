@@ -135,7 +135,7 @@ function designsPath(): string {
   return path.join(dataDir(), DESIGNS_FILE);
 }
 
-/** A theme choice this instance actually has: one of the fifteen, or a custom
+/** A theme choice this instance actually has: one of the built-ins, or a custom
  *  theme that is currently on disk. Passed into `validateDesign` so a design
  *  naming a deleted custom theme is a NAMED error rather than a silent
  *  fallback to the built-in default. */

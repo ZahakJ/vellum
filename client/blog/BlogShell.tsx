@@ -32,6 +32,7 @@ import { go, setNavHandler, topicUrl } from "./nav.ts";
 import { previewExcerpt, previewPath } from "./postPreview.ts";
 import { NavLink } from "./util.tsx";
 import "../styles/blog.css";
+import Ambient from "../ambient.tsx";
 
 /** Basename of a note path, bidi controls stripped — the card header and the
  *  duplicate-H1 trim both key off it. */
@@ -106,8 +107,8 @@ function ThemeButton() {
       title={tf("cmdTheme", { t: theme })}
       aria-label={t("blogSwitchTheme")}
       // A ☾/☀ button on a public page means "the same site, lit
-      // differently" — with fifteen themes, stepping to the next one in the
-      // list means walking a visitor through ten dark rooms to reach daylight.
+      // differently" — with twenty-one themes, stepping to the next one in the
+      // list means walking a visitor through the whole dark half to reach daylight.
       // counterpartChoice() names the pair for each theme instead — and it
       // answers for a custom theme too, by way of the built-in it was built on.
       onClick={() => useStore.getState().setTheme(counterpartChoice(theme))}
@@ -414,6 +415,10 @@ export default function BlogShell() {
       </a>
       {!dashboardHome && (
         <header className="s-blog-mast">
+          {/* The optional atmosphere, behind everything in this header and
+              reachable by nothing (client/ambient.tsx). Null unless the owner
+              turned it on, and unless the room in force has an air. */}
+          <Ambient />
           {!logoSrc && (
             <div className="s-blog-mast__star" aria-hidden="true">
               ✦

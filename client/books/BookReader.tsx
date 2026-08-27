@@ -1285,7 +1285,7 @@ export default function BookReader({ path, citation = null, active = true, onLan
   useEffect(() => () => clearHighlight(), []);
 
   // The theme's ground, for the night composite. Read from the live custom
-  // property rather than written down anywhere: fifteen themes, and a book
+  // property rather than written down anywhere: twenty-one themes, and a book
   // read at night in `sandstone` should be dark sandstone.
   const paper = useMemo(() => readToken("--bg"), [state.invert]);
 

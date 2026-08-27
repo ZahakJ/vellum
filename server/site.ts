@@ -178,7 +178,7 @@ export function defaultTheme(): string | null {
  *  that true, so a downgrade is just as uneventful. */
 export function themePref(): string {
   // Anything that is not the sentinel is a PIN — including a `custom:<name>`
-  // theme, which is as pinnable as one of the fifteen. Both sources are
+  // theme, which is as pinnable as one of the built-ins. Both sources are
   // already validated (readEnvTheme here, isStoredThemePref in settings.ts),
   // so there is nothing left to re-check: unset means follow, and that is all.
   return defaultTheme() ?? FOLLOW_THEME;

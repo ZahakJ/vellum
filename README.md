@@ -20,7 +20,7 @@ Obsidian is excellent — and if it fits, use it. Vellum exists for the gap it l
 | | |
 | --- | --- |
 | ![Blog dashboard home](docs/screenshots/blog-dashboard.png)<br>*Blog mode's dashboard home — posts as cards, each with a generated gradient until you set a banner.* | ![Blog article with comments](docs/screenshots/blog-article.png)<br>*An article page: related posts, then "Marginalia" — built-in, rate-limited reader comments.* |
-| ![Graph view](docs/screenshots/graph.png)<br>*Graph view — a hand-rolled canvas force simulation; drag nodes, click to open.* | ![The fifteen themes](docs/screenshots/themes.png)<br>*Fifteen hand-tuned themes — eleven dark, four light — each defining its whole palette.* |
+| ![Graph view](docs/screenshots/graph.png)<br>*Graph view — a hand-rolled canvas force simulation; drag nodes, click to open.* | ![The twenty-one themes](docs/screenshots/themes.png)<br>*Twenty-one hand-tuned themes — fourteen dark, seven light — each defining its whole palette.* |
 
 ## Quickstart
 
@@ -97,11 +97,12 @@ internet behind any HTTPS reverse proxy pointed at `localhost:6801` — see
 - **[Publishing](docs/publishing.md)** — one frontmatter flag, a real server-side visitor preview, rate-limited reader comments with built-in moderation
 - **[Blog mode](docs/blog-mode.md)** — masthead, topic nav, dashboard home, hover previews, RSS, sitemap/robots and server-injected SEO meta
 - **[Designed mode](docs/designer.md)** — compose your own homepage from sections, fifty-nine shipped presets, with the stock blog kept as an always-working fallback
-- **[Fifteen themes](docs/theming.md)** — eleven dark, four light, every one gated at WCAG AA, plus a custom-theme builder and `custom.css`
+- **[Twenty-one themes](docs/theming.md)** — fourteen dark, seven light, every one gated at WCAG AA, plus a custom-theme builder and `custom.css`
 - **[Real typography](docs/typography.md)** — a self-hosted font catalog and your own uploads, with per-character Arabic that sets correctly inside an English sentence
 - **[Arabic & RTL](docs/arabic-and-rtl.md)** — the whole interface mirrored and translated, an optional visitor `EN`/`ع` switch, a language filter, Hijri dates
 - **[Backup & sync](docs/backup-and-sync.md)** — commit the vault to a private git remote you own, manually or on a timer, fast-forward only
 - **[Note history](docs/backup-and-sync.md#note-history-reading-what-the-backup-kept)** — every commit that touched the open note, read any revision as it was, restore one with an Undo behind it, and take a local snapshot before anything you are unsure about
+- **A tour, for all of the above** — fifteen illustrated cards, each with a **Show me** that really opens the thing it describes. It is never shown at you: `Ctrl/Cmd P` → *Take the tour*, a quiet line on the empty vault, or the foot of the `Ctrl/Cmd /` sheet
 - **Zero CDN requests.** No webfonts, no analytics, no telemetry, nothing phoning anywhere
 
 ## Documentation

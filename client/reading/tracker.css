@@ -125,7 +125,7 @@
 }
 
 /* The hue is a DOT, not the chip's text. A callout hue carrying 11px letters
-   is a promise none of the fifteen themes was solved for; the same hue as a
+   is a promise no theme in the set was solved for; the same hue as a
    6px mark beside muted text is safe in all of them and says the same thing. */
 .s-rv-tracker__dot {
   inline-size: 6px;

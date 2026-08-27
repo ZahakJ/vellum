@@ -39,7 +39,7 @@
 }
 
 /* A GROUP LABEL IS SOMETHING THE READER READS, so it is --text-muted (4.5:1
-   in all fifteen) and not --text-faint. The pair used to sit at the 3:1
+   in every theme) and not --text-faint. The pair used to sit at the 3:1
    non-text floor, which held on --bg and --bg-raised and did NOT hold on the
    highlighted row's own ground: measured on --bg-hover, iron-gall 2.74:1,
    sumi 2.89, tallow 2.89, parchment 2.98 — under DESIGN.md's own bar, one

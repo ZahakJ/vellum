@@ -4,12 +4,14 @@
    those three ever load the editor bundle.
 
    ONE VALUE PER THEME GROUP, NOT PER THEME. `themeGroup()` already partitions
-   the fifteen themes into eleven dark rooms and four light ones, and the thing
-   a colour has to clear is the GROUP's worst ground: `#2d231c` (tallow raised)
-   for the dark set, `#ffffff` (solar raised) for the light one. Solved against
-   every ground in the group, the whole set holds 4.75:1 or better — see
-   shared/textColors.ts for why a single value per hue cannot, and
-   scripts/check-contrast.mjs, which asserts it.
+   the twenty-one themes into fourteen dark rooms and seven light ones, and the
+   thing a colour has to clear is the GROUP's worst ground: `#2d231c` (tallow
+   raised) for the dark set, and `#e9e4d5` for the light one — palimpsest's own
+   ground, the dullest paper in the set, which took that title from solar's
+   white the day it shipped. Solved against every ground in the group, the
+   whole set still holds 4.98:1 or better — see shared/textColors.ts for why a
+   single value per hue cannot, and scripts/check-contrast.mjs, which asserts
+   it.
 
    The default block is the DARK set, matching tokens.css: no `data-theme`
    attribute means iron-gall. */
@@ -25,12 +27,15 @@
   --vc-magenta: #db76b6;
 }
 
-/* The four light rooms. Listed by name rather than by a media query: the
-   theme is a stored choice, not the operating system's. */
+/* The lit rooms. Listed by name rather than by a media query: the theme is a
+   stored choice, not the operating system's. */
 :root[data-theme="parchment"],
 :root[data-theme="sandstone"],
 :root[data-theme="linen"],
-:root[data-theme="solar"] {
+:root[data-theme="solar"],
+:root[data-theme="palimpsest"],
+:root[data-theme="porcelain"],
+:root[data-theme="mauveine"] {
   --vc-red: #a93528;
   --vc-orange: #8c5021;
   --vc-amber: #745c1b;

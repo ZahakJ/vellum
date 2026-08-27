@@ -1,6 +1,6 @@
 # Theming
 
-*The fifteen built-in themes, the custom-theme builder, the CSS token API, and `custom.css`.*
+*The twenty-one built-in themes, the ambient masthead, the custom-theme builder, the CSS token API, and `custom.css`.*
 
 ← [Back to the README](../README.md) · [All docs](README.md)
 
@@ -16,12 +16,12 @@ sidebar, the browser tab titles (`Note · Night Garden`), and the sign-in modal.
 
 ## Pick the default look
 
-Vellum ships **fifteen** themes — eleven dark rooms and four lit ones. Every one of them defines
-the whole palette for itself (ground, type, accent, selection, focus ring, graph, all thirteen
-callout hues, all eight syntax colors), so none of them is another theme wearing a different
-background.
+Vellum ships **twenty-one** themes — fourteen dark rooms and seven lit ones. Every one of them
+defines the whole palette for itself (ground, type, accent, selection, focus ring, graph, all
+thirteen callout hues, all eight syntax colors), so none of them is another theme wearing a
+different background.
 
-![The fifteen themes](screenshots/themes.png)
+![The built-in themes](screenshots/themes.png)
 
 | Dark | | Light | |
 | --- | --- | --- | --- |
@@ -29,13 +29,38 @@ background.
 | `cinnabar` | neutral graphite, vermilion type | `sandstone` | dry desert paper, burnt orange |
 | `sumi` | ink-stick grey, aizome indigo | `solar` | brightest white paper, burnt gold |
 | `void` | true black, cold signal cyan | `linen` | cool daylight, ink blue |
-| `basalt` | cool blue-grey stone, pale sky | | |
-| `nocturne` | blue-black night, periwinkle | | |
-| `lapis` | deep lapis blue-black, brightened gold | | |
+| `basalt` | cool blue-grey stone, pale sky | `palimpsest` | scraped grey vellum, rubric red |
+| `nocturne` | blue-black night, periwinkle | `porcelain` | glazed white, deep celadon |
+| `lapis` | deep lapis blue-black, brightened gold | `mauveine` | pale lilac, aniline violet |
 | `verdigris` | green-black, oxidized copper | | |
 | `moss` | olive-black forest floor, lichen | | |
 | `porphyry` | purple-black stone, dusty rose | | |
 | `tallow` | warm brown paper, candle-flame amber | | |
+| `phosphor` | CRT green-black, P1 phosphor green | | |
+| `sidereal` | blue-violet deep space, starlight | | |
+| `murex` | violet-black, Tyrian purple | | |
+
+Six of them arrived together, and each was drawn for a room the set did not have:
+
+- **`phosphor`** is a terminal rather than a theme that gestures at one. Its syntax palette is
+  its identity: a cathode tube has ONE gun, so keyword, function and property are three strengths
+  of the same green, type is that green pushed to its cyan edge, and the only colours that are
+  not green are the amber of a P3 tube (strings and numbers) and the alarm red.
+- **`sidereal`** is deep space at a real distance — a blue-violet ground far darker than
+  `nocturne`'s, under starlight. Its body text is a *neutral* silver on purpose: starlight and
+  body text are both pale blue-whites, and an accent that is a shade of its own type is not an
+  accent (the 18 ΔE rule below). The two sit 29.6 ΔE apart.
+- **`murex`** is the sea snail Tyre boiled by the ton for the only colour an emperor was allowed
+  to wear. `porphyry` is the *other* imperial purple; these two are kept apart by 39.6 ΔE of
+  accent — a warm dusty rose there, the dye at full strength here.
+- **`palimpsest`** is older than `parchment`, which is the point: a sheet scraped clean and
+  written over, greyed where parchment is golden, under the rubricator's red. It is also the lit
+  set's first red room.
+- **`porcelain`** is Song celadon — a glaze-white ground with a breath of green in it, under the
+  deep sea-green the Longquan kilns were built for. The refined room, and the lit set's first
+  green-family accent.
+- **`mauveine`** is the accident that started the dye industry: Perkin, eighteen, failed to
+  synthesise quinine in 1856 and washed the flask out with alcohol. The lit set had no violet.
 
 Every reader picks their own from the **theme picker** — the theme control in the status bar
 opens it, and so does *Themes* in Settings → Appearance & language. Each row is a
@@ -44,11 +69,11 @@ next to a human name and a one-line description, both localized; the raw id (wha
 and the palette take) is in the row's tooltip. It is a grouped, keyboard-driven
 list: `↑↓←→` moves the highlight and applies that theme live to the whole app behind the panel,
 `Enter` keeps it, `Esc` puts back the theme you started with. (The mouse never moves the keyboard
-highlight — only a click picks.) The palette carries ONE route to all fifteen: *Themes*
-opens the same panel, with a dot showing the theme you are in. (It used to carry sixteen —
-that row plus a `Theme: <id>` command per theme, 15 of 41 entries spent on one preference,
-every one of them a blind jump into a room you had not seen. A parameter with fifteen values
-belongs behind the surface that shows the values.) A
+highlight — only a click picks.) The palette carries ONE route to all of them: *Themes*
+opens the same panel, with a dot showing the theme you are in. (It used to carry a `Theme: <id>`
+command per theme beside that row, 15 of 41 entries spent on one preference, every one of them a
+blind jump into a room you had not seen. A parameter with this many values belongs behind the
+surface that shows the values — and the argument only got stronger as the set grew.) A
 reader's choice sticks in their own browser.
 
 **By default, the public site wears the theme you write in.** You pick a room in the picker, and
@@ -65,10 +90,48 @@ puts visitors back on whatever you are actually using. A reader who has chosen a
 moved by any of this, and an unknown `DEFAULT_THEME` is ignored with a line on stderr at startup
 rather than silently.
 
+## The ambient masthead
+
+A theme is a set of *static* tokens by architecture — every gate in this repo measures those
+hexes against one another, and a value that moves is a value nobody screenshotted at the frame
+where it failed AA. So the rooms stay still, and the motion is a separate, optional layer of
+**decoration behind the words**.
+
+Turn it on in Settings → Publishing → **Ambient masthead** (or `"ambient": true` in
+`settings.json`; it is **off** by default). The public site's masthead — the stock blog's and the
+designed shell's alike — then carries a slow atmosphere drawn from the theme in force:
+
+| Air | Rooms | What it is |
+| --- | --- | --- |
+| stars | `sidereal`, `nocturne`, `lapis`, `murex` | two star fields at different scales and speeds, the far one breathing |
+| scanlines | `phosphor`, `void` | a 3px grating creeping exactly one pitch every twelve seconds, under the gun's own glow |
+| dust | `iron-gall`, `tallow`, `parchment`, `palimpsest`, `solar` | gold motes rising, slowly enough that looking straight at them shows a still page |
+
+Every other room is deliberately still — a theme gets an air only when it has something to say
+with one. Every mark in every air is that room's **own `--accent`**, so `murex`'s stars are
+Tyrian and `palimpsest`'s dust is rubric red without a rule of their own.
+
+Four properties hold whatever else changes:
+
+- **It is decoration and it is not content.** An empty `aria-hidden` div, `pointer-events: none`,
+  at `z-index: -1` inside a masthead that carries `isolation: isolate` — unreachable by a pointer,
+  a caret, a screen reader or the tab order.
+- **It is pure CSS.** No canvas, no `requestAnimationFrame`, no JavaScript beyond the one `if`
+  that decides whether the div is in the DOM. Both animated properties are compositor properties.
+- **It is a whisper, and that is a measurement.** Not an opacity but the worst *composited* ground
+  under the masthead title, read off real pixels with the animation running: `phosphor` 11.41:1,
+  `murex` 10.74:1, `sidereal` 9.63:1, `iron-gall` 9.08:1, `parchment` 8.31:1. The floor is 4.5.
+- **`prefers-reduced-motion` deletes it.** Not paused, not slowed: `display: none` on the
+  container, so neither layer gets a box and nothing is composited — two screenshots 2.6s apart
+  come back byte-identical.
+
+It rides in the public shells' own chunks (`client/styles/ambient.css`), so an instance with it
+switched off — and the entry bundle every audience downloads — pays nothing for it.
+
 ## Make your own
 
-The fifteen are a starting point, not a ceiling. **Themes → New custom theme** opens a builder:
-pick one of the fifteen as a base, then override any token you like — grounds, text, accent,
+The built-ins are a starting point, not a ceiling. **Themes → New custom theme** opens a builder:
+pick one of them as a base, then override any token you like — grounds, text, accent,
 borders, the thirteen callout hues, the eight syntax colors, the graph — and watch the whole app
 change behind the panel while you do it, because the only honest preview of a theme is the theme.
 Tokens you do not touch keep coming from the base, so a later retune of that base reaches your
@@ -152,7 +215,7 @@ If you keep body text ≥ 4.5:1 contrast against `--bg`, the whole app stays rea
 
 ## Colored text in two tiers
 
-The default writes `var(--vc-blue)`, a *meaning* that every one of the fifteen themes resolves to
+The default writes `var(--vc-blue)`, a *meaning* that every one of the built-in themes resolves to
 something clearing AA on its own ground, light or dark; a fixed-ink palette writes a literal hex
 when you mean *that* color. Both render identically in the editor, the reading view and the blog,
 and the sanitizer admits `style` on a `<span>` for `color`/`background-color` only — no `url()`,
@@ -160,8 +223,9 @@ no other properties.
 
 The two tiers exist for an arithmetic reason: against `void`'s `#050508` a color needs relative
 luminance ≥ 0.186 and against `solar`'s `#ffffff` it needs ≤ 0.183, so **no single color clears AA
-on all fifteen themes**. The theme-aware tier (`var(--vc-*)`, the default) carries one value per
-theme *group* and is held to 4.5:1 against every ground in its group; the fixed-ink tier carries
-one hex for all fifteen and is held to 3:1, WCAG 1.4.11's non-text floor, which is the most a
-fixed color can promise. `node scripts/check-contrast.mjs` gates both — see
+on every theme**. The theme-aware tier (`var(--vc-*)`, the default) carries one value per
+theme *group* and is held to 4.5:1 against every ground in its group — its worst measurement is
+4.98:1, on `palimpsest`'s ground, which took that title from `solar`'s white the day it shipped.
+The fixed-ink tier carries one hex for all of them and is held to 3:1, WCAG 1.4.11's non-text
+floor, which is the most a fixed color can promise. `node scripts/check-contrast.mjs` gates both — see
 [Development](development.md).

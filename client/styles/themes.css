@@ -147,9 +147,51 @@
   --sw-accent: var(--swatch-linen-accent);
 }
 
+[data-theme-swatch="phosphor"],
+[data-theme-dot="phosphor"] {
+  --sw-bg: var(--swatch-phosphor-bg);
+  --sw-text: var(--swatch-phosphor-text);
+  --sw-accent: var(--swatch-phosphor-accent);
+}
+
+[data-theme-swatch="sidereal"],
+[data-theme-dot="sidereal"] {
+  --sw-bg: var(--swatch-sidereal-bg);
+  --sw-text: var(--swatch-sidereal-text);
+  --sw-accent: var(--swatch-sidereal-accent);
+}
+
+[data-theme-swatch="murex"],
+[data-theme-dot="murex"] {
+  --sw-bg: var(--swatch-murex-bg);
+  --sw-text: var(--swatch-murex-text);
+  --sw-accent: var(--swatch-murex-accent);
+}
+
+[data-theme-swatch="palimpsest"],
+[data-theme-dot="palimpsest"] {
+  --sw-bg: var(--swatch-palimpsest-bg);
+  --sw-text: var(--swatch-palimpsest-text);
+  --sw-accent: var(--swatch-palimpsest-accent);
+}
+
+[data-theme-swatch="porcelain"],
+[data-theme-dot="porcelain"] {
+  --sw-bg: var(--swatch-porcelain-bg);
+  --sw-text: var(--swatch-porcelain-text);
+  --sw-accent: var(--swatch-porcelain-accent);
+}
+
+[data-theme-swatch="mauveine"],
+[data-theme-dot="mauveine"] {
+  --sw-bg: var(--swatch-mauveine-bg);
+  --sw-text: var(--swatch-mauveine-text);
+  --sw-accent: var(--swatch-mauveine-accent);
+}
+
 /* The palette's theme dot, now generic: app.css named the four themes it knew
    one rule at a time (specificity 0,2,0), so this matches the same shape and
-   wins on order — a fifteenth theme needs no rule of its own. */
+   wins on order — a twenty-second theme needs no rule of its own. */
 .s-palette-dot[data-theme-dot] {
   background: var(--sw-bg);
   border-color: var(--sw-accent);
