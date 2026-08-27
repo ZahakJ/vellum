@@ -4,8 +4,9 @@
 // fallback), the answer lands in VELLUM_DATA/author-sites.json, and /api/me
 // serves cards straight from that cache — never from the network. The cache
 // warms in the background at boot and whenever the admin saves the setting,
-// and refreshes the same way once an entry is a day old, so the request path
-// stays synchronous and a slow or dead site costs visitors nothing.
+// and every /api/me revalidates any entry older than the staleness floor the
+// same way, so the request path stays synchronous and a slow or dead site
+// costs visitors nothing.
 //
 // The fetch is deliberately small: http(s) only, private hosts refused (the
 // admin is trusted, but a URL that resolves into the machine the server runs
@@ -20,7 +21,13 @@ import type { AuthorSiteCard, AuthorSiteRef } from "../shared/types.ts";
 import { dataDir } from "./site.ts";
 
 const CACHE_FILE = "author-sites.json";
-const REFRESH_MS = 24 * 60 * 60 * 1000;
+// The staleness floor was a day, which read as broken: the owner grew their
+// gallery in the morning and the card quoted yesterday's count until the next
+// boot. A card is a live introduction — its facts should track the site within
+// minutes. Fifteen minutes keeps at most four fetches an hour per site (six
+// sites max, refetched only when someone actually loads the blog, deduped by
+// inFlight), which no target could feel.
+const REFRESH_MS = 15 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 6000;
 const BODY_CAP = 512 * 1024;
 const FIELD_MAX = 300;
