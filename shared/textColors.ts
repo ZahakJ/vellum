@@ -1,7 +1,7 @@
 // The two tiers of text colour, and the arithmetic behind having two.
 //
-// A colour in a note has to survive FIFTEEN grounds — eleven dark themes and
-// four light ones, each with a `--bg` and a `--bg-raised` — because the note
+// A colour in a note has to survive TWENTY-ONE rooms — fourteen dark themes
+// and seven light ones, each with a `--bg` and a `--bg-raised` — because the note
 // outlives the theme it was written under. Ask for AA (4.5:1) on all of them
 // at once and the answer is provably empty: against `void`'s `#050508` a text
 // colour needs relative luminance ≥ 0.186, against `solar`'s `#ffffff` it
@@ -14,13 +14,13 @@
 //   Every value clears **4.75:1 against every ground in its group** — AA for
 //   body text, with margin — and the note carries a MEANING rather than an
 //   ink, so the same file reads correctly in iron-gall, in parchment, and in
-//   whatever sixteenth theme arrives later. This is the tier the picker opens
+//   whatever theme arrives later. This is the tier the picker opens
 //   on and the one the menu marks as recommended.
 //
 //   TIER 2 — LITERAL. Sometimes the author means THIS red, and a colour that
 //   moves is the wrong answer (a diagram key, a quoted brand, a colour being
-//   discussed as itself). These nine hexes are solved against all thirty
-//   grounds at once and hold **3:1 everywhere** — WCAG 1.4.11's non-text
+//   discussed as itself). These nine hexes are solved against every one of
+//   those grounds at once and hold **3:1 everywhere** — WCAG 1.4.11's non-text
 //   floor, which is the best a fixed ink can do, as the paragraph above
 //   proves. `scripts/check-contrast.mjs` asserts both floors; neither list may
 //   be edited without re-running it.

@@ -4,7 +4,7 @@
 //   VELLUM_PASSWORD=… PORT=6801 node scripts/check-print.mjs   (protected vault)
 //
 // WHY IT EXISTS. Print is the only surface in this product that nobody looks
-// at while they work. The app is screenshotted at 1440×900 in fifteen themes,
+// at while they work. The app is screenshotted at 1440×900 in every theme,
 // the blog is measured at 390 and 834, and the reading view has a caret gate,
 // a preview gate and a sections gate — and `@media print` rules are invisible
 // to every one of them, because a browser only applies them when a human opens

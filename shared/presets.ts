@@ -137,7 +137,7 @@ export interface Preset {
   tags: string[];
   design: PresetDesign;
   /** Custom themes this preset needs, in the shape an export carries them.
-   *  Empty for every preset built on the fifteen — which is all fifty-nine shipped
+   *  Empty for every preset built on the built-ins — which is all fifty-nine shipped
    *  ones. Present only so a preset file authored elsewhere arrives complete. */
   themes?: unknown[];
 }

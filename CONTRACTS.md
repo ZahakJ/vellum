@@ -1043,12 +1043,12 @@ and the graph vignette, the `--sw-*` swatch machinery, the picker panel) and `st
 
 ## The theme library (15 themes)
 
-- **`shared/themes.ts` is the one list.** `THEMES` (15 ids, `THEMES[0]` = `iron-gall` = the
+- **`shared/themes.ts` is the one list.** `THEMES` (21 ids, `THEMES[0]` = `iron-gall` = the
   product default), `DARK_THEMES`/`LIGHT_THEMES`, `isTheme()`, `themeGroup()`. Both sides
   validate against it: the client's picker/palette/store and the server's `settings.defaultTheme`
   validator plus `DEFAULT_THEME` at startup (`server/site.ts` warns on an unknown name instead of
   passing it through). `client/themes.ts` re-exports it and adds `THEME_GROUPS` (the picker's
-  grouping) and `counterpartTheme()` (the ☾/☀ pairing — with fifteen themes a light/dark button
+  grouping) and `counterpartTheme()` (the ☾/☀ pairing — with twenty-one themes a light/dark button
   cannot mean "next in the list"). `client/state.ts` re-exports `THEMES`/`Theme`/`isTheme` so the
   store's published surface is unchanged.
 - **Every theme defines the WHOLE token set**, solved against its own `--bg` (all callout and
@@ -1096,7 +1096,7 @@ and the graph vignette, the `--sw-*` swatch machinery, the picker panel) and `st
 - **`--swatch-<id>-bg/-text/-accent` are CONSTANT across themes.** A preview of a theme painted
   in the theme currently on screen is not a preview. `styles/themes.css` maps each id to
   `--sw-bg/--sw-text/--sw-accent` on `[data-theme-swatch]` (picker) and `[data-theme-dot]`
-  (palette), so both surfaces are generic — a sixteenth theme needs one rule, not two.
+  (palette), so both surfaces are generic — a new theme needs one rule, not two.
 - **`client/components/ThemePicker.tsx` owns browsing, and all three doors are wired.** The
   status-bar ☾/☀ button, the palette's *Themes* command and Settings → Appearance's
   *Themes* button all call `openThemePicker()`. **There is exactly ONE theme row in the
@@ -1121,9 +1121,10 @@ and the graph vignette, the `--sw-*` swatch machinery, the picker panel) and `st
   `title`. `nextTheme()` is GONE from `state.ts`: it was blessed here as a keyboard-only
   "next look" helper, but no keybinding called it either — `grep -rn nextTheme client/` found the
   definition and nothing else, so it was unreachable code wearing an affordance's name. Cycling
-  fifteen rooms blind is the gesture this section removed; there is no version of it to keep
+  twenty-one rooms blind is the gesture this section removed; there is no version of it to keep
   warm. The glyph reads `themeGroup(theme)`, not
-  `theme === "parchment"` — there are four light themes and the moon was drawn on three of them.
+  `theme === "parchment"` — the light group has never been one room, and the moon was drawn on
+  every light theme but parchment.
   The overlay carries **no scrim and no blur** (`styles/themes.css`): every other overlay dims the
   app because the app is not what the reader is looking at, and this one exists so they can look
   at it — stacked under the settings panel's own `.s-palette-overlay` the two washes made the live
@@ -1133,7 +1134,8 @@ and the graph vignette, the `--sw-*` swatch machinery, the picker panel) and `st
   an index to (group, row, column) and moves a visual row at a time, entering the next group's
   first row in the same column and clamping to what that row actually holds; ←/→ still step by
   one across the whole list. Stepping ↑/↓ by ±COLS was wrong the moment a group held an ODD
-  number of themes: with eleven dark rooms the column parity flips at the boundary, so ArrowDown
+  number of themes: with the eleven dark rooms of the time the column parity flipped at the
+  boundary, so ArrowDown
   from Tallow (dark, LEFT column) landed on Sandstone (light, RIGHT column) and **Parchment, the
   flagship light theme, was unreachable by ArrowDown at all**. Enter-keeps and Esc-restores are
   unchanged.
@@ -1185,8 +1187,8 @@ overruled.
   in `localStorage["vellum.theme"]`, which no server can read. It is NOT `PATCH /api/settings`:
   that answers with published counts, every image attachment and the font catalog, and this fires
   on a theme click. **The client DEBOUNCES it** (`MIRROR_DELAY = 1000ms` in `client/state.ts`) and
-  always sends the CURRENT theme, so walking the fifteen-theme picker costs one request naming the
-  last room, not fifteen; a `pagehide` inside the window flushes it with `sendBeacon`. A visitor
+  always sends the CURRENT theme, so walking the picker costs one request naming the
+  last room, not one per room; a `pagehide` inside the window flushes it with `sendBeacon`. A visitor
   session, and an admin PREVIEWING as a visitor, never mirror (the client stands down; the guard
   401s anyway).
 - **IT IS VISIBLE, NOT MAGIC.** An admin must never discover that their private browsing changed
@@ -1399,7 +1401,7 @@ was a 58px swatch and a "Browse themes…" text link flung to opposite ends of t
 with ~280px of nothing between, one row under a full-width Select — the least finished-looking row
 in the panel, in both languages. It is one `.s-ctl-select`-shaped trigger now: same measure, same
 border, same chevron, carrying the miniature the picker itself draws. What it opens is a browsing
-panel rather than a list, which is the honest difference — fifteen rooms are chosen by looking at
+panel rather than a list, which is the honest difference — twenty-one rooms are chosen by looking at
 them.
 
 **THE ENVIRONMENT IS AN OPERATOR'S BUSINESS, AND IT SITS BEHIND A ⓘ.** Every
@@ -2398,7 +2400,7 @@ Client side (`Sidebar.tsx`, `AttachmentViewer.tsx`, `styles/attachments.css`):
   folder measures ~70 ms end to end. This applies to notes too — the same fixture has a 715-note
   folder.
 - **The nav handles sit on a fixed `rgba(0,0,0,.72)` scrim, so they cannot be painted as if they
-  were on the page.** `--bg-raised` is a near-black on eleven of the fifteen themes, which made
+  were on the page.** `--bg-raised` is a near-black on every dark theme, which made
   the only way to walk a 60-image folder the lowest-contrast control in the product: dark circles
   on a dark wash. They take an accent-tinted ground, a lit rim and a `--text` glyph, and fill with
   the accent on hover. The `N / M` position indicator had two `.s-att-view__pos` blocks, the
@@ -3327,7 +3329,7 @@ off, contained none of those three things.
   it is what the chip pointed at.
 - **`bannerFallback: "generated"` produces a made thing, not a blur.** `generatedBannerCss()`
   now lays a deterministic hairline rule pattern (angle and spacing from the title hash, painted
-  from `--text` at 7–9%, so it is the theme's own ink on any of the fifteen grounds) over the
+  from `--text` at 7–9%, so it is the theme's own ink on any ground the product has) over the
   three hash-hued radial blobs. Three soft blobs alone read as an image that failed to load: a
   783×166 field with no edge anywhere in it, and index thumbnails that looked broken rather than
   abstract.
@@ -3373,7 +3375,7 @@ off, contained none of those three things.
   that "clamped hardest" at 45% imported the least. That inversion is why parchment, the theme
   the accent floor was written for, shipped a pink card beside a green one on a gold-and-cream
   page. Now 0% is pure accent, a theme that forgets the token is safe rather than maximally
-  foreign, and every generated field on the four light themes is the room's own gold. Verified
+  foreign, and every generated field on the light themes is the room's own gold. Verified
   card-and-hero on iron-gall, parchment, cinnabar and lapis.
 - **The tag-in-prose rule has a gate: `scripts/check-excerpt.mjs`**, documented in README beside
   the other gates. It writes a fixture whose body ENDS in a tag line (and whose first paragraph
@@ -3580,7 +3582,7 @@ happens before the first byte and the browser never has to recover from a missin
 diff.** `client/styles/blog.css` is untouched. `client/blog/*` is untouched except five lines in
 `BlogShell`'s `ThemeButton`, which belong to the CUSTOM THEME feature rather than to this one
 (`themeGroup`/`counterpartTheme` → `choiceGroup`/`counterpartChoice`, so the ☾/☀ button answers
-for a custom theme as well as for the fifteen). The designed shell is a SECOND renderer beside
+for a custom theme as well as for the built-ins). The designed shell is a SECOND renderer beside
 the first — `client/design/`, with its own routing, its own section components and its own
 stylesheet, every class `s-dsn-*` — and the two meet at exactly one `if` in `App.tsx`. Nothing
 in `client/design/` mutates, forks, subclasses, monkey-patches or re-styles a stock component;
@@ -3742,8 +3744,8 @@ unpublished or language-hidden.
 
 ### Custom themes (`custom:<slug>`)
 
-A custom theme is **not a sixteenth block in `tokens.css`** and never becomes one. It is
-`{ base, tokens }` — one of the fifteen plus a SPARSE map of overrides — applied by putting the
+A custom theme is **not one more block in `tokens.css`** and never becomes one. It is
+`{ base, tokens }` — one of the built-ins plus a SPARSE map of overrides — applied by putting the
 BASE's id on `<html data-theme>` and the theme's slug on `<html data-custom-theme>`, which
 `/api/design/themes.css` keys at `:root[data-custom-theme="…"]`. That selector is (0,2,0) against
 `[data-theme="…"]`'s (0,1,0), so an override wins and nothing else moves. Three consequences, and
@@ -3790,12 +3792,12 @@ gate rejects — and that is the theme that ships.
 
 The gate also gained a ground it never had: **`--text` and `--text-muted` are now checked against
 `--bg-hover` as well**, because `--bg-hover` is a real ground (DESIGN.md paints the sidebar's tag
-pills and the backlink cards on it at rest) and both tokens clear it in all fifteen themes —
-worst measured 5.62:1 muted, 12.27:1 text. **`--text-faint` is deliberately held to two grounds**
-(`FAINT_GROUNDS`): faint-on-hover measures 2.73–3.00:1 in twelve of the fifteen, and that is not
-twelve bugs — DESIGN.md already names `--bg-hover` as the tag pill's ground and says in the same
+pills and the backlink cards on it at rest) and both tokens clear it in every theme.
+**`--text-faint` is deliberately held to two grounds**
+(`FAINT_GROUNDS`): faint-on-hover measures 2.7–3.0:1 in most rooms, and those are not
+bugs — DESIGN.md already names `--bg-hover` as the tag pill's ground and says in the same
 breath that faint measures 2.7:1 there, which is exactly why the pill's COUNT is `--text-muted`.
-Adding the third ground would have failed twelve shipping themes to enforce a rule the product
+Adding the third ground would have failed most of the shipping themes to enforce a rule the product
 does not have; the rule it does have — faint never carries reading text — is already enforced on
 the two grounds faint is painted on.
 
@@ -3808,14 +3810,14 @@ opened from the picker's header ("New custom theme") and from a pencil on each c
   `__preview` id and applied to the live document — the picker's rule, for the picker's reason.
   The CSS comes from the SAME generator the server serves, so what is on screen is byte-identical
   to what will be served after Save. Closing restores the theme that was in force.
-- **The base is chosen by looking at it.** Fifteen swatch cards painted from the CONSTANT
+- **The base is chosen by looking at it.** Twenty-one swatch cards painted from the CONSTANT
   `--swatch-<id>-*` tokens, not a `<select>` — the rule the settings panel states about native
-  chrome, and the same argument the theme picker makes about naming fifteen pigment nouns with
+  chrome, and the same argument the theme picker makes about naming pigment nouns with
   nothing saying what any of them looks like.
 - **Unset is a real state.** Every row shows the value it INHERITS and offers a reset that
   deletes rather than re-derives. The inherited values are read off the live document through a
   probe element carrying `data-theme`, never from a table in the client: a second definition of
-  fifteen themes would go stale the first time one is retuned, and the probe also picks up a
+  the built-in themes would go stale the first time one is retuned, and the probe also picks up a
   `custom.css` that legitimately changed a base.
 - **The warnings are the gate**, in words, above the controls that cause them, with a dot on any
   token group holding a failure. A rule the author cannot see is a rule they will break.
@@ -3868,7 +3870,7 @@ time** (duplicate id, empty or un-Arabic copy, a section or nav item naming a no
    fallbacks that already exist: `nav.fallback: "topics"` fills the menu from the busiest
    published tags, and list/grid sections read every published post. A fresh install gets a
    furnished site.
-3. **A PRESET NAMES A THEME** — one of the fifteen, because the layout was drawn against it. It
+3. **A PRESET NAMES A THEME** — one of the built-ins, because the layout was drawn against it. It
    applies on FORK, and then only to readers with no stored preference, which is `DesignedSite`'s
    existing rule.
 
@@ -3932,7 +3934,7 @@ It checks three tiers, and the middle one is the reason it exists:
    `normalizeChrome()` — the normalizer SNAPS out-of-range values instead of throwing, so
    `scale: 1.5` (the cap is 1.414) renders as a design nobody chose and nothing says a word. The
    bar is HALF A STEP, not equality: rounding onto the slider's own grid is what an author means,
-   being overruled by the bounds is not. Every theme named is one of the fifteen; every width is
+   being overruled by the bounds is not. Every theme named is one of the built-ins; every width is
    inside `MIN_WIDTH…MAX_WIDTH`; and **every preset survives `validateDesign()`**, which is the
    apply flow exactly — a preset the import route would reject is a preset whose first click is an
    error toast.
@@ -4188,7 +4190,7 @@ third colour again — a three-way disagreement inside one session, in the one p
 editing session happens in. `PreviewFrame` takes `ownTheme`, `themeChoiceAttrs()` (the value form
 of `applyThemeChoice`, one decision written by two callers in two documents) says which two
 attributes a choice means, and the frame is the one preview surface that can honour a `custom:`
-choice as well as one of the fifteen, because the generated sheet keys `:root[data-custom-theme]`
+choice as well as one of the built-ins, because the generated sheet keys `:root[data-custom-theme]`
 and the frame has a root. `dir` and `lang` stay the INSTANCE's — a design does not choose the
 language its site is written in — and a design that names no theme mirrors the app, which is the
 honest drawing of "the reader's own". A theme change is a REPAINT of two attributes, never a
@@ -5406,17 +5408,18 @@ quotes own that padding to place their own bars.
 ## Coloured text (shared/textColors.ts, client/styles/textcolor.css)
 
 **TWO TIERS, AND THE SECOND ONE EXISTS BECAUSE THE FIRST CANNOT BE A FIXED COLOUR.** A colour a
-reader puts inside a note outlives the theme it was chosen under, so it has to survive fifteen
+reader puts inside a note outlives the theme it was chosen under, so it has to survive twenty-one
 themes × two grounds. Ask for AA on all of them at once and the answer is provably empty: against
 `void`'s `#050508` a colour needs relative luminance ≥ 0.186, against `solar`'s `#ffffff` it needs
 ≤ 0.183. There is no such colour.
 
 - **Tier 1, the default — SEMANTIC.** The note stores `var(--vc-red)`; `client/styles/textcolor.css`
-  resolves it per theme GROUP (`themeGroup()` already partitions the fifteen into eleven dark rooms
-  and four light ones), so "red" is a light coral on a dark ground and a deep brick on a light one.
+  resolves it per theme GROUP (`themeGroup()` already partitions them into fourteen dark rooms
+  and seven light ones), so "red" is a light coral on a dark ground and a deep brick on a light one.
   Every value clears **4.75:1 against every ground in its group** — the shipped set's worst is
-  5.29:1. The note carries a MEANING, not an ink, so it reads correctly in a sixteenth theme too.
-- **Tier 2 — LITERAL.** Nine hexes, one value for all fifteen themes, solved against all thirty
+  4.98:1, on palimpsest's ground. The note carries a MEANING, not an ink, so it reads correctly in
+  a theme that ships later too.
+- **Tier 2 — LITERAL.** Nine hexes, one value for every theme, solved against all of their
   grounds at once and held to **3:1** — WCAG 1.4.11's non-text floor, the most a fixed ink can
   promise given the paragraph above. For when the author means THIS red: a diagram key, a quoted
   brand, a colour being discussed as itself.
@@ -5779,7 +5782,7 @@ near-black ground is FAINTER than the 1px `--border` hairline 200px above it, so
 not merely undistinguished but inverted. It is **2px, gold at 88%, solid from 15% to 85% of the
 measure and fading to nothing at both ends** — against a 1px `--border` chrome rule that is a
 difference of weight AND colour AND length, three ways at once. Stated entirely in `--accent`, so
-all fifteen themes follow their own gold and none needs a rule of its own; the chrome rules are
+every theme follows its own gold and none needs a rule of its own; the chrome rules are
 untouched, because this is about the divider earning a treatment, not about making furniture
 quieter. Markdown's three spellings become two things a typesetter has always had to say: `---` /
 `___` is the plain rule (a BREATH, not a border — it does not touch the measure's edges), `***`
@@ -6635,8 +6638,8 @@ underneath it.
   PATCH refuses. Body 15–21px, measure 58–86ch, line height 1.4–1.9, weight 400–800, scale
   1.10–1.414, rhythm 0.75–1.6. Heading SIZES are derived (`base × ratio^n`, `typographyVars()`),
   not six independent fields: six fields is six ways to put an h3 above its h2. Colours are
-  never a design input — a design decides size, weight, rhythm and arrangement; the fifteen
-  themes stay fifteen themes.
+  never a design input — a design decides size, weight, rhythm and arrangement; the twenty-one
+  themes stay twenty-one themes.
 - **THE MEASURE IS EMITTED TWICE.** `--dsg-measure` (ch) caps the PROSE, because a character
   count is what the control means; `--dsg-measure-px` caps every wrapper around it, because a
   `ch` resolves against each element's own font-size and the page column, the article header and
@@ -6710,7 +6713,7 @@ wearing a designer's name. What follows is normative for that panel.
 ### THE DESIGN'S COLOUR IS CHOSEN BY LOOKING AT IT
 
 `DesignThemeCards` (`client/components/design/DesignThemeCards.tsx`) — "Site default" plus the
-fifteen plus every custom theme, as swatch cards painted from the CONSTANT `--swatch-<id>-*`
+built-ins plus every custom theme, as swatch cards painted from the CONSTANT `--swatch-<id>-*`
 tokens through the same `[data-theme-swatch]` hook the theme picker and the builder already use.
 It is the rule the ThemeBuilder states, applied to the other control that decides a palette; a
 retuned theme moves here with no second table to update.
@@ -6718,7 +6721,7 @@ retuned theme moves here with no second table to update.
 This was a `<Select>` whose options were `["", ...customThemes]` — the instance's HAND-BUILT
 themes and nothing else. On a fresh instance that is exactly ONE row ("Site default"), the
 control's own value rendered as the raw slug `iron-gall` with no label and no colour, and not one
-of the fifteen built-in themes was reachable: after applying a preset an author could keep the
+of the built-in themes was reachable: after applying a preset an author could keep the
 colour it shipped or destroy it, and nothing else. The field's own hint says the value is "forced
 on readers who have not chosen a theme themselves", so the single control that decides what every
 first-time visitor sees was inoperable — against WordPress's Customizer colour panel and
@@ -6813,8 +6816,8 @@ its switch and ✕ are ABSENT rather than disabled. One row's options are open a
 open IN PLACE, under the row, over 160ms of height and opacity.
 
 **Glyphs are `currentColor` and `aria-hidden`, always.** They inherit the row's own token
-(`--text-muted` at rest, `--accent` when hovered or open), so they are correct in all fifteen
-themes and on all three grounds without a rule of their own; their interior shading is opacity over
+(`--text-muted` at rest, `--accent` when hovered or open), so they are correct in every
+theme and on all three grounds without a rule of their own; their interior shading is opacity over
 a picture, never over `--text-faint`, which is at its floor already; and no shade of one carries a
 fact the words beside it do not.
 

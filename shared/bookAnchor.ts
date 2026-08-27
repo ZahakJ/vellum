@@ -300,7 +300,7 @@ export interface BookRect {
 
 /** How many inks a highlight may be. The six are PAGE inks, not chrome — see
  *  `--book-ink-1..6` in client/styles/tokens.css for why they are the same six
- *  in all fifteen themes. */
+ *  in every theme. */
 export const INK_COUNT = 6;
 
 /** Caps. A quote is a passage, not a chapter; a margin note is a note, not an

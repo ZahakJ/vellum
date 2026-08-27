@@ -4,7 +4,7 @@
 // picker, the palette's per-theme commands, the stored "vellum.theme" guard)
 // and the server (`defaultTheme` in settings.json, DEFAULT_THEME in the
 // environment). They used to be two hand-kept copies of four strings, which
-// was survivable at four and is not at fifteen: a theme missing from the
+// was survivable at four and is not at twenty-one: a theme missing from the
 // server's copy is a 400 on a value the client offers in a dropdown.
 //
 // The COLORS are in client/styles/tokens.css — one [data-theme="…"] block per
@@ -25,10 +25,21 @@ export const DARK_THEMES = [
   "moss",
   "porphyry",
   "tallow",
+  "phosphor",
+  "sidereal",
+  "murex",
 ] as const;
 
 /** Light themes, same order rule. */
-export const LIGHT_THEMES = ["parchment", "sandstone", "solar", "linen"] as const;
+export const LIGHT_THEMES = [
+  "parchment",
+  "sandstone",
+  "solar",
+  "linen",
+  "palimpsest",
+  "porcelain",
+  "mauveine",
+] as const;
 
 export const THEMES = [...DARK_THEMES, ...LIGHT_THEMES] as const;
 
@@ -41,7 +52,7 @@ export function isTheme(value: unknown): value is Theme {
 
 /** The third state of the site's default theme: not a theme id at all, but
  *  "whatever the admin is looking at". `settings.defaultTheme` (and
- *  `DEFAULT_THEME`) take this word alongside the fifteen ids, and it is the
+ *  `DEFAULT_THEME`) take this word alongside the twenty-one ids, and it is the
  *  DEFAULT when neither is set — a blog looks like its author's editor unless
  *  the author says otherwise. The theme actually served then comes from
  *  `settings.adminTheme`, mirrored from the admin's browser (which is the only

@@ -26,6 +26,10 @@ way your own notes eventually will:
 - [[Command Palette]] — do everything from the keyboard
 - [[Hosting Your Own Vault]] — point Vellum at your real notes
 
+There is more in here than these eight notes cover — a site designer, a book
+reader, trackers, twenty-one themes, split panes, backup. Press `Ctrl/Cmd P` and
+run **Take the tour** to meet them one card at a time.
+
 ## First steps
 
 - [x] Open Vellum

@@ -1,6 +1,6 @@
-// Custom themes: a named override layer over one of the fifteen built-ins.
+// Custom themes: a named override layer over one of the built-ins.
 //
-// A custom theme is NOT a sixteenth block in tokens.css and never becomes one.
+// A custom theme is NOT one more block in tokens.css and never becomes one.
 // It is `{ base, tokens }` — a built-in theme id plus a SPARSE map of token
 // overrides — and it is applied by putting the base's own id on
 // `<html data-theme>` (so every token the author did not touch comes from the
@@ -37,7 +37,7 @@ export const CUSTOM_THEME_PREFIX = "custom:";
 /** A custom theme id as it is spoken on the wire and in localStorage. */
 export type CustomThemeId = string;
 
-/** Any theme the product can be set to: one of the fifteen, or `custom:<slug>`. */
+/** Any theme the product can be set to: one of the built-ins, or `custom:<slug>`. */
 export type ThemeChoice = Theme | CustomThemeId;
 
 /** How many custom themes one instance may hold. Not a resource limit — the

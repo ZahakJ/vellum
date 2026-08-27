@@ -29,15 +29,15 @@ export type Ground = (typeof GROUNDS)[number];
  *  ON PURPOSE — this is a statement about the token's REMIT, which is the
  *  whole basis of its 3:1 floor.
  *
- *  Measured across the built-ins, faint-on-hover lands at 2.73–3.00:1 in
- *  twelve of the fifteen. That is not fifteen bugs: DESIGN.md already names
+ *  Measured across the built-ins, faint-on-hover lands at 2.7–3.0:1 in most
+ *  rooms. That is not a list of bugs: DESIGN.md already names
  *  `--bg-hover` as the tag pill's ground and says in the same breath that
  *  `--text-faint` measures 2.7:1 there — which is why the pill's count is
  *  `--text-muted` and only the pill's `#` (an accent glyph) and the section
  *  heading above it are faint. A token whose entire licence is "UI glyphs and
  *  de-emphasized machine bookkeeping, never a name or a count" is not put on
  *  the ground that carries names and counts. Adding the third ground here
- *  would have failed twelve shipping themes to enforce a rule the product does
+ *  would have failed most of the shipping themes to enforce a rule the product does
  *  not have; the rule it DOES have — faint never carries reading text — is the
  *  one already enforced on the two grounds faint is actually painted on. */
 export const FAINT_GROUNDS = ["--bg", "--bg-raised"] as const;

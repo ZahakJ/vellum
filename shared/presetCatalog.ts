@@ -23,7 +23,7 @@
 //     fallback that already exists: `nav.fallback: "topics"` fills the menu
 //     from the busiest published tags, and the list and grid sections read
 //     every published post. A fresh install gets a furnished site.
-//  3. A PRESET IS A LOOK, SO IT NAMES A THEME. One of the fifteen, chosen
+//  3. A PRESET IS A LOOK, SO IT NAMES A THEME. One of the built-ins, chosen
 //     because the layout was drawn against it — a broadsheet is a broadsheet
 //     on parchment. It applies on FORK, and only to readers who have not
 //     chosen a theme of their own (`DesignedSite`'s rule, and the right one).

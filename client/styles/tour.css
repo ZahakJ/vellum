@@ -1,0 +1,383 @@
+/* THE TOUR — a folio from the manuscript, centred, one feature at a time.
+ *
+ * It borrows the palette's overlay (`.s-palette-overlay`) and nothing else:
+ * the palette is a list and this is a PAGE, so it is wider than a row, taller
+ * than a row, and centred in the viewport rather than hung from 18vh.
+ *
+ * Two rules from DESIGN.md that this sheet is the enforcement of:
+ *
+ *   * The gold is `--accent`, reached through `color` on a wrapper `<g>` so
+ *     every mark in the miniatures stays `currentColor` (see TourGlyphs.tsx).
+ *     No hex, no named colour, nothing that would need a rule of its own when
+ *     a new theme is made.
+ *   * `--text-faint` is not a text colour and is not used for any of the
+ *     copy here. The count, the hint and the prerequisite line are all
+ *     `--text-muted`: they are things a reader has to READ.
+ */
+
+.s-tour-overlay {
+  /* A page, not a row: centred in the viewport rather than hung from the top
+     like the palette and the shortcut sheet. */
+  align-items: center;
+  padding: 24px;
+}
+
+.s-tour {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: min(640px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  padding: 34px 30px 20px;
+  /* A vertical pan inside the folio is the folio's own scroll; a horizontal
+     one is a page turn and belongs to the deck. */
+  touch-action: pan-y;
+  animation: s-tour-open 0.16s ease;
+}
+
+/* THE PANEL IS A PROGRAMMATIC-ONLY TAB STOP (`useDialog` gives it tabIndex
+   -1 so focus lands on the deck rather than on its ✕), and Chromium paints
+   :focus-visible on that — a gold ring around the entire card the moment it
+   opens, which reads as "this whole thing is selected". No ring, because
+   nothing keyboard-navigable is being indicated: the ring belongs to the
+   controls inside, and every one of them keeps its own. The shadow is
+   restated here rather than dropped, so this is a block that DEFINES what it
+   paints instead of one that removes an affordance. */
+.s-tour:focus-visible,
+.s-tour:focus {
+  outline: none;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes s-tour-open {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.s-tour__close {
+  position: absolute;
+  top: 8px;
+  inset-inline-end: 8px;
+  color: var(--text-muted);
+}
+
+/* ── The folio ──────────────────────────────────────────────────────────── */
+
+.s-tour__folio {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+  padding-bottom: 6px;
+}
+
+/* THE PAGE TURN. Transform and opacity only, 180ms, and the direction follows
+   the flip: a forward turn arrives from the far edge, a backward one from the
+   near edge. Logical properties are not available to `translateX`, so the sign
+   is flipped for an RTL document instead — the same "measure it, do not write
+   it down" rule the shell's swipe follows. */
+@keyframes s-tour-turn-next {
+  from {
+    opacity: 0;
+    transform: translateX(22px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes s-tour-turn-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-22px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.s-tour__folio--next {
+  animation: s-tour-turn-next 0.18s ease;
+}
+
+.s-tour__folio--prev {
+  animation: s-tour-turn-prev 0.18s ease;
+}
+
+[dir="rtl"] .s-tour__folio--next {
+  animation-name: s-tour-turn-prev;
+}
+
+[dir="rtl"] .s-tour__folio--prev {
+  animation-name: s-tour-turn-next;
+}
+
+/* The miniature. `--text-muted` rather than `--text-faint`: it is drawn at
+   64×48, it is the largest mark on the page, and DESIGN.md keeps the faint
+   token for small UI glyphs sitting at their 3:1 floor. */
+.s-tour__glyph {
+  display: block;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+/* The gold in a miniature. `color`, not `fill`, so every shape inside stays
+   `currentColor` and the file carries no colour at all. */
+.s-tour__gold {
+  color: var(--accent);
+}
+
+.s-tour__name {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.429rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.s-tour__blurb {
+  margin: 0;
+  max-width: 42ch;
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+
+/* The one quiet line a card says when its prerequisite is off. It is not a
+   warning and must not look like one: no icon, no danger tint — a fact. */
+.s-tour__prereq {
+  margin: 0;
+  max-width: 40ch;
+  font-size: 0.857rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.s-tour__go {
+  margin-top: 4px;
+  min-height: 38px;
+  padding: 0 20px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 0.929rem;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.s-tour__go:hover,
+.s-tour__go:active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* ── Flipping ───────────────────────────────────────────────────────────── */
+
+.s-tour__nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.s-tour__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.s-tour__step:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.s-tour__step:disabled {
+  color: var(--border);
+  cursor: default;
+}
+
+/* The arrows are the deck's direction, so they mirror with it. */
+[dir="rtl"] .s-tour__step svg {
+  transform: scaleX(-1);
+}
+
+.s-tour__dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+/* A 6px dot inside a target big enough to press. The mark is drawn by the
+   ::before so the button itself can carry the 44px a thumb needs without the
+   deck growing a row of saucers. */
+.s-tour__dot {
+  position: relative;
+  width: 16px;
+  height: 22px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.s-tour__dot::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 5px;
+  top: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.s-tour__dot:hover::before {
+  background: var(--text-muted);
+}
+
+.s-tour__dot--on::before {
+  background: var(--accent);
+  transform: scale(1.25);
+}
+
+.s-tour__foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 10px 0 0;
+  font-size: 0.786rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.s-tour__count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.s-tour__hint {
+  max-width: 46ch;
+}
+
+/* The keyboard line by default; the finger line is swapped in below. */
+.s-tour__hint--touch {
+  display: none;
+}
+
+/* ── A thumb, and a small screen ────────────────────────────────────────── */
+
+@media (max-width: 700px), (pointer: coarse) {
+  .s-tour {
+    padding: 30px 20px 14px;
+    max-height: calc(100dvh - 32px);
+  }
+
+  .s-tour__close,
+  .s-tour__step {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .s-tour__close {
+    top: 2px;
+    inset-inline-end: 2px;
+  }
+
+  .s-tour__step {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* THE DOTS GO, rather than shrink. Fifteen targets at the 44px this shell
+     promises every coarse pointer is 660px of row inside a 390px screen: they
+     wrapped into four ragged ranks, which is not a position indicator, it is a
+     rash. Shrinking them to fit would be breaking the 44px rule quietly, which
+     is worse than dropping a convenience — so the two things that ARE full
+     targets stay (the arrows), the gesture stays (a swipe flips), and the
+     position is carried by the count, which was always the thing that said it
+     in words. */
+  .s-tour__dots {
+    display: none;
+  }
+
+  /* With the dot row gone the two arrows had nothing between them and met in
+     the middle of the card — two 44px targets 8px apart, which is one target
+     as far as a thumb is concerned. They go to the edges instead, where a
+     thumb of either hand already rests. */
+  .s-tour__nav {
+    justify-content: space-between;
+  }
+
+  .s-tour__hint--keys {
+    display: none;
+  }
+
+  .s-tour__hint--touch {
+    display: inline;
+  }
+
+  .s-tour__go {
+    min-height: 44px;
+    width: 100%;
+    max-width: 320px;
+  }
+
+  .s-tour__name {
+    font-size: 1.286rem;
+  }
+}
+
+/* The page turn is the only motion in here, and it is the first thing to go.
+   The deck still flips — instantly — which is the point: "reduce" is a request
+   about animation, not about the feature. */
+@media (prefers-reduced-motion: reduce) {
+  .s-tour,
+  .s-tour__folio--next,
+  .s-tour__folio--prev {
+    animation: none;
+  }
+
+  .s-tour__dot::before,
+  .s-tour__go,
+  .s-tour__step {
+    transition: none;
+  }
+}

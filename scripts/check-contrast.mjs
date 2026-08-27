@@ -9,9 +9,8 @@
 // --bg-hover is a GROUND, not a hover artefact: DESIGN.md paints the sidebar's
 // tag pills and the backlink cards on it at rest, and a tree row is under the
 // pointer exactly when it is being read. It was never checked, and the two
-// tokens that carry reading text there clear it in all fifteen themes (worst
-// measured: 5.62:1 muted / 12.27:1 text), so the gate says so instead of
-// leaving it unstated. --text-faint stays on two grounds on purpose — see
+// tokens that carry reading text there clear it in every theme, so the gate
+// says so instead of leaving it unstated. --text-faint stays on two grounds on purpose — see
 // FAINT_GROUNDS in shared/contrast.ts, where that argument is written out.
 //
 // --text-faint used to print "(info)" against a minimum of 0 — a number the
@@ -148,7 +147,7 @@ for (const [name, t] of Object.entries(themes)) {
 //   · SEMANTIC (`--vc-*`, client/styles/textcolor.css): one value per THEME
 //     GROUP, held to 4.5:1 — AA body text — against every ground in its group.
 //     This is the default tier and the reason it is the default.
-//   · LITERAL (nine hexes): one value for all fifteen themes, held to 3:1,
+//   · LITERAL (nine hexes): one value for every theme, held to 3:1,
 //     WCAG 1.4.11's non-text floor. It cannot be held to 4.5: against `void`'s
 //     #050508 a colour needs relative luminance >= 0.186 and against `solar`'s
 //     #ffffff it needs <= 0.183, and no colour satisfies both. The gate prints
@@ -160,7 +159,7 @@ for (const [name, t] of Object.entries(themes)) {
 
 const { SEMANTIC_COLORS, LITERAL_COLORS } = await import("../shared/textColors.ts");
 
-const LIGHT_THEMES = ["parchment", "sandstone", "linen", "solar"];
+const LIGHT_THEMES = ["parchment", "sandstone", "linen", "solar", "palimpsest", "porcelain", "mauveine"];
 const isLight = (name) => LIGHT_THEMES.some((id) => name.startsWith(id));
 
 /** Every ground a note's prose can sit on, per theme. `--bg-raised` counts:

@@ -8,7 +8,7 @@ query it shows commands and recent notes, so the palette doubles as a launcher:
 
 - **New note** (also `Ctrl/Cmd N`)
 - **Toggle graph** (also `Ctrl/Cmd G` — see [[Graph View]])
-- **Theme: …** — one command per look, fifteen of them: eleven dark rooms (*iron-gall*, *cinnabar*, *sumi*, *void*, *basalt*, *nocturne*, *lapis*, *verdigris*, *moss*, *porphyry*, *tallow*) and four lit ones (*parchment*, *sandstone*, *solar*, *linen*). To browse rather than jump, open the theme picker from the status bar and walk it with the arrow keys — it previews live and Esc puts back what you had.
+- **Theme: …** — one command per look, twenty-one of them: fourteen dark rooms (*iron-gall*, *cinnabar*, *sumi*, *void*, *basalt*, *nocturne*, *lapis*, *verdigris*, *moss*, *porphyry*, *tallow*, *phosphor*, *sidereal*, *murex*) and seven lit ones (*parchment*, *sandstone*, *solar*, *linen*, *palimpsest*, *porcelain*, *mauveine*). To browse rather than jump, open the theme picker from the status bar and walk it with the arrow keys — it previews live and Esc puts back what you had.
 - **Toggle vim** — modal editing, as promised in [[Editing]]
 - **Rename current note** — safely; links update, as explained in [[Wikilinks & Backlinks]]
 - **Delete current note**

@@ -26,7 +26,7 @@
 //          is 1.414) renders as something its author never chose and nothing
 //          says a word. Silent correction is the failure mode a catalog of
 //          sixty hand-written records is most likely to accumulate;
-//        · every named theme is one of the fifteen — a preset naming a theme
+//        · every named theme is one of the built-ins — a preset naming a theme
 //          this build does not have paints as the reader's own and the shape
 //          argument is lost;
 //        · the site width is inside MIN_WIDTH…MAX_WIDTH, same reason.
