@@ -19,6 +19,16 @@
 
 import fsp from "node:fs/promises";
 import path from "node:path";
+import {
+  catalogEntry,
+  coversArabic,
+  FONT_CATALOG,
+  dedupeFontRefs,
+  designFontRefSpec,
+  SYSTEM,
+  type CatalogEntry,
+  type DesignFontRef,
+} from "../shared/fontCatalog.ts";
 import { optionFamily } from "../shared/fonts.ts";
 import {
   cssFormat,
@@ -31,94 +41,23 @@ import { fontsDir } from "./site.ts";
 import { VaultError } from "./vault.ts";
 
 // ---------------------------------------------------------------- catalog
+//
+// THE LIST ITSELF LIVES IN shared/fontCatalog.ts. It moved there when a DESIGN
+// gained the ability to name a face: `validateChrome()`, the designer's font
+// rows and `check-presets` all have to agree about which ids exist, and none of
+// them is a server. Everything below this line — the download, the cache, the
+// generated CSS — is still the server's, and re-exporting keeps every existing
+// caller (`server/settings.ts`, `server/api.ts`) importing from one place.
 
-export type FontCategory = "serif" | "sans" | "mono";
-export type FontScript = "latin" | "arabic";
-
-export interface CatalogEntry {
-  /** The family name as Google Fonts (and the browser) knows it. */
-  family: string;
-  category: FontCategory;
-  /** Scripts the family actually covers well — drives which slots take it. */
-  scripts: FontScript[];
-  /** OPTICAL SIZE COMPENSATION, in percent, applied as the `size-adjust`
-   *  descriptor when this family is used as the ARABIC half of a composite
-   *  (see composite()). Absent / 100 means "already matches".
-   *
-   *  Why it has to exist: the composite puts two faces at ONE font-size, and
-   *  an Arabic naskh face carries a much smaller body ("x-height") inside the
-   *  same em than a Latin text face does. Amiri's base letters stand at ~0.35
-   *  em against Lora's 0.51 em x-height, so `العقل السليم` set beside Lora at
-   *  the same px reads like a footnote. `size-adjust` is the only descriptor
-   *  that fixes this at the FACE level, which is where it belongs: it scales
-   *  the Arabic glyphs alone, so an English instance with an Arabic slot gets
-   *  the compensation too — the whole-UI `--font-scale` multiplier under
-   *  :root[lang="ar"] scales BOTH scripts and therefore never moves the ratio.
-   *
-   *  The numbers are measured, not guessed: the height of the round base
-   *  letter ه (the closest analogue of a Latin x-height) at a 100px em,
-   *  against Lora's x-height of 51, damped 15% toward 100% because Arabic
-   *  copy carries no capitals and sits a touch above a pure x-height match.
-   *  Anything within a few percent of 100 is left out entirely. */
-  sizeAdjust?: number;
-}
-
-/** The "no webfont" choice, valid in every slot: the built-in system stacks. */
-export const SYSTEM = "system";
-
-/** Catalog ids are the stable wire values (settings.json, /api/settings, the
- *  cache directory name) — slugs, never the display family. */
-export const FONT_CATALOG: Record<string, CatalogEntry> = {
-  // ── Latin serif (prose) ────────────────────────────────────────────────
-  "lora": { family: "Lora", category: "serif", scripts: ["latin"] },
-  "eb-garamond": { family: "EB Garamond", category: "serif", scripts: ["latin"] },
-  "crimson-pro": { family: "Crimson Pro", category: "serif", scripts: ["latin"] },
-  "literata": { family: "Literata", category: "serif", scripts: ["latin"] },
-  "source-serif-4": { family: "Source Serif 4", category: "serif", scripts: ["latin"] },
-  "merriweather": { family: "Merriweather", category: "serif", scripts: ["latin"] },
-  // ── Latin sans (interface) ─────────────────────────────────────────────
-  "inter": { family: "Inter", category: "sans", scripts: ["latin"] },
-  "source-sans-3": { family: "Source Sans 3", category: "sans", scripts: ["latin"] },
-  "ibm-plex-sans": { family: "IBM Plex Sans", category: "sans", scripts: ["latin"] },
-  "work-sans": { family: "Work Sans", category: "sans", scripts: ["latin"] },
-  // ── Mono (code, raw markdown) ──────────────────────────────────────────
-  "jetbrains-mono": { family: "JetBrains Mono", category: "mono", scripts: ["latin"] },
-  "ibm-plex-mono": { family: "IBM Plex Mono", category: "mono", scripts: ["latin"] },
-  "fira-code": { family: "Fira Code", category: "mono", scripts: ["latin"] },
-  "source-code-pro": { family: "Source Code Pro", category: "mono", scripts: ["latin"] },
-  // ── Arabic ─────────────────────────────────────────────────────────────
-  // Naskh and classical faces first (what a reading column wants), then the
-  // modern geometric/kufi ones (what chrome wants). All of them also carry a
-  // Latin subset, which buildFontCss() deliberately drops: the Arabic slot
-  // answers for Arabic codepoints only, so Latin inside Arabic copy keeps the
-  // product's own type.
-  // `sizeAdjust` is the measured optical-size compensation (see CatalogEntry):
-  // ه-height at a 100px em → 35 for Amiri against Lora's 51, and the naskh
-  // faces are the ones that need it most. Faces already sitting within a few
-  // percent of the Latin body (Cairo, Almarai, Reem Kufi, Noto Sans Arabic)
-  // carry no value at all rather than a decorative 100.
-  "amiri": { family: "Amiri", category: "serif", scripts: ["arabic", "latin"], sizeAdjust: 138 },
-  "scheherazade-new": { family: "Scheherazade New", category: "serif", scripts: ["arabic", "latin"], sizeAdjust: 136 },
-  "noto-naskh-arabic": { family: "Noto Naskh Arabic", category: "serif", scripts: ["arabic", "latin"], sizeAdjust: 114 },
-  "markazi-text": { family: "Markazi Text", category: "serif", scripts: ["arabic", "latin"], sizeAdjust: 126 },
-  "lateef": { family: "Lateef", category: "serif", scripts: ["arabic", "latin"], sizeAdjust: 150 },
-  "aref-ruqaa": { family: "Aref Ruqaa", category: "serif", scripts: ["arabic", "latin"], sizeAdjust: 120 },
-  "noto-kufi-arabic": { family: "Noto Kufi Arabic", category: "sans", scripts: ["arabic", "latin"], sizeAdjust: 90 },
-  "noto-sans-arabic": { family: "Noto Sans Arabic", category: "sans", scripts: ["arabic", "latin"] },
-  "ibm-plex-sans-arabic": { family: "IBM Plex Sans Arabic", category: "sans", scripts: ["arabic", "latin"], sizeAdjust: 120 },
-  "cairo": { family: "Cairo", category: "sans", scripts: ["arabic", "latin"] },
-  "tajawal": { family: "Tajawal", category: "sans", scripts: ["arabic", "latin"], sizeAdjust: 112 },
-  "reem-kufi": { family: "Reem Kufi", category: "sans", scripts: ["arabic", "latin"] },
-  "almarai": { family: "Almarai", category: "sans", scripts: ["arabic", "latin"] },
-};
-
-/** Catalog lookup by OWN property only. A bare `FONT_CATALOG[id]` resolves up
- *  the prototype chain, so "constructor" / "toString" would read as known ids
- *  (and reach the fetcher, and name a cache directory) — the same reason
- *  patchSettings checks own-properties on its handler table. */
-export function catalogEntry(id: string): CatalogEntry | null {
-  return Object.prototype.hasOwnProperty.call(FONT_CATALOG, id) ? FONT_CATALOG[id] : null;
-}
+export {
+  catalogEntry,
+  catalogList,
+  FONT_CATALOG,
+  SYSTEM,
+  type CatalogEntry,
+  type FontCategory,
+  type FontScript,
+} from "../shared/fontCatalog.ts";
 
 export type FontSlot = "prose" | "ui" | "mono" | "arabic";
 export const FONT_SLOTS: FontSlot[] = ["prose", "ui", "mono", "arabic"];
@@ -144,11 +83,6 @@ export function slotAllows(slot: FontSlot, id: string): boolean {
   if (slot === "arabic") return entry.scripts.includes("arabic");
   if (slot === "mono") return entry.category === "mono";
   return entry.category !== "mono";
-}
-
-/** The catalog as a list the settings panel renders its selects from. */
-export function catalogList(): (CatalogEntry & { id: string })[] {
-  return Object.entries(FONT_CATALOG).map(([id, entry]) => ({ id, ...entry }));
 }
 
 // ---------------------------------------------------------------- settings
@@ -298,6 +232,19 @@ export function customSlotIds(slots: FontSlots): string[] {
 export function fontsSignature(slots: FontSlots): string {
   const picks = FONT_SLOTS.map((slot) => slots[slot]).join(".");
   return slots.arabicSizeAdjust == null ? picks : `${picks}.${slots.arabicSizeAdjust}`;
+}
+
+/** The signature for the WHOLE generated stylesheet, which is now the union of
+ *  the instance's four slots and the faces the ACTIVE DESIGN names. Both halves
+ *  have to ride on it: an instance whose slots are all "system" but whose
+ *  design names EB Garamond still needs the sheet linked at all, and a design
+ *  edited from serif to mono has to give the browser a new URL rather than
+ *  yesterday's families. Empty means "nothing to serve" — the client drops the
+ *  link entirely. */
+export function siteFontsSignature(slots: FontSlots, refs: DesignFontRef[]): string {
+  const design = designFontRefSpec(refs);
+  if (slotsAreSystem(slots) && design === "") return "";
+  return design === "" ? fontsSignature(slots) : `${fontsSignature(slots)}~${design}`;
 }
 
 // ---------------------------------------------------------------- the cache
@@ -920,6 +867,74 @@ export async function buildFontCss(slots: FontSlots, opts: FontCssOptions): Prom
     );
   }
   return `${parts.join("\n")}\n`;
+}
+
+// ------------------------------------------------ a design's own faces
+//
+// A DESIGN NAMES ONE FACE PER ROLE, AND THE INSTANCE ANSWERS FOR THE OTHER
+// SCRIPT. That is the whole rule, and it is the instance-wide rule mirrored
+// rather than a second system beside it.
+//
+// `settings.fonts` composes every Latin slot with ONE Arabic slot, so a mixed
+// paragraph picks per character. A design gets exactly that, per design: the
+// face it names becomes the half its own coverage says it is — a Latin family
+// is the Latin half, a family that covers Arabic is the Arabic half — and the
+// OTHER half comes from `settings.fonts`, from the slot the design's own
+// family choice points at (serif → prose, sans → ui, mono → mono).
+//
+// WHY THE DESIGN DOES NOT GET TO NAME BOTH HALVES. An Arabic vault has already
+// declared its naskh face in Settings → Typography, and that declaration is
+// about the LANGUAGE THE SITE IS WRITTEN IN, not about the arrangement of a
+// page. A portable design document — one that ships in the preset catalog and
+// is applied by a stranger — must not be able to overrule it: the operator
+// would apply "the letterpress salon" and find their Amiri replaced by
+// somebody else's idea of Arabic. So a design decides Latin type and inherits
+// Arabic type, or names an Arabic face and inherits Latin type, and either way
+// the instance keeps the half it actually knows about.
+//
+// A face that is not on disk emits nothing at all, the `var(--font-*)` beside
+// it in `--dsg-head-font` answers instead, and the page is the page it would
+// have been. Same contract as a broken design: a visitor's non-event.
+
+/** The instance faces a design's refs will be paired with — everything the
+ *  composites below need cached beyond the design's own ids. */
+export function designPairIds(refs: DesignFontRef[], slots: FontSlots): string[] {
+  const ids = new Set<string>();
+  for (const ref of refs) {
+    ids.add(ref.id);
+    // The counterpart half: the Arabic slot for a Latin face, the design's own
+    // stack slot for an Arabic one.
+    const pair = coversArabic(ref.id) ? slots[ref.slot] : slots.arabic;
+    if (pair !== SYSTEM) ids.add(pair);
+  }
+  return [...ids];
+}
+
+/** …and the CATALOG half of that, for `ensureFontsCached`. */
+export function designCatalogIds(refs: DesignFontRef[], slots: FontSlots): string[] {
+  return designPairIds(refs, slots).filter((id) => !isCustomId(id));
+}
+
+/** The @font-face blocks for a design's faces — one composite family per
+ *  (id, slot) pair, named exactly what `designFontFamily()` names it in the
+ *  browser. No :root remap ever: a design's type reaches the page through the
+ *  `--dsg-*` variables on its own root, never by moving the instance's tokens. */
+export async function buildDesignFontCss(refs: DesignFontRef[], slots: FontSlots): Promise<string> {
+  const parts: string[] = [];
+  for (const ref of dedupeFontRefs(refs)) {
+    if (!catalogEntry(ref.id)) continue;
+    const arabicFace = coversArabic(ref.id);
+    const latinId = arabicFace ? slots[ref.slot] : ref.id;
+    const arabicId = arabicFace ? ref.id : slots.arabic;
+    // The operator's size-adjust override describes THEIR Arabic slot face
+    // measured against THEIR Latin one. It is a fact about a pairing, so it
+    // travels only with that pairing: a design that names its own Arabic face
+    // gets the catalog's measured number for THAT family instead.
+    const adjust = arabicFace ? null : (slots.arabicSizeAdjust ?? null);
+    const built = await composite(ref.family, latinId, arabicId, adjust);
+    parts.push(built.css);
+  }
+  return parts.join("");
 }
 
 // -------------------------------------------------- the picker's own faces

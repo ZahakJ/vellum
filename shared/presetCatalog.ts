@@ -1,4 +1,4 @@
-// THE SHIPPED CATALOG. Fifty-nine finished designs, as data.
+// THE SHIPPED CATALOG. Seventy-one finished designs, as data.
 //
 // FOUR ARE HERE. The rest are written against the same three rules,
 // and the rules are the whole contract for adding one:
@@ -54,6 +54,9 @@ import { LANDING_PRESETS } from "./presetsLanding.ts";
 import { LETTER_PRESETS } from "./presetsLetter.ts";
 import { MINIMAL_PRESETS } from "./presetsMinimal.ts";
 import { PORTFOLIO_PRESETS } from "./presetsPortfolio.ts";
+import { SIGNATURE_A_PRESETS } from "./presetsSignatureA.ts";
+import { SIGNATURE_B_PRESETS } from "./presetsSignatureB.ts";
+import { SIGNATURE_C_PRESETS } from "./presetsSignatureC.ts";
 import {
   assertCatalog,
   presetChrome as chrome,
@@ -254,8 +257,21 @@ const dispatch: Preset = {
  *  (presetsBrutalist.ts) — two arguments about restraint that share a family
  *  and not a file. `reference` holds documentation, then research, then the
  *  digital-garden designs, which is the order somebody browsing the chip is
- *  most likely to want them in. */
+ *  most likely to want them in.
+ *
+ *  THE SIGNATURE COLLECTION LEADS, and that is the one place the "family order"
+ *  rule is doing editorial work rather than following it. The eight older
+ *  families name a JOB and their order is a taxonomy; `signature` names a BAR,
+ *  and the designs held to it are the answer to the question somebody actually
+ *  opens this gallery with. It arrives as studio modules — the press, then the
+ *  gallery, then the letters — so a shelf of signature designs reads as
+ *  arguments of four rather than as loose cards, and the studios themselves are
+ *  ordered as a person would browse them: the ones made of TYPE, then the ones
+ *  made of PICTURES, then the ones made of PAPER. */
 export const PRESETS: readonly Preset[] = [
+  ...SIGNATURE_A_PRESETS,
+  ...SIGNATURE_B_PRESETS,
+  ...SIGNATURE_C_PRESETS,
   broadsheet,
   ...EDITORIAL_PRESETS,
   quietPage,

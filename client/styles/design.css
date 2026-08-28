@@ -218,6 +218,113 @@
   font-size: 0.95rem;
 }
 
+/* ── hero treatments ───────────────────────────────────────────────────────
+   THE THREE OPENINGS. Everything above this is `panel` — the rounded card the
+   hero has always been, and the treatment that needs no rule of its own so an
+   older design comes out byte-identical. The other two are arrangements, not
+   palettes: neither names a colour, both stay inside the one column, and both
+   mirror for free because every offset below is logical.
+
+   They sit AFTER `--center` deliberately. `--center` and a treatment are two
+   single-class selectors of equal weight, so the cascade is decided by order,
+   and a split that had `justify-content: center` forced on it would collapse
+   its two tracks into the middle of the page. */
+
+/* A BAND IS GROUND AND TYPE. Square corners, the full width of the column, a
+   raised ground and a great deal of air — the opening for a site that has no
+   photograph, which is why the renderer refuses to invent one for it. The
+   ground is `--bg-raised`, a token, so a band is the same decision in all
+   twenty-one themes. */
+.s-dsn-hero--band {
+  border-radius: 0;
+  background: var(--bg-raised);
+  align-items: center;
+  /* A BAND IS AS TALL AS ITS TYPE, AND THE PICTURE FLOORS DO NOT APPLY TO IT.
+     `--tall` sets a 360px floor because a photograph needs room to be a
+     photograph; a band has no photograph, so that floor drew a 360px field of
+     ground with two lines adrift in the middle of it — a plate book's
+     half-title arriving as an unstyled grey rectangle. The padding below is
+     the air, the type is the height, and a band on a design that sets a big
+     h1 is taller than one on a design that does not, which is the correct
+     relationship. */
+  min-height: 0;
+  /* THE FIELD NEEDS AN EDGE IT CAN KEEP IN EVERY ROOM. `--bg-raised` against
+     `--bg` is a whole tone apart on `porcelain` and very nearly nothing apart
+     on `sumi` and `murex`, so a ground alone is a band on half the shelf and
+     an invisible one on the other half. Two hairlines are what a compositor
+     locks a band in with anyway, and they are the same token the rule masthead
+     draws its own with — so the shape survives the palette. */
+  border-block: 1px solid var(--border);
+}
+
+.s-dsn-hero--band .s-dsn-hero__inner {
+  padding: clamp(28px, 4.5vw, 56px) clamp(20px, 4vw, 48px);
+  width: 100%;
+}
+
+/* The one place a treatment reaches into the modular scale: a band earns its
+   name by setting the title LARGER than the same design would set it on a
+   panel. It is still the design's own h1 — multiplied, never replaced — so a
+   400-weight serif band and an 800-weight uppercase one stay as far apart here
+   as they are everywhere else. */
+.s-dsn-hero--band .s-dsn-hero__title {
+  /* 1.5 rather than 1.2, and the multiplier is the whole difference between a
+     half-title and a caption in a box. A design whose scale is deliberately
+     flat — a plate book sets its h1 at 22px so that nothing on the page is an
+     event — got a 27px band, which the floor then overruled anyway: the band
+     was drawing the SAME 29px line for every design that reached it, which is
+     the opposite of a treatment that reads the modular scale. It is still the
+     design's own h1, multiplied, never replaced. */
+  font-size: clamp(2rem, 6vw, calc(var(--dsg-h1, 2.6rem) * 1.5));
+  line-height: 1.08;
+}
+
+.s-dsn-hero--band .s-dsn-hero__sub {
+  margin-top: 14px;
+  font-size: 1.05rem;
+  max-width: 46ch;
+}
+
+.s-dsn-hero--band.s-dsn-hero--center .s-dsn-hero__sub {
+  margin-inline: auto;
+}
+
+/* A SPLIT SETS THE WORDS AGAINST THE PICTURE. Two tracks in the column's own
+   flow direction — words at the start, plate at the end — which mirrors in
+   Arabic without a second rule, because `grid-template-columns` is stated in
+   flow order and not in left and right. No card ground: the words sit on the
+   page, and the only box is the picture's. */
+.s-dsn-hero--split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 42%);
+  align-items: center;
+  justify-content: stretch;
+  gap: clamp(18px, 3vw, 40px);
+  border-radius: 0;
+  overflow: visible;
+  background: none;
+}
+
+.s-dsn-hero--split .s-dsn-hero__inner {
+  padding: 4px 0;
+}
+
+.s-dsn-hero--split .s-dsn-hero__plate {
+  align-self: stretch;
+  min-height: 180px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+}
+
+/* The plate's picture is a CELL, not a backdrop, so it leaves the absolute
+   positioning the other two treatments give it. */
+.s-dsn-hero--split .s-dsn-hero__img {
+  position: static;
+  z-index: auto;
+}
+
 /* ── headings, blocks ──────────────────────────────────────────────────── */
 
 /* THE COMPOSED PAGE WEARS THE DESIGN'S TYPOGRAPHY, exactly as the article page
@@ -255,16 +362,43 @@
 }
 
 /* Rendered markdown. `.s-rv` (the reading renderer's own root class) carries
-   the block styling from reading.css; only the OUTER box is ours. */
+   the block styling from reading.css; only the OUTER box is ours.
+
+   THIS BOX WEARS THE DESIGN'S BODY TYPE, and it did not. It was
+   `var(--font-serif)` at `var(--font-prose)` and a hard 1.7 — the app's
+   reading defaults, which is a sensible thing for a box that does not know
+   whose page it is on, and the wrong thing for the one section whose whole
+   job is the author's own prose. It survived because the rule that dresses
+   `.s-dsg .s-rv` is more specific and reaches the tree INSIDE, so the visible
+   paragraphs came out right and the box around them quietly disagreed with
+   them: anything the renderer leaves as a direct child, and every `em` an
+   inner rule resolves, measured against a serif at a size nobody chose. A
+   design set in the mono stack is where it stops being invisible, so it is
+   fixed here rather than papered over there. Every var carries the old value
+   as its fallback — a page rendered without them looks exactly as it did. */
 .s-dsn-rich {
-  font-family: var(--font-serif);
-  font-size: var(--font-prose);
-  line-height: 1.7;
+  font-family: var(--dsg-body-font, var(--font-serif));
+  font-size: var(--dsg-base, var(--font-prose));
+  line-height: var(--dsg-line, 1.7);
   color: var(--text);
 }
 
 .s-dsn-rich--center {
   text-align: center;
+}
+
+/* THE CODE INSIDE THE AUTHOR'S OWN PROSE WEARS THE DESIGN'S MONOSPACE.
+   `.s-rv-code` / `.s-rv-pre` read `--font-mono` from reading.css, which is the
+   right answer for a code block in the editor and a coincidence on a designed
+   page: it is the INSTANCE's mono, so a design that names JetBrains Mono for
+   its console look printed its own `<code>` in whatever the operator picked
+   for the app. `--dsg-mono-font` carries the design's face with
+   `var(--font-mono)` behind it, so a design that names none is byte-identical
+   to what shipped. Both roots, because the same renderer draws a richText
+   section (.s-dsn-rich) and the designed article page (.s-dsg .s-rv). */
+.s-dsn-rich :is(.s-rv-code, .s-rv-pre),
+.s-dsg .s-rv :is(.s-rv-code, .s-rv-pre) {
+  font-family: var(--dsg-mono-font, var(--font-mono));
 }
 
 .s-dsn-more {
@@ -355,6 +489,330 @@
   line-height: 1.5;
 }
 
+/* ── card shapes ───────────────────────────────────────────────────────────
+   ONE ANATOMY WAS THE PROBLEM. Everything above is `boxed`: a hairline, a
+   radius, raised ground, a 128px strip of picture. It is a good card and it
+   was the ONLY card, so a photographer's site and a documentation site drew
+   the same tile and differed in font size. The four below are arrangements of
+   the same three elements — picture, title, meta — and not one of them names
+   a hue except the scrim, which is argued where it is written. */
+
+/* BARE — delete the box. The picture and the words stand on the page, which is
+   what a portfolio wants and what a border was quietly preventing. The hover
+   affordance moves to the title, because a card with no edge cannot light
+   one. */
+.s-dsn-card--bare {
+  border-color: transparent;
+  background: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.s-dsn-card--bare:hover {
+  border-color: transparent;
+}
+
+.s-dsn-card--bare .s-dsn-card__banner {
+  border-radius: var(--radius);
+}
+
+.s-dsn-card--bare .s-dsn-card__body {
+  padding: 12px 0 0;
+  /* THE META LINES OF A ROW SIT ON ONE BASELINE. A bare card has no edge, so
+     nothing lines the row up but the words in it — and a three-across wall of
+     titles that run to one, two and three lines put its three dates at three
+     different heights, which at a glance is a grid that has come apart. The
+     card fills its track, the title stays at the top of it, and the date is
+     pushed to the FOOT, so the bottom of every card in a row agrees even when
+     the top of it cannot. */
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ONLY WHEN THE DATE IS THE LAST THING ON THE CARD. A wall of titles with no
+   excerpt under them has nothing else to line up on, and the date is what
+   makes the row read as a row. A card that DOES carry an excerpt has the
+   excerpt as its foot, and pushing the date away from the title it belongs to
+   in order to line up three dates opens a hole between them — measured on a
+   three-lead front page: 50px of nothing under two of the three headlines. */
+.s-dsn-card--bare .s-dsn-card__body > .s-dsn-meta:last-child {
+  margin-block-start: auto;
+  padding-block-start: 6px;
+}
+
+.s-dsn-card--bare .s-dsn-card__excerpt {
+  margin-block-start: 8px;
+}
+
+.s-dsn-card--bare:hover .s-dsn-card__title,
+.s-dsn-card--masonry:hover .s-dsn-card__title {
+  color: var(--accent);
+}
+
+/* A LEAF OF TYPE — the card a plate shape draws where there is no plate.
+   `masonry`, `overlay` and a `bare` grid with its pictures switched off all
+   arrive here (the renderer says why it refuses to invent one), and what is
+   left of the card is its title. So the title is set at the design's h2
+   instead of its h4: there is nothing else on the card to be larger than, and
+   an h4 alone in a track is not a leaf, it is a caption with its plate
+   missing. It stays the design's OWN step — a poster's h2 is 38px and an
+   essayist's is 26px — because a leaf is as loud as the house it is printed
+   in. */
+:is(.s-dsn-card--bare, .s-dsn-card--masonry, .s-dsn-card--overlay).s-dsn-card--plateless
+  .s-dsn-card__title {
+  font-size: var(--dsg-h2, 1.6rem);
+  line-height: 1.15;
+}
+
+/* OVERLAY — the title on a scrim over the picture. Both children take the same
+   grid cell, so the words stack on the artwork without a second positioning
+   context.
+
+   THE TEXT COLOURS HERE ARE LITERALS, AND THAT IS THE RULE RATHER THAN AN
+   EXCEPTION TO IT. This is the stock blog's own precedent, stated at
+   blog.css `.s-blog-sites__body`: the words do not rest on the theme, they
+   rest on a fixed dark gradient that this rule paints itself. A token would
+   be the bug — `--text` on `parchment` is near-black, and near-black on a
+   scrim tuned for light type is an unreadable card in half the palettes. The
+   scrim is opaque enough at the foot (0.92) that the pair clears 4.5:1 against
+   the gradient's own ground no matter what photograph is under it, which is
+   the property the whole idiom exists for. Same three values as the blog's, so
+   the two surfaces are one decision. */
+.s-dsn-card--overlay {
+  display: grid;
+  /* A PICTURE, NOT A LETTERBOX. A 190px floor is a floor and not a
+     proportion, so a two-across card on a 1180px page came out 770 wide and
+     255 tall — a 3:1 slot that crops every photograph in the vault to a
+     strip and hangs a gallery's work like a set of banners. 5:4 is the
+     proportion a plate is printed at, it holds a portrait and a landscape
+     without either being a joke, and it scales with the column instead of
+     with the window: two across is a wall, four across is a contact sheet,
+     and both are the same picture. */
+  aspect-ratio: 5 / 4;
+  min-height: 190px;
+  background: var(--bg-raised);
+}
+
+.s-dsn-card--overlay > * {
+  grid-area: 1 / 1;
+}
+
+.s-dsn-card--overlay .s-dsn-card__banner {
+  height: 100%;
+}
+
+.s-dsn-card--overlay .s-dsn-card__body {
+  align-self: end;
+  padding: 64px 16px 16px;
+  background: linear-gradient(
+    to top,
+    rgba(12, 12, 14, 0.92) 0%,
+    rgba(12, 12, 14, 0.72) 42%,
+    rgba(12, 12, 14, 0) 100%
+  );
+}
+
+.s-dsn-card--overlay .s-dsn-card__title {
+  color: #f2f0ec; /* on the scrim, not the theme */
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+}
+
+.s-dsn-card--overlay .s-dsn-meta {
+  color: #c9c5bf; /* on the scrim, not the theme */
+}
+
+.s-dsn-card--overlay .s-dsn-meta__sep {
+  background: rgba(201, 197, 191, 0.5); /* on the scrim, not the theme */
+}
+
+/* THE WALL LABEL — an overlay with no photograph under it. The scrim is the
+   one place in this stylesheet that paints literal colours, and the argument
+   for them is that there is a PHOTOGRAPH underneath whose tone nobody can
+   predict. Take the photograph away and the argument goes with it: a fixed
+   dark gradient over the theme's own raised ground is a black stripe across a
+   porcelain page. So a plateless overlay drops the scrim entirely and comes
+   back to the tokens — which is also the only reading of the shape that is
+   honest, because a card with no picture on it is a label and not a picture.
+   The words centre in the field, because that is where a label's words go. */
+.s-dsn-card--overlay.s-dsn-card--plateless .s-dsn-card__body {
+  align-self: center;
+  padding: 24px;
+  background: none;
+  text-align: center;
+}
+
+.s-dsn-card--overlay.s-dsn-card--plateless .s-dsn-card__title {
+  color: var(--text);
+  text-shadow: none;
+}
+
+.s-dsn-card--overlay.s-dsn-card--plateless .s-dsn-meta {
+  color: var(--text-muted);
+  justify-content: center;
+}
+
+.s-dsn-card--overlay.s-dsn-card--plateless .s-dsn-meta__sep {
+  background: var(--text-faint);
+}
+
+/* ── THE COVER PLATE — an overlay ALONE in its grid ────────────────────────
+   AN OVERLAY WITH NOBODY BESIDE IT IS NOT A CARD, and until this rule the
+   engine drew it as one: a 5:4 plate the width of the page with the headline
+   set at `--dsg-h4`, which is the BODY size. A thousand pixels of photograph
+   under a seventeen-pixel title is a picture with a caption lost in the corner
+   of it, and it is the one arrangement a magazine's front page is made of.
+
+   The count is the whole condition and `:only-child` is the honest way to ask
+   it. `--dsn-cols` is an inline style, so a `[style*=]` match would be reading
+   a string; the number of cards in the run is what a reader actually sees, and
+   a section that draws ONE card has drawn a cover whatever its column count
+   says. (A two-across grid whose vault only has one post in it gets a cover
+   too. That is right: one card in a row is one card in a row.)
+
+   THREE THINGS CHANGE AND THEY ARE ALL PROPORTION. The plate goes to 16:7,
+   because 5:4 at the full width of a 1120px page is 896px of picture and a
+   fold with nothing else in it — a cover is a landscape, a plate is not. The
+   headline goes to the design's OWN h1 (never a size of its own: a 40px
+   grotesque and a 26px garalde are as far apart here as everywhere else) and
+   takes a measure, because a display line running the whole width of a wide
+   page is a banner. And the scrim gets its air back: the gradient needs room
+   to climb before the type sits on it, so the top padding is a proportion of
+   the plate rather than the card's fixed 64px.
+
+   The `vw` middle term is the wordmark's own answer, copied rather than
+   invented: at 390 the h1 that reads as a cover line on a laptop is five lines
+   in a 354px column, and a card CLIPS (`overflow: hidden`), so a headline that
+   outgrows its plate is a headline with its end cut off. */
+.s-dsn-grid > .s-dsn-card--overlay:only-child {
+  aspect-ratio: 16 / 7;
+  min-height: 300px;
+  /* A COVER HAS NO RULE AROUND IT. The card's hairline is what tells a reader
+     that a picture and a title are one clickable object among several; a plate
+     that is the only thing in its run has nothing to be told apart from, and
+     the frame is then the one line on the page still saying "card". It comes
+     back on hover, because a picture that is a link should say so when the
+     pointer is on it — and the affordance is the only thing the hairline was
+     doing here. */
+  border-color: transparent;
+}
+
+.s-dsn-grid > .s-dsn-card--overlay:only-child:hover {
+  border-color: var(--accent);
+}
+
+.s-dsn-grid > .s-dsn-card--overlay:only-child .s-dsn-card__title {
+  font-size: clamp(1.4rem, 6.4vw, var(--dsg-h1, 2.6rem));
+  line-height: 1.08;
+  /* A cover line breaks where a headline breaks. */
+  max-width: 22ch;
+}
+
+.s-dsn-grid
+  > .s-dsn-card--overlay:only-child:not(.s-dsn-card--plateless)
+  .s-dsn-card__body {
+  padding: clamp(72px, 14%, 180px) clamp(20px, 3.5vw, 44px) clamp(20px, 2.5vw, 34px);
+}
+
+/* A COVER WITH NO PHOTOGRAPH IS STILL A COVER. The wall label's argument holds
+   — no scrim over a ground nobody chose — but a label's 24px of padding inside
+   a 490px field is a title floating in an empty box. Centred in real air, with
+   the same display line, it is a typographic cover, which is a thing a
+   magazine has actually printed on the months the photograph did not arrive. */
+.s-dsn-grid > .s-dsn-card--overlay:only-child.s-dsn-card--plateless .s-dsn-card__body {
+  padding: clamp(28px, 5vw, 64px);
+}
+
+/* LEDGER — the tile on its side. `row` is a flow direction, so an Arabic
+   instance puts the thumbnail at ITS start with no rule of its own. */
+.s-dsn-card--ledger {
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.s-dsn-card--ledger .s-dsn-card__banner {
+  flex: none;
+  width: 34%;
+  /* THE CAP IS A CAP AND NOT A SIZE. 170px is the right ceiling for a row two
+     across a 940px page (34% lands under it and the cap never fires); it is a
+     thumbnail on a row that takes a 1120px page on its own, where the picture
+     is a third of a wide band and ought to look like one. 260px is where 34%
+     of the widest single-column row this engine draws stops growing. */
+  max-width: 260px;
+  height: auto;
+  min-height: 110px;
+}
+
+.s-dsn-card--ledger .s-dsn-card__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: center;
+}
+
+/* MASONRY — columns instead of a grid, so a picture keeps the proportion it
+   was taken at instead of being cropped to a 128px strip. The column count is
+   the section's own, and `break-inside` is what stops a card being cut in
+   half at the fold. */
+.s-dsn-grid--masonry {
+  display: block;
+  columns: var(--dsn-cols, 2);
+  column-gap: 18px;
+}
+
+.s-dsn-card--masonry {
+  display: block;
+  break-inside: avoid;
+  margin-block-end: 18px;
+  border-color: transparent;
+  background: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.s-dsn-card--masonry:hover {
+  border-color: transparent;
+}
+
+/* A real <img>, because only the picture knows how tall it is — the whole
+   point of the treatment. Generated artwork has no natural proportion, so it
+   states one and stays a painted span. */
+.s-dsn-card__photo {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+}
+
+.s-dsn-card--masonry .s-dsn-card__banner {
+  height: auto;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius);
+}
+
+.s-dsn-card--masonry .s-dsn-card__body {
+  padding: 10px 0 16px;
+}
+
+/* A LEAF BOUND INTO THE PLATE BOOK. Where a plate is missing, the entry is a
+   printed page rather than a hole: a hairline over it, air under it, the
+   title at the design's h2. It has a natural height of its own, so the ragged
+   column bottoms the treatment exists for survive a vault with gaps in it. */
+.s-dsn-card--masonry.s-dsn-card--plateless {
+  border-block-start: 1px solid var(--border);
+}
+
+.s-dsn-card--masonry.s-dsn-card--plateless .s-dsn-card__body {
+  padding: clamp(28px, 5vw, 56px) 18px;
+  /* A section leaf is set in the middle of its page. It is the only card in
+     the engine that centres, and it centres because it is not a card — it is
+     the half-title of the part of the book that follows it. */
+  text-align: center;
+}
+
+.s-dsn-card--masonry.s-dsn-card--plateless .s-dsn-meta {
+  justify-content: center;
+}
+
 /* ── post list ─────────────────────────────────────────────────────────── */
 
 .s-dsn-list {
@@ -389,6 +847,250 @@
   color: var(--text-muted);
   font-size: 0.88rem;
   line-height: 1.6;
+}
+
+/* ── list layouts ──────────────────────────────────────────────────────────
+   THE UNIVERSAL RIVER, ENDED. Everything above is `river` — title, meta,
+   excerpt, twenty-two pixels of air, repeat — and it was the only way this
+   product could list what somebody wrote. Fifty-nine designs listed their
+   writing identically and differed in the size of the type doing it.
+
+   Four more arrangements below. Each one decides rhythm, weight and position;
+   not one decides a colour. `.s-dsn-list__main` is the river's own anatomy,
+   factored out so the numbered run can set a numeral beside it. */
+
+.s-dsn-list__main {
+  min-width: 0;
+}
+
+/* LEDGER — the date hangs in a column at the start, every row is ruled, and a
+   title takes one line however long it is. Dense on purpose: this is the
+   layout for a run of a hundred entries somebody scans rather than reads.
+
+   The whole row is the target. A 6-word hit area inside a 44px row is the
+   phone failure the coarse-pointer rule exists to prevent, and a row that is
+   one link semantically should be one link to a finger too. */
+.s-dsn-list--ledger {
+  gap: 0;
+}
+
+.s-dsn-list--ledger .s-dsn-list__item {
+  border-block-start: 1px solid var(--border);
+}
+
+.s-dsn-list--ledger .s-dsn-list__item:last-child {
+  border-block-end: 1px solid var(--border);
+}
+
+.s-dsn-list__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: baseline;
+  gap: 2px 16px;
+  padding-block: 11px;
+  min-height: 44px;
+  text-decoration: none;
+  color: inherit;
+}
+
+/* The date column exists only when there IS a date: with `showDate` off the
+   title takes the whole width rather than starting nine ems in from nothing,
+   which is what a fixed two-track grid would have drawn. */
+.s-dsn-list__row:has(.s-dsn-list__stamp) {
+  grid-template-columns: 9.5em minmax(0, 1fr);
+}
+
+.s-dsn-list__row:has(.s-dsn-list__stamp) .s-dsn-list__excerpt {
+  grid-column: 2;
+}
+
+.s-dsn-list__stamp {
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.s-dsn-list--ledger .s-dsn-list__title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--dsg-h4, 1.02rem);
+  line-height: 1.4;
+}
+
+.s-dsn-list__row:hover .s-dsn-list__title {
+  color: var(--accent);
+}
+
+.s-dsn-list--ledger .s-dsn-list__excerpt {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* INDEX — a table of contents. Title, a leader of dots, the date, and nothing
+   else; the renderer refuses an excerpt here because a leader only reads as a
+   leader when there is exactly one line for it to cross. */
+.s-dsn-list--index {
+  gap: 0;
+}
+
+.s-dsn-list__toc {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-block: 7px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.s-dsn-list--index .s-dsn-list__title {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--dsg-h4, 1.02rem);
+  line-height: 1.5;
+}
+
+.s-dsn-list__toc:hover .s-dsn-list__title {
+  color: var(--accent);
+}
+
+/* The leader is an EMPTY flex item with a height and a dotted bottom edge: a
+   blockified empty box has its baseline synthesised at its bottom margin edge,
+   so `align-self: baseline` lands the dots exactly on the type's baseline —
+   the printer's trick, and the reason this is not a repeating background that
+   floats somewhere near the middle of the line. */
+.s-dsn-list__leader {
+  flex: 1 1 auto;
+  min-width: 1.5em;
+  height: 0.7em;
+  align-self: baseline;
+  border-block-end: 1px dotted var(--border);
+}
+
+/* NUMBERED — the entries counted in oversized ordinals, editorial-style.
+
+   THE NUMERAL IS --text-faint AND THAT IS DELIBERATE, against the rule that
+   sends a COUNT to --text-muted. The rule's argument is the topic chip: 0.72rem
+   on --bg-hover, a number the reader has to read, at a size where 1.4.3 gives
+   no relief. This is the other case the gate spells out — bold and never below
+   1.3rem (20.8px, past the 18.66px bold threshold), so 1.4.3's large-text
+   clause applies and --text-faint's enforced floor of 3:1 on --bg IS the
+   applicable minimum. It is also aria-hidden: the <ol> already tells a screen
+   reader this is the nth of n, and the numeral is the typography of that fact
+   rather than a second statement of it. */
+.s-dsn-list--numbered {
+  gap: 26px;
+}
+
+.s-dsn-list--numbered .s-dsn-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: clamp(12px, 2.5vw, 26px);
+}
+
+.s-dsn-list__ord {
+  flex: none;
+  min-width: 1.6em;
+  text-align: end;
+  font-family: var(--dsg-head-font, var(--font-serif));
+  /* Oversized against the TITLE, not against a fixed idea of large: the
+     numeral is a step above the design's own h1, so it stays the loudest thing
+     on the row at every base size and scale the sliders allow. The floor keeps
+     the a11y argument above true at the smallest of them. */
+  font-size: max(1.3rem, calc(var(--dsg-h1, 2.6rem) * 1.15));
+  font-weight: 700;
+  /* The numeral sits ON the title's line rather than above it: a display
+     figure has no descender and a tall cap, so its box starts higher than the
+     text beside it. */
+  line-height: 0.92;
+  margin-block-start: 0.06em;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-faint);
+}
+
+.s-dsn-list--numbered .s-dsn-list__main {
+  flex: 1 1 auto;
+}
+
+/* DATELINE — the run broken into the days it was published on, the way a paper
+   breaks its front page. The kicker carries the date for everything under it,
+   so no row repeats it. */
+.s-dsn-list--dateline {
+  /* THE FILE IS SET IN COLUMNS, WITH RULES BETWEEN THEM, which is the half of
+     a broadsheet the engine still could not draw. A day file run down the
+     middle of a 1240px page is twenty-eight full-width headlines in a single
+     stack — a page that bought its width and then declined to use it, and the
+     reason a newspaper reads as a newspaper is precisely that it does not do
+     that.
+
+     `columns: 24rem 2` is a WIDTH first and a count second, so the split is
+     the page's decision rather than a breakpoint's: a 1240px file takes two
+     tracks, a 640px essayist's column takes one, and a phone takes one
+     without a media query saying so. Two is the ceiling on purpose — three
+     tracks of headlines on a 1400px page is a stock ticker.
+
+     `column-rule` is the only place this stylesheet draws a vertical hairline
+     and it is the correct one: the rule between two columns of type IS the
+     newspaper, it is drawn in `--border` like every other hairline here, and
+     it disappears with the second column on a narrow page because a rule with
+     nothing on its far side is a rule somebody forgot to remove. */
+  display: block;
+  columns: 24rem 2;
+  column-gap: clamp(24px, 3vw, 44px);
+  column-rule: 1px solid var(--border);
+}
+
+.s-dsn-list__group {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  /* A day is not split across two columns: the kicker and the stories under
+     it are one block of the paper. */
+  break-inside: avoid;
+}
+
+.s-dsn-list--dateline .s-dsn-list__group + .s-dsn-list__group {
+  margin-block-start: 32px;
+}
+
+.s-dsn-list__kicker {
+  margin: 0;
+  padding-block-end: 7px;
+  border-block-end: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* ARABIC IS CURSIVE AND TRACKING BREAKS THE JOINS. `text-transform: uppercase`
+   is merely a no-op on an Arabic date; `letter-spacing` is not — it pulls the
+   letters of a joined word apart into something that reads as a fault. The
+   kicker is `dir="auto"`, so the direction is decided by the DATE rather than
+   by the chrome (an Arabic instance's dates are Arabic), and `:dir()` is the
+   only selector that can see a direction the browser resolved. */
+.s-dsn-list__kicker:dir(rtl) {
+  letter-spacing: normal;
+}
+
+.s-dsn-list__run {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 /* ── topics ────────────────────────────────────────────────────────────── */
@@ -433,10 +1135,20 @@
   background: var(--bg-raised);
 }
 
+/* The call's own heading is a SECTION heading and is set like one — the same
+   step of the modular scale `.s-dsn-head` takes, the same face, weight, case
+   and tracking. It was `var(--font-serif)` at a fixed 1.2rem, so the one
+   block on the page whose job is to be looked at was the one block wearing
+   somebody else's type: a design in uppercase sans drew a serif sentence in
+   the middle of it. 1.2rem is kept as the fallback, which is what the h3 step
+   comes out to at the stock base and scale. */
 .s-dsn-cta__head {
   margin: 0;
-  font-family: var(--font-serif);
-  font-size: 1.2rem;
+  font: var(--dsg-head-weight, 600) var(--dsg-h3, 1.2rem) / 1.3
+    var(--dsg-head-font, var(--font-serif));
+  text-transform: var(--dsg-head-transform, none);
+  font-variant-caps: var(--dsg-head-variant, normal);
+  letter-spacing: var(--dsg-head-tracking, 0);
   color: var(--text);
 }
 
@@ -487,6 +1199,53 @@
   font-size: 0.7rem;
 }
 
+/* THE ORNAMENT IS THE READING VIEW'S OWN DIVIDER, drawn by the same idiom and
+   for the same reason. `***` in a note draws a 2px accent rule that fades at
+   both ends with the wordmark's ✦ over a gap in the middle (reading.css,
+   `.s-rv-hr` / `--orn`), and the argument written there is that a divider is
+   CONTENT and may never be `1px solid var(--border)` — which is the h1 rule,
+   the byline rule and, on this page, `.s-dsn-div--rule` above. A composed page
+   breaks its run of sections for exactly the reason an essay breaks its run of
+   paragraphs, and until now it could only do it with a piece of furniture.
+   Same gradient, same stops, same 88% — a fourth copy of these numbers is how
+   three surfaces drifted apart the first time, so this one is at least a
+   faithful copy and states where it came from. */
+.s-dsn-div--ornament {
+  position: relative;
+  height: 2px;
+  border-radius: 2px;
+  margin-block: calc(var(--dsn-space, 32px) / 2);
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--accent) 88%, transparent) 15%,
+    color-mix(in srgb, var(--accent) 88%, transparent) 85%,
+    transparent
+  );
+}
+
+/* The mark is centred with auto inline margins rather than the reading view's
+   `inset-inline-start: 50%` + `translate(-50%, -50%)`. That pair centres in
+   LTR and lands one glyph-width off centre in RTL, because the inset is
+   logical and the transform is physical — the two disagree the moment the page
+   mirrors. Auto margins between two zeroed inline insets are the one centring
+   idiom that means the same thing in both directions. */
+.s-dsn-div--ornament::after {
+  content: "✦";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline: 0;
+  width: fit-content;
+  margin-inline: auto;
+  transform: translateY(-50%);
+  padding: 0 0.7em;
+  background: var(--bg);
+  color: var(--accent);
+  font-family: var(--font-serif);
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
 /* ── article ───────────────────────────────────────────────────────────── */
 
 .s-dsn-article {
@@ -525,10 +1284,23 @@
   margin-bottom: 24px;
 }
 
+/* THE THIRD TRAITOR, found by rendering a mono design rather than by reading:
+   the designed article page's own title was `var(--font-serif)` at a clamp
+   with no design in it, so a site set entirely in the mono stack drew a serif
+   headline over mono prose — the one line on the page a reader looks at
+   first. `.s-dsg .s-blog-article__title` had already been taught this exact
+   lesson (see the note above it); this is the same title in the OTHER
+   renderer and it was missed. Ceiling-clamped like the hero's title rather
+   than set flat: the design decides how big an h1 gets, the viewport still
+   decides that a phone does not get all of it. */
 .s-dsn-article__title {
   margin: 0;
-  font-family: var(--font-serif);
-  font-size: clamp(1.6rem, 3.4vw, 2.2rem);
+  font-family: var(--dsg-head-font, var(--font-serif));
+  font-size: clamp(1.6rem, 3.4vw, var(--dsg-h1, 2.2rem));
+  font-weight: var(--dsg-head-weight, 600);
+  text-transform: var(--dsg-head-transform, none);
+  font-variant-caps: var(--dsg-head-variant, normal);
+  letter-spacing: var(--dsg-head-tracking, 0);
   line-height: 1.2;
   color: var(--text);
 }
@@ -556,6 +1328,52 @@
 
 .s-dsn-article__body {
   margin-top: 22px;
+}
+
+/* ── the drop cap ──────────────────────────────────────────────────────────
+   An initial cap on the article's FIRST paragraph and nowhere else. Not the
+   home page: a composed page is a stack of blocks, and an initial cap in one
+   of them is a typo rather than a flourish. It is set in the design's heading
+   face at the heading's weight, because a drop cap is display type and a
+   design that speaks in one voice should not answer in another at its
+   loudest letter.
+
+   IT IS OFF IN A RIGHT-TO-LEFT PARAGRAPH, and the PARAGRAPH's own direction
+   decides rather than the chrome's — the renderer writes dir="auto" on every
+   <p>, so `:dir()` gives the right answer for an Arabic post on an English
+   site and an English post on an Arabic one, which is the same rule the
+   byline follows four lines up. The reason is the script and not the layout:
+   Arabic is cursive, and a word's first letter is drawn in its INITIAL form
+   because of the letter that follows it. Float it out of the line and the
+   browser has to draw it alone, in isolated form, with the joint to its own
+   word broken. Rendered once with the guard lifted, the opening word
+   بدأت came out as a detached ب beside دأت — the first word of the article,
+   misspelled, in the largest character on the page. No amount of tuning
+   rescues that, because the defect is that the letter left the word. An
+   Arabic design that wants an opening flourish has small caps, tracking and
+   the ornamental divider, none of which take a letter apart. */
+.s-dsn-article--dropcap
+  .s-dsn-article__body
+  > .s-rv
+  > .s-rv-p:first-of-type:dir(ltr)::first-letter {
+  float: inline-start;
+  font-family: var(--dsg-head-font, var(--font-serif));
+  font-weight: var(--dsg-head-weight, 600);
+  /* THREE LINES TALL, which is the setting a book uses and the only one that
+     looks deliberate. The pair is what does it: the size sets how big the
+     letter is and the line-height sets how far down the page it pushes the
+     text beside it, so they were chosen together against a real render at
+     720px AND at 390px rather than derived. Smaller (3.1em) covers two lines
+     and leaves the third running full width, which reads as a notch in the
+     paragraph; larger (5.9em) hangs below the third baseline and strands a
+     fourth line at the indent. */
+  font-size: 5.2em;
+  line-height: 0.78;
+  margin-inline-end: 0.08em;
+  padding-block-start: 0.04em;
+  /* No hue: a design decides arrangement, size, weight and rhythm, and the
+     theme keeps the colours. */
+  color: var(--text);
 }
 
 .s-dsn-article__tags {
@@ -705,8 +1523,72 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  /* MASONRY KEEPS TWO, AND IT IS THE ONE CARD SHAPE THAT SHOULD. Every other
+     grid becomes one column on a phone because its card carries words — a
+     title, a date, three lines of excerpt — and words in a 170px track are not
+     words. A masonry card is a PICTURE with a caption under it, and a plate
+     book's phone page is two plates across for the same reason its paper page
+     is three: halving the count doubles the scroll, and twenty-four plates in
+     one column is eleven thousand pixels of it. Two across at 390 is a 170px
+     plate, which is a photograph a thumb can see, and it is 5,500px instead. */
+  .s-dsn-grid--masonry {
+    columns: 2;
+    column-gap: 12px;
+  }
+
+  .s-dsn-card--masonry {
+    margin-block-end: 12px;
+  }
+
+  /* THE COVER PLATE STOPS BEING A LANDSCAPE. 16:7 of a 354px column is 155px
+     of picture, which is a strip, and a cover line set over it has nowhere to
+     go but out of the bottom of a card that clips. So the phone's cover takes
+     its height from its own type — the picture fills whatever the headline
+     asks for — with a floor that keeps a photograph a photograph. */
+  .s-dsn-grid > .s-dsn-card--overlay:only-child {
+    aspect-ratio: auto;
+    min-height: 62vw;
+  }
+
   .s-dsn-mast {
     padding-top: 34px;
+  }
+
+  /* A split stacks, words above picture, like every other two-track thing on
+     this page. The plate keeps a height of its own once it has no column to
+     inherit one from. */
+  .s-dsn-hero--split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .s-dsn-hero--split .s-dsn-hero__plate {
+    min-height: 160px;
+  }
+
+  /* A 9.5em date column plus a title is not two columns at 390px — it is a
+     date and four words. The ledger keeps its rules and stacks its stamp. */
+  .s-dsn-list__row:has(.s-dsn-list__stamp) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .s-dsn-list__row:has(.s-dsn-list__stamp) .s-dsn-list__excerpt {
+    grid-column: 1;
+  }
+
+  .s-dsn-list--ledger .s-dsn-list__title,
+  .s-dsn-list--index .s-dsn-list__title {
+    white-space: normal;
+  }
+
+  /* The leader has nothing to cross once the title is allowed to wrap, and a
+     row of dots under a two-line title reads as a mistake. The date stays. */
+  .s-dsn-list__leader {
+    display: none;
+  }
+
+  .s-dsn-list__toc {
+    flex-wrap: wrap;
+    gap: 2px 10px;
   }
 }
 
@@ -722,8 +1604,39 @@
     align-items: center;
   }
 
+  /* A HEIGHT IS HALF A TARGET. The two tools in the bar are a word ("search
+     notes") and a GLYPH — one moon, 6px of padding either side — so the row
+     above gave the moon 44px of height and 33px of width, and a thumb that
+     misses by six pixels misses. Measured at 390 on four templates before the
+     rule and after it. The word is wider than 44 on its own, so the floor
+     only ever moves the glyph. */
+  .s-dsn-nav__tool {
+    min-width: 44px;
+    justify-content: center;
+  }
+
   .s-dsn-nav__inner {
     min-height: 48px;
+  }
+
+  /* The dense layouts are the ones that can fail this: a ledger row and an
+     index row are single lines of type, and a single line of type is 22px.
+     Both are whole-row links, so the row is the target and the row is what
+     grows. */
+  .s-dsn-list__row,
+  .s-dsn-list__toc {
+    min-height: 44px;
+  }
+
+  /* The height is grown from the middle so the extra pixels are hit area on
+     both sides of the words rather than a line of type stuck to the top edge
+     of its own row. */
+  .s-dsn-list__row {
+    align-content: center;
+  }
+
+  .s-dsn-list__toc {
+    padding-block: 11px;
   }
 }
 /* THE DESIGNED SITE'S OWN LAYER.
@@ -810,10 +1723,212 @@
   font-weight: var(--dsg-head-weight);
 }
 
+/* ── The surface ───────────────────────────────────────────────────────────
+   THE PAPER THE WHOLE SITE IS PRINTED ON. Five values, on the SCROLLPORT
+   (`.s-dsn` is both the root and the thing that scrolls), so the ground runs
+   under the masthead, the writing and the footer alike instead of stopping at
+   the top of the page and giving the header a seam.
+
+   `background-attachment: local` is not a detail. A background on a scrolling
+   element is fixed to its padding box by default, so a ruled sheet would hold
+   still while the words slid over it — the one thing that would make these read
+   as a screen effect rather than as paper. `local` pins the pattern to the
+   CONTENT, which is what a printed rule does.
+
+   NOT ONE OF THEM NAMES A COLOUR. Every value below is `--bg-raised` or a
+   `color-mix` of `--text` into transparent, so a surface is the same decision
+   in all twenty-one rooms and a retune of a theme moves it for free.
+
+   ── THE CONTRAST, MEASURED COMPOSITED ──────────────────────────────────────
+   The rule is the ambient masthead's rule and it is enforced the same way: a
+   whisper is a MEASUREMENT, not an opacity. The alphas below cannot be reasoned
+   about — the pattern is a `background-image` on the scrollport, so nothing a
+   computed style reports is the colour a word is actually sitting on. So it was
+   READ OFF THE PIXELS, the way the ambient layer's numbers were: a strip of the
+   page's own gutter (ground and nothing else) screenshotted at 1440, the PNG
+   decoded, every distinct painted colour in it enumerated, and the one that
+   gives `--text` its lowest ratio taken as the worst ground on the page. That
+   is the crossing of two rules on a grid and of three hatchings on a laid
+   sheet: a few pixels, and exactly the few a letterform can land on.
+
+   Five surfaces × five rooms, ratio against the token, worst pixel:
+
+     theme       surface   ground     --text   --muted   --faint
+     parchment   flat      #f2ebda    12.00     5.01      3.30
+     parchment   ruled     #ebe4d3    11.25     4.70      3.09
+     parchment   grid      #ece5d4    11.36     4.74      3.12
+     parchment   tinted    #faf5e8    13.10     5.47      3.60
+     parchment   paper     #ebe4d3    11.25     4.70      3.09
+     phosphor    flat      #050a06    13.54     7.11      3.70
+     phosphor    ruled     #0c120d    12.86     6.75      3.51
+     phosphor    grid      #0d120e    12.84     6.74      3.50
+     phosphor    paper     #0c110d    12.94     6.79      3.53
+     porcelain   ruled     #ecefed    13.20     6.19      3.18
+     porcelain   paper     #edf0ee    13.32     6.25      3.20
+     sidereal    grid      #0f121f    14.26     7.27      3.64
+     iron-gall   ruled     #1e1b15    13.32     6.55      3.02
+     iron-gall   grid      #1e1b16    13.31     6.54      3.02
+     iron-gall   paper     #1d1a15    13.45     6.61      3.05
+
+   THE FLOORS HOLD ON EVERY ROW. Worst `--text` is 11.25 against 4.5; worst
+   `--text-muted` — the token that carries an excerpt and a meta line — is 4.70
+   against the same 4.5; worst `--text-faint` is 3.02 against the 3:1 the
+   contrast gate holds that token to. The tightest room in the whole table is
+   parchment, whose muted starts at 5.01 flat, and it is what set the alphas:
+   the first draft ran the ink at 7% everywhere and measured 3.88 there — a
+   token that carries reading text pushed under its floor by a decoration, which
+   is the whole failure this comment exists to have caught.
+
+   Re-derivable: `shared/contrast.ts` owns the ratio (the one implementation
+   `scripts/check-contrast.mjs` uses), and the grounds above are what a browser
+   painted. */
+
+.s-dsn {
+  /* The ground an OPAQUE piece of chrome must fall back to when it pins. */
+  --dsg-ground: var(--bg);
+  /* The pattern's own ink, and its pitch. The pitch is the design's OWN line
+     box, which is why a ruled surface under a 1.2-line console and one under a
+     1.9-line essay are two different sheets of paper rather than the same
+     texture at two type sizes. */
+  --dsg-surf-ink: color-mix(in oklab, var(--text) 3.5%, transparent);
+  /* WEAKER FOR THE ONES THAT OVERLAP THEMSELVES, and this is the whole reason
+     there are three inks instead of one. A ruled sheet lays ONE line under a
+     word; a grid crosses two and a laid sheet crosses three, and alpha
+     compounds — 1 − (1−a)ⁿ. At a single 7% the grid's intersections composited
+     to 13.5% and cost `--text-muted` on parchment 5.01 → 3.95, which is a token
+     that carries reading text falling under its own floor because of a
+     decoration. So each surface's ink is set so its WORST overlap lands near
+     3.4%: 3.5% once (ruled), 1.7% twice (grid → 3.37%), 1.2%+1%+1% three times
+     (paper → 3.17%). The table above is what that bought. */
+  --dsg-surf-grid: color-mix(in oklab, var(--text) 1.7%, transparent);
+  --dsg-surf-fleck: color-mix(in oklab, var(--text) 1.2%, transparent);
+  --dsg-surf-fleck-2: color-mix(in oklab, var(--text) 1%, transparent);
+  --dsg-surf-pitch: calc(var(--dsg-base, 17px) * var(--dsg-line, 1.65));
+  /* Graph paper's cell is TWO line boxes. See `.s-dsg-surf--grid` for why the
+     square grew rather than the ink. */
+  --dsg-surf-cell: calc(var(--dsg-surf-pitch) * 2);
+}
+
+/* `flat` draws nothing, and it is written out anyway so that five values are
+   five rules and none of them is the absence of one. */
+.s-dsg-surf--flat {
+  background-image: none;
+}
+
+.s-dsg-surf--ruled {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--dsg-surf-pitch) - 1px),
+    var(--dsg-surf-ink) calc(var(--dsg-surf-pitch) - 1px),
+    var(--dsg-surf-ink) var(--dsg-surf-pitch)
+  );
+  background-attachment: local;
+}
+
+/* The same pitch in both axes, so the cell is a SQUARE and the sheet is graph
+   paper rather than a table. `to right` is physical and stays physical on
+   purpose: a symmetric grid has no start edge to mirror.
+
+   THE CELL IS TWO LINE BOXES, NOT ONE, AND THE INK DID NOT MOVE. At one line
+   box the cell landed near 25px on a dense poster — close enough together
+   that a 1.7% hairline never resolves as a LINE, and what the eye integrates
+   instead is a flat 7% wash, which on a dark room like `murex` is
+   indistinguishable from the ground. The fix is geometry rather than ink,
+   because the ink is spent: at 3.37% (two crossing hairlines) `--text-muted`
+   measures 4.71 on the tightest room in the table and `--text-faint` 2.86, and
+   both of those numbers get WORSE the moment the alpha goes up. Doubling the
+   cell instead leaves every composited value exactly where it was, quarters
+   the number of intersections a line of text can cross, and gives each rule
+   40–60px of clean ground on either side — which is what makes a rule read as
+   a rule. Measured after the change on a 19px/1.3 poster: a 49px cell. */
+.s-dsg-surf--grid {
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(var(--dsg-surf-cell) - 1px),
+      var(--dsg-surf-grid) calc(var(--dsg-surf-cell) - 1px),
+      var(--dsg-surf-grid) var(--dsg-surf-cell)
+    ),
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(var(--dsg-surf-cell) - 1px),
+      var(--dsg-surf-grid) calc(var(--dsg-surf-cell) - 1px),
+      var(--dsg-surf-grid) var(--dsg-surf-cell)
+    );
+  background-attachment: local;
+}
+
+/* TINTED IS NOT A PATTERN, IT IS A DIFFERENT SHEET. The page ground moves to
+   `--bg-raised` and the raised chrome moves with it, so a tinted site does not
+   end up with cards the same colour as the paper they sit on. */
+.s-dsg-surf--tinted {
+  --dsg-ground: var(--bg-raised);
+  background-color: var(--bg-raised);
+}
+
+/* …AND THE RAISED BLOCKS SWAP WITH IT. This is the half a tinted ground cannot
+   ship without: a boxed card, a CTA panel, a band hero and the menu's dropped
+   card are all `--bg-raised` BECAUSE the page is `--bg`, and moving the page to
+   `--bg-raised` without moving them leaves every one of them the exact colour
+   of the paper it is lying on — a page of 1px outlines with nothing inside
+   them. So they take `--bg`: the relationship is preserved and only its
+   direction is reversed, which is what "a different sheet of paper" has to mean
+   if it is to mean anything. Both tokens are gated grounds for `--text` and
+   `--text-muted` (check-contrast walks them), so the swap cannot cost a ratio.
+   The overlay card is left alone on purpose — its ground is under a photograph
+   and a fixed scrim, and neither is a token this decision reaches. */
+.s-dsg-surf--tinted :is(.s-dsn-card:not(.s-dsn-card--overlay), .s-dsn-cta, .s-dsn-hero--band),
+.s-dsg-surf--tinted .s-dsg-nav__menu,
+.s-dsg-surf--tinted .s-dsg-head--banner::before {
+  background: var(--bg);
+}
+
+/* LAID PAPER, WITH NO IMAGE FILE. Three fine hatchings at odd angles and
+   CO-PRIME periods: their beat never repeats inside a screen, so the eye reads
+   tooth rather than stripes. Two of the three are weaker still, because three
+   at one weight is a fabric and this is meant to be a sheet of paper somebody
+   would not notice until they looked.
+
+   THE TOOTH IS COARSER AND THE SHEET IS NO DARKER, which is the same trade the
+   grid took one rule up and for the same reason. At 5 / 7 / 11px the three
+   hatchings sat closer together than a hairline is wide: nothing resolved as a
+   line, the whole thing integrated to a flat wash of about a quarter of one
+   percent, and a zine that promised laid stock and a salon that promised the
+   best paper in the house both rendered as offset. Ink cannot answer that —
+   the alphas below are already spent against `--text-muted` on `parchment`
+   (5.01 clean, 4.74 under the three of them composited, against a 4.5 floor)
+   and against `--text-faint` on `cinnabar`, which has the least room of the
+   twenty. So the LINES got thicker and the PERIODS got wider together: 2px in
+   13 is less ink per square inch than 1px in 5, the tooth is three times
+   coarser and therefore visible, and the worst case — all three crossing at
+   one point — is the identical 3.17% it was. 13 / 17 / 23 are primes, so the
+   beat is as long as it was. */
+.s-dsg-surf--paper {
+  background-image:
+    repeating-linear-gradient(37deg, var(--dsg-surf-fleck) 0 2px, transparent 2px 13px),
+    repeating-linear-gradient(113deg, var(--dsg-surf-fleck-2) 0 2px, transparent 2px 17px),
+    repeating-linear-gradient(71deg, var(--dsg-surf-fleck-2) 0 2px, transparent 2px 23px);
+  background-attachment: local;
+}
+
 /* ── Header ────────────────────────────────────────────────────────────── */
 
+/* THE CHROME IS TRANSPARENT UNTIL IT PINS. `.s-dsg-top` and `.s-dsg-nav` both
+   used to paint `--bg` unconditionally, which is invisible on a flat site (the
+   scrollport is already `--bg`) and is a rectangle punched out of the paper on
+   every other surface. So both are transparent by default — byte-identical on
+   `flat` — and the ground comes back on the one state that cannot do without
+   it: a bar that is PINNED over scrolling content. `--dsg-ground` follows the
+   surface, so a tinted site's pinned bar is the tinted ground rather than a
+   lighter stripe across it. On the three PATTERNED surfaces a pinned bar is
+   deliberately plain: a seam that appears only while the reader is scrolling
+   under the bar is the honest picture of what is happening, and lines sliding
+   under a fixed copy of themselves is not. */
 .s-dsg-top {
-  background: var(--bg);
+  background: transparent;
 }
 
 /* Sticky is a reading decision, not a look: the whole header block, the nav
@@ -823,12 +1938,14 @@
   position: sticky;
   inset-block-start: 0;
   z-index: 6;
+  background: var(--dsg-ground);
 }
 
 .s-dsg-top--stickynav .s-dsg-nav {
   position: sticky;
   inset-block-start: 0;
   z-index: 6;
+  background: var(--dsg-ground);
 }
 
 .s-dsg-head {
@@ -853,6 +1970,27 @@
   border-block-end: 1px solid var(--border);
 }
 
+/* THE TOOLS WHEN THERE IS NO BAR TO PUT THEM IN. A design may decline a menu
+   outright (see DesignHeader), and the search box and the theme switch are
+   the instance's rather than the menu's — so they come back into the masthead
+   itself and sit under the identity, on the identity's own alignment. A small
+   step of air above them and no rule: this is furniture at the foot of a
+   nameplate, not a second bar drawn without its links. */
+/* Two classes deliberately: this element also carries `.s-dsg-nav__tools`,
+   whose `margin-inline-start: auto` is written for a BAR and is what would
+   otherwise throw the search box to the far end of the masthead — which is the
+   exact hundred-and-forty-pixel gap this rule exists to close. */
+.s-dsg-head .s-dsg-head__tools {
+  margin-block-start: 2px;
+  margin-inline-start: 0;
+}
+
+/* On the one masthead that is already a row, the tools take the far end of it
+   — which is where the menu would have pushed them. */
+.s-dsg-head--inline.s-dsg-head--nomenu .s-dsg-nav__tools {
+  margin-inline-start: auto;
+}
+
 /* A MASTHEAD SHARES THE PAGE'S COLUMN. The header block has no background of
    its own — it is type on the page ground — so a full-viewport one lands its
    wordmark at the window edge while the sections under it sit in a 760px
@@ -872,6 +2010,130 @@
   text-align: start;
 }
 
+/* ── the rule masthead (the newspaper) ─────────────────────────────────────
+   TWO HAIRLINES ARE THE MASTHEAD. A broadsheet does not put its name on a
+   ground; it puts it BETWEEN two rules, and the rules run the width of the
+   column the paper is set in — which is why this layout shares the page's
+   measure exactly as `stacked` does rather than running to the window edge.
+
+   IT TAKES THE `divider` SWITCH OUT OF PLAY, and the declaration order is what
+   does it: `border-block` is stated after `.s-dsg-head--divider`'s
+   `border-block-end`, at equal specificity, so the rule's own bottom hairline
+   wins. That is deliberate rather than incidental. The bottom hairline is
+   already there; the divider would draw a second one on the same edge, and the
+   nav bar under it carries a third. Three rules inside 120px is a fence, not a
+   masthead — and the author who turns the switch off should not lose the shape
+   they chose the layout for. */
+.s-dsg-head--rule {
+  max-width: var(--dsn-width, 720px);
+  /* AIR ABOVE THE TOP RULE. Every other masthead's first ink is type, which
+     carries its own optical margin; this one's is a hairline hard against the
+     top of the window, which reads as a browser artefact rather than as a
+     plate. The margin is the only thing between the rule and the edge. */
+  margin: calc(var(--dsg-section-space) * 0.75) auto 0;
+  gap: 8px;
+  border-block: 1px solid var(--border);
+  padding-block: calc(var(--dsg-section-space) * 0.8);
+}
+
+/* The densities are restated at two classes because a single-class density and
+   a single-class layout are the same weight, and the cascade would then be
+   decided by which one happens to be written later in this file. */
+.s-dsg-head--rule.s-dsg-head--compact {
+  padding-block: calc(var(--dsg-section-space) * 0.45);
+}
+
+.s-dsg-head--rule.s-dsg-head--tall {
+  padding-block: calc(var(--dsg-section-space) * 1.5);
+}
+
+/* The one place this layout reaches into the modular scale, and it is the band
+   hero's precedent exactly: the design's OWN h1, multiplied, never replaced —
+   so a 400-weight serif masthead and an 800-weight uppercase one stay as far
+   apart here as they are everywhere else. A nameplate is bigger than a heading
+   or it is not a nameplate. */
+.s-dsg-head--rule .s-dsg-head__name {
+  font-size: clamp(1.9rem, 9vw, calc(var(--dsg-h1) * 1.7));
+}
+
+/* The menu, CENTRED IN THE BAND — centred on the plate above it, which means
+   centred on the bar and not on the space the tools leave over. A flex row with
+   the tools pushed to the end and the links told to fill what remains centres
+   the links inside that remainder, so the whole menu sits half the width of the
+   search-and-theme pair to the leading side: measured at 1440 it landed 80px
+   off the wordmark it is supposed to hang under, which is exactly the kind of
+   near-miss a masthead cannot afford. Three tracks fix it — the middle one is
+   the menu and the two outer ones are equal — so the run is centred on the bar
+   whatever the tools weigh. */
+.s-dsg-nav--rule .s-dsg-nav__inner {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  max-width: var(--dsn-width, 720px);
+  /* THE TOOLS HANG FROM THE FIRST LINE OF THE MENU, not from the middle of
+     however many lines it takes. A twelve-item menu on a 720px plate wraps to
+     two centred rows, and `align-items: center` then floated the search box
+     halfway between them — at no baseline at all, beside a run that has two.
+     Anchored to the start, the box sits on the first row of links, which is
+     the row it belongs to and the row the wordmark above is centred on. */
+  align-items: start;
+}
+
+.s-dsg-nav--rule .s-dsg-nav__links {
+  grid-column: 2;
+  justify-content: center;
+}
+
+.s-dsg-nav--rule .s-dsg-nav__tools {
+  grid-column: 3;
+  justify-content: flex-end;
+  margin-inline-start: 0;
+}
+
+/* ── the banner masthead (the magazine) ────────────────────────────────────
+   THE HEADER IS A BAR. A field of `--bg-raised` running the full width of the
+   window behind a centred identity block — the one masthead that is a GROUND
+   rather than type on the page, which is why it is the only one that does not
+   take the page's measure.
+
+   THE GROUND IS A PSEUDO-ELEMENT, and that is the ambient layer's doing rather
+   than a flourish. `.s-dsg-head` carries `isolation: isolate` and hosts `.s-amb`
+   at `z-index: -1` (ambient.css), and a background painted on the element
+   itself sits UNDER that layer — so a banner masthead on `sidereal` would have
+   quietly turned the stars off. At `-2` the ground is behind the atmosphere and
+   still behind the words, which is where all three belong. */
+.s-dsg-head--banner {
+  padding-block: calc(var(--dsg-section-space) * 1.25) calc(var(--dsg-section-space) * 1.05);
+}
+
+.s-dsg-head--banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: var(--bg-raised);
+}
+
+/* THE FIELD NEEDS AN EDGE, because in half the rooms it has no other one.
+   "The field's own edge is the rule" is true on `porcelain`, where
+   `--bg-raised` stands a whole tone off `--bg`; on `sumi`, `murex` and
+   `iron-gall` the two are within a couple of values of each other and the
+   masthead is a tonal shift a reader cannot see — which turns the one
+   masthead that is a GROUND into the one masthead that is nothing. A hairline
+   in `--border` is what a bar is bounded by anyway, it costs a design nothing
+   it was relying on, and it means an entrance wall, a headpiece and an
+   industrial bar are all still there when the lights go out. */
+.s-dsg-head--banner {
+  border-block-end: 1px solid var(--border);
+}
+
+.s-dsg-head--banner.s-dsg-head--compact {
+  padding-block: calc(var(--dsg-section-space) * 0.6);
+}
+
+.s-dsg-head--banner.s-dsg-head--tall {
+  padding-block: calc(var(--dsg-section-space) * 2.1) calc(var(--dsg-section-space) * 1.6);
+}
+
 .s-dsg-head__id {
   display: inline-flex;
   align-items: center;
@@ -880,14 +2142,41 @@
   text-decoration: none;
 }
 
+/* THE WORDMARK IS CLAMPED AGAINST THE VIEWPORT, and it is the one masthead
+   property that was not. `calc(var(--dsg-h1) * 1.35)` is a size derived from
+   the TYPE and from nothing else, which is right on a laptop and is how a
+   design that sets a large base on a large scale printed its own name off the
+   side of a phone: measured at 390, `concrete` drew a 65px wordmark 474px wide
+   and `manifest` a 52px one 384px wide, both inside a 354px column, and the
+   Klaxon banner — centred rather than flushed — ran off BOTH edges at 72px.
+   Nothing said a word, because `.s-dsn` clips rather than scrolls, so the
+   document's horizontal overflow (which is what every gate measures) stayed at
+   zero while the name was unreadable.
+
+   The rule masthead and the grand footer already answer this the same way, and
+   the answer is copied from them rather than invented: a `vw` middle term so
+   the name shrinks with the window, the derived size kept as the CEILING so a
+   quiet design's masthead is the size it always was at every width, and
+   `overflow-wrap` so a single long word breaks rather than escapes. 8vw rather
+   than the rule masthead's 9vw because this layout centres the name, which
+   spends its air on both sides.
+
+   THE FLOOR CANNOT WIN, and that is checked rather than hoped: `clamp()` hands
+   back the MINIMUM when the maximum falls below it, so a floor above the
+   smallest legal wordmark would silently make quiet designs LOUDER. The
+   smallest this engine can derive is `TYPO_BOUNDS.baseSize.min × scale.min³ ×
+   1.35` = 15 × 1.1³ × 1.35 = 26.9px, and the floor is 1.6rem = 25.6px. It sits
+   under the smallest wordmark by 1.3px on purpose. Moving either bound is a
+   change to the other. */
 .s-dsg-head__name {
   font-family: var(--dsg-head-font);
-  font-size: calc(var(--dsg-h1) * 1.35);
+  font-size: clamp(1.6rem, 8vw, calc(var(--dsg-h1) * 1.35));
   font-weight: var(--dsg-head-weight);
   letter-spacing: var(--dsg-head-tracking);
   text-transform: var(--dsg-head-transform);
   font-variant-caps: var(--dsg-head-variant);
   line-height: 1.1;
+  overflow-wrap: break-word;
 }
 
 .s-dsg-head__id:hover .s-dsg-head__name {
@@ -951,7 +2240,7 @@
 /* ── Navigation ────────────────────────────────────────────────────────── */
 
 .s-dsg-nav {
-  background: var(--bg);
+  background: transparent;
   border-block-end: 1px solid var(--border);
 }
 
@@ -1053,6 +2342,112 @@
 }
 
 .s-dsg-nav__sublink--active {
+  color: var(--accent);
+}
+
+/* ── nav styles ────────────────────────────────────────────────────────────
+   FOUR WAYS TO SAY "THIS IS A LINK", and every one of them is weight, shape and
+   rhythm — none is a hue. `plain` is everything above: a run of muted words
+   that warm on hover, and the bar every design had before this field existed,
+   so it needs no rule of its own and an older design comes out byte-identical.
+
+   They dress the BAR and not the submenu. A dropped card of pills is a control
+   panel and brackets inside a floating menu read as syntax rather than as a
+   menu, so `.s-dsg-nav__sublink` is deliberately untouched by all three. */
+
+/* PILLS: each item gets a ground of its own, and the ACTIVE one gets the
+   accent's own wash — the same `--accent-soft` the owner's notice strip is
+   painted on, so a theme that retunes its gold retunes this with it. */
+.s-dsg-nav__links--pills {
+  gap: 6px;
+}
+
+.s-dsg-nav__links--pills .s-dsg-nav__link {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+}
+
+.s-dsg-nav__links--pills .s-dsg-nav__link:hover {
+  background: var(--bg-hover);
+  border-color: color-mix(in oklab, var(--accent) 35%, var(--border));
+}
+
+.s-dsg-nav__links--pills .s-dsg-nav__link--active {
+  background: var(--accent-soft);
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
+}
+
+/* UNDERLINE: the active item sits on an accent RAIL. The transparent rail is
+   carried by every item rather than added to the active one, because a border
+   that appears on hover would move the whole row by 2px — the layout shift a
+   navigation bar can least afford. */
+.s-dsg-nav__links--underline {
+  gap: 14px;
+}
+
+.s-dsg-nav__links--underline .s-dsg-nav__link {
+  padding-inline: 2px;
+  border-radius: 0;
+  border-block-end: 2px solid transparent;
+}
+
+.s-dsg-nav__links--underline .s-dsg-nav__link:hover {
+  background: none;
+  border-block-end-color: var(--border);
+}
+
+.s-dsg-nav__links--underline .s-dsg-nav__link--active {
+  border-block-end-color: var(--accent);
+}
+
+/* BRACKETS: `[ link ]`, the console idiom, and the one nav style that changes
+   the FACE — to the design's own `--dsg-mono-font`, because a bracket set in a
+   proportional face is a punctuation mark and a bracket set in the mono stack
+   is a prompt. It changes nothing for anybody who does not pick it.
+
+   THE BRACKETS MIRROR THEMSELVES, and that is why there is no `:dir()` rule
+   here. Both characters are `Bidi_Mirrored`, and the link carries `dir="auto"`,
+   so an Arabic label resolves the link to `rtl` and TWO things flip at once:
+   the `::before` box moves to the reading start (the right), and the glyph
+   drawn in it mirrors. The two cancel, which is the correct answer rather than
+   a lucky one — the opening bracket ends up at the reading start in both
+   scripts, drawn in the shape that script opens with. Measured on the Arabic
+   instance with a deliberately mixed bar (three Arabic labels and one Latin
+   one): every item reads as a bracketed item, and not one draws a backwards
+   bracket. Written as literal `<` / `>` marks it would have needed a rule per
+   direction and been wrong in the mixed case either way. */
+.s-dsg-nav__links--brackets {
+  gap: 4px;
+}
+
+.s-dsg-nav__links--brackets .s-dsg-nav__link {
+  padding-inline: 4px;
+  border-radius: 0;
+  font-family: var(--dsg-mono-font);
+}
+
+.s-dsg-nav__links--brackets .s-dsg-nav__link::before,
+.s-dsg-nav__links--brackets .s-dsg-nav__link::after {
+  color: var(--text-faint);
+}
+
+.s-dsg-nav__links--brackets .s-dsg-nav__link::before {
+  content: "[";
+  margin-inline-end: 0.35em;
+}
+
+.s-dsg-nav__links--brackets .s-dsg-nav__link::after {
+  content: "]";
+  margin-inline-start: 0.35em;
+}
+
+.s-dsg-nav__links--brackets .s-dsg-nav__link:hover {
+  background: none;
+  color: var(--text);
+}
+
+.s-dsg-nav__links--brackets .s-dsg-nav__link--active::before,
+.s-dsg-nav__links--brackets .s-dsg-nav__link--active::after {
   color: var(--accent);
 }
 
@@ -1219,6 +2614,138 @@
   color: var(--accent);
 }
 
+/* ── footer forms ──────────────────────────────────────────────────────────
+   THE SAME COLUMNS, SET THREE WAYS. `columns` is everything above — the grid
+   this footer has always been, which needs no rule of its own so an older
+   design is byte-identical. The other two flatten the very same columns into
+   one run and differ in how that run is SET, which is why they share a tree
+   (`.s-dsg-foot__run`) and split here rather than in the component.
+
+   THE SEPARATOR BETWEEN TWO COLUMNS IS A HAIRLINE, drawn as a border on the
+   sibling rather than as a character in the markup. The product's rule is older
+   than this footer and it is not a preference: the Eastern Arabic zero is
+   itself a raised dot, so a run of links divided by `·` on an Arabic instance
+   reads as a run of links divided by zeroes. `border-inline-start` mirrors for
+   free; a middle dot would have needed nothing and been wrong. */
+
+.s-dsg-foot__run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+  margin-block-end: var(--dsg-section-space);
+}
+
+.s-dsg-foot__runcol {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  min-width: 0;
+}
+
+.s-dsg-foot__runcol + .s-dsg-foot__runcol {
+  border-inline-start: 1px solid var(--border);
+  padding-inline-start: 16px;
+}
+
+/* A titled run is how a colophon says "Set in" — the title survives both
+   flattened forms rather than being dropped, because it is something the author
+   typed and a form is an arrangement, not a filter. */
+.s-dsg-foot__runtitle {
+  color: var(--text);
+  font-family: var(--dsg-head-font);
+  font-weight: var(--dsg-head-weight);
+}
+
+/* A `text` entry is a <p> and would break the run; inside one it is type. */
+.s-dsg-foot__run .s-dsg-foot__text {
+  display: inline;
+}
+
+/* The run follows the footer's own alignment — except in a colophon, which is
+   centred by definition and says so a few rules down. */
+.s-dsg-foot--center .s-dsg-foot__run {
+  justify-content: center;
+}
+
+/* ── colophon ──────────────────────────────────────────────────────────────
+   THE LAST PAGE OF A BOOK. One centred block on the reading measure, set in
+   small caps with the air small caps need, and the copyright set as part of the
+   same block rather than as a line under a grid.
+
+   IT IGNORES `footer.align`, and that is the one place a form overrules another
+   control in this file. A colophon flushed to the leading edge is not a
+   colophon set differently, it is a column of links — the centring is the
+   entire typographic argument, and an author who wants the run flushed has
+   `columns` one segment away. */
+.s-dsg-foot--colophon {
+  text-align: center;
+}
+
+.s-dsg-foot--colophon .s-dsg-foot__run {
+  max-width: var(--dsg-measure-px);
+  margin-inline: auto;
+  justify-content: center;
+  gap: 6px 18px;
+  font-variant-caps: small-caps;
+  letter-spacing: 0.06em;
+  line-height: 1.9;
+}
+
+.s-dsg-foot--colophon .s-dsg-foot__line {
+  max-width: var(--dsg-measure-px);
+  margin-inline: auto;
+  margin-block-end: 14px;
+  font-variant-caps: small-caps;
+  letter-spacing: 0.06em;
+}
+
+.s-dsg-foot--colophon .s-dsg-foot__meta {
+  justify-content: center;
+}
+
+/* ── grand ─────────────────────────────────────────────────────────────────
+   THE SITE'S NAME AT THE END OF THE PAGE. The reader has finished; what they
+   are left holding is whose site this was.
+
+   THE SIZE IS THE DESIGN'S OWN h1, MULTIPLIED — the band hero's precedent and
+   the rule masthead's — clamped against the viewport so a long name on a phone
+   shrinks instead of running off the side. Every other property comes off the
+   same four heading vars the masthead uses, so a footer's wordmark and a
+   header's wordmark are the same piece of type at two sizes rather than two
+   decisions that happen to agree today. */
+.s-dsg-foot--grand {
+  padding-block-start: calc(var(--dsg-section-space) * 1.3);
+}
+
+.s-dsg-foot__grand {
+  margin: 0 0 var(--dsg-head-space);
+  color: var(--text);
+  font-family: var(--dsg-head-font);
+  /* 10vw, not the 12vw this shipped at, and a phone is what settled it. At 390
+     the middle term is what wins for any design large enough to want this
+     footer, so it — not the ceiling — is the size a reader actually gets: 12vw
+     is 47px, and "COMPOSITOR" set at 47px in a tracked uppercase grotesque is
+     ~370px inside a 342px column, so `overflow-wrap` did its job and left a
+     lone "R" on a line of its own. 10vw is 39px and the same word measures
+     ~304px, which fits. Nothing changes above ~1070px, where the derived
+     ceiling (h1 × 2.4) is the smaller of the two and takes over — the desktop
+     wordmark is the same 128px it was. A word longer than this still breaks,
+     and should: the wrap is the backstop, not the plan. */
+  font-size: clamp(2rem, 10vw, calc(var(--dsg-h1) * 2.4));
+  font-weight: var(--dsg-head-weight);
+  letter-spacing: var(--dsg-head-tracking);
+  text-transform: var(--dsg-head-transform);
+  font-variant-caps: var(--dsg-head-variant);
+  line-height: 0.95;
+  overflow-wrap: break-word;
+}
+
+.s-dsg-foot--grand .s-dsg-foot__run {
+  margin-block-end: calc(var(--dsg-section-space) * 0.8);
+}
+
 /* ── The admin's notice ────────────────────────────────────────────────── */
 
 /* Named, actionable, and never shown to a visitor: by the time a visitor
@@ -1272,6 +2799,31 @@
   .s-dsg-nav__sublink,
   .s-dsg-nav__burger {
     min-height: 44px;
+  }
+
+  /* THE FINE PRINT IS STILL A TARGET, and this footer's two — "RSS" and the
+     sign-in — were 22×19 slivers at 390 while the stock blog's identical pair
+     had already been fixed (`.s-blog-footer__link`, "a 23×44 sliver"). The
+     same mechanism, for the same reason, on this shell's own class: a box
+     rather than padding, because one of them is an <a> and the other is a
+     <button>. `min-width` finishes what padding cannot for a three-letter
+     label; anything wider is already past the floor and does not move. The
+     `powered by` link is unclassed markup inside its own span, so it is
+     reached through the span. */
+  .s-dsg-foot__metalink,
+  .s-dsg-foot__powered a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
+    padding-inline: 10px;
+  }
+
+  /* The row's own gap comes down by about what the padding adds, so a footer
+     that grew two boxes does not also grow two gaps. */
+  .s-dsg-foot__meta {
+    gap: 4px;
   }
 }
 
@@ -1332,6 +2884,40 @@
 
   .s-dsg-foot__cols {
     gap: 20px;
+  }
+
+  /* A HAIRLINE BETWEEN COLUMNS IS A SEPARATOR ONLY WHILE THEY SHARE A LINE.
+     Once the run wraps — which it does on every phone — the border lands at the
+     start of a new line with nothing on its other side, which reads as a rule
+     somebody forgot to remove. Below 700 the columns separate by AIR instead,
+     one per row, which is what a phone had room to say anyway. */
+  .s-dsg-foot__run {
+    flex-direction: column;
+    align-items: inherit;
+  }
+
+  .s-dsg-foot--center .s-dsg-foot__run {
+    align-items: center;
+  }
+
+  .s-dsg-foot__runcol + .s-dsg-foot__runcol {
+    border-inline-start: 0;
+    padding-inline-start: 0;
+  }
+
+  /* The centred menu gives up its three tracks on a phone: below 700 the run
+     becomes a COLUMN inside a burger drawer, and a column of links squeezed
+     into the middle track of a grid is a menu two words wide. */
+  .s-dsg-nav--rule .s-dsg-nav__inner {
+    display: flex;
+  }
+
+  .s-dsg-nav--rule .s-dsg-nav__links {
+    justify-content: flex-start;
+  }
+
+  .s-dsg-nav--rule .s-dsg-nav__tools {
+    margin-inline-start: auto;
   }
 }
 

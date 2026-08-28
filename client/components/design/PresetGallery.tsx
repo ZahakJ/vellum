@@ -57,6 +57,8 @@ import {
 } from "../../../shared/presets.ts";
 import { isTheme } from "../../../shared/themes.ts";
 import DesignCanvas from "../../design/DesignCanvas.tsx";
+import { designFontRefs } from "../../../shared/designChrome.ts";
+import { setDesignFonts } from "../../design/designFonts.ts";
 import type { PreviewContent } from "../../design/previewContent.tsx";
 import { localeNum, t, tf, type I18nKey } from "../../i18n.ts";
 import { useStore } from "../../state.ts";
@@ -72,6 +74,7 @@ import "../../styles/presets.css";
  *  check-i18n, which then reports eight live keys as dead and fails the
  *  build. */
 const FAMILY_LABEL: Record<PresetFamily, I18nKey> = {
+  signature: "presetFamSignature",
   editorial: "presetFamEditorial",
   minimal: "presetFamMinimal",
   journal: "presetFamJournal",
@@ -154,6 +157,26 @@ export default function PresetGallery({
 }: PresetGalleryProps) {
   const [family, setFamily] = useState<PresetFamily | null>(null);
   const [text, setText] = useState("");
+
+  // THE CARDS PAINT THEIR OWN TYPE. A card is a real `<DesignCanvas>`, so a
+  // preset that names EB Garamond has to be DRAWN in EB Garamond or the shelf
+  // is fifty-nine designs in one typeface arguing about margins. The cards live
+  // in the app's own document, so one link in <head> reaches all of them —
+  // client/design/designFonts.ts.
+  //
+  // The union is taken over the WHOLE catalog rather than the filtered shelf,
+  // because a link that changed as the reader typed in the search box would
+  // re-fetch a stylesheet per keystroke to dress cards that are already on
+  // screen. That union is capped (MAX_REFS): presets share faces heavily by
+  // construction — a house style is the point of a family — and if a future
+  // catalog ever names more distinct faces than the cap, the cards past it
+  // paint in the instance's stacks, which is the same graceful nothing a face
+  // that will not download produces. That is the constraint, and it is written
+  // here rather than discovered.
+  useEffect(() => {
+    setDesignFonts("gallery", presets.flatMap((preset) => designFontRefs(preset.design.chrome.typography)));
+    return () => setDesignFonts("gallery", []);
+  }, [presets]);
   /** The card opened into the detail pane. */
   const [chosen, setChosen] = useState<string | null>(null);
   /**

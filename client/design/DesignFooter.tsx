@@ -12,6 +12,17 @@
 // has ({year}, {siteName}) — an operator who has written one has written the
 // other — and an empty template inherits the instance's own footer line
 // rather than printing nothing.
+//
+// THREE FORMS, AND THE ENTRIES ARE THE SAME ENTRIES. `columns` is the grid this
+// footer has always been; `colophon` sets the very same columns as ONE centred
+// run of small-caps prose, the way the last page of a book does; `grand` prints
+// the site's name at display size and flattens the columns into a single row
+// under it. Nothing is invented for a form and nothing is dropped by one — an
+// author who fills in four columns and then tries all three sees their own four
+// columns arranged three ways, which is the only behaviour that makes the
+// control worth having. The separators between entries in the two flattened
+// forms are HAIRLINES drawn in CSS, never a middle dot: the Eastern Arabic zero
+// is itself a raised dot, and that rule is older than this footer.
 
 import type { FooterDesign, FooterEntry, SocialNetwork } from "../../shared/designChrome.ts";
 import { getNumerals, t } from "../i18n.ts";
@@ -105,24 +116,60 @@ export default function DesignFooter({
     ? renderCopyright(footer.copyright, siteName)
     : (instanceFooter ?? "");
   const columns = footer.columns.filter((c) => c.title !== "" || c.entries.length > 0);
+  // Restated rather than trusted, for the reason every renderer in this engine
+  // restates its own default: a preset's chrome reaches the gallery canvas
+  // without passing `normalizeChrome`, and `s-dsg-foot--undefined` is a footer
+  // that draws nothing.
+  const form = footer.form ?? "columns";
   return (
-    <footer className={`s-dsg-foot s-dsg-foot--${footer.align}`}>
-      {columns.length > 0 && (
-        <div className="s-dsg-foot__cols">
-          {columns.map((col) => (
-            <div className="s-dsg-foot__col" key={col.id}>
-              {col.title && (
-                <h2 className="s-dsg-foot__title" dir="auto">
-                  {col.title}
-                </h2>
-              )}
-              {col.entries.map((entry) => (
-                <Entry key={entry.id} entry={entry} />
-              ))}
-            </div>
-          ))}
-        </div>
+    <footer className={`s-dsg-foot s-dsg-foot--${footer.align} s-dsg-foot--${form}`}>
+      {/* THE SITE'S NAME AT THE END OF THE PAGE, and only in this form. It is
+          the one place the footer says the thing the masthead said, which is
+          the whole argument of a big-type footer: the reader has finished, and
+          what they should be left holding is whose site this was. */}
+      {form === "grand" && (
+        <p className="s-dsg-foot__grand" dir="auto">
+          {siteName}
+        </p>
       )}
+      {columns.length > 0 &&
+        (form === "columns" ? (
+          <div className="s-dsg-foot__cols">
+            {columns.map((col) => (
+              <div className="s-dsg-foot__col" key={col.id}>
+                {col.title && (
+                  <h2 className="s-dsg-foot__title" dir="auto">
+                    {col.title}
+                  </h2>
+                )}
+                {col.entries.map((entry) => (
+                  <Entry key={entry.id} entry={entry} />
+                ))}
+              </div>
+            ))}
+          </div>
+        ) : (
+          // COLOPHON AND GRAND SHARE ONE TREE. Both are the columns run
+          // together as a single wrapped line; they differ in the type they are
+          // set in, which is a stylesheet's job and not a second component's.
+          // The column TITLE survives in both — a titled run is how a colophon
+          // says "Set in", and dropping it would silently delete something the
+          // author typed.
+          <div className="s-dsg-foot__run">
+            {columns.map((col) => (
+              <span className="s-dsg-foot__runcol" key={col.id}>
+                {col.title && (
+                  <span className="s-dsg-foot__runtitle" dir="auto">
+                    {col.title}
+                  </span>
+                )}
+                {col.entries.map((entry) => (
+                  <Entry key={entry.id} entry={entry} />
+                ))}
+              </span>
+            ))}
+          </div>
+        ))}
       {footer.showCopyright && copyright && (
         <p className="s-dsg-foot__line" dir="auto">
           {copyright}

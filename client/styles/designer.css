@@ -1115,6 +1115,15 @@
   margin-block-end: 9px;
 }
 
+/* A STACKED ROW GIVES ITS CONTROL THE WHOLE COLUMN — which is the only reason
+   to stack one. The 58% cap belongs to the side-by-side row, where the label
+   sits beside the control and has to be readable; under `display: block` it
+   went on applying and held a five-way segmented control to a little over half
+   the width it had just been given a line of its own for. */
+.s-dsgr-ctlrow--stack .s-dsgr-ctlrow__control {
+  max-width: 100%;
+}
+
 /* Sixteen-plus swatch cards. `auto-fill` rather than a column count: the panel
    is a dialog whose controls column changes width with the tab, and a fixed
    count would be four cramped cards at 380px and four wide ones at 460. */

@@ -337,6 +337,109 @@ A third visitor shell, composed from a design config, beside the two that exist.
   column. Measured at 390: document horizontal overflow 0.
 - **The byline follows the TITLE's script, not the chrome's** — four rules, because the answer is
   chrome direction XOR title direction and `flex-start` is the CONTAINER's start.
+- **A design may name real typefaces, and a face it names is never the only answer.**
+  `chrome.typography` carries three optional catalog ids (heading, body, code). The resolved
+  family is emitted AHEAD of the instance's own stack, so a face that has not downloaded — or an
+  imported design naming one this instance never fetched — leaves the page exactly as it was.
+  Visitors receive a published design's faces through the same generated stylesheet the
+  instance's own four slots go through; the designer's unsaved draft and the preset gallery are
+  served by one admin-only sheet in `<head>`, under the live site's family names, so the pane and
+  the cards show what will ship. **A design decides one script and inherits the other**: the face
+  it names becomes the half of the composite its coverage says it is, and the other half is the
+  instance's, because an Arabic vault's naskh face is a statement about the language the site is
+  written in and a preset applied by a stranger does not get to overrule it.
+- **A section decides its SHAPE, and the shape is not one shape.** A run of writing is set as a
+  river, a ruled ledger with the date hanging in a column of its own, a dotted-leader index, a
+  numbered run in oversized faint ordinals, or a dateline that breaks it into the days it was
+  published on. A post is a bordered tile, a bare picture with words under it, a title on a scrim
+  over the picture, a horizontal row with the thumbnail at the start, or a masonry column that
+  keeps the proportion the photograph was taken at. An opening is a panel, a band of ground and
+  type with no picture at all, or a split with the words beside one. Every one of them decides
+  position, rhythm and weight and NONE of them decides a hue — the same line the whole engine is
+  drawn on. The first of each is what the engine drew before it, so an older design is
+  byte-identical after the upgrade.
+- **The CHROME decides its shape too, and the page decides what it is printed on.** A masthead is
+  a centred plate, a plate flushed to the leading edge, a single app-like row, a nameplate set
+  **between two hairlines** with the menu centred beneath it, or a **banner** — a full-width field
+  of `--bg-raised` behind the identity. A menu is a plain run, pills, an accent **rail** under the
+  page the reader is on, or **`[ brackets ]`**, which mirror themselves: both characters are
+  `Bidi_Mirrored` and the link carries `dir="auto"`, so the opening bracket lands at the reading
+  start in either script with no rule per direction. The end of the page is a grid of columns, a
+  centred small-caps **colophon** set the way a book's last page is, or the site's own name at
+  display size with those same columns run together beneath it. **A sidebar masthead is deferred,
+  not refused**: a nav column beside the writing is a second column, and one column per page is the
+  rule two paragraphs up — when it lands it lands as a change to the PAGE.
+- **The whole site is printed on a SURFACE, and a surface is a measurement.** `flat`, faint ruled
+  baselines at the design's own line height, graph `grid`, a `tinted` `--bg-raised` ground, or
+  `paper` — laid tooth drawn as three hatchings at co-prime periods, no image file. Every value is
+  `--bg-raised` or a `color-mix` of `--text` into transparent, so all five are the same decision in
+  all twenty-one rooms and no design has acquired a hue. **The whisper is enforced on real pixels**,
+  the way the ambient masthead's was: the gutter is screenshotted, the PNG decoded, and the worst
+  painted colour in it — the crossing of two rules, of three hatchings — measured against every ink
+  token. Worst of twenty-five readings: `--text` 11.25:1, `--text-muted` 4.70:1 (floor 4.5),
+  `--text-faint` 3.02:1 (its own 3:1 remit). A first draft at 7% ink measured muted at 3.88 on
+  parchment and was refused; the table is in `design.css` beside the rules. **A whisper still has
+  to be audible**, and when the first shots said two of the three were not — a graph grid that
+  integrated to a flat wash on `murex`, a laid tooth that rendered as offset at 1440 — the answer
+  was GEOMETRY and not ink, because the ink is spent against the numbers above. The grid's cell
+  became two line boxes instead of one (four times fewer intersections, every rule with 40–60px of
+  clean ground beside it) and the tooth's hatchings became 2px lines at 13/17/23px instead of 1px
+  at 5/7/11 — less ink per square inch, three times the tooth, and every composited value in the
+  table exactly where it was.
+- **A divider between two sections may be the ORNAMENT**, which is the reading view's `***` —
+  the same fading accent rule with the wordmark over a gap. A composed page breaks its run of
+  sections for the reason an essay breaks its run of paragraphs, and until now it could only do
+  it with a piece of chrome.
+- **A shelf of the gallery is a BAR, not a job.** Eight families answer "what is this site for".
+  The ninth — `signature`, and it leads — answers "is this design actually something": a design
+  earns it by using at least three of the new primitives in anger, naming its own faces, and
+  colliding with nothing in the silhouette report, so that applying one feels like moving into a
+  different house rather than adjusting the one you are in. They arrive as STUDIOS of four,
+  because four designs have to argue with each other as well as with the shelf. The press is the
+  first: a broadsheet set between two hairlines with its file broken into days, a console in one
+  monospaced face with `[ brackets ]` for a menu, a scholarly offprint that counts what is in this
+  issue and rules what is filed, and a poster on graph paper that signs itself at the foot. The
+  gallery is the second, and its four argue about WHERE THE IMAGE GOES — a private view that hangs
+  six plates at 5:4 under a field-of-ground masthead and prints a dotted-leader checklist beneath
+  them, a plate book that asks each photograph how tall it is and prints nothing else, a zine of
+  typed headlines pasted straight onto eight photocopies on laid paper, and a magazine that sets
+  its cover line beside a plate and runs its departments as full-width bands. The letters are
+  the third, and their four argue about WHAT THE PAGE IS MADE OF, one surface each — a letterpress
+  salon on laid paper whose forme is two brass rules, an observing station on a coordinate grid
+  that labels its plates in a grotesque and types its log in a monospace, a deluxe manuscript on
+  ruled lines under a gilded headpiece, and an essayist on nothing at all, with no menu, no
+  pictures and one numbered column. A studio's four agree on nothing: four grounds, four
+  mastheads, four menus, and no two runs of writing shaped alike. **Not one of the twelve lists
+  its writing as a river**, which every one of the other fifty-nine does; the salon was the last
+  to, and a screenshot with its masthead cropped off settled it.
+- **A shape that is about the PICTURE does not invent one.** A post with no banner gets generated
+  artwork, which is the right answer for a 128px strip above a title and the wrong one at plate
+  size: five synthetic fields among nineteen photographs is the first thing the eye lands on in a
+  monograph, and two in a hang of eight is a gallery exhibiting work it does not have. So the two
+  card shapes whose whole subject is the picture print TYPE instead — a masonry card becomes a
+  leaf (hairline, air, the title at the design's own h2) and an overlay becomes a wall label (the
+  same 5:4 field, the scrim dropped because a fixed dark gradient exists to sit on an unpredictable
+  photograph and over the theme's own ground it is a stripe). The other three still generate, still
+  on the operator's toggle, and the preset gallery's canvas still generates for all five, because a
+  200px card of an unknown vault is not the place to judge an image-forward design by its type. The
+  split hero takes the other road: **a cover shows the cover story**, so a split with no image of
+  its own borrows the newest post's banner — only the split, because a picture beside the words
+  carries no type and a picture behind them is a contrast argument against a vault nobody has seen.
+- **A newspaper's file is set in COLUMNS.** A dateline run splits into as many 24rem tracks as the
+  page can hold, to a ceiling of two, with a `--border` rule between them — a width first and a
+  count second, so a 1240px broadsheet takes two, a 640px essayist's column takes one and a phone
+  takes one without a breakpoint saying so. Its rows print a HEADLINE and nothing else: the day is
+  the kicker above them, and a reading time under every headline is the web-furniture version of
+  the repetition a dateline exists to delete.
+- **A bar with no links is not a bar, and a band is as tall as its type.** A design may decline a
+  menu outright; when it does, the nav element is not rendered and the search box and theme switch
+  come back into the masthead under the identity, because an empty bar with one control marooned at
+  the end of it reads as a menu that failed to load rather than as a refusal. And a `band` hero
+  takes its height from its padding and its own h1 (×1.5) rather than from the 200/360px floors a
+  hero inherits for a PHOTOGRAPH it does not have — with a hairline above and below it, because
+  `--bg-raised` against `--bg` is a whole tone apart in some rooms and nearly nothing in others,
+  and a shape that survives the palette is drawn with a rule. The banner masthead closes itself
+  with the same hairline for the same reason.
 - **Counts go through `localeNum()`.** A topic chip's count sits beside an Arabic-Indic date on
   every card in the same column; one numbering system per instance is not negotiable for a new
   surface either.

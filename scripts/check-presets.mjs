@@ -59,6 +59,7 @@ const { assertCatalog, PRESET_FAMILIES, presetDesignDoc, presetExport } = await 
 const { normalizeChrome, TYPO_BOUNDS } = await load("shared/designChrome.ts");
 const { MIN_WIDTH, MAX_WIDTH, validateDesign } = await load("shared/design.ts");
 const { THEMES, isTheme } = await load("shared/themes.ts");
+const { catalogEntry, FONT_CATALOG } = await load("shared/fontCatalog.ts");
 
 let failures = 0;
 const fail = (label, detail = "") => {
@@ -123,6 +124,16 @@ for (const preset of PRESETS) {
       }
     }
   }
+  // …AND THE SCALARS THAT ARE NOT IN A GROUP. `chrome.surface` is one key at
+  // the top of the chrome rather than a field inside `header`/`footer`/`nav`,
+  // so the three-group loop above walked straight past it: a preset written
+  // with `surface: "linen"` would normalize to `flat`, apply cleanly, and ship
+  // a plain page under a blurb that promised a textured one — the exact silent
+  // correction this whole check exists to catch, one nesting level up.
+  for (const [key, want] of Object.entries(before)) {
+    if (want && typeof want === "object") continue;
+    if (after[key] !== want) clamped.push(`${preset.id}.${key}: ${want} → ${after[key]}`);
+  }
 }
 if (clamped.length) {
   fail("no preset value is overruled by the normalizer", `${clamped.length}`);
@@ -145,6 +156,56 @@ const badTheme = PRESETS.filter((p) => p.design.theme && !isTheme(p.design.theme
 );
 if (badTheme.length) fail("every preset names a theme this build has", badTheme.join(", "));
 else pass(`every preset names one of the ${THEMES.length} built-in themes`);
+
+// EVERY FACE A PRESET NAMES IS ONE THIS BUILD CAN SERVE.
+//
+// A design may now name real typefaces, and this is the one place the catalog
+// and the shelf can disagree without anybody noticing. `normalizeChrome` DROPS
+// an unknown id instead of throwing — reads never fail — so a preset written
+// with `headingFont: "eb-garamon"` applies cleanly, renders in the instance's
+// default serif, and sells a typeface it never sets. The blurb promised a
+// letterpress salon; the reader got the stock page with different margins.
+//
+// The same line catches a `custom:` id, which is a subtler mistake: it names a
+// face that exists on the author's machine and on nobody else's, so the preset
+// would look right in exactly one place — the place it was written.
+//
+// `assertCatalog` enforces this too (shared/presets.ts). It is repeated as its
+// own line here because a gate that only says "assertCatalog passed" tells a
+// reader nothing about which rules ran, and this is the rule most likely to be
+// broken by somebody adding a template in a hurry.
+const badFace = [];
+for (const preset of PRESETS) {
+  const typo = preset.design.chrome?.typography ?? {};
+  for (const key of ["headingFont", "bodyFont", "monoFont"]) {
+    const id = typo[key];
+    if (id === undefined) continue;
+    if (typeof id !== "string" || catalogEntry(id) === null) {
+      badFace.push(`${preset.id}.${key} → ${JSON.stringify(id)}`);
+      continue;
+    }
+    // …and it must survive the normalizer unchanged, for the reason the
+    // numbers above must: a silently dropped face is a silently different
+    // design.
+    const after = normalizeChrome(structuredClone(preset.design.chrome));
+    if (after.typography[key] !== id) badFace.push(`${preset.id}.${key}: ${id} → ${after.typography[key]}`);
+  }
+}
+const facesUsed = new Set(
+  PRESETS.flatMap((p) =>
+    ["headingFont", "bodyFont", "monoFont"]
+      .map((k) => p.design.chrome?.typography?.[k])
+      .filter(Boolean),
+  ),
+);
+if (badFace.length) {
+  fail("every font a preset names is in FONT_CATALOG", badFace.join(", "));
+} else {
+  pass(
+    `every font a preset names is one of the ${Object.keys(FONT_CATALOG).length} catalog families`,
+    facesUsed.size === 0 ? "no preset names a face yet" : `${facesUsed.size} face(s) in use`,
+  );
+}
 
 // The apply flow is an IMPORT: every preset must survive the exact validator
 // the route runs, or its first click is an error toast.
@@ -256,17 +317,65 @@ if (doubled.length) {
 // It stays a NOTE and never a failure: two designs may legitimately share a
 // skeleton and differ in palette, columns and type, and that is a judgement
 // for a person rather than a threshold.
+//
+// THE ARRANGEMENT FIELDS BELONG IN THE KEY, and leaving them out would have
+// been the same mistake the exact pixel width was. A ledger list and a
+// dateline list are not the same block; an overlay grid and a boxed one are
+// not the same shelf; a band hero and a split hero are not the same opening.
+// A key that cannot see them reports two designs as twins on the strength of
+// the word "postList" appearing in both, which makes the note noise rather
+// than a reading. Each field is folded in with its DEFAULT written out, so a
+// preset authored before the field existed keys identically to one that names
+// the default explicitly — the collision report must not move because a shelf
+// file grew a line that changes nothing.
 const widthBand = (px) => (px <= 780 ? "narrow" : px <= 1080 ? "mid" : "wide");
 const silhouette = (section) => {
   if (section.kind === "postGrid") {
-    return `postGrid${section.columns}${section.showBanner ? "+art" : ""}`;
+    const card = section.card ?? "boxed";
+    return `postGrid${section.columns}:${card}${section.showBanner ? "+art" : ""}`;
   }
-  if (section.kind === "hero") return `hero:${section.height}`;
+  if (section.kind === "postList") return `postList:${section.layout ?? "river"}`;
+  if (section.kind === "hero") return `hero:${section.height}:${section.treatment ?? "panel"}`;
+  // A DIVIDER'S STYLE IS DELIBERATELY NOT IN THE KEY, and it is the one new
+  // enum left out. Folding it in was tried and measured: the report fell from
+  // seven collisions to three, because four of the pairs a READER had already
+  // called twins (`daybook`/`preprint`, `commissions`/`lyceum`,
+  // `compendium`/`thicket`, `overture`/`envelope`) differ in nothing but a
+  // hairline versus a gap. A key that hides four of the six twins a person
+  // measured is not a finer key, it is a quieter one — and this note exists to
+  // be read by that person. The rule the key is held to is what a 200px card
+  // can RESOLVE, and a divider is the least of what it resolves.
   return section.kind;
 };
+// THE CHROME IS PART OF THE SILHOUETTE TOO, and leaving it out would have been
+// the same mistake as leaving out a list's layout. Two designs with an identical
+// run of sections are not twins when one wears a ruled newspaper plate on graph
+// paper and ends in its own name at display size and the other wears a centred
+// wordmark on a plain ground and ends in a meta line. Those three — the
+// masthead's SHAPE, the page's GROUND, and the shape of the END of the page —
+// are exactly the chrome a 200px card resolves, which is the bar this key is
+// held to; `DesignThumb` draws all three and nothing else from the chrome.
+//
+// `nav.style` is deliberately out, for the reason `divider.style` is out. Pills,
+// an accent rail and a pair of brackets on a 7px bar are the same 7px bar: the
+// key would gain a term the reader cannot see, which makes the note quieter
+// rather than finer — and this note exists to be read by that reader.
+//
+// Each field carries its DEFAULT written out, so a preset authored before the
+// field existed keys identically to one that names the default explicitly and
+// the collision report does not move because a shelf file grew a line that
+// changes nothing.
+const chromeShape = (chrome) =>
+  [
+    chrome?.header?.layout ?? "stacked",
+    chrome?.surface ?? "flat",
+    chrome?.footer?.form ?? "columns",
+  ].join(":");
 const shapes = new Map();
 for (const p of PRESETS) {
-  const key = `${p.design.sections.map(silhouette).join(">")}|${widthBand(p.design.site.width)}`;
+  const key =
+    `${p.design.sections.map(silhouette).join(">")}` +
+    `|${widthBand(p.design.site.width)}|${chromeShape(p.design.chrome)}`;
   shapes.set(key, [...(shapes.get(key) ?? []), p.id]);
 }
 const twins = [...shapes.values()].filter((v) => v.length > 1);

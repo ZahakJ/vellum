@@ -437,7 +437,78 @@ const AUDIENCES = [
 // copy of the same card is the display-only card it always was, byte for byte.
 // The surgical writer, the value grammar and the key policy are server code no
 // browser fetches at all.
-  { name: "entry (everyone)", keys: entry, budget: 554 * 1024 },
+// RE-BASELINED for PER-DESIGN TYPE (554.9 kB actual → budget 556, actual +
+// ~0.2%). This round lets a DESIGN name real typefaces — three optional
+// catalog ids on `chrome.typography`, served to visitors through the same
+// generated stylesheet the instance's own four slots go through. Its entry
+// share is the dictionary and nothing else, and the measurements are worth
+// keeping because the interesting number is the one that did NOT move:
+//
+//   +~1.0 kB  the dictionary's eight new keys — the section heading, the three
+//             row labels, the word on the row that means "leave this to the
+//             instance", the two hints and the note about Arabic. A picker
+//             that offers a typeface has to say what clearing it does and what
+//             happens to the script the row cannot choose for, or the control
+//             is a guess in two languages. `t()` reads one object on every
+//             surface, so a blog reader pays for them too; the by-language
+//             split named at length below remains the ~32 kB recovery.
+//   +0 kB     THE CATALOG ITSELF. `shared/fontCatalog.ts` — twenty-seven
+//             families with their categories, scripts and measured
+//             size-adjusts — moved out of `server/fonts.ts` this round so the
+//             validator, the designer's rows and `check-presets` could agree
+//             about which ids exist. Measured after the move: it lands in the
+//             DESIGN chunk (`assets/design-*.js`), which is lazy on every
+//             surface, and it is absent from the entry closure entirely. A
+//             list of font names is not something a blog reader downloads to
+//             read a post.
+//
+// WHAT ELSE DID NOT LAND HERE: the per-design composite builder, the draft
+// stylesheet route and the cache warmer are all server code no browser
+// fetches; the three `<Select>` rows are inside the designer panel's own
+// chunk, which only an admin opening the designer pays for.
+// …and once more, for THE STRUCTURES (556.1 kB actual → 557, actual + ~0.16%).
+// A post list gained five layouts, a card five anatomies, a hero three
+// treatments and the divider an ornament — and the entry's whole share of that
+// is TWENTY-FOUR DICTIONARY ENTRIES, in two languages: the names of the
+// choices, plus one hint per axis saying what the axis decides. The row labels
+// have to be words rather than pictures for the same reason the font rows do —
+// "Dateline" is a shape the operator cannot guess from a segment glyph — and
+// `t()` reads one object on every surface, so a blog reader pays for them too.
+// The by-language split named below remains the ~32 kB recovery.
+//
+// WHAT DID NOT LAND HERE, and it is most of the round: ~5 kB of new rules in
+// `client/styles/design.css` (the layouts, the shapes, the treatments, the
+// ornament) and ~2 kB in `client/styles/presets.css` (the miniature's version
+// of the same) are both in the DESIGN chunk, `assets/design-*.css`, which is
+// lazy on every surface — the entry closure is three files and none of them is
+// a stylesheet this feature touches. The renderers are in the same chunk; the
+// five `<Select>`/`<SegmentedControl>` rows are in the designer panel's own.
+// …and once more, for THE CHROME (557.8 kB actual → 559, actual + ~0.21%).
+// Two masthead shapes, five page grounds, three footer forms and four nav
+// styles, and the entry's WHOLE share of them is the dictionary again: twenty
+// entries in two languages — five ground names, two masthead names, three
+// footer forms, four nav styles, and one hint per axis. The measurement is
+// exact, because the entry closure is three files and only two of them could
+// have moved: `assets/index-*.js` carries `client/i18n.ts` (+~1.7 kB) and
+// `assets/index-*.css` carries `client/styles/controls.css` (+~16 bytes,
+// below). The reason a blog reader pays for chrome copy is the reason named
+// two rounds up — `t()` reads ONE object on every surface — and the by-language
+// split remains the ~32 kB that would give it back.
+//
+// The sixteen bytes are a CORRECTION and are worth their own line: `.s-ctl-seg`
+// gained `flex-wrap: wrap`. It was an `inline-flex` of `nowrap` buttons under
+// `max-width: 100%`, so a segmented control wider than its column had its last
+// segments CLIPPED rather than wrapped — measured in the designer at 1280, a
+// three-way control overran by 55px and a five-way one by 158px, which is an
+// option nobody can see or click. Pre-existing wherever a run was tight; found
+// by measuring this round's four- and five-way controls and fixed at the root.
+//
+// WHAT DID NOT LAND HERE: ~4 kB of new rules in `client/styles/design.css`
+// (the two mastheads, the five surfaces, the four nav styles, the two footer
+// forms) and ~1 kB in `client/styles/presets.css` (the miniature's version) are
+// both in `assets/design-*.css`, lazy on every surface; the four new
+// `<SegmentedControl>` rows are in the designer panel's own chunk.
+  { name: "entry (everyone)", keys: entry, budget: 559 * 1024 },
   // RE-BASELINED for the DICTIONARY, and this one deserves naming as a debt
   // rather than a measurement. `client/i18n.ts` is a single object read by
   // `t()` on every surface, so it lands whole in every first paint — and this
@@ -554,7 +625,34 @@ const AUDIENCES = [
   // screen), and a stylesheet fetched at `beforeprint` arrives after the pages
   // are cut. Riding with reading.css is what puts it in exactly the chunks
   // that can show a document and in nobody else's.
-  { name: "anonymous blog reader", keys: blog, budget: 770 * 1024 },
+  // …and once more with the entry, for PER-DESIGN TYPE (770.0 kB actual → 772,
+  // actual + ~0.26%). Almost all of it is the entry's dictionary share named
+  // above; this closure's own is two CSS rules and they are worth naming
+  // because both are corrections rather than features:
+  //
+  //   +~0.3 kB  `client/styles/design.css` — one rule pointing `.s-rv-code` /
+  //             `.s-rv-pre` inside a designed page at `--dsg-mono-font`. Code
+  //             in the author's own prose used to read the INSTANCE's mono
+  //             token, which is right for a code block in the editor and a
+  //             coincidence on a designed page.
+  //   +~0.2 kB  `client/styles/controls.css` — the face-picker trigger's
+  //             coarse-pointer floor, 42px → 44px. Pre-existing everywhere the
+  //             trigger appears (the settings panel's four slot pickers); it
+  //             was found by measuring the designer's three new face rows on a
+  //             touch pointer and fixed at the root rather than beside them.
+  //
+  // The client half of the feature itself is outside this closure entirely:
+  // `client/design/designFonts.ts` and the three `<Select>` rows are reached
+  // only from the designer panel's own chunk, and the catalog data is in the
+  // lazy design chunk.
+  // …and once more, for THE CHROME (772.8 kB actual → 774, actual + ~0.16%).
+  // This closure's own share of the round is ZERO: the designed shell, its
+  // stylesheet and its renderers are not in it, and a visitor reading a post on
+  // the stock blog never fetches a byte of a masthead they will not see. The
+  // whole movement is the entry's twenty dictionary entries and sixteen bytes
+  // of control CSS, both named above, arriving here because this closure
+  // contains the entry.
+  { name: "anonymous blog reader", keys: blog, budget: 774 * 1024 },
   // RE-BASELINED for PER-FOLDER TREE ICONS (1089.4 kB actual → 1099.4 kB,
   // budget = actual + ~1.1%), and the growth here is almost all feature A's:
   // +3.4 kB FolderGlyph (now a shared chunk, since the sidebar and the blog
@@ -601,7 +699,21 @@ const AUDIENCES = [
   // and the panel is drawn on the first paint. `client/print.ts` itself is NOT
   // in this number: it is loaded by Editor.tsx and ReadingView.tsx, both behind
   // the pane's lazy boundary, and reached from the palette by `import()`.
-  { name: "admin first paint", keys: app, budget: 1178 * 1024 },
+  // …and once more with the entry, for THE STRUCTURES (1178.4 kB actual →
+  // 1180, actual + ~0.14%). Measured, the admin's own share of this round is
+  // rounding: the growth is the entry's twenty-four dictionary entries, named
+  // above, and nothing else. The five section layouts, the five card shapes,
+  // the three hero treatments, the ornament and the miniature that draws all
+  // of them are in the design chunk and the designer panel's chunk — an admin
+  // pays for them when they OPEN the designer, which is the one moment they
+  // are looking at exactly those controls.
+  // …and once more, for THE CHROME (1180.1 kB actual → 1182, actual + ~0.16%),
+  // and the admin's own share is rounding for the same reason it was last
+  // round: the four new controls are in `DesignerPanel-*.js`, the rules that
+  // draw the mastheads and the grounds are in `design-*.css`, and both are
+  // behind the door an admin opens when they are looking at exactly those
+  // controls. What moved on the FIRST paint is the entry, named above.
+  { name: "admin first paint", keys: app, budget: 1182 * 1024 },
 ];
 
 // ── things that must never be in a first paint ──────────────────────────────

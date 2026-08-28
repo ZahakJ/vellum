@@ -10,7 +10,7 @@
 // the keyboard, and closes on Escape, on an outside click and on navigation.
 
 import { useEffect, useRef, useState } from "react";
-import type { NavItem } from "../../shared/designChrome.ts";
+import type { NavItem, NavStyle } from "../../shared/designChrome.ts";
 import { t } from "../i18n.ts";
 import { topicUrl } from "../blog/nav.ts";
 import { NavLink } from "../blog/util.tsx";
@@ -205,6 +205,7 @@ export default function DesignNav({
   topics,
   pathname,
   expanded,
+  style = "plain",
 }: {
   items: NavItem[];
   /** The fallback list (busiest published tags) — used only when the operator
@@ -213,11 +214,30 @@ export default function DesignNav({
   topics: string[];
   pathname: string;
   expanded: boolean;
+  /**
+   * How each item is drawn — pills, an accent rail, terminal brackets, or the
+   * plain run this bar has always been.
+   *
+   * IT IS ONE CLASS ON THE RUN, not a class per link, and every treatment is
+   * drawn on `.s-dsg-nav__link` from inside it. The submenu's own links are
+   * deliberately LEFT PLAIN: a dropped card of pills is a control panel, and
+   * brackets inside a floating menu read as syntax rather than as a menu. The
+   * style dresses the BAR.
+   *
+   * Defaulted here as well as in the validator, because a preset's chrome
+   * reaches the gallery canvas without passing `normalizeChrome` — the same
+   * road `Sections.tsx` restates its own defaults for.
+   */
+  style?: NavStyle;
 }) {
   const shown = items.filter((item) => !item.hidden);
   if (shown.length === 0 && topics.length === 0) return null;
   return (
-    <div className="s-dsg-nav__links" role="navigation" aria-label={t("designNavLabel")}>
+    <div
+      className={`s-dsg-nav__links s-dsg-nav__links--${style}`}
+      role="navigation"
+      aria-label={t("designNavLabel")}
+    >
       {shown.length > 0
         ? shown.map((item) =>
             item.children && item.children.length > 0 ? (

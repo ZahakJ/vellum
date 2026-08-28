@@ -22,11 +22,11 @@ import { isNoteVisibleToVisitor, publicFolderCounts, publishedCounts, resolveLin
 import { languageScope } from "./language.ts";
 import { currentVisibility, isReducingReach } from "./visibility.ts";
 import { commentsEnabled } from "./comments.ts";
-import { fontsSignature, slotsAreSystem } from "./fonts.ts";
+import { siteFontsSignature } from "./fonts.ts";
 import { dateCalendar, fontSlots, getSettings, textAlign, textDirection } from "./settings.ts";
 import { FOLLOW_THEME } from "../shared/themes.ts";
 import { attachmentLocation, bannerFallback, blogLocale, customCssPath, dataDir, footerLine, publicLayout, siteLanguage, siteName, tagline, themePinnedByEnv, themePref, visitorTheme } from "./site.ts";
-import { activeDesign, customThemesSig, hasThemeChoice } from "./designs.ts";
+import { activeDesign, activeDesignFontRefs, customThemesSig, hasThemeChoice } from "./designs.ts";
 import { authorSiteCards } from "./authorSites.ts";
 import { normalizeRel } from "./vault.ts";
 
@@ -764,8 +764,14 @@ authRoutes.get("/me", (c) => {
   // what makes the client link /api/site-fonts.css at all, and its value is
   // the ?v= on that link — so changing a pick changes the URL and the browser
   // fetches the new faces instead of reusing the cached stylesheet.
+  // …and the ACTIVE DESIGN's faces beside them. A design that names EB
+  // Garamond needs the sheet linked even on an instance whose four slots are
+  // all "system", and a design edited from serif to mono has to change the ?v=
+  // or the browser keeps yesterday's families. One signature over the union,
+  // because one stylesheet serves it.
   const slots = fontSlots();
-  if (!slotsAreSystem(slots)) me.fonts = fontsSignature(slots);
+  const sig = siteFontsSignature(slots, activeDesignFontRefs());
+  if (sig !== "") me.fonts = sig;
   // Branding assets from settings.json, for every session: the logo replaces
   // the text wordmark in the sidebar/masthead, and a set favicon makes the
   // client point its icon link at /favicon.ico. Both are visitor-safe by

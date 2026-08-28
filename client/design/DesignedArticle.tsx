@@ -164,7 +164,7 @@ export default function DesignedArticle({
   if (failure) throw failure;
 
   return (
-    <article className="s-dsn-article">
+    <article className={`s-dsn-article${options.dropCap ? " s-dsn-article--dropcap" : ""}`}>
       {options.showBackLink && (
         <NavLink url="/" className="s-dsn-back">
           <span className="s-dsn-back__arrow" aria-hidden="true">

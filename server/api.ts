@@ -96,6 +96,7 @@ import {
 import { sendEncoded } from "./compress.ts";
 import { graphBody, invalidateGraph, localGraphJson } from "./graphCache.ts";
 import { invalidateTree, treeBody } from "./treeCache.ts";
+import { activeDesignFontRefs } from "./designs.ts";
 import { designRoutes } from "./designRoutes.ts";
 import { bookRoutes } from "./bookRoutes.ts";
 import { staticPagesActive } from "./pages.ts";
@@ -121,6 +122,7 @@ import {
 import { addNoteAlias, setNotePublishFlag } from "./noteFrontmatter.ts";
 import { frontmatterKeyRefusal, setNoteProperty } from "./frontmatterEdit.ts";
 import {
+  buildDesignFontCss,
   buildFaceListCss,
   buildFontCss,
   catalogEntry,
@@ -351,12 +353,22 @@ api.get("/fonts/catalog/:id/:file", async (c) => {
 // --font-mono. Open like custom.css — it IS the public site's typography —
 // and it contains no external URL by construction: every src points back at
 // /api/fonts/catalog/… on this server.
+// It also carries THE ACTIVE DESIGN'S OWN FACES, under their own
+// `VellumDsg-<slot>-<id>` families. A visitor must receive the type a
+// PUBLISHED design references, and there is one stylesheet on a visitor's page
+// where that can happen — this one. Nothing here downloads: the route is open,
+// so a stranger must never be able to make this server fetch from Google. A
+// family that is not on disk emits nothing at all and the `var(--font-*)`
+// beside it in `--dsg-head-font` answers instead; the caching happens where an
+// ADMIN saves the design, exactly as it happens where an admin saves a slot.
 api.get("/site-fonts.css", async (c) => {
   const slots = fontSlots();
-  const css = slotsAreSystem(slots) ? "/* No webfonts configured. */\n" : await buildFontCss(slots, {
-    prefix: "Vellum",
-    root: true,
-  });
+  const refs = activeDesignFontRefs();
+  const css =
+    slotsAreSystem(slots) && refs.length === 0
+      ? "/* No webfonts configured. */\n"
+      : (await buildFontCss(slots, { prefix: "Vellum", root: true })) +
+        (await buildDesignFontCss(refs, slots));
   return c.body(css, 200, {
     "Content-Type": "text/css; charset=utf-8",
     // The link carries a ?v= signature of the picks, so a save shows up at

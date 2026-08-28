@@ -271,7 +271,13 @@ export default function DesignedSite() {
 
   return (
     <div
-      className={`s-dsn s-dsg s-dsn--${site.density}${sticky !== "none" ? " s-dsn--sticky" : ""}`}
+      // THE SURFACE IS ON THE SCROLLPORT, which is this element — so the
+      // pattern is the paper the WHOLE site is printed on (masthead, page and
+      // footer alike) rather than a texture that stops at the top of the
+      // writing and gives the header a seam. `flat` emits the class too and
+      // draws nothing, so the five values are five rules and none of them is
+      // "the absence of a rule".
+      className={`s-dsn s-dsg s-dsn--${site.density} s-dsg-surf--${chrome.surface}${sticky !== "none" ? " s-dsn--sticky" : ""}`}
       style={style}
       ref={scrollRef}
       // Chrome copy inside re-renders on a live language switch; keeping the
@@ -302,6 +308,7 @@ export default function DesignedSite() {
           <DesignHeader
             header={chrome.header}
             items={chrome.nav.items}
+            navStyle={chrome.nav.style}
             topics={navTopics}
             pathname={route.kind === "article" ? notePathToUrl(route.path) : location.pathname}
             siteName={siteName}
@@ -468,6 +475,10 @@ function TopicPage({
             tag,
             showExcerpt: true,
             showDate: true,
+            // A topic archive is a river and stays one: the page is the
+            // product's own, not a section the design composed, and a
+            // dateline on it would be a layout nobody chose.
+            layout: "river",
           }}
           posts={posts}
           locale={locale}

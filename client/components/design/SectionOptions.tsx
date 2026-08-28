@@ -144,6 +144,30 @@ function noteOptions(ctx: SectionContext): SelectOption[] {
   return ctx.notes.map((note) => ({ value: note.path, label: note.title, note: note.path }));
 }
 
+/** The five ways a run of writing can be set, and the five anatomies a card
+ *  can have. Built per render rather than held as a module constant: `t()`
+ *  answers in the language in force NOW, and a constant would freeze the
+ *  labels in whichever language happened to load this module first. */
+function LIST_LAYOUTS(): SelectOption[] {
+  return [
+    { value: "river", label: t("dsoLayoutRiver") },
+    { value: "ledger", label: t("dsoLayoutLedger") },
+    { value: "index", label: t("dsoLayoutIndex") },
+    { value: "numbered", label: t("dsoLayoutNumbered") },
+    { value: "dateline", label: t("dsoLayoutDateline") },
+  ];
+}
+
+function CARD_SHAPES(): SelectOption[] {
+  return [
+    { value: "boxed", label: t("dsoCardBoxed") },
+    { value: "bare", label: t("dsoCardBare") },
+    { value: "overlay", label: t("dsoCardOverlay") },
+    { value: "ledger", label: t("dsoCardLedger") },
+    { value: "masonry", label: t("dsoCardMasonry") },
+  ];
+}
+
 function tagOptions(ctx: SectionContext): SelectOption[] {
   return [
     { value: "", label: t("dsoAllPosts") },
@@ -230,6 +254,18 @@ export function SectionOptions({
               segments={[
                 { value: "short", label: t("dsoHeightShort") },
                 { value: "tall", label: t("dsoHeightTall") },
+              ]}
+            />
+          </Row>
+          <Row label={t("dsoTreatment")} hint={t("dsoTreatmentHint")}>
+            <SegmentedControl
+              value={o.treatment ?? "panel"}
+              onChange={(treatment) => onChange({ treatment })}
+              label={t("dsoTreatment")}
+              segments={[
+                { value: "panel", label: t("dsoTreatmentPanel") },
+                { value: "band", label: t("dsoTreatmentBand") },
+                { value: "split", label: t("dsoTreatmentSplit") },
               ]}
             />
           </Row>
@@ -330,6 +366,14 @@ export function SectionOptions({
               ]}
             />
           </Row>
+          <Row label={t("dsoCard")} hint={t("dsoCardHint")}>
+            <Select
+              value={o.card ?? "boxed"}
+              onChange={(card) => onChange({ card })}
+              options={CARD_SHAPES()}
+              label={t("dsoCard")}
+            />
+          </Row>
           <Row label={t("dsoShowBanner")}>
             <Toggle
               value={o.showBanner}
@@ -384,6 +428,14 @@ export function SectionOptions({
               unit={t("dsoPosts")}
               min={1}
               max={200}
+            />
+          </Row>
+          <Row label={t("dsoLayout")} hint={t("dsoLayoutHint")}>
+            <Select
+              value={o.layout ?? "river"}
+              onChange={(layout) => onChange({ layout })}
+              options={LIST_LAYOUTS()}
+              label={t("dsoLayout")}
             />
           </Row>
           <Row label={t("dsoShowExcerpt")}>
@@ -479,6 +531,7 @@ export function SectionOptions({
               segments={[
                 { value: "rule", label: t("dsoStyleRule") },
                 { value: "dots", label: t("dsoStyleDots") },
+                { value: "ornament", label: t("dsoStyleOrnament") },
                 { value: "blank", label: t("dsoStyleBlank") },
               ]}
             />

@@ -162,6 +162,92 @@
   display: none;
 }
 
+/* The two newspaper-and-magazine mastheads, at 200px. `rule` is a plate
+   BETWEEN two hairlines and `banner` is a plate ON a ground — which is exactly
+   what the reader is being asked to tell apart from across a grid, and it
+   survives the size because neither is a matter of type. */
+.s-dsgt-head--rule {
+  border-block: 1px solid var(--border);
+}
+
+.s-dsgt-head--rule .s-dsgt-mark {
+  height: calc(3.2cqw * var(--dsgt-scale, 1.2));
+  width: 40cqw;
+}
+
+.s-dsgt-head--banner {
+  background: var(--bg-raised);
+  padding-block: 5.5cqw;
+}
+
+/* ── the surface ───────────────────────────────────────────────────────────
+   THE MINIATURE PAINTS THE GROUND, and it is one of the few things a card this
+   small paints honestly: a tinted sheet and a ruled one are visible at 200px in
+   a way a typeface is not. The pitch is in `cqw` rather than in the design's
+   own line box — a miniature has no type to set a baseline against, so what it
+   can say is "this page is ruled", which is the true half. */
+.s-dsgt {
+  --dsgt-surf: color-mix(in oklab, var(--text) 5%, transparent);
+}
+
+/* The same swap the real page makes: a tinted miniature whose cards are the
+   colour of its ground is a card with nothing on it. */
+.s-dsgt--surf-tinted {
+  background: var(--bg-raised);
+}
+
+.s-dsgt--surf-tinted .s-dsgt-card--boxed,
+.s-dsgt--surf-tinted .s-dsgt-cta {
+  background: var(--bg);
+}
+
+.s-dsgt--surf-ruled {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 3.4cqw,
+    var(--dsgt-surf) 3.4cqw,
+    var(--dsgt-surf) calc(3.4cqw + 1px)
+  );
+}
+
+.s-dsgt--surf-grid {
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 3.4cqw,
+      var(--dsgt-surf) 3.4cqw,
+      var(--dsgt-surf) calc(3.4cqw + 1px)
+    ),
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent 3.4cqw,
+      var(--dsgt-surf) 3.4cqw,
+      var(--dsgt-surf) calc(3.4cqw + 1px)
+    );
+}
+
+.s-dsgt--surf-paper {
+  background-image:
+    repeating-linear-gradient(37deg, var(--dsgt-surf) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(113deg, var(--dsgt-surf) 0 1px, transparent 1px 7px);
+}
+
+/* A patterned card must not have its own ground punched out by the chrome
+   blocks that sit on it — the same argument `.s-dsg-top` makes on the real
+   page, one size down.
+   The banner masthead is the exception it is on the real page too: its ground
+   is the point of it, so it is named out of the rule rather than fought with a
+   later one. */
+.s-dsgt--surf-ruled .s-dsgt-head:not(.s-dsgt-head--banner),
+.s-dsgt--surf-grid .s-dsgt-head:not(.s-dsgt-head--banner),
+.s-dsgt--surf-paper .s-dsgt-head:not(.s-dsgt-head--banner),
+.s-dsgt--surf-tinted .s-dsgt-head:not(.s-dsgt-head--banner) {
+  background: transparent;
+}
+
 .s-dsgt-mark {
   /* The wordmark. Its HEIGHT is the design's heading weight and scale made
      visible: a 700-weight uppercase masthead is a heavier bar than a
@@ -301,6 +387,58 @@
   text-align: center;
 }
 
+/* THE THREE OPENINGS, at 200px. A miniature cannot show what the type feels
+   like — that is what the hover canvas is for — but a band, a split and a
+   panel are three different SHAPES, and shape is the one thing this card
+   exists to answer. The display and sub rules are painted in `--bg` where they
+   sit on artwork; on a band and a split they sit on the page instead, so they
+   go back to ink or they are invisible. */
+.s-dsgt-hero--band {
+  border-radius: 0;
+  background: var(--bg-raised);
+  justify-content: center;
+  padding: 5cqw 4cqw;
+}
+
+.s-dsgt-hero--band .s-dsgt-line--display {
+  height: 5cqw;
+  background: var(--dsgt-ink-strong);
+}
+
+.s-dsgt-hero--band .s-dsgt-line--sub,
+.s-dsgt-hero--split .s-dsgt-line--sub {
+  background: var(--dsgt-ink);
+}
+
+.s-dsgt-hero--split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38%;
+  align-items: center;
+  gap: 1.4cqw 3cqw;
+  padding: 0;
+  background: none;
+  border-radius: 0;
+}
+
+.s-dsgt-hero--split .s-dsgt-line--display {
+  grid-column: 1;
+  grid-row: 1;
+  background: var(--dsgt-ink-strong);
+}
+
+.s-dsgt-hero--split .s-dsgt-line--sub {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.s-dsgt-hero__plate {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: stretch;
+  min-height: 14cqw;
+  border-radius: 3px;
+}
+
 .s-dsgt-block,
 .s-dsgt-rich,
 .s-dsgt-row {
@@ -313,6 +451,116 @@
   align-items: center;
 }
 
+/* ── list layouts, miniature ───────────────────────────────────────────────
+   `river` is the run this file already drew and keeps every rule it had. The
+   four others differ in the one dimension a 200px card can carry: where the
+   weight sits on the row. A ruled ledger, a dotted index, a run with a numeral
+   hanging off its start and a dateline broken by kickers are four different
+   pictures, which is the whole job. */
+.s-dsgt-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dsgt-gap);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.s-dsgt-list--ledger,
+.s-dsgt-list--index,
+.s-dsgt-list--numbered {
+  gap: 0;
+}
+
+.s-dsgt-list--ledger .s-dsgt-row,
+.s-dsgt-list--index .s-dsgt-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 1.6cqw;
+  padding-block: 1.1cqw;
+}
+
+.s-dsgt-list--ledger .s-dsgt-row {
+  border-block-start: 1px solid var(--border);
+}
+
+.s-dsgt-list--ledger .s-dsgt-row:last-child {
+  border-block-end: 1px solid var(--border);
+}
+
+.s-dsgt-stamp {
+  display: block;
+  flex: none;
+  width: 11cqw;
+  height: 1.2cqw;
+  border-radius: 1px;
+  background: var(--dsgt-ink-faint);
+}
+
+/* A DEFINITE BASIS, not `auto`. The title inside is a bar stated as a
+   PERCENTAGE of its parent, and a percentage of a parent whose own width is
+   content-derived resolves to zero — so `flex: 0 1 auto` here drew a row of
+   leaders with nothing to lead from. */
+.s-dsgt-list--index .s-dsgt-row__main {
+  flex: 0 1 52%;
+}
+
+.s-dsgt-leader {
+  display: block;
+  flex: 1 1 auto;
+  height: 1px;
+  background: repeating-linear-gradient(to right, var(--border) 0 1px, transparent 1px 4px);
+}
+
+.s-dsgt-list--numbered .s-dsgt-row {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 2.2cqw;
+  padding-block: 1.4cqw;
+}
+
+/* The ordinal, as a wireframe: an oversized faint block where the numeral
+   goes. The real page prints a localeNum() figure there — a miniature that
+   drew a glyph would be the only text on a card made entirely of rules. */
+.s-dsgt-ord {
+  display: block;
+  flex: none;
+  width: 4.8cqw;
+  height: 5.2cqw;
+  border-radius: 1px;
+  background: var(--dsgt-ink-faint);
+}
+
+.s-dsgt-group {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--dsgt-gap) * 1.2);
+}
+
+/* A kicker is a short strong word over a rule that runs the whole column, so
+   it is one element carrying both: the rule is the border, the word is the
+   pseudo-element, and both are placed logically so an Arabic gallery card
+   hangs the kicker at ITS start. */
+.s-dsgt-kicker {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 1.4cqw;
+  padding-block-end: 1cqw;
+  box-sizing: content-box;
+  border-block-end: 1px solid var(--border);
+}
+
+.s-dsgt-kicker::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  width: 22cqw;
+  height: 1.4cqw;
+  border-radius: 1px;
+  background: var(--dsgt-ink-strong);
+}
+
 .s-dsgt-rich--center .s-dsgt-line {
   width: 70%;
 }
@@ -323,10 +571,29 @@
   gap: calc(var(--dsgt-gap) * 1.4);
 }
 
+.s-dsgt-grid--masonry {
+  display: block;
+  columns: var(--dsgt-cols, 2);
+  column-gap: calc(var(--dsgt-gap) * 1.4);
+}
+
+.s-dsgt-grid--masonry .s-dsgt-card {
+  break-inside: avoid;
+  margin-block-end: calc(var(--dsgt-gap) * 1.4);
+}
+
 .s-dsgt-card {
   display: flex;
   flex-direction: column;
   gap: 1.2cqw;
+}
+
+.s-dsgt-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2cqw;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .s-dsgt-card__art {
@@ -334,6 +601,71 @@
   width: 100%;
   aspect-ratio: 16 / 10;
   border-radius: 3px;
+}
+
+/* ── card shapes, miniature ────────────────────────────────────────────────
+   The five anatomies, drawn as the five different pictures they are. `bare` is
+   the shape this file already drew, so it needs no rule; `boxed` gets the box
+   it has on the real page, which the miniature was quietly leaving out — a
+   bordered tile on raised ground and a borderless one are not the same card,
+   and a gallery of shape cards that cannot tell them apart is showing the
+   wrong shape for every design on the shelf. */
+.s-dsgt-card--boxed {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-raised);
+  padding: 1.4cqw;
+  gap: 1.4cqw;
+}
+
+.s-dsgt-card--overlay {
+  display: grid;
+  border-radius: 3px;
+  overflow: hidden;
+  min-height: 12cqw;
+}
+
+.s-dsgt-card--overlay > * {
+  grid-area: 1 / 1;
+}
+
+.s-dsgt-card--overlay .s-dsgt-card__art {
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+
+/* The scrim is the real card's scrim, at a twentieth of the size: a fixed dark
+   gradient the words rest on rather than a token, for the reason argued at
+   `.s-dsn-card--overlay` in design.css. */
+.s-dsgt-card--overlay .s-dsgt-card__body {
+  align-self: end;
+  padding: 4cqw 1.6cqw 1.4cqw;
+  background: linear-gradient(to top, rgba(12, 12, 14, 0.9), rgba(12, 12, 14, 0));
+}
+
+.s-dsgt-card--overlay .s-dsgt-line {
+  background: rgba(242, 240, 236, 0.92); /* on the scrim, not the theme */
+}
+
+.s-dsgt-card--overlay .s-dsgt-line--meta {
+  background: rgba(201, 197, 191, 0.8); /* on the scrim, not the theme */
+}
+
+.s-dsgt-card--ledger {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 1.8cqw;
+}
+
+.s-dsgt-card--ledger .s-dsgt-card__art {
+  flex: none;
+  width: 32%;
+  aspect-ratio: 4 / 3;
+}
+
+.s-dsgt-card--masonry .s-dsgt-card__art {
+  aspect-ratio: var(--dsgt-ar, 4 / 3);
 }
 
 .s-dsgt-chips {
@@ -414,6 +746,40 @@
   );
 }
 
+/* The ornament, at a twentieth of the size: the accent rule that fades at both
+   ends, with the mark over a gap in its middle. A `--border` hairline and this
+   are two different lines on a 200px card, which is exactly the distinction
+   the full-size rule is making. */
+.s-dsgt-div--ornament {
+  position: relative;
+}
+
+.s-dsgt-div--ornament::before {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in srgb, var(--accent) 88%, transparent) 15%,
+    color-mix(in srgb, var(--accent) 88%, transparent) 85%,
+    transparent
+  );
+}
+
+.s-dsgt-div--ornament::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline: 0;
+  width: 2cqw;
+  height: 2cqw;
+  margin-inline: auto;
+  transform: translateY(-50%) rotate(45deg);
+  background: var(--accent);
+}
+
 .s-dsgt-foot {
   flex: none;
   display: flex;
@@ -425,6 +791,47 @@
 
 .s-dsgt-foot--start {
   justify-content: flex-start;
+}
+
+/* THE END OF THE PAGE, at 200px. A colophon is a NARROW centred whisper, and a
+   big-type ending is a bar of type across the bottom — two silhouettes a reader
+   can tell apart across a grid, which is the only bar a miniature has to clear.
+   The `columns` form needs no rule of its own: it is the meta line above. */
+.s-dsgt-foot--colophon {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2cqw;
+  padding-block: 4.5cqw;
+}
+
+.s-dsgt-foot--colophon .s-dsgt-line--meta {
+  width: 34cqw;
+}
+
+.s-dsgt-foot--grand {
+  flex-direction: column;
+  gap: 1.8cqw;
+  padding-block: 4cqw 4.5cqw;
+}
+
+.s-dsgt-foot--grand.s-dsgt-foot--center {
+  align-items: center;
+}
+
+.s-dsgt-foot--grand.s-dsgt-foot--start {
+  align-items: flex-start;
+}
+
+.s-dsgt-grand {
+  display: block;
+  /* The wordmark's weight and scale, exactly as the masthead's mark reads them
+     — a card whose header says 800-uppercase and whose footer says 400 would be
+     drawing two different designs. */
+  height: calc(5.5cqw * var(--dsgt-scale, 1.2));
+  width: 62cqw;
+  border-radius: 1px;
+  background: color-mix(in oklab, var(--text) calc(var(--dsgt-weight, 600) / 11 * 1%), transparent);
 }
 
 /* ── The gallery ─────────────────────────────────────────────────────────── */

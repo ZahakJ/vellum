@@ -57,6 +57,7 @@ import {
   type Section,
 } from "./design.ts";
 import { stockChrome, type DesignChrome } from "./designChrome.ts";
+import { catalogEntry } from "./fontCatalog.ts";
 
 // ── The type ────────────────────────────────────────────────────────────────
 
@@ -71,13 +72,25 @@ export interface PresetText {
 /**
  * What a preset is FOR — the axis the gallery groups on.
  *
- * Eight, closed, and chosen so that a blogger can find their own site in the
+ * Nine, closed, and chosen so that a blogger can find their own site in the
  * list on the first read rather than learning a taxonomy. They describe the
  * JOB, never the decoration: "editorial" is a masthead and columns whatever
  * palette it is wearing, and a preset that could plausibly be filed under two
  * belongs under the one its OWNER would have searched for.
+ *
+ * `signature` IS THE ONE THAT BREAKS THAT RULE, and it breaks it on purpose.
+ * The other eight name a job; this one names a BAR. A signature design is one
+ * composed after the engine grew mastheads, grounds, list shapes, card shapes
+ * and real typefaces — held to the standard that applying it feels like moving
+ * into a different house rather than adjusting the one you are in. They are
+ * filed together because that is how somebody browses them ("show me the ones
+ * that are actually something") and because a newspaper, a console, a journal
+ * and a poster scattered across four job-shelves would each read as the odd
+ * one out on theirs. It leads the vocabulary for the same reason it leads the
+ * gallery: it is the first row anybody should see.
  */
 export type PresetFamily =
+  | "signature" // a complete house — composed to the collection's own bar
   | "editorial" // a masthead, columns, a front page that ranks things
   | "minimal" // one column, no furniture, type doing all the work
   | "journal" // dated, personal, a river of entries
@@ -88,6 +101,7 @@ export type PresetFamily =
   | "letter"; // a newsletter shape — an invitation above the fold
 
 export const PRESET_FAMILIES: readonly PresetFamily[] = [
+  "signature",
   "editorial",
   "minimal",
   "journal",
@@ -158,6 +172,9 @@ export function presetChrome(patch: {
   header?: Partial<DesignChrome["header"]>;
   footer?: Partial<DesignChrome["footer"]>;
   nav?: Partial<DesignChrome["nav"]>;
+  /** A scalar, so it merges by REPLACEMENT rather than by spread — the one
+   *  chrome key that is not a group of its own. */
+  surface?: DesignChrome["surface"];
 }): DesignChrome {
   const base = stockChrome();
   return {
@@ -165,15 +182,22 @@ export function presetChrome(patch: {
     typography: { ...base.typography, ...patch.typography },
     header: { ...base.header, ...patch.header },
     footer: { ...base.footer, ...patch.footer },
+    surface: patch.surface ?? base.surface,
   };
 }
 
 /** A preset's design, with the half nobody varies filled in. A preset that
- *  has no opinion about the article page says so by not mentioning it. */
+ *  has no opinion about the article page says so by not mentioning it — and,
+ *  since the article page grew a sixth switch, by not mentioning THAT rather
+ *  than by restating the five it already agreed with. The article block is
+ *  merged over the stock one for the same reason `presetChrome` merges: the
+ *  alternative is that every new article field is a mechanical edit to fifty-
+ *  nine files, and fifty-nine mechanical edits is where a typo hides. */
 export function presetDesignPart(
-  d: Omit<PresetDesign, "article"> & { article?: PresetDesign["article"] },
+  d: Omit<PresetDesign, "article"> & { article?: Partial<DesignArticle> },
 ): PresetDesign {
-  return { article: stockArticle(), ...d };
+  const { article, ...rest } = d;
+  return { ...rest, article: { ...stockArticle(), ...article } };
 }
 
 // ── Building a document out of one ──────────────────────────────────────────
@@ -350,6 +374,22 @@ export function assertPreset(preset: Preset, seen: Set<string>): void {
     }
   };
   walk(preset.design.chrome?.nav?.items ?? []);
+  // A FACE THIS BUILD DOES NOT HAVE IS THE SAME BUG AS A NOTE PATH IT DOES NOT
+  // HAVE, one level quieter. `normalizeChrome` drops an unknown id rather than
+  // throwing (reads never fail), so a preset written with a typo for a family
+  // name would ship, apply, and render in the instance's default type while
+  // its blurb promised a typeface — the silent-correction failure a catalog of
+  // sixty hand-written records is most likely to accumulate. And an uploaded
+  // `custom:` id is refused by the same check for a stronger reason: it names
+  // a file on the author's machine and nothing at all on the reader's.
+  const typo = preset.design.chrome?.typography;
+  for (const key of ["headingFont", "bodyFont", "monoFont"] as const) {
+    const id = typo?.[key];
+    if (id === undefined) continue;
+    if (typeof id !== "string" || catalogEntry(id) === null) {
+      throw new Error(`${at}: typography.${key} = ${JSON.stringify(id)} is not a catalog font id`);
+    }
+  }
 }
 
 /** Run the gate over a whole catalog. Throws on the first offender, naming it. */

@@ -171,6 +171,18 @@
   min-height: 42px;
 }
 
+/* …and on a finger it is a TARGET, not a box. 42px was chosen to fit two lines
+   of type and it fits them at 44 just as well; the two pixels are the
+   difference between a control that meets the product's own floor and one that
+   is two short of it, everywhere this trigger appears — the settings panel's
+   four slot pickers and now the designer's three face rows. Measured at 1400
+   with a coarse pointer: 42 before, 44 after. */
+@media (max-width: 700px), (pointer: coarse) {
+  .s-ctl-select--face {
+    min-height: 44px;
+  }
+}
+
 /* ── The popover ──────────────────────────────────────────────────────────── */
 
 /* Fixed, on <body>, with top/left/width/max-height computed per open from the
@@ -462,8 +474,18 @@
 
 /* ── Segmented control ────────────────────────────────────────────────────── */
 
+/* A RUN TOO WIDE FOR ITS COLUMN WRAPS; IT DOES NOT GET CUT OFF. This is
+   `inline-flex` with `nowrap` buttons under `max-width: 100%`, which means the
+   segments past the cap were CLIPPED — invisible, and unreachable by pointer.
+   Measured in the designer's controls column: at 1280 a three-way "Follows the
+   reader" overran by 55px and a five-way one by 158px, so the last option of
+   several controls could neither be seen nor clicked. `wrap` engages only when
+   the row would have overflowed, so every control that fits today is
+   byte-identical and the ones that do not become two rows instead of a lie.
+   The roving arrow keys are unaffected: they walk DOM order, not geometry. */
 .s-ctl-seg {
   display: inline-flex;
+  flex-wrap: wrap;
   align-self: flex-start;
   max-width: 100%;
   padding: 2px;

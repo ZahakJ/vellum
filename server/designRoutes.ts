@@ -18,6 +18,7 @@ import type { Context } from "hono";
 import { isPublishLimited } from "./auth.ts";
 import {
   activeDesign,
+  activeDesignFontRefs,
   activeDesignId,
   createDesign,
   customThemes,
@@ -37,7 +38,10 @@ import {
 import { isNoteVisibleToVisitor, pages, posts, type FilterLang } from "./indexer.ts";
 import { languageScope } from "./language.ts";
 import { DESIGN_SCHEMA, SECTION_KINDS, type DesignDoc } from "../shared/design.ts";
-import type { NavItem } from "../shared/designChrome.ts";
+import { designFontRefs, type NavItem } from "../shared/designChrome.ts";
+import { parseDesignFontRefs } from "../shared/fontCatalog.ts";
+import { buildDesignFontCss, designCatalogIds, ensureFontsCached } from "./fonts.ts";
+import { fontSlots } from "./settings.ts";
 import { THEME_TOKENS } from "../shared/customTheme.ts";
 import { normalizeRel, VaultError } from "./vault.ts";
 
@@ -172,6 +176,71 @@ designRoutes.get("/themes.css", (c) =>
   }),
 );
 
+// ── Admin: the designer's own faces ─────────────────────────────────────────
+
+/**
+ * THE DRAFT FACES, AND THE GALLERY'S.
+ *
+ * `/api/site-fonts.css` serves the faces the ACTIVE design names, because that
+ * is what a visitor's page needs. The designer needs three more things that
+ * route cannot give it: the faces of a draft that has not been saved, the
+ * faces of the fifty-nine presets whose cards paint real designs, and both of
+ * them WITHOUT a save. So the panel keeps one `<link>` at the union of what it
+ * is currently drawing and this answers it.
+ *
+ * THE FAMILY NAMES ARE THE LIVE SITE'S, not a "preview" prefix. The settings
+ * panel's own preview sheet uses `VellumPreview…` because it has to sit BESIDE
+ * the saved families and show something different from them; here the whole
+ * point is that the pane shows exactly what will ship, and the design's
+ * `--dsg-head-font` names one family whether it is drawn in the preview frame,
+ * on a gallery card or on the public site. Two sheets defining the same family
+ * from the same cached files is a duplicate `@font-face`, which is free.
+ *
+ * ADMIN-ONLY, for /api/font-preview.css's reason: it can trigger a download.
+ * And just as forgiving — a family that will not cache is skipped, the design
+ * falls back to the instance's stack, and nobody gets a toast per keystroke.
+ * `parseDesignFontRefs` caps what one request may ask for.
+ */
+designRoutes.get("/fonts.css", async (c) => {
+  assertAdminRead(c);
+  const refs = parseDesignFontRefs(c.req.query("ids") ?? "");
+  const slots = fontSlots();
+  for (const id of designCatalogIds(refs, slots)) {
+    try {
+      await ensureFontsCached([id]);
+    } catch (err) {
+      console.warn(`vellum: the designer could not cache ${id}:`, err);
+    }
+  }
+  return c.body(await buildDesignFontCss(refs, slots), 200, {
+    "Content-Type": "text/css; charset=utf-8",
+    "Cache-Control": "no-cache",
+  });
+});
+
+/**
+ * Pull down the faces a design just started naming.
+ *
+ * The catalog cache is filled by an ADMIN's save and never by a visitor's
+ * page, and until now the only admin save that named a face was PATCH
+ * /api/settings. A design is the second one — and unlike the settings panel,
+ * a design can arrive whole: an import, a duplicate, a preset applied. So
+ * every write that can put a new font id into the store warms it here.
+ *
+ * FIRE AND FORGET, ON PURPOSE. A save must not fail, or even wait, because
+ * fonts.googleapis.com is slow: the design is already stored and correct, and
+ * a face that has not landed yet simply falls back to the instance's stack
+ * until it has. The panel's own draft-face route is usually ahead of this
+ * anyway — an author who picked the face watched it render.
+ */
+function warmDesignFaces(doc: DesignDoc | null): void {
+  const refs = doc ? designFontRefs(doc.chrome.typography) : activeDesignFontRefs();
+  if (refs.length === 0) return;
+  void ensureFontsCached(designCatalogIds(refs, fontSlots())).catch((err: unknown) => {
+    console.warn("vellum: could not cache a design's faces:", err);
+  });
+}
+
 // ── Admin: the store ────────────────────────────────────────────────────────
 
 designRoutes.get("/", (c) => {
@@ -220,10 +289,18 @@ designRoutes.post("/docs", async (c) => {
   const body = (await jsonBody(c)) as Record<string, unknown>;
   const name = typeof body?.name === "string" ? body.name : "";
   const from = typeof body?.from === "string" && body.from !== "" ? body.from : undefined;
-  return c.json(createDesign(name, from));
+  const doc = createDesign(name, from);
+  warmDesignFaces(doc);
+  return c.json(doc);
 });
 
-designRoutes.post("/docs/import", async (c) => c.json(importDesign(await jsonBody(c))));
+// The APPLY flow — a preset becomes a design through this route — so it is the
+// one write most likely to name a face the instance has never fetched.
+designRoutes.post("/docs/import", async (c) => {
+  const doc = importDesign(await jsonBody(c));
+  warmDesignFaces(doc);
+  return c.json(doc);
+});
 
 designRoutes.get("/docs/:id", (c) => {
   assertAdminRead(c);
@@ -237,7 +314,11 @@ designRoutes.get("/docs/:id/export", (c) => {
   return c.json(exportDesign(c.req.param("id")));
 });
 
-designRoutes.put("/docs/:id", async (c) => c.json(putDesign(c.req.param("id"), await jsonBody(c))));
+designRoutes.put("/docs/:id", async (c) => {
+  const doc = putDesign(c.req.param("id"), await jsonBody(c));
+  warmDesignFaces(doc);
+  return c.json(doc);
+});
 
 designRoutes.post("/docs/:id/duplicate", (c) => c.json(duplicateDesign(c.req.param("id"))));
 
@@ -255,6 +336,9 @@ designRoutes.put("/active", async (c) => {
     throw new VaultError(400, 'Body field "id" must be a design id or null');
   }
   setActiveDesign(id === null || id === "" ? null : id);
+  // The public site's typography just changed to whatever the newly active
+  // design names — which may be a face nothing has fetched yet.
+  warmDesignFaces(null);
   return c.json({ activeId: activeDesignId() });
 });
 

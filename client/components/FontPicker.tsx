@@ -39,7 +39,17 @@ const ROW_ARABIC = "خَطُّ النَّسْخِ ١٢٣";
  *  and lets the face answer for whichever it has. */
 const ROW_MIXED = "Vellum — نموذج ١٢٣";
 
-type Slot = "text" | "mono" | "arabic";
+/** Which faces the picker offers.
+ *  - `text` / `mono` / `arabic` are the INSTANCE's three slot rules
+ *    (server/fonts.ts slotAllows), one picker per slot in Settings.
+ *  - `any` is the DESIGN's rule, and it is deliberately looser. The instance's
+ *    mono slot dresses CODE, so a proportional face in it is never what was
+ *    meant; a design's heading has no such contract — its family control has
+ *    already said which stack it stands in, and "set this console site's
+ *    headings in JetBrains Mono" is precisely the design this release exists
+ *    to make possible. The Arabic faces are offered for the same reason they
+ *    are offered anywhere: a design written for an Arabic vault names naskh. */
+type Slot = "text" | "mono" | "arabic" | "any";
 
 interface FontPickerProps {
   slot: Slot;
@@ -49,6 +59,11 @@ interface FontPickerProps {
   custom: CustomFontInfo[];
   /** The row's label — the picker's accessible name. */
   label: string;
+  /** What the "no webfont" row says. Defaults to the instance's own wording;
+   *  a DESIGN means something different by it ("whatever this instance calls
+   *  serif"), and a row that lies about what clearing it does is worse than no
+   *  row. */
+  systemLabel?: string;
 }
 
 /** The fallback stack behind each group's faces, so a row is legible before
@@ -86,14 +101,14 @@ function customOption(font: CustomFontInfo): SelectOption {
   };
 }
 
-export function FontPicker({ slot, value, onChange, catalog, custom, label }: FontPickerProps) {
+export function FontPicker({ slot, value, onChange, catalog, custom, label, systemLabel }: FontPickerProps) {
   const groups: SelectGroup[] = useMemo(() => {
     const latin = catalog.filter((font) => !font.scripts.includes("arabic"));
     const arabic = catalog.filter((font) => font.scripts.includes("arabic"));
     const out: SelectGroup[] = [
       // No heading: it is the default, and a heading over one row that says
       // "no webfont" is a heading over nothing.
-      { id: "system", label: "", options: [{ value: SYSTEM_FONT, label: t("fontSystem") }] },
+      { id: "system", label: "", options: [{ value: SYSTEM_FONT, label: systemLabel ?? t("fontSystem") }] },
     ];
     if (slot === "mono") {
       out.push({
@@ -101,6 +116,34 @@ export function FontPicker({ slot, value, onChange, catalog, custom, label }: Fo
         label: t("fontGroupMono"),
         options: latin.filter((font) => font.category === "mono").map((font) => catalogOption(font, "mono")),
       });
+    } else if (slot === "any") {
+      out.push(
+        {
+          id: "serif",
+          label: t("fontGroupSerif"),
+          options: latin.filter((font) => font.category === "serif").map((font) => catalogOption(font, "serif")),
+        },
+        {
+          id: "sans",
+          label: t("fontGroupSans"),
+          options: latin.filter((font) => font.category === "sans").map((font) => catalogOption(font, "sans")),
+        },
+        {
+          id: "mono",
+          label: t("fontGroupMono"),
+          options: latin.filter((font) => font.category === "mono").map((font) => catalogOption(font, "mono")),
+        },
+        {
+          id: "naskh",
+          label: t("fontGroupArabicNaskh"),
+          options: arabic.filter((font) => font.category === "serif").map((font) => catalogOption(font, "naskh")),
+        },
+        {
+          id: "kufi",
+          label: t("fontGroupArabicModern"),
+          options: arabic.filter((font) => font.category === "sans").map((font) => catalogOption(font, "kufi")),
+        },
+      );
     } else if (slot === "arabic") {
       out.push(
         {
@@ -132,7 +175,7 @@ export function FontPicker({ slot, value, onChange, catalog, custom, label }: Fo
       out.push({ id: "custom", label: t("fontGroupCustom"), options: custom.map(customOption) });
     }
     return out.filter((group) => group.options.length > 0);
-  }, [catalog, custom, slot]);
+  }, [catalog, custom, slot, systemLabel]);
 
   /** A group's faces are fetched the first time that group is on screen —
    *  opening this picker, or filtering down to a group that was scrolled

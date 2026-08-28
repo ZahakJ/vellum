@@ -35,6 +35,14 @@
 // one in shared/design.ts.
 
 import { stripBidiControls } from "./bidi.ts";
+import {
+  catalogEntry,
+  designFontFamily,
+  designFontRef,
+  dedupeFontRefs,
+  type DesignFontRef,
+  type DesignFontSlot,
+} from "./fontCatalog.ts";
 
 // ── Errors ──────────────────────────────────────────────────────────────────
 
@@ -88,6 +96,27 @@ export interface NavItem {
   children?: NavItem[];
 }
 
+/** HOW A MENU ITEM IS DRAWN, and it is four ways of saying "this is a link"
+ *  rather than four colours. "plain" is the bar every design had before this
+ *  field existed — a run of muted words that warm on hover. "pills" gives each
+ *  one a filled ground. "underline" draws the accent as a RAIL under the item
+ *  the reader is on, which is the newspaper and journal answer. "brackets"
+ *  wraps the label in `[ ]`, which is the console answer and the one a terminal
+ *  design cannot be built without.
+ *
+ *  The brackets are drawn as pseudo-element CONTENT on the link, which carries
+ *  `dir="auto"` — so the pair resolves against the LABEL's own script rather
+ *  than the chrome's, and the opening bracket lands at the reading start in
+ *  both directions without a rule per direction. The argument, and the
+ *  measurement behind it, are in design.css beside the rule that draws it. */
+export type NavStyle = "plain" | "pills" | "underline" | "brackets";
+
+/** THE CLOSED VOCABULARIES, once. Both validators read these lists and so does
+ *  the panel's SegmentedControl, so a value the control can offer is a value
+ *  the PATCH accepts by construction — the same property `TYPO_BOUNDS` gives
+ *  the sliders one screen down. */
+export const NAV_STYLES: readonly NavStyle[] = ["plain", "pills", "underline", "brackets"];
+
 export interface NavDesign {
   items: NavItem[];
   /** What the bar shows when `items` is empty. "topics" reproduces the stock
@@ -95,6 +124,8 @@ export interface NavDesign {
    *  design starts from something rather than from nothing; "none" is an
    *  empty bar for a site whose nav is entirely hand-built. */
   fallback: "topics" | "none";
+  /** How the items are drawn. See NavStyle. */
+  style: NavStyle;
   showSearch: boolean;
   showThemeToggle: boolean;
   /** The EN/ع switch, when settings.languageToggle is on. This only decides
@@ -111,7 +142,13 @@ export const NAV_LIMITS = {
 
 // ── Typography ──────────────────────────────────────────────────────────────
 
-export type FontFamilyChoice = "serif" | "sans";
+/** The three stacks an instance ships (tokens.css). "mono" is here because a
+ *  console site is a real thing an author wants and there was no way to ask
+ *  for one: every designed page resolved to the serif or the sans stack, so
+ *  the terminal look died at the first paragraph. It names the INSTANCE's
+ *  mono stack, like its two neighbours. It chooses the STACK; the FACE inside
+ *  that stack is the optional `headingFont`/`bodyFont`/`monoFont` below. */
+export type FontFamilyChoice = "serif" | "sans" | "mono";
 export type HeadingCase = "normal" | "smallcaps" | "uppercase";
 
 export interface TypographyDesign {
@@ -126,8 +163,40 @@ export interface TypographyDesign {
   lineHeight: number;
   headingWeight: number;
   headingCase: HeadingCase;
+  /** Extra letter-spacing on headings, in em. The CASE still carries its own
+   *  need (uppercase without air is a wall), so this is what the AUTHOR adds
+   *  on top of that — 0 is exactly the spacing every design had before the
+   *  control existed. */
+  tracking: number;
   headingFamily: FontFamilyChoice;
   bodyFamily: FontFamilyChoice;
+  /**
+   * THE FACES. Optional catalog ids (shared/fontCatalog.ts) — a design naming
+   * real type rather than "whatever this instance calls serif".
+   *
+   * ABSENT IS THE DEFAULT AND ABSENT IS A REAL ANSWER: the role resolves to
+   * the instance's own stack, exactly as every design did before these three
+   * fields existed. Present, the resolved family is emitted AHEAD of that
+   * stack in `typographyVars`, so a face the server could not serve falls
+   * through to the token beside it and the page is the page it would have
+   * been. A design's type is never all-or-nothing.
+   *
+   * THE SPLIT BETWEEN THEM. `headingFont` and `bodyFont` name a face for a
+   * ROLE. `monoFont` names the face of the design's MONO STACK — so it
+   * dresses code inside the author's prose, AND it is what a role set to the
+   * mono family resolves to when that role names no face of its own. That is
+   * what makes a console design one decision instead of three: set the
+   * families to mono, name one mono face, and every heading, paragraph and
+   * code span is in it.
+   *
+   * CATALOG IDS ONLY — never an uploaded `custom:` face. A design travels: it
+   * is exported, imported, and shipped in the preset catalog, and a file that
+   * exists on one instance names nothing on another. The instance's own four
+   * slots are where an operator's licensed face belongs.
+   */
+  headingFont?: string;
+  bodyFont?: string;
+  monoFont?: string;
   /** Vertical rhythm multiplier for the space BETWEEN sections (header pad,
    *  page gap, footer pad, gap under headings). 1 = the stock spacing. */
   rhythm: number;
@@ -148,8 +217,25 @@ export const TYPO_BOUNDS = {
   // still holds a sentence, 86 is as wide as prose may get before the eye
   // loses the line start.
   measure: { min: 58, max: 86, step: 1, default: 70 },
-  lineHeight: { min: 1.4, max: 1.9, step: 0.05, default: 1.65 },
+  // THE FLOOR IS 1.2, NOT 1.4, BECAUSE DENSITY IS A LOOK. 1.4 is the right
+  // floor for prose set in a proportional face at a comfortable measure, and
+  // it was written as if that were the only kind of page a design could be.
+  // It is not: a console, a ledger, an index — anything set in the mono stack
+  // at a narrow measure — reads WRONG at 1.4, because a monospaced line is
+  // shorter, its glyphs are already spaced, and the leading a serif needs
+  // makes a terminal look like a form. 1.2 is the tightest setting at which
+  // ascenders and descenders on adjacent lines still clear each other in
+  // every stack this ships, which is what the floor is actually for; below it
+  // the lines collide and no amount of taste rescues them. The reader who
+  // wants air still has the whole band above.
+  lineHeight: { min: 1.2, max: 1.9, step: 0.05, default: 1.65 },
   headingWeight: { min: 400, max: 800, step: 100, default: 600 },
+  // Headings only, and in em so it scales with the type rather than fighting
+  // it. Negative is real: a large display heading in a tight face wants its
+  // letters pulled together, and -0.02 is as far as that goes before the
+  // counters close up. 0.12 is a poster, not a paragraph — past it the word
+  // stops being a word.
+  tracking: { min: -0.02, max: 0.12, step: 0.005, default: 0 },
   rhythm: { min: 0.75, max: 1.6, step: 0.05, default: 1 },
 } as const;
 
@@ -157,11 +243,39 @@ export type TypoNumberKey = keyof typeof TYPO_BOUNDS;
 
 // ── Header ──────────────────────────────────────────────────────────────────
 
-/** Where the site identity sits. "stacked" is the stock blog's centred
- *  masthead; "stackedStart" is the same block flushed to the reading
- *  direction's leading edge; "inline" puts identity and navigation on one
- *  row (the compact, app-like header). */
-export type HeaderLayout = "stacked" | "stackedStart" | "inline";
+/**
+ * Where the site identity sits, and what it sits IN. Five mastheads:
+ *
+ *   stacked       the stock blog's centred masthead
+ *   stackedStart  the same block flushed to the reading direction's leading edge
+ *   inline        identity and navigation on one row (the compact, app-like header)
+ *   rule          THE NEWSPAPER. A hairline above the wordmark and a hairline
+ *                 below it, with the nav centred beneath — the two rules are
+ *                 the masthead, which is why this layout does not also take the
+ *                 `divider` hairline (three rules in 120px is a fence).
+ *   banner        THE MAGAZINE. The header is a BAR: a full-width field of
+ *                 `--bg-raised` running edge to edge behind a centred block, so
+ *                 the identity sits on ground of its own rather than on the page.
+ *
+ * A LAYOUT IS NOT A SIXTH SIDEBAR, and that is a decision rather than an
+ * omission. A side rail is the one masthead this engine cannot draw: DESIGN.md's
+ * "one column per page" is the rule `.s-dsn-page` enforces and the reason the
+ * stock blog had to learn its own measure twice, and a nav column beside the
+ * writing means two columns, a second measure, a phone breakpoint that reflows
+ * the page rather than the bar, and a sticky element that is taller than the
+ * viewport on the design most likely to want one. It is deferred, not refused —
+ * when it lands it lands as a change to the PAGE, not as one more header enum.
+ */
+export type HeaderLayout = "stacked" | "stackedStart" | "inline" | "rule" | "banner";
+
+export const HEADER_LAYOUTS: readonly HeaderLayout[] = [
+  "stacked",
+  "stackedStart",
+  "inline",
+  "rule",
+  "banner",
+];
+
 export type HeaderDensity = "compact" | "regular" | "tall";
 /** What survives a scroll: nothing, the nav bar alone (the stock behaviour),
  *  or the whole header block. */
@@ -218,8 +332,33 @@ export interface FooterColumn {
   entries: FooterEntry[];
 }
 
+/**
+ * WHAT SHAPE THE END OF THE PAGE IS. Three, and they are three different
+ * statements rather than three paddings:
+ *
+ *   columns   the grid of titled columns this footer has always been
+ *   colophon  ONE centred prose block set the way a book's colophon is —
+ *             small caps, a narrow measure, the entries running as text rather
+ *             than as a grid. The end of a letterpress page, not a sitemap.
+ *   grand     THE BIG-TYPE FOOTER: the site's own name at display size across
+ *             the end of the page, with the footer's entries as a single row
+ *             beneath it.
+ *
+ * A GRAND FOOTER'S ROW IS THE FOOTER'S OWN ENTRIES, never the header's menu,
+ * and that is the whole reason it needs no new field. A footer that reached
+ * into `nav.items` would print the masthead twice on a design whose menu is the
+ * topics fallback — a list that CHANGES as the author writes — and it would
+ * make the footer's own columns dead weight the moment this form was chosen.
+ * The columns flatten; nothing is invented and nothing is discarded.
+ */
+export type FooterForm = "columns" | "colophon" | "grand";
+
+export const FOOTER_FORMS: readonly FooterForm[] = ["columns", "colophon", "grand"];
+
 export interface FooterDesign {
   columns: FooterColumn[];
+  /** How the columns and the copyright are SET. See FooterForm. */
+  form: FooterForm;
   /** Copyright template — {year} and {siteName} are substituted, exactly as
    *  settings.footer is. Empty falls back to the instance's own footer line,
    *  so a designed site inherits what the stock site already showed. */
@@ -243,17 +382,58 @@ export const FOOTER_LIMITS = {
 
 // ── The whole chrome ────────────────────────────────────────────────────────
 
+/**
+ * THE GROUND THE WHOLE SITE IS PRINTED ON — and it is the one field in this
+ * file that had to argue hardest for its own existence, because a surface is
+ * the shape of a thing that usually turns out to be a colour.
+ *
+ *   flat    nothing. The page ground, exactly as every design drew it before.
+ *   ruled   faint horizontal baselines, at the design's OWN line height —
+ *           the writing paper a ledger and a journal are set on.
+ *   grid    the same pitch in both axes: graph paper, for a technical site.
+ *   tinted  the page ground moves to `--bg-raised`. No pattern; a different
+ *           sheet of paper.
+ *   paper   a fine irregular fleck, drawn as three repeating gradients at
+ *           co-prime periods and odd angles. Laid paper, no image file.
+ *
+ * IT DECIDES ARRANGEMENT, NOT HUE, and that is checkable rather than claimed:
+ * every value above is `--bg-raised` or a `color-mix` of `--text` into
+ * transparent, so all five surfaces are the same decision in all twenty-one
+ * themes and a theme retune moves them without anyone editing this file.
+ *
+ * IT IS A WHISPER, AND THAT IS A MEASUREMENT. Contrast is measured COMPOSITED —
+ * the real pixels under real text with the pattern painted, the way the ambient
+ * masthead's numbers were taken — not argued from an alpha. The floors and the
+ * readings are recorded in `design.css` beside the rules that draw them.
+ *
+ * IT LIVES ON `chrome`, NOT ON `site`. `site` is a closed allowlist whose keys
+ * are a schema bump (`shared/design.ts`); `chrome` is leniently normalized, so
+ * a design written before this field renders flat and a design written after it
+ * renders on an older build as the page it always was.
+ */
+export type ChromeSurface = "flat" | "ruled" | "grid" | "tinted" | "paper";
+
+export const CHROME_SURFACES: readonly ChromeSurface[] = [
+  "flat",
+  "ruled",
+  "grid",
+  "tinted",
+  "paper",
+];
+
 export interface DesignChrome {
   nav: NavDesign;
   typography: TypographyDesign;
   header: HeaderDesign;
   footer: FooterDesign;
+  surface: ChromeSurface;
 }
 
 export const DEFAULT_CHROME: DesignChrome = {
   nav: {
     items: [],
     fallback: "topics",
+    style: "plain",
     showSearch: true,
     showThemeToggle: true,
     showLangSwitch: true,
@@ -265,6 +445,7 @@ export const DEFAULT_CHROME: DesignChrome = {
     lineHeight: TYPO_BOUNDS.lineHeight.default,
     headingWeight: TYPO_BOUNDS.headingWeight.default,
     headingCase: "normal",
+    tracking: TYPO_BOUNDS.tracking.default,
     headingFamily: "serif",
     bodyFamily: "serif",
     rhythm: TYPO_BOUNDS.rhythm.default,
@@ -280,6 +461,7 @@ export const DEFAULT_CHROME: DesignChrome = {
   },
   footer: {
     columns: [],
+    form: "columns",
     copyright: "",
     showCopyright: true,
     showRss: true,
@@ -287,6 +469,7 @@ export const DEFAULT_CHROME: DesignChrome = {
     showPoweredBy: true,
     align: "center",
   },
+  surface: "flat",
 };
 
 /** A deep copy of the stock defaults — "reset to stock defaults", and the
@@ -365,6 +548,15 @@ export function isNotePathish(value: string): boolean {
   return /\.md$/i.test(value);
 }
 
+/** The lenient half of an enum: a value in the vocabulary, or the default.
+ *  `undefined` (the field was written before it existed) and garbage (a
+ *  hand-edit, a design from a newer build) take the SAME road on purpose —
+ *  what a read owes the reader is a page, and the strict half next door is
+ *  where the two are told apart out loud. */
+function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === "string" && allowed.includes(value as T) ? (value as T) : fallback;
+}
+
 // ── Lenient normalization (reads) ───────────────────────────────────────────
 
 function normNavItem(raw: unknown, depth: number): NavItem | null {
@@ -418,6 +610,7 @@ function normNav(raw: unknown): NavDesign {
   return {
     items,
     fallback: raw.fallback === "none" ? "none" : "topics",
+    style: oneOf(raw.style, NAV_STYLES, d.style),
     showSearch: raw.showSearch !== false,
     showThemeToggle: raw.showThemeToggle !== false,
     showLangSwitch: raw.showLangSwitch !== false,
@@ -434,11 +627,20 @@ function normTypography(raw: unknown): TypographyDesign {
       : TYPO_BOUNDS[key].default;
   };
   const family = (value: unknown, fallback: FontFamilyChoice): FontFamilyChoice =>
-    value === "serif" || value === "sans" ? value : fallback;
+    value === "serif" || value === "sans" || value === "mono" ? value : fallback;
   const headingCase: HeadingCase =
     raw.headingCase === "smallcaps" || raw.headingCase === "uppercase"
       ? raw.headingCase
       : "normal";
+  // A face this build does not have is DROPPED, not kept and not clamped: the
+  // role falls back to the instance's stack, which is exactly what "absent"
+  // means, and the site renders. The strict half says no to the same value out
+  // loud — see validateChrome.
+  const face = (value: unknown): string | undefined =>
+    typeof value === "string" && catalogEntry(value) !== null ? value : undefined;
+  const heading = face(raw.headingFont);
+  const body = face(raw.bodyFont);
+  const mono = face(raw.monoFont);
   return {
     baseSize: num("baseSize"),
     scale: num("scale"),
@@ -446,8 +648,16 @@ function normTypography(raw: unknown): TypographyDesign {
     lineHeight: num("lineHeight"),
     headingWeight: num("headingWeight"),
     headingCase,
+    tracking: num("tracking"),
     headingFamily: family(raw.headingFamily, d.headingFamily),
     bodyFamily: family(raw.bodyFamily, d.bodyFamily),
+    // Spread rather than assigned: an absent face must not become
+    // `headingFont: undefined` in the stored JSON, because `countChanges()`
+    // walks the draft leaf-wise and a key that exists holding nothing is a
+    // difference from a key that does not exist.
+    ...(heading ? { headingFont: heading } : {}),
+    ...(body ? { bodyFont: body } : {}),
+    ...(mono ? { monoFont: mono } : {}),
     rhythm: num("rhythm"),
   };
 }
@@ -455,8 +665,7 @@ function normTypography(raw: unknown): TypographyDesign {
 function normHeader(raw: unknown): HeaderDesign {
   const d = DEFAULT_CHROME.header;
   if (!isRecord(raw)) return { ...d };
-  const layout: HeaderLayout =
-    raw.layout === "stackedStart" || raw.layout === "inline" ? raw.layout : "stacked";
+  const layout = oneOf(raw.layout, HEADER_LAYOUTS, d.layout);
   const density: HeaderDensity =
     raw.density === "compact" || raw.density === "tall" ? raw.density : "regular";
   const sticky: StickyMode =
@@ -522,6 +731,7 @@ function normFooter(raw: unknown): FooterDesign {
   }
   return {
     columns,
+    form: oneOf(raw.form, FOOTER_FORMS, d.form),
     copyright: cleanText(raw.copyright, FOOTER_LIMITS.copyright),
     showCopyright: raw.showCopyright !== false,
     showRss: raw.showRss !== false,
@@ -542,6 +752,7 @@ export function normalizeChrome(raw: unknown): DesignChrome {
     typography: normTypography(source.typography),
     header: normHeader(source.header),
     footer: normFooter(source.footer),
+    surface: oneOf(source.surface, CHROME_SURFACES, DEFAULT_CHROME.surface),
   };
 }
 
@@ -641,9 +852,21 @@ export function validateChrome(raw: unknown): DesignChrome {
   if (itemsRaw.length > NAV_LIMITS.items) {
     bad("nav.items", "design_too_many", `The menu holds at most ${NAV_LIMITS.items} top-level items`);
   }
+  // ONE enum reader for the whole chrome — nav, header, footer and the surface
+  // — so every closed vocabulary is refused the same way, with the field named
+  // and the legal values listed. It is declared here rather than beside the
+  // header because a `const` arrow is not hoisted and the nav now reads one.
+  const enumKey =<T extends string>(key: string, value: unknown, allowed: readonly T[]): T | null => {
+    if (value === undefined) return null;
+    if (typeof value !== "string" || !allowed.includes(value as T)) {
+      bad(key, "design_bad_value", `${key} must be one of: ${allowed.join(", ")}`);
+    }
+    return value as T;
+  };
   const nav: NavDesign = {
     items: itemsRaw.map((item, i) => strictNavItem(item, `nav.items[${i}]`, 0)),
     fallback: navRaw.fallback === "none" ? "none" : "topics",
+    style: enumKey("nav.style", navRaw.style, NAV_STYLES) ?? DEFAULT_CHROME.nav.style,
     showSearch: navRaw.showSearch !== false,
     showThemeToggle: navRaw.showThemeToggle !== false,
     showLangSwitch: navRaw.showLangSwitch !== false,
@@ -684,25 +907,48 @@ export function validateChrome(raw: unknown): DesignChrome {
   for (const key of ["headingFamily", "bodyFamily"] as const) {
     const value = typoRaw[key];
     if (value === undefined) continue;
-    if (value !== "serif" && value !== "sans") {
-      bad(`typography.${key}`, "design_bad_value", `typography.${key} must be "serif" or "sans"`);
+    if (value !== "serif" && value !== "sans" && value !== "mono") {
+      bad(
+        `typography.${key}`,
+        "design_bad_value",
+        `typography.${key} must be "serif", "sans" or "mono"`,
+      );
     }
     typo[key] = value;
+  }
+  // THE FACES. `null` / `""` is how a control CLEARS one back to the
+  // instance's stack — an explicit "no face", the same shape `fonts.<slot>`
+  // takes — and it deletes the key rather than storing an empty string,
+  // because absent is the state the renderer understands.
+  //
+  // An unknown id is a 400 that NAMES it. A design travels: it is exported,
+  // imported and applied from a preset, and a silently-ignored `headingFont`
+  // is a design that renders in the wrong type on the machine it lands on with
+  // nothing anywhere saying why. An uploaded `custom:` id is refused by the
+  // same check for the same reason — it is not in the catalog because it is
+  // not portable.
+  for (const key of ["headingFont", "bodyFont", "monoFont"] as const) {
+    if (!Object.prototype.hasOwnProperty.call(typoRaw, key)) continue;
+    const value = typoRaw[key];
+    if (value === undefined) continue;
+    if (value === null || value === "") {
+      delete typo[key];
+      continue;
+    }
+    if (typeof value !== "string" || catalogEntry(value) === null) {
+      bad(
+        `typography.${key}`,
+        "design_bad_value",
+        `typography.${key} must be a font id from the catalog, or null`,
+      );
+    }
+    typo[key] = value as string;
   }
 
   // ── header
   const headerRaw = isRecord(raw.header) ? raw.header : {};
   const header = { ...DEFAULT_CHROME.header };
-  const enumKey = <T extends string>(key: string, value: unknown, allowed: readonly T[]): T | null => {
-    if (value === undefined) return null;
-    if (typeof value !== "string" || !allowed.includes(value as T)) {
-      bad(key, "design_bad_value", `${key} must be one of: ${allowed.join(", ")}`);
-    }
-    return value as T;
-  };
-  header.layout =
-    enumKey("header.layout", headerRaw.layout, ["stacked", "stackedStart", "inline"] as const) ??
-    header.layout;
+  header.layout = enumKey("header.layout", headerRaw.layout, HEADER_LAYOUTS) ?? header.layout;
   header.density =
     enumKey("header.density", headerRaw.density, ["compact", "regular", "tall"] as const) ??
     header.density;
@@ -767,6 +1013,7 @@ export function validateChrome(raw: unknown): DesignChrome {
   });
   const footer: FooterDesign = {
     columns,
+    form: enumKey("footer.form", footerRaw.form, FOOTER_FORMS) ?? DEFAULT_CHROME.footer.form,
     copyright: strictText(footerRaw.copyright, "footer.copyright", FOOTER_LIMITS.copyright, false),
     showCopyright: footerRaw.showCopyright !== false,
     showRss: footerRaw.showRss !== false,
@@ -775,10 +1022,46 @@ export function validateChrome(raw: unknown): DesignChrome {
     align: enumKey("footer.align", footerRaw.align, ["start", "center"] as const) ?? "center",
   };
 
-  return { nav, typography: typo, header, footer };
+  // ── the ground everything above is printed on
+  const surface = enumKey("surface", raw.surface, CHROME_SURFACES) ?? DEFAULT_CHROME.surface;
+
+  return { nav, typography: typo, header, footer, surface };
 }
 
 // ── Derived values (one implementation, used by the site and the preview) ───
+
+/** Which INSTANCE slot a design family choice stands in for. A design's serif
+ *  is whatever the operator put in the prose slot, its sans is the ui slot,
+ *  its mono is the mono slot — so a face the design names is composed against
+ *  the same counterpart the instance would have used. */
+export function roleSlot(choice: FontFamilyChoice): DesignFontSlot {
+  return choice === "sans" ? "ui" : choice === "mono" ? "mono" : "prose";
+}
+
+/**
+ * Every face this typography actually asks for, as (id, slot, family) — the
+ * list the server turns into `@font-face` blocks and the designer turns into a
+ * draft-face request.
+ *
+ * It is derived from the config rather than read off it, because "which faces
+ * does this design need" is not the same question as "which fields are set":
+ * a role set to the mono family with no face of its own resolves to `monoFont`
+ * (see TypographyDesign), and `monoFont` is needed for code even when nothing
+ * else uses it. One function answers it for both sides, so the family the
+ * browser asks for and the family the server emits can never drift.
+ */
+export function designFontRefs(typo: TypographyDesign): DesignFontRef[] {
+  const refs: DesignFontRef[] = [];
+  const push = (id: string | undefined, choice: FontFamilyChoice): void => {
+    const face = id ?? (choice === "mono" ? typo.monoFont : undefined);
+    if (face) refs.push(designFontRef(face, roleSlot(choice)));
+  };
+  push(typo.headingFont, typo.headingFamily);
+  push(typo.bodyFont, typo.bodyFamily);
+  if (typo.monoFont) refs.push(designFontRef(typo.monoFont, "mono"));
+  return dedupeFontRefs(refs);
+}
+
 
 /** The CSS custom properties a typography config resolves to. Returned as a
  *  plain record so the caller can spread it into a React `style` prop (the
@@ -791,8 +1074,28 @@ export function validateChrome(raw: unknown): DesignChrome {
 export function typographyVars(typo: TypographyDesign): Record<string, string> {
   const { baseSize: base, scale, measure, lineHeight, rhythm } = typo;
   const step = (n: number): string => `${Math.round(base * Math.pow(scale, n) * 100) / 100}px`;
-  const bodyFont = typo.bodyFamily === "sans" ? "var(--font-ui)" : "var(--font-serif)";
-  const headFont = typo.headingFamily === "sans" ? "var(--font-ui)" : "var(--font-serif)";
+  const stack = (choice: FontFamilyChoice): string =>
+    choice === "sans"
+      ? "var(--font-ui)"
+      : choice === "mono"
+        ? "var(--font-mono)"
+        : "var(--font-serif)";
+  // A ROLE'S FACE IN FRONT OF ITS STACK, never instead of it. The design's
+  // family is always the last word in the list, so an id the server could not
+  // serve — a face still downloading, a cache hand-deleted, a design imported
+  // onto an instance that has never fetched it — falls through to the token
+  // and the page is exactly the page it was before this feature. The fallback
+  // IS the feature.
+  const role = (id: string | undefined, choice: FontFamilyChoice): string => {
+    const face = id ?? (choice === "mono" ? typo.monoFont : undefined);
+    const fallback = stack(choice);
+    return face ? `"${designFontFamily(face, roleSlot(choice))}", ${fallback}` : fallback;
+  };
+  const bodyFont = role(typo.bodyFont, typo.bodyFamily);
+  const headFont = role(typo.headingFont, typo.headingFamily);
+  const monoFont = typo.monoFont
+    ? `"${designFontFamily(typo.monoFont, "mono")}", var(--font-mono)`
+    : "var(--font-mono)";
   return {
     "--dsg-base": `${base}px`,
     "--dsg-line": String(lineHeight),
@@ -808,12 +1111,26 @@ export function typographyVars(typo: TypographyDesign): Record<string, string> {
     "--dsg-measure-px": `${Math.round(measure * base * 0.52)}px`,
     "--dsg-body-font": bodyFont,
     "--dsg-head-font": headFont,
+    // The design's monospace, for the code inside the author's own prose. It
+    // is emitted whether or not a face is named, because the fallback alone is
+    // worth having: `.s-dsg` code used to read the app's `--font-mono`
+    // directly, which is right for a code block in the editor and merely a
+    // coincidence on a designed page.
+    "--dsg-mono-font": monoFont,
     "--dsg-head-weight": String(typo.headingWeight),
     "--dsg-head-transform": typo.headingCase === "uppercase" ? "uppercase" : "none",
     "--dsg-head-variant": typo.headingCase === "smallcaps" ? "small-caps" : "normal",
-    // An uppercase heading needs air between its letters; a normal one does
-    // not. Tracking is part of the CASE decision, never a separate control.
-    "--dsg-head-tracking": typo.headingCase === "normal" ? "0" : "0.045em",
+    // The author's own tracking, raw. It is emitted separately from the value
+    // the stylesheet reads so the two halves stay legible: the CASE has a need
+    // (uppercase and small caps without air are a wall, which is why they
+    // carry 0.045em whether or not anybody asks) and the AUTHOR has an
+    // intention, and `--dsg-head-tracking` is the sum. A design that says
+    // nothing gets 0 here, which composes to exactly the spacing every design
+    // had before this control existed.
+    "--dsg-tracking": `${typo.tracking}em`,
+    "--dsg-head-tracking": `calc(var(--dsg-tracking) + ${
+      typo.headingCase === "normal" ? "0em" : "0.045em"
+    })`,
     "--dsg-h1": step(3),
     "--dsg-h2": step(2),
     "--dsg-h3": step(1),

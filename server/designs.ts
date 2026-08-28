@@ -79,7 +79,8 @@ import {
 // pointing at `javascript:` is refused here exactly as a malformed section
 // is"). Same import, same fix, for the quarantine reason a step below: a bad
 // nav item now lists as its own sentence instead of as "unreadable design (…)".
-import { DesignError as ChromeError } from "../shared/designChrome.ts";
+import { DesignError as ChromeError, designFontRefs } from "../shared/designChrome.ts";
+import type { DesignFontRef } from "../shared/fontCatalog.ts";
 import { isTheme } from "../shared/themes.ts";
 import { dataDir } from "./site.ts";
 import { VaultError } from "./vault.ts";
@@ -309,6 +310,25 @@ export function designSummaries(): DesignSummary[] {
     updatedMs: row.doc?.updatedMs ?? 0,
     ...(row.quarantine ? { quarantine: row.quarantine } : {}),
   }));
+}
+
+/** The faces the PUBLIC site's design asks for — what /api/site-fonts.css
+ *  unions with `settings.fonts` and what /api/me's font signature carries.
+ *
+ *  Read off the ACTIVE design and no other: a design being edited in a panel
+ *  is not the public site's typography, and the designer serves its own draft
+ *  faces on an admin-only route. Quarantined and absent both answer `[]`,
+ *  which makes the union a no-op — a broken design is a visitor's non-event
+ *  here as everywhere else.
+ *
+ *  Deliberately NOT gated on `publicLayout`: the answer is a property of the
+ *  design store, the layout switch is a settings question, and an @font-face
+ *  block for a family nothing sets costs a browser nothing (it fetches a face
+ *  only when a glyph needs it). Keeping the two apart means flipping the
+ *  layout never has to remember to change the stylesheet. */
+export function activeDesignFontRefs(): DesignFontRef[] {
+  const design = activeDesign().design;
+  return design ? designFontRefs(design.chrome.typography) : [];
 }
 
 export function activeDesignId(): string | null {

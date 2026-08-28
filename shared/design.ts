@@ -99,6 +99,13 @@ export interface HeroSection extends SectionBase {
   image: string | null;
   align: "start" | "center";
   height: "short" | "tall";
+  /** WHAT SHAPE THE OPENING IS, which the first three fields could not say.
+   *  `panel` is the rounded card the hero has always been. `band` is a field
+   *  of ground and type running the full column with square corners — the
+   *  opening for a site that has no photograph and does not want a generated
+   *  one. `split` sets the words against the picture instead of on top of it,
+   *  which is the arrangement a scrim cannot produce. */
+  treatment: "panel" | "band" | "split";
 }
 
 export interface RichTextSection extends SectionBase {
@@ -130,6 +137,13 @@ export interface PostGridSection extends SectionBase {
   showExcerpt: boolean;
   showBanner: boolean;
   showDate: boolean;
+  /** THE CARD'S ANATOMY, which was one shape for every design on the shelf.
+   *  `boxed` is the bordered tile on raised ground. `bare` deletes the box and
+   *  lets the picture and the words stand on the page. `overlay` puts the
+   *  title on a scrim over the picture. `ledger` turns the tile on its side —
+   *  thumbnail at the start, words at the end. `masonry` drops the grid for
+   *  CSS columns so pictures keep their own proportions. */
+  card: "boxed" | "bare" | "overlay" | "ledger" | "masonry";
 }
 
 export interface PostListSection extends SectionBase {
@@ -139,6 +153,14 @@ export interface PostListSection extends SectionBase {
   tag: string;
   showExcerpt: boolean;
   showDate: boolean;
+  /** HOW THE RUN IS SET, and the reason every design on the shelf listed its
+   *  writing the same way. `river` is the stacked title-meta-excerpt run this
+   *  section shipped as. `ledger` rules every row and hangs the date in a
+   *  column of its own. `index` is a table of contents — title, leader, date,
+   *  nothing else. `numbered` counts the entries in oversized faint ordinals.
+   *  `dateline` groups the run under the day it was published, the way a paper
+   *  does. None of them decides a colour; all of them decide an arrangement. */
+  layout: "river" | "ledger" | "index" | "numbered" | "dateline";
 }
 
 export interface TopicsSection extends SectionBase {
@@ -159,7 +181,12 @@ export interface CtaSection extends SectionBase {
 
 export interface DividerSection extends SectionBase {
   kind: "divider";
-  style: "rule" | "dots" | "blank";
+  /** `ornament` is the reading view's own `***` divider, drawn by the same
+   *  idiom: an accent rule that fades at both ends with the wordmark's ✦ over
+   *  a gap in the middle. A composed page breaks its run of sections for the
+   *  same reason an essay breaks its run of paragraphs, and it should not have
+   *  had to do it with a chrome hairline. */
+  style: "rule" | "dots" | "ornament" | "blank";
   /** Vertical air, in px. */
   space: number;
 }
@@ -191,6 +218,10 @@ export interface DesignArticle {
   showTags: boolean;
   showRelated: boolean;
   showBackLink: boolean;
+  /** An initial cap on the article's first paragraph. Off by default: it is a
+   *  strong voice, not a refinement, and a site that did not ask for one must
+   *  not grow one on upgrade. */
+  dropCap: boolean;
 }
 
 export interface DesignDoc {
@@ -259,6 +290,7 @@ export function stockArticle(): DesignArticle {
     showTags: true,
     showRelated: true,
     showBackLink: true,
+    dropCap: false,
   };
 }
 
@@ -272,6 +304,9 @@ export function stockSections(): Section[] {
       tag: "",
       showExcerpt: true,
       showDate: true,
+      // The floor is the stock blog's own shape, so it takes the layout that
+      // has always drawn it. Everything else on the shelf is a choice.
+      layout: "river",
     },
   ];
 }
@@ -296,7 +331,16 @@ export function stockDesign(id: string, name: string, now = Date.now()): DesignD
 export function newSection(kind: SectionKind, id: string): Section {
   switch (kind) {
     case "hero":
-      return { id, kind, heading: "", sub: "", image: null, align: "center", height: "short" };
+      return {
+        id,
+        kind,
+        heading: "",
+        sub: "",
+        image: null,
+        align: "center",
+        height: "short",
+        treatment: "panel",
+      };
     case "richText":
       return { id, kind, markdown: "", align: "start" };
     case "note":
@@ -312,9 +356,19 @@ export function newSection(kind: SectionKind, id: string): Section {
         showExcerpt: true,
         showBanner: true,
         showDate: true,
+        card: "boxed",
       };
     case "postList":
-      return { id, kind, heading: "", limit: 20, tag: "", showExcerpt: true, showDate: true };
+      return {
+        id,
+        kind,
+        heading: "",
+        limit: 20,
+        tag: "",
+        showExcerpt: true,
+        showDate: true,
+        layout: "river",
+      };
     case "topics":
       return { id, kind, heading: "", limit: 12 };
     case "cta":
@@ -489,6 +543,12 @@ export function validateSection(input: unknown, path: string, index: number): Se
         image: imageRef(raw.image, `${at}.image`),
         align: oneOf(raw.align, `${at}.align`, ["start", "center"] as const, "center"),
         height: oneOf(raw.height, `${at}.height`, ["short", "tall"] as const, "short"),
+        treatment: oneOf(
+          raw.treatment,
+          `${at}.treatment`,
+          ["panel", "band", "split"] as const,
+          "panel",
+        ),
       };
     case "richText":
       return {
@@ -516,6 +576,12 @@ export function validateSection(input: unknown, path: string, index: number): Se
         showExcerpt: bool(raw.showExcerpt, `${at}.showExcerpt`, true),
         showBanner: bool(raw.showBanner, `${at}.showBanner`, true),
         showDate: bool(raw.showDate, `${at}.showDate`, true),
+        card: oneOf(
+          raw.card,
+          `${at}.card`,
+          ["boxed", "bare", "overlay", "ledger", "masonry"] as const,
+          "boxed",
+        ),
       };
     case "postList":
       return {
@@ -526,6 +592,12 @@ export function validateSection(input: unknown, path: string, index: number): Se
         tag: text(raw.tag, `${at}.tag`, 64),
         showExcerpt: bool(raw.showExcerpt, `${at}.showExcerpt`, true),
         showDate: bool(raw.showDate, `${at}.showDate`, true),
+        layout: oneOf(
+          raw.layout,
+          `${at}.layout`,
+          ["river", "ledger", "index", "numbered", "dateline"] as const,
+          "river",
+        ),
       };
     case "topics":
       return {
@@ -547,7 +619,12 @@ export function validateSection(input: unknown, path: string, index: number): Se
       return {
         ...base,
         kind: "divider",
-        style: oneOf(raw.style, `${at}.style`, ["rule", "dots", "blank"] as const, "rule"),
+        style: oneOf(
+          raw.style,
+          `${at}.style`,
+          ["rule", "dots", "ornament", "blank"] as const,
+          "rule",
+        ),
         space: int(raw.space, `${at}.space`, 0, 240, 32),
       };
   }
@@ -557,11 +634,20 @@ export function validateSection(input: unknown, path: string, index: number): Se
  *  A key that is not here is a 400 naming it, rather than a value silently
  *  dropped on write and mysteriously absent afterwards. */
 const KIND_KEYS: Record<SectionKind, string[]> = {
-  hero: ["heading", "sub", "image", "align", "height"],
+  hero: ["heading", "sub", "image", "align", "height", "treatment"],
   richText: ["markdown", "align"],
   note: ["note", "heading", "excerpt"],
-  postGrid: ["heading", "limit", "columns", "tag", "showExcerpt", "showBanner", "showDate"],
-  postList: ["heading", "limit", "tag", "showExcerpt", "showDate"],
+  postGrid: [
+    "heading",
+    "limit",
+    "columns",
+    "tag",
+    "showExcerpt",
+    "showBanner",
+    "showDate",
+    "card",
+  ],
+  postList: ["heading", "limit", "tag", "showExcerpt", "showDate", "layout"],
   topics: ["heading", "limit"],
   cta: ["heading", "body", "label", "url"],
   divider: ["style", "space"],
@@ -645,6 +731,10 @@ export function validateDesign(
     showTags: bool(articleRaw.showTags, "article.showTags", true),
     showRelated: bool(articleRaw.showRelated, "article.showRelated", true),
     showBackLink: bool(articleRaw.showBackLink, "article.showBackLink", true),
+    // Absent means off, which is why this one field defaults the other way to
+    // its neighbours: every design authored before the control existed said
+    // nothing about it, and "said nothing" must not mean "wanted one".
+    dropCap: bool(articleRaw.dropCap, "article.dropCap", false),
   };
   for (const key of Object.keys(articleRaw)) {
     if (!(key in article)) {

@@ -3427,6 +3427,23 @@ off, contained none of those three things.
   route that allowlists the id against the catalog and the filename against the shape this module
   generates. It is open for custom.css's reason: the login page of a `PUBLIC=false` vault should
   render in the instance's type.
+- **That stylesheet is the UNION of `settings.fonts` and the ACTIVE DESIGN's faces**, because a
+  visitor must receive the type a PUBLISHED design references and there is one generated
+  stylesheet on a visitor's page. The `?v=` on the link is `siteFontsSignature()` over both
+  halves, so an instance whose four slots are all `system` still links the sheet when its design
+  names a face, and a design edited from serif to mono gives the browser a new URL. **Nothing on
+  this route downloads:** it is open, so a stranger must never be able to make this server fetch
+  from Google — an uncached family emits no `@font-face` at all and the design falls back. The
+  caching happens where an ADMIN writes: `PATCH /api/settings` for a slot, and every design write
+  that can carry a new id (save, import — which is the preset APPLY flow — create, activate) for
+  a design, fire-and-forget so a slow font host can never fail or delay a save.
+- **The catalog DATA lives in `shared/fontCatalog.ts`; the disk and the network stay in
+  `server/fonts.ts`.** Three things that are not the server have to agree about which ids exist —
+  `validateChrome()`, the designer's three face rows, and `check-presets` — and the alternative
+  was a round trip to draw a menu of constants. `server/fonts.ts` re-exports it, so every
+  existing caller still imports from one place. Measured after the move: the catalog lands in the
+  lazy DESIGN chunk and is absent from the entry closure — a blog reader does not download a list
+  of font names to read a post.
 - **The Arabic faces carry a measured `size-adjust`, and only in the Arabic role.** Picking the
   right face is half of "a mixed paragraph sets correctly"; the other half is at what SIZE. Two
   faces at one `font-size` are not two faces at one apparent size — Amiri's base letters stand at
@@ -3824,6 +3841,217 @@ opened from the picker's header ("New custom theme") and from a pencil on each c
 - Export writes a `vellum.theme` JSON file; import reads one into the DRAFT (never straight into
   the store), so the author sees what arrived, live, before anything is saved.
 
+### The arrangement fields: a section decides its SHAPE, never its colour
+
+Four enums on three section kinds, and each one exists because the engine had exactly ONE answer
+where a designer needs several. Every value below decides position, rhythm and weight; not one of
+them decides a hue, so the twenty-one themes are still twenty-one themes.
+
+| field | values | what it decides |
+| --- | --- | --- |
+| `postList.layout` | `river` · `ledger` · `index` · `numbered` · `dateline` | how a run of writing is set |
+| `postGrid.card` | `boxed` · `bare` · `overlay` · `ledger` · `masonry` | what one post looks like |
+| `hero.treatment` | `panel` · `band` · `split` | the shape of the opening |
+| `divider.style` | `rule` · `dots` · `ornament` · `blank` | the mark between two runs |
+
+**The first value of each is what shipped before it, byte for byte.** They are enums with a
+default rather than a schema bump, so a `designs.json` written by an older build validates and
+comes back drawing what it drew yesterday — `oneOf()` supplies the value it does not find, and
+`KIND_KEYS` carries the new key so the strict allowlist lets it through. `tests/designStructures.
+test.ts` pins both halves, including the named 400 an unknown value earns.
+
+**A renderer restates the default anyway**, in `client/design/Sections.tsx` and
+`DesignThumb.tsx`. A section reaches a renderer down two roads: through `validateSection()`, which
+fills every key it did not find, and — for the gallery — through `presetDesignDoc()`, which
+CLONES a preset's literal sections and hands them to a canvas unvalidated. A field added after the
+shelf was written arrives `undefined` on the second road, and `s-dsn-list--undefined` is a card
+that draws nothing.
+
+Three of the four are worth naming for what they refuse:
+
+- **A band never invents artwork, and it is as tall as its own type.** `panel` paints
+  `generatedBannerCss()` when the author named no image; a band is ground and type by definition —
+  the opening for a site with no photograph — so it paints `--bg-raised` and stops. An image the
+  author DID supply is still honoured: a treatment that discards authored content to make a point
+  is not a treatment. It also drops the 200/360px `--short`/`--tall` floors, which exist so a
+  PHOTOGRAPH has room to be one: with no photograph they drew a field of ground with two lines
+  adrift in the middle of it, and a design whose scale is deliberately flat opened on what read as
+  an unstyled placeholder. Height is padding plus type; the title is the design's own h1 × 1.5;
+  and the band carries a `--border` hairline above and below, because `--bg-raised` against `--bg`
+  is a whole tone apart on `porcelain` and nearly nothing on `sumi`, and a shape that has to
+  survive twenty-one palettes is drawn with a rule. (The `banner` masthead closes itself with the
+  same hairline, for the same measurement.)
+- **A split hero borrows the newest post's picture**, and only a split. A preset may not name an
+  image, so the one cell the treatment exists for opened on a generated gradient on every fresh
+  install — a placeholder in the centrepiece. The renderer takes the first banner in the feed
+  instead: it is the author's, it changes when they publish, and it is the picture the first card
+  underneath is already carrying. An authored `image` still wins and a vault with no banners at
+  all still gets the generated field. `panel` and `band` are excluded because their picture sits
+  BEHIND the words, and a real photograph under a headline is a contrast argument this engine
+  cannot win against a vault it has never seen; a split's plate carries no type at all.
+- **An overlay's text colours are LITERALS — while there is a photograph under them.** The words
+  rest on a fixed dark scrim rather than on the theme, exactly as the stock blog's author-site
+  cards do (`.s-blog-sites__body`) and for the same reason: `--text` on `parchment` is near-black,
+  and near-black on a scrim tuned for light type is an unreadable card in half the palettes. Same
+  three values as the blog's, so the two surfaces are one decision. It drops the excerpt besides,
+  because four lines of body copy over a photograph is the arrangement that makes the title
+  unfindable. The card is a PROPORTION and not a height (`aspect-ratio: 5 / 4`): a 190px floor
+  cropped every photograph in the vault to a 770×255 letterbox at two across a wide page, which is
+  a row of banners rather than a hang.
+- **The two picture-shaped cards refuse invented artwork.** `overlay` and `masonry` used to insist
+  on a picture and generate one where a post had none — right for a 128px strip above a title,
+  fatal at plate size. Both now render `s-dsn-card--plateless` instead: a masonry card becomes a
+  LEAF (hairline, air, the title at the design's h2, centred, its own natural height so the ragged
+  column bottoms survive a vault with gaps in it) and an overlay becomes a wall LABEL (same 5:4
+  field, scrim dropped — a fixed dark gradient over the theme's own ground is a stripe, and the
+  literal-colour licence above is spent on an unpredictable photograph that is no longer there —
+  with the words centred on `--text`/`--text-muted`). A `bare` grid with `showBanner` off keeps the
+  h2 rule for the same reason: there is nothing else on the card to be bigger than. The other card
+  shapes still obey the operator's `bannerFallback` exactly, and ALL of them still generate inside
+  the preset gallery's canvas, where `forceGeneratedBanners` is set — 200px of an unknown vault is
+  not the place to judge an image-forward design by its type.
+- **A bare card's date is pushed to the FOOT of its track, but only when it is the last thing on
+  the card.** A bare card has no edge, so nothing lines a row up but the words in it, and three
+  titles running to one, two and three lines put three dates at three heights — a grid that has
+  come apart. Where an excerpt follows the date, the rule is off: bottom-aligning then opens 50px
+  of nothing between a headline and its own byline to line up three bylines, which is a worse
+  trade. The card also resolves `dir` ONCE, on `.s-dsn-card__body` rather than per child, so a
+  mixed-script wall stops setting an Arabic title at one edge and its date at the other; the meta
+  line's two items are `<bdi>`, so the LINE takes the card's direction while "1 min read" keeps
+  its own and is not reordered into "min read 1".
+- **A numbered run's ordinal is `--text-faint`, against the rule that sends a count to
+  `--text-muted`.** That rule's case is the topic chip: 0.72rem on `--bg-hover`, where 1.4.3 gives
+  no relief. This is the other case the contrast gate spells out — bold and never below 1.3rem
+  (20.8px, past the 18.66px bold threshold), so the large-text clause applies and the token's
+  enforced 3:1 floor on `--bg` IS the applicable minimum. It is `aria-hidden` besides: the `<ol>`
+  already tells a screen reader this is the nth of n, and the numeral is the typography of that
+  fact rather than a second statement of it. The figure itself goes through `localeNum()`.
+
+**The ornament is the reading view's divider, drawn by the same idiom** — a 2px accent rule fading
+at both ends with the wordmark's ✦ over a gap in the middle (`reading.css`, `.s-rv-hr--orn`). The
+argument written there is the reason it is here: a divider is CONTENT and may never be
+`1px solid var(--border)`, which is the h1 rule, the byline rule and `.s-dsn-div--rule`. One
+detail differs deliberately: the mark is centred with auto inline margins between two zeroed
+inline insets rather than with `inset-inline-start: 50%` + a physical `translate(-50%, -50%)`,
+because that pair centres in LTR and lands a glyph-width off centre the moment the page mirrors.
+
+**Two layouts are whole-row links** (`ledger`, `index`) because they are single lines of type: a
+six-word hit area inside a 44px row is the phone failure the coarse-pointer rule exists to
+prevent. Both keep `min-height: 44px` under `(max-width: 700px), (pointer: coarse)`, the ledger's
+date column collapses at 390 rather than leaving four words beside a date, and the index's leader
+is `display: none` once the title is allowed to wrap — a row of dots under a two-line title reads
+as a mistake.
+
+**A dateline groups by the day it PRINTS**, not by the day it parses: the key is the formatted
+string, so the run breaks where the reader sees it break, in this instance's own calendar, Hijri
+included, and never on a UTC boundary the page does not show. Its kicker is uppercase and tracked
+— and `letter-spacing` is reset under `:dir(rtl)`, because Arabic is cursive and tracking pulls
+the letters of a joined word apart into something that reads as a fault. `text-transform:
+uppercase` is merely a no-op there; this is not.
+
+**A dateline's rows print a headline and NOTHING else**, and the run sets itself in COLUMNS. The
+kicker carries the date for everything under it — that repetition is what a dateline exists to
+delete — and the first cut then printed the reading time on every row instead, which is the same
+repetition in web furniture: twenty-eight headlines each followed by "1 min read" under a kicker
+that had already said the only thing there was to say. `PostMeta_` lost its third mode with it.
+The run is `columns: 24rem 2` with a `column-rule` in `--border` and `break-inside: avoid` on each
+day: a WIDTH first and a count second, so the split is the page's decision rather than a
+breakpoint's — a 1240px broadsheet takes two tracks, a 640px column takes one, a phone takes one,
+and no media query says so. Two is the ceiling on purpose; three tracks of headlines on a 1400px
+page is a stock ticker. It mirrors for free, because CSS columns flow in the writing direction.
+
+### The chrome fields: a masthead, a menu, an ending, and the paper under all three
+
+Four more enums, on the CHROME rather than on a section, and they follow the arrangement fields'
+rule exactly: each decides position, rhythm and weight, none decides a hue.
+
+| field | values | what it decides |
+| --- | --- | --- |
+| `header.layout` | `stacked` · `stackedStart` · `inline` · `rule` · `banner` | where the identity sits, and what it sits in |
+| `chrome.surface` | `flat` · `ruled` · `grid` · `tinted` · `paper` | the paper the whole site is printed on |
+| `footer.form` | `columns` · `colophon` · `grand` | the shape of the end of the page |
+| `nav.style` | `plain` · `pills` · `underline` · `brackets` | how one menu item is drawn |
+
+**The first value of each is what shipped before it, byte for byte** — enums with a default on a
+LENIENTLY-NORMALIZED key, so a `designs.json` written by an older build validates and comes back
+drawing what it drew yesterday, and no schema bump is spent. `surface` is the one that had to argue
+for its address: it lives on `chrome` and not on `site` because `site` is a closed allowlist whose
+keys ARE a bump (`shared/design.ts`). `tests/designChromeShapes.test.ts` pins both halves — absent
+is the old page, an unknown value is a 400 that names the field, and the two validators agree on
+what is legal and differ only in what they do about an illegal value.
+
+**`rule` and `banner` add no markup.** They are the stacked tree wearing two more classes, which is
+the test a new masthead has to pass to be a LAYOUT rather than a component: needing its own elements
+means it is not arranging what is there. Only `inline` earns a second tree. Two details are load
+bearing: `rule` takes the `divider` switch out of play by declaration order (its own bottom hairline
+is already the second of three rules in 120px, and the author who turned the switch off must not
+lose the shape they picked the layout for), and `banner`'s ground is a `::before` at `z-index: -2`
+rather than a `background` — `.s-dsg-head` carries `isolation: isolate` and hosts the ambient layer
+at `-1`, so a background on the element itself would have quietly turned the stars off on `sidereal`.
+`banner` also closes itself with a `--border` hairline: "the field's own edge is the rule" holds on
+`porcelain` and fails on `sumi`, `murex` and `iron-gall`, where `--bg-raised` sits a couple of values
+off `--bg` and the one masthead that is a GROUND is, in the dark, no masthead at all.
+
+**A bar with no links is not rendered at all.** `nav.fallback: "none"` with no items makes
+`DesignNav` return `null` — a real design, and one this collection ships — and the `<nav>` around it
+used to survive: a hairline, a 1100px row and the search box thrown to the far end of it by
+`.s-dsg-nav__tools`'s `margin-inline-start: auto`, which reads as a menu that failed to load rather
+than as the refusal it is. `DesignHeader` computes the same predicate the nav does (`items.some(i =>
+!i.hidden) || topics.length > 0`), because a component that renders `null` cannot be asked whether
+it did, and when it is false the bar is skipped and the tools ride inside the masthead under the
+identity on the identity's own alignment. They keep `.s-dsg-nav__tools` for their look and take a
+two-class `.s-dsg-head .s-dsg-head__tools` to cancel that auto margin; `inline` gets the reverse
+(`.s-dsg-head--nomenu` restores it), because on the one masthead that is already a row the far end
+is exactly where they belong.
+
+**A grand footer's row is the FOOTER's own entries, never the header's menu.** A footer reaching
+into `nav.items` would print the masthead twice on any design whose menu is the topics fallback — a
+list that changes as the author writes — and would make the footer's own columns dead weight the
+moment the form was chosen. `colophon` and `grand` share one tree (`.s-dsg-foot__run`) and differ in
+how it is SET; the separator between two columns in both is a `border-inline-start`, never a middle
+dot, for the reason the status bar gives: the Eastern Arabic zero is itself a raised dot. `colophon`
+is the one place a form overrules another control — it ignores `footer.align`, because centring is
+the entire typographic argument and `columns` is one segment away.
+
+**The nav styles dress the BAR and not the submenu.** A dropped card of pills is a control panel and
+brackets inside a floating menu read as syntax, so `.s-dsg-nav__sublink` is untouched by all three.
+`brackets` is the only one that changes the FACE, to the design's own `--dsg-mono-font`, because a
+bracket in a proportional face is punctuation and a bracket in the mono stack is a prompt.
+**The brackets mirror themselves**: both characters are `Bidi_Mirrored` and the link carries
+`dir="auto"`, so an Arabic label resolves the link to `rtl` and two things flip at once — the
+`::before` box moves to the reading start and the glyph in it mirrors. Measured on the Arabic
+instance with a deliberately mixed bar: every item reads as a bracketed item and none draws a
+backwards bracket. `underline` carries its rail on every item as `transparent` rather than adding it
+to the active one, because a border appearing on hover moves the whole row by 2px.
+
+**A surface is a WHISPER, and that is a measurement rather than an alpha.** The pattern is a
+`background-image` on the scrollport (`background-attachment: local`, so it scrolls with the content
+like a printed rule rather than sitting still behind it), which means no computed style can report
+the colour a word is on. So the numbers were read off pixels the way the ambient layer's were: the
+page's own gutter screenshotted, the PNG decoded, every distinct painted colour enumerated, and the
+one giving `--text` its lowest ratio taken as the worst ground — the crossing of two rules on a
+grid, of three hatchings on a laid sheet. Across five surfaces × five rooms: worst `--text` 11.25:1,
+worst `--text-muted` **4.70:1** against its 4.5 floor, worst `--text-faint` 3.02:1 against the 3:1
+that token is held to. **The first draft failed this**: one ink at 7% everywhere composited to 13.5%
+at a grid's intersections and put parchment's muted at 3.88 — a token that carries an excerpt pushed
+under its floor by a decoration. The inks are now set per surface so the worst OVERLAP lands near
+3.4% (3.5% once, 1.7% twice, 1.2%+1%+1% three times), and the whole table is in `design.css` beside
+the rules that draw it.
+
+**Chrome that pins gets a ground; chrome that does not is transparent.** `.s-dsg-top` and
+`.s-dsg-nav` painted `--bg` unconditionally, which is invisible on a flat site and a rectangle
+punched out of the paper on every other surface. Both are transparent now — byte-identical on
+`flat` — and `--dsg-ground` (which follows the surface) comes back on the one state that cannot do
+without it: a bar pinned over scrolling content.
+
+**`DesignThumb` and `silhouette()` learn three of the four.** The masthead's shape, the page's
+ground and the shape of the end of the page are three different pictures at 200px, so the miniature
+draws them and the collision key folds them in. `nav.style` is deliberately in neither, for the
+reason `divider.style` is not: pills, a rail and a pair of brackets on a 7px bar are the same 7px
+bar, and a key that gains a term the reader cannot see is quieter rather than finer.
+`check-presets` also grew the loop it was missing — its no-clamp check walked `header`/`footer`/`nav`
+and nothing else, so a top-level `chrome` scalar like `surface` could be silently normalized away.
+
 ### Presets (`shared/presets.ts`, `shared/presetCatalog.ts`)
 
 **A preset is a design document that happens to live in the repo.** Not a template language,
@@ -3877,16 +4105,16 @@ time** (duplicate id, empty or un-Arabic copy, a section or nav item naming a no
 **Names and blurbs are DATA, not dictionary keys.** `{ en, ar }` pairs travel inside the preset.
 Fifty presets as dictionary rows would be a hundred entries `check-i18n` can only see as dead
 keys, and adding one preset would mean editing three files. The chrome AROUND the gallery — the
-eight family labels, the buttons, the empty state — goes through `t()` like everything else, from
+nine family labels, the buttons, the empty state — goes through `t()` like everything else, from
 a LITERAL `Record<PresetFamily, I18nKey>` table for `TYPE_LABEL`'s reason.
 
-**The catalog is a dynamic `import()`** (`loadPresets()`), so fifty-nine layouts are a chunk the admin
+**The catalog is a dynamic `import()`** (`loadPresets()`), so seventy-one layouts are a chunk the admin
 fetches when the designer opens rather than bytes on a visitor's first paint.
 
 **`presetCatalog.ts` is an ORDERING, not a list.** The designs live in one module per shelf —
 `presetsEditorial`, `presetsMinimal`, `presetsBrutalist`, `presetsJournal`, `presetsPortfolio`,
 `presetsDocs`, `presetsAcademic`, `presetsGarden`, `presetsLanding`, `presetsGallery`,
-`presetsLetter` — and the
+`presetsLetter`, `presetsSignatureA`, `presetsSignatureB`, `presetsSignatureC` — and the
 catalog spreads them in `PRESET_FAMILIES` order with the four originals leading their families.
 Two families are served by more than one module and both splits are editorial: `minimal` holds
 the narrow essay shelf (560–780px, quiet weights) and then the wide, heavy, uppercase half
@@ -3898,6 +4126,45 @@ the file boundary is a SHELF rather than an alphabet.
 
 `MAX_DESIGNS` still applies: applying a preset is creating a design, and the 24-design cap
 answers with the sentence it already has.
+
+### `signature` — the ninth family, and the one that names a BAR rather than a JOB
+
+The other eight families answer "what is this site FOR". `signature` answers "is this design
+actually SOMETHING", and it is filed as a family because that is how a person browses it. Its
+members are composed AFTER the engine grew five mastheads, five grounds, five list shapes, five
+card shapes, three openings and real typefaces, and each one is held to a standard the eight
+job-shelves are not: **applying it must feel like moving into a different house.** Concretely, a
+design earns the family only if it uses at least three of those primitives in anger, names its own
+faces, carries a name and a blurb that sell a life rather than list features, and collides with
+nothing in `check-presets`' silhouette report.
+
+It **leads `PRESET_FAMILIES`**, and therefore the gallery. That is the one place the family order
+is an editorial decision rather than a taxonomy: an instance with no design opens on the presets
+tab, and the first row a stranger sees should be the four designs that answer the question they
+came with.
+
+It arrives as **studio modules** — `presetsSignatureA.ts` (the press: a broadsheet, a console, a
+scholarly journal, a poster), `presetsSignatureB.ts` (the gallery: a private view, a plate book, a
+zine, a feature desk) and `presetsSignatureC.ts` (the letters: a letterpress salon, an observing
+station, a deluxe manuscript, an essayist) — rather than as one file, for the reason every other
+shelf is a module: four designs is what one person can hold in mind while checking that no two of
+them are the same design in different clothes. A studio is FOUR rather than five because the four
+have to argue with EACH OTHER as well as with the shelf, and the sixth pairwise comparison is where
+that stops being possible.
+
+**A studio argues about ONE THING, and the thing is a row of the config.** The press argues about
+type, the gallery about where the image goes, the letters about what the page is printed on — so
+each studio's four take four different answers to its own question and the shelf reads as three
+arguments of four rather than as twelve loose cards. The corollary is arithmetic and worth writing
+down before somebody "fixes" it: a studio has four designs and the chrome enums have three to five
+values each, so exactly one row of a studio's table repeats. The press and the gallery both repeat
+`footer.form: "columns"`; the letters repeat `"colophon"`. A repeat that lands on the row a studio
+is NOT arguing about is the correct place for it.
+
+**`Preset.themes` is not a list of alternates.** It is the export envelope's custom-theme payload
+(`{ base, tokens }` records an import merges under fresh slugs), so a built-in id put there ships a
+malformed custom theme to every install. A design names ONE theme, in `design.theme`; the rooms it
+would also live in belong in `tags`, where the gallery's search box can find them.
 
 ### A POST SECTION HAS NO OFFSET, and that is a catalog rule (`check-presets.mjs`)
 
@@ -3956,6 +4223,15 @@ shelves), and a hero's height with them. It now reports seven — the six a read
 `compendium`/`thicket`, `overture`/`envelope`) and `billboard`/`broadside`, which the hero fold
 caught and the eye had let pass. Seven twins out of fifty-nine is a better hit rate than most
 shipping theme galleries, which is why it is a note.
+
+**The arrangement fields joined the key, and one of them was deliberately left out of it.** A
+`postList`'s layout, a `postGrid`'s card shape and a `hero`'s treatment are folded in with their
+defaults written out, so a preset authored before the field existed keys identically to one that
+names the default — the report must not move because a shelf file grew a line that changes
+nothing. A `divider`'s style is NOT: folding it in was tried and measured, and the count fell
+from seven to three, because four of the pairs a reader had already called twins differ in
+nothing but a hairline versus a gap. A key that hides four of the six twins a person measured is
+not a finer key, it is a quieter one — and this note exists to be read by that person.
 
 ### Thumbnails: a REAL RENDER in the grid, a CSS miniature while it arrives
 
@@ -6635,11 +6911,81 @@ underneath it.
   translates a stable name rather than printing English prose.
 - **BOUNDS ARE THE FEATURE.** `TYPO_BOUNDS` is the single table behind the designer's sliders,
   the strict validator and the lenient clamp — a control physically cannot offer a value the
-  PATCH refuses. Body 15–21px, measure 58–86ch, line height 1.4–1.9, weight 400–800, scale
-  1.10–1.414, rhythm 0.75–1.6. Heading SIZES are derived (`base × ratio^n`, `typographyVars()`),
-  not six independent fields: six fields is six ways to put an h3 above its h2. Colours are
-  never a design input — a design decides size, weight, rhythm and arrangement; the twenty-one
-  themes stay twenty-one themes.
+  PATCH refuses. Body 15–21px, measure 58–86ch, line height 1.2–1.9, weight 400–800, scale
+  1.10–1.414, heading tracking −0.02–0.12em, rhythm 0.75–1.6. Heading SIZES are derived
+  (`base × ratio^n`, `typographyVars()`), not six independent fields: six fields is six ways to
+  put an h3 above its h2. Colours are never a design input — a design decides size, weight,
+  rhythm and arrangement; the twenty-one themes stay twenty-one themes.
+- **THE LINE-HEIGHT FLOOR IS 1.2 BECAUSE DENSITY IS A LOOK.** It was 1.4, which is the right
+  floor for prose in a proportional face at a comfortable measure and was written as if that
+  were the only page a design could be. A console, a ledger or an index — anything set in the
+  mono stack at a narrow measure — reads wrong at 1.4: a monospaced line is shorter and its
+  glyphs are already spaced, so the leading a serif needs makes a terminal look like a form.
+  1.2 is where ascenders and descenders on adjacent lines still clear each other in every stack
+  shipped, which is what a floor is for.
+- **A DESIGN NAMES A STACK, AND MAY NAME THE FACE INSIDE IT.** `headingFamily` / `bodyFamily`
+  are `serif` | `sans` | `mono` — the three stacks `tokens.css` defines and Settings → Typography
+  fills. `mono` exists because a console site is a real thing an author wants and every designed
+  page used to resolve to one of two stacks, so the terminal look died at the first paragraph.
+  Beside them, `typography.headingFont` / `bodyFont` / `monoFont` are OPTIONAL catalog ids
+  (`shared/fontCatalog.ts`), and they are the difference between fifty-nine designs arguing about
+  margins in one typeface and fifty-nine designs. Absent is the default and a real answer: the
+  role resolves to the instance's stack exactly as before the fields existed. `headingFont` and
+  `bodyFont` name a face for a ROLE; `monoFont` names the design's MONO STACK, so it dresses code
+  inside the author's prose (`--dsg-mono-font`) *and* is what a role set to the mono family
+  resolves to when it names no face of its own — which is what makes a console design one
+  decision instead of three. **Catalog ids only, never an uploaded `custom:` face:** a design is
+  exported, imported and shipped as a preset, and a file on one machine names nothing on another.
+  An unknown id is a named 400 from `validateChrome` and a silent drop from `normalizeChrome`,
+  the same split every other design field has; `check-presets` asserts the catalog membership of
+  every id in the shelf, because a dropped face is a preset that sells a typeface it never sets.
+- **THE FACE IS ALWAYS IN FRONT OF ITS STACK, NEVER INSTEAD OF IT.** `typographyVars()` emits
+  `--dsg-head-font: "VellumDsg-prose-eb-garamond", var(--font-serif)`. A face that is still
+  downloading, whose cache was hand-deleted, or that this instance has never fetched simply has
+  no family behind the name, the token answers, and the page is the page it would have been. A
+  broken face is a visitor's non-event, like a broken design. Measured: with the cache removed,
+  the masthead rendered at exactly the width the system stack gives it, with no notice and no 404.
+- **THE FAMILY NAME IS THE CONTRACT BETWEEN THE TWO HALVES.** `designFontFamily(id, slot)` =
+  `VellumDsg-<slot>-<id>`, computed from the DESIGN ALONE — `typographyVars()` runs on a
+  visitor's page and knows nothing of `settings.json`, so the name it writes must be derivable
+  without it, while the server, which does know the slots, emits a family under exactly that
+  name. The slot is part of the name because it changes what the family CONTAINS (see the
+  Arabic rule under Typography), so `amiri` under `prose` and under `mono` are two families.
+- **A DESIGN DECIDES ONE SCRIPT AND INHERITS THE OTHER.** The face a design names becomes the
+  half of the composite its own coverage says it is — a Latin family is the Latin half, a family
+  covering Arabic is the Arabic half — and the OTHER half comes from `settings.fonts`, from the
+  slot the design's family choice points at (serif → `prose`, sans → `ui`, mono → `mono`). It is
+  the instance-wide composite mirrored per design, so a mixed line still picks per character. A
+  design cannot name both halves ON PURPOSE: an Arabic vault has already declared its naskh face
+  in Settings → Typography, that declaration is about the language the site is WRITTEN in rather
+  than the arrangement of a page, and a portable preset applied by a stranger must not be able to
+  replace it. The operator's `arabicSizeAdjust` override travels only with the pairing it was
+  measured for — a design that names its own Arabic face gets the catalog's measured number for
+  that family instead.
+- **THE DESIGNER'S THREE SURFACES ARE SERVED BY TWO STYLESHEETS AND NO MORE.** A published
+  design's faces ride on `/api/site-fonts.css` (below). The DRAFT's faces, and the preset
+  gallery's, ride on `GET /api/design/fonts.css?ids=<slot>:<id>,…` — admin-only, because it can
+  trigger a download — linked once into `document.head` (`client/design/designFonts.ts`) as the
+  UNION of what the panel is drawing. One link is enough for all of it: the gallery's cards are
+  real canvases in the app's own document, and the preview frame CLONES `document.head`, so the
+  same href dresses the pane, the cards and the article specimen — under the LIVE SITE's family
+  names, not a "preview" prefix, because the whole point is that the pane shows what will ship.
+  The node is REPLACED rather than re-pointed when the union changes: `PreviewFrame` watches the
+  head for child-list changes and would never see an `href` attribute move. The union is capped
+  (24 refs); presets share faces by construction, and past the cap a card paints in the
+  instance's stacks, which is the same graceful nothing an undownloaded face produces.
+- **TRACKING IS THE CASE'S NEED PLUS THE AUTHOR'S INTENTION.** Uppercase and small caps carry
+  0.045em whether or not anybody asks (without air they are a wall); `typography.tracking` is
+  what the author adds on top. `typographyVars()` emits the author's value raw as
+  `--dsg-tracking` and the sum as `--dsg-head-tracking`, which is the one the stylesheet reads —
+  so a design that says nothing gets exactly the spacing it had before the control existed.
+- **A DROP CAP IS LATIN-ONLY, AND THE PARAGRAPH'S OWN DIRECTION DECIDES.** `article.dropCap`
+  sets an initial cap on the article's first paragraph and nowhere else; the rule is guarded by
+  `:dir(ltr)` on the `<p>` (which the reading renderer writes as `dir="auto"`), so an Arabic post
+  on an English site and an English post on an Arabic one each get the right answer — the same
+  rule the byline follows. Arabic is cursive: floating the first letter out of the line makes the
+  browser draw it in isolated form with the joint to its own word broken, and the opening word
+  of the article is then misspelled in the largest character on the page.
 - **THE MEASURE IS EMITTED TWICE.** `--dsg-measure` (ch) caps the PROSE, because a character
   count is what the control means; `--dsg-measure-px` caps every wrapper around it, because a
   `ch` resolves against each element's own font-size and the page column, the article header and
@@ -6654,6 +7000,12 @@ underneath it.
   a hero, `--dsg-h3` for a section heading and a list row, `--dsg-h4` for a card), so no legal
   combination can invert the hierarchy. Excerpts and a hero's sub take `--dsg-body-font`. Every
   var carries its old value as the fallback, so a page rendered without them is unchanged.
+  Three more held out and were found by rendering a design in the mono stack rather than by
+  reading: the `richText` box (`var(--font-serif)` at `var(--font-prose)`/1.7), the call-to-
+  action's heading (a fixed 1.2rem serif) and the designed article's own `h1` (a clamp with no
+  design in it). A stack a reader can name in one glance is the test this rule needs — a mono
+  design whose prose, its section heads, its call and its headline are not all mono has a
+  traitor left in it.
 - **A MASTHEAD SHARES THE PAGE'S COLUMN.** `stacked` and `stackedStart` headers are capped at
   `--dsn-width` and centred: the header block has no ground of its own, so a full-viewport one
   put the wordmark at the window edge while the sections sat in a 760px column. `inline` is

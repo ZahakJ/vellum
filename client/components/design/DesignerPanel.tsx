@@ -31,11 +31,14 @@ import {
 import { createRoot, type Root } from "react-dom/client";
 import { useDialog } from "../../a11y.ts";
 import {
+  type ChromeSurface,
   type DesignChrome,
+  type FooterForm,
   type HeadingCase,
   type FontFamilyChoice,
   type HeaderDensity,
   type HeaderLayout,
+  type NavStyle,
   type StickyMode,
   type TypoNumberKey,
   stockChrome,
@@ -52,6 +55,10 @@ import { toast } from "../../toast.ts";
 import { actionToast } from "../../undoToast.ts";
 import { confirmModal, isConfirmOpen } from "../Confirm.tsx";
 import { SegmentedControl, TextInput, Toggle } from "../controls/Fields.tsx";
+import { FontPicker, SYSTEM_FONT } from "../FontPicker.tsx";
+import { catalogList } from "../../../shared/fontCatalog.ts";
+import { designFontRefs } from "../../../shared/designChrome.ts";
+import { setDesignFonts } from "../../design/designFonts.ts";
 import { isSelectOpen } from "../controls/Select.tsx";
 import {
   createDesignDoc,
@@ -120,8 +127,18 @@ const TYPE_LABEL: Record<TypoNumberKey, I18nKey> = {
   measure: "designTypeMeasure",
   lineHeight: "designTypeLine",
   headingWeight: "designTypeWeight",
+  tracking: "designTypeTracking",
   rhythm: "designTypeRhythm",
 };
+
+/** The faces a typography block asks for, as one comparable string. Two
+ *  callers: the effect that keeps the draft's `<link>` current, and the save
+ *  handler deciding whether the PUBLIC site's stylesheet URL just moved. */
+function faceSpecOf(typo: DesignChrome["typography"]): string {
+  return designFontRefs(typo)
+    .map((ref) => `${ref.slot}:${ref.id}`)
+    .join(",");
+}
 
 /** The copyright field's placeholder. NOT copy and therefore not a dictionary
  *  entry: it is the TEMPLATE SYNTAX, the same two placeholders settings.footer
@@ -444,11 +461,23 @@ function Slider({
   format: (value: number) => string;
 }) {
   const { min, max, step } = TYPO_BOUNDS[name];
+  // A SIGNED SLIDER ISOLATES ITS NUMBERS; an unsigned one must not. In an
+  // Arabic panel the bidi algorithm resolves a leading minus that touches only
+  // one number to the PARAGRAPH's direction, so "-0.02 em" prints as
+  // "em 0.02-" — a trailing dash the reader has to guess the meaning of. The
+  // other six sliders have no sign and are better left reordered: "٪ ١٠٠" and
+  // "بكسل ١٧" are how Arabic writes a quantity and its unit, and forcing those
+  // into English order would be a fix that breaks five working controls. So
+  // only a slider whose FLOOR is negative isolates, and it isolates all three
+  // of its numbers rather than just the one that would have been mangled —
+  // two ends of one range in two different orders is its own kind of wrong.
+  const signed = min < 0;
+  const num = (text: string) => (signed ? <bdi dir="ltr">{text}</bdi> : text);
   return (
     <div className="s-dsgr-slider">
       <div className="s-dsgr-slider__head">
         <span className="s-dsgr-slider__label">{t(TYPE_LABEL[name])}</span>
-        <span className="s-dsgr-slider__value">{format(value)}</span>
+        <span className="s-dsgr-slider__value">{num(format(value))}</span>
       </div>
       <input
         className="s-dsgr-range"
@@ -461,8 +490,8 @@ function Slider({
         onChange={(e) => onChange(Number(e.target.value))}
       />
       <div className="s-dsgr-slider__ends">
-        <span>{format(min)}</span>
-        <span>{format(max)}</span>
+        <span>{num(format(min))}</span>
+        <span>{num(format(max))}</span>
       </div>
     </div>
   );
@@ -479,9 +508,29 @@ function Sep() {
   );
 }
 
-function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+function Row({
+  label,
+  hint,
+  stack,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  /**
+   * PUT THE CONTROL ON ITS OWN LINE. A side-by-side row gives the control 58%
+   * of the column, which is right for a slider, a toggle and a three-way
+   * segmented control and is not enough for a four- or five-way one:
+   * `.s-ctl-seg` is an `inline-flex` of `nowrap` buttons capped at `max-width:
+   * 100%`, so the segments past the cap are CLIPPED rather than wrapped —
+   * measured at 1440 the four nav styles overran their column by 7px and at
+   * 1280 by 69px, which is a control whose last option cannot be seen or
+   * clicked. Stacking gives the run the whole column and costs one line.
+   */
+  stack?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <div className="s-dsgr-ctlrow">
+    <div className={`s-dsgr-ctlrow${stack ? " s-dsgr-ctlrow--stack" : ""}`}>
       <div className="s-dsgr-ctlrow__text">
         <span className="s-dsgr-ctlrow__label">{label}</span>
         {hint && <span className="s-dsgr-ctlrow__hint">{hint}</span>}
@@ -676,6 +725,21 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
     setDraft((current) => (current ? { ...current, chrome: { ...current.chrome, ...patch } } : current));
   };
 
+  /** A face row. "Inherit" DELETES the key rather than storing an empty
+   *  string, because absent is the state the renderer, the validator and the
+   *  change counter all understand: a design that names no face is a design
+   *  with no field, byte for byte the document it was before the picker
+   *  existed. */
+  const setFace = (key: "headingFont" | "bodyFont" | "monoFont", id: string): void => {
+    setDraft((current) => {
+      if (!current) return current;
+      const typography = { ...current.chrome.typography };
+      if (id === SYSTEM_FONT || id === "") delete typography[key];
+      else typography[key] = id;
+      return { ...current, chrome: { ...current.chrome, typography } };
+    });
+  };
+
   /** The same seam for the rest of the document (sections, site, article). */
   const setDoc = (patch: Partial<DesignDoc>): void => {
     setDraft((current) => (current ? { ...current, ...patch } : current));
@@ -710,8 +774,9 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
   const save = (): void => {
     if (!draft) return;
     setBusy(true);
+    const facesBefore = saved ? faceSpecOf((JSON.parse(saved) as DesignDoc).chrome.typography) : "";
     saveDesignDoc(draft.id, { ...draft, name: name.trim() || draft.name })
-      .then((doc) => {
+      .then(async (doc) => {
         // The SERVER's normalization is authoritative: the draft is re-seeded
         // from what was actually stored, so what the panel shows next is what
         // a visitor would get, not what was typed.
@@ -719,6 +784,17 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
         setDraft(doc);
         setName(doc.name);
         void getDesignOverview().then(setAdmin).catch(() => undefined);
+        // A SAVE THAT CHANGES THE PUBLIC SITE'S TYPE HAS TO CHANGE THE LINK
+        // THAT SERVES IT. /api/site-fonts.css is fetched with a `?v=` from
+        // /api/me, and that signature now covers the ACTIVE design's faces —
+        // so an owner who saves a new typeface and then looks at their own
+        // live site would otherwise be reading yesterday's stylesheet until
+        // they reloaded. Only when it is the active design, and only when the
+        // faces actually moved: `loadMe` is a boot-shaped refresh, not
+        // something to run on every slider.
+        if (admin?.activeId === doc.id && faceSpecOf(doc.chrome.typography) !== facesBefore) {
+          await useStore.getState().loadMe();
+        }
         toast(t("designSaved"));
       })
       .catch((err: unknown) => {
@@ -934,6 +1010,26 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
 
   const chrome = draft?.chrome ?? null;
   const typo = chrome?.typography ?? stockChrome().typography;
+
+  // THE DRAFT'S OWN FACES, IN <head>, FROM THE FIRST KEYSTROKE. The preview
+  // frame clones this document's stylesheets, so one link there dresses the
+  // pane, the gallery cards and the article specimen at once — and it dresses
+  // them in the SAME families the live site will use, which is what makes the
+  // preview a preview. Dropped on unmount: nothing the designer downloaded
+  // should still be linked on the page behind it.
+  const faceSpec = faceSpecOf(typo);
+  useEffect(() => {
+    setDesignFonts("draft", designFontRefs(typo));
+    // `faceSpec` and not `typo`: the object is rebuilt on every slider drag and
+    // the faces change perhaps twice a session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [faceSpec]);
+  useEffect(() => () => setDesignFonts("draft", []), []);
+
+  // The catalog is a fact about this BUILD, not about this instance, so the
+  // three font rows are drawn from the shared list rather than from a fetch
+  // that can fail while the panel is open.
+  const fontCatalog = useMemo(() => catalogList(), []);
   // ONE content object for the preview pane and the gallery both. Real posts
   // first, sample rows only to make up the numbers, generated artwork wherever
   // a banner is missing — client/design/previewContent.tsx says why.
@@ -1245,14 +1341,18 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
                 <h2 className="s-dsgr__section">{t("dsoArticleSection")}</h2>
                 {(
                   [
-                    ["showBanner", "dsoArtBanner"],
-                    ["showMeta", "dsoArtMeta"],
-                    ["showTags", "dsoArtTags"],
-                    ["showRelated", "dsoArtRelated"],
-                    ["showBackLink", "dsoArtBack"],
+                    ["showBanner", "dsoArtBanner", null],
+                    ["showMeta", "dsoArtMeta", null],
+                    ["showTags", "dsoArtTags", null],
+                    ["showRelated", "dsoArtRelated", null],
+                    ["showBackLink", "dsoArtBack", null],
+                    // The only row here that needs a sentence: it is off in
+                    // Arabic prose whatever the switch says, and an author who
+                    // is not told that reads it as a bug in the switch.
+                    ["dropCap", "dsoArtDropCap", "dsoArtDropCapHint"],
                   ] as const
-                ).map(([key, label]) => (
-                  <Row key={key} label={t(label)}>
+                ).map(([key, label, hint]) => (
+                  <Row key={key} label={t(label)} hint={hint ? t(hint) : undefined}>
                     <Toggle
                       value={draft.article[key]}
                       onChange={(on) => setDoc({ article: { ...draft.article, [key]: on } })}
@@ -1273,6 +1373,22 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
                   tags={tags}
                   visible={visible}
                 />
+                {/* The STYLE lives beside the menu it dresses rather than in
+                    the chrome tab: an author who has just built six items is
+                    the author who wants to see them as pills. */}
+                <Row label={t("designNavStyle")} hint={t("designNavStyleHint")} stack>
+                  <SegmentedControl
+                    value={chrome.nav.style}
+                    onChange={(value) => set({ nav: { ...chrome.nav, style: value as NavStyle } })}
+                    label={t("designNavStyle")}
+                    segments={[
+                      { value: "plain", label: t("designNavPlain") },
+                      { value: "pills", label: t("designNavPills") },
+                      { value: "underline", label: t("designNavUnderline") },
+                      { value: "brackets", label: t("designNavBrackets") },
+                    ]}
+                  />
+                </Row>
                 <Row label={t("designNavFallback")} hint={t("designNavFallbackHint")}>
                   <SegmentedControl
                     value={chrome.nav.fallback}
@@ -1372,6 +1488,12 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
                   format={(v) => localeNum(v)}
                 />
                 <Slider
+                  name="tracking"
+                  value={typo.tracking}
+                  onChange={(value) => set({ typography: { ...typo, tracking: value } })}
+                  format={(v) => `${localeNum(v)} em`}
+                />
+                <Slider
                   name="rhythm"
                   value={typo.rhythm}
                   onChange={(value) => set({ typography: { ...typo, rhythm: value } })}
@@ -1401,6 +1523,7 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
                     segments={[
                       { value: "serif", label: t("designSerif") },
                       { value: "sans", label: t("designSans") },
+                      { value: "mono", label: t("designMono") },
                     ]}
                   />
                 </Row>
@@ -1414,15 +1537,75 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
                     segments={[
                       { value: "serif", label: t("designSerif") },
                       { value: "sans", label: t("designSans") },
+                      { value: "mono", label: t("designMono") },
                     ]}
                   />
                 </Row>
+                <h2 className="s-dsgr__section">{t("designFacesSection")}</h2>
+                <Row label={t("designHeadingFont")} hint={t("designFaceHint")}>
+                  <FontPicker
+                    slot="any"
+                    value={typo.headingFont ?? SYSTEM_FONT}
+                    onChange={(id) => setFace("headingFont", id)}
+                    catalog={fontCatalog}
+                    // NO UPLOADED FACES HERE, and it is not an oversight: a
+                    // design is exported, imported and shipped as a preset,
+                    // and `custom:my-face.woff2` names a file that exists on
+                    // exactly one machine. The operator's own faces belong in
+                    // the four instance slots, which every design inherits.
+                    custom={[]}
+                    label={t("designHeadingFont")}
+                    systemLabel={t("designFaceInherit")}
+                  />
+                </Row>
+                <Row label={t("designBodyFont")} hint={t("designFaceHint")}>
+                  <FontPicker
+                    slot="any"
+                    value={typo.bodyFont ?? SYSTEM_FONT}
+                    onChange={(id) => setFace("bodyFont", id)}
+                    catalog={fontCatalog}
+                    custom={[]}
+                    label={t("designBodyFont")}
+                    systemLabel={t("designFaceInherit")}
+                  />
+                </Row>
+                <Row label={t("designMonoFont")} hint={t("designMonoFontHint")}>
+                  <FontPicker
+                    slot="mono"
+                    value={typo.monoFont ?? SYSTEM_FONT}
+                    onChange={(id) => setFace("monoFont", id)}
+                    catalog={fontCatalog}
+                    custom={[]}
+                    label={t("designMonoFont")}
+                    systemLabel={t("designFaceInherit")}
+                  />
+                </Row>
+                <p className="s-dsgr__prose">{t("designFacesNote")}</p>
                 <p className="s-dsgr__prose">{t("designBoundsNote")}</p>
               </>
             ) : tab === "chrome" ? (
               <>
+                {/* THE GROUND COMES FIRST because it is under everything below
+                    it — the masthead, the writing and the footer are all
+                    printed on whatever this row says. */}
+                <h2 className="s-dsgr__section">{t("designSurfaceSection")}</h2>
+                <Row label={t("designSurface")} hint={t("designSurfaceHint")} stack>
+                  <SegmentedControl
+                    value={chrome.surface}
+                    onChange={(value) => set({ surface: value as ChromeSurface })}
+                    label={t("designSurface")}
+                    segments={[
+                      { value: "flat", label: t("designSurfaceFlat") },
+                      { value: "ruled", label: t("designSurfaceRuled") },
+                      { value: "grid", label: t("designSurfaceGrid") },
+                      { value: "tinted", label: t("designSurfaceTinted") },
+                      { value: "paper", label: t("designSurfacePaper") },
+                    ]}
+                  />
+                </Row>
+
                 <h2 className="s-dsgr__section">{t("designHeaderSection")}</h2>
-                <Row label={t("designHeaderLayout")}>
+                <Row label={t("designHeaderLayout")} stack>
                   <SegmentedControl
                     value={chrome.header.layout}
                     onChange={(value) =>
@@ -1433,6 +1616,8 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
                       { value: "stacked", label: t("designLayoutStacked") },
                       { value: "stackedStart", label: t("designLayoutStart") },
                       { value: "inline", label: t("designLayoutInline") },
+                      { value: "rule", label: t("designLayoutRule") },
+                      { value: "banner", label: t("designLayoutBanner") },
                     ]}
                   />
                 </Row>
@@ -1502,6 +1687,20 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
                 </Row>
 
                 <h2 className="s-dsgr__section">{t("designFooterSection")}</h2>
+                <Row label={t("designFooterForm")} hint={t("designFooterFormHint")}>
+                  <SegmentedControl
+                    value={chrome.footer.form}
+                    onChange={(value) =>
+                      set({ footer: { ...chrome.footer, form: value as FooterForm } })
+                    }
+                    label={t("designFooterForm")}
+                    segments={[
+                      { value: "columns", label: t("designFormColumns") },
+                      { value: "colophon", label: t("designFormColophon") },
+                      { value: "grand", label: t("designFormGrand") },
+                    ]}
+                  />
+                </Row>
                 <FooterBuilder
                   columns={chrome.footer.columns}
                   onChange={(columns) => set({ footer: { ...chrome.footer, columns } })}

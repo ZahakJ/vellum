@@ -263,9 +263,9 @@ export default function DesignCanvas({
       }
     >
       <div
-        className={`s-dsgv__page s-dsn s-dsg s-dsn--${design.site.density}${
-          sticky !== "none" ? " s-dsn--sticky" : ""
-        }`}
+        className={`s-dsgv__page s-dsn s-dsg s-dsn--${design.site.density} s-dsg-surf--${
+          chrome.surface ?? "flat"
+        }${sticky !== "none" ? " s-dsn--sticky" : ""}`}
         style={style}
         data-lang={language}
         aria-hidden="true"
@@ -290,6 +290,7 @@ export default function DesignCanvas({
               <DesignHeader
                 header={chrome.header}
                 items={chrome.nav.items}
+                navStyle={chrome.nav.style ?? "plain"}
                 topics={topics}
                 pathname="/"
                 siteName={siteName}
