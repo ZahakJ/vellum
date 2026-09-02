@@ -4113,8 +4113,23 @@ select:focus,
   background: var(--bg-hover);
 }
 
-.s-shortcuts__row--action:hover .s-shortcuts__label {
+/* The keyboard cursor — the row Enter runs — wears the palette's active
+   look, so a reader who knows one surface knows the other. */
+.s-shortcuts__row--cursor,
+.s-shortcuts__row--cursor:hover {
+  background: var(--accent-soft);
+}
+
+.s-shortcuts__row--action:hover .s-shortcuts__label,
+.s-shortcuts__row--cursor .s-shortcuts__label {
   color: var(--accent);
+}
+
+.s-shortcuts__ownkeys {
+  display: inline-flex;
+  gap: 4px;
+  margin-inline-start: auto;
+  margin-inline-end: 8px;
 }
 
 .s-shortcuts__label {

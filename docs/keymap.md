@@ -7,7 +7,9 @@
 ---
 
 `Ctrl/Cmd /` opens the in-app shortcut sheet — every binding, grouped and searchable, in whichever
-language the instance is in. This page is the same list on paper.
+language the instance is in. Inside it, `↑` `↓` walk the rows that can run (`Home` / `End` jump),
+`Enter` runs the lit one and `Esc` closes; typing keeps filtering, and the cursor starts on the best
+match, so "graph" then `Enter` is the whole gesture. This page is the same list on paper.
 
 Literally the same list: the tables between here and *Menus, gestures and the pointer* are a
 RENDERING of the `GROUPS` table in `client/components/ShortcutsHelp.tsx`, and `npm run check-keymap`

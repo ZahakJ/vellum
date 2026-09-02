@@ -9,6 +9,14 @@
 // the blog shell, Ctrl/Cmd+/ is the only door — there is no status bar and no
 // palette there).
 //
+// ↑ ↓ WALK THE ROWS THAT RUN, ENTER RUNS ONE — the palette's own idiom, and it
+// was missing from the one sheet whose subject is the keyboard: a reader who
+// opened it from Ctrl/Cmd+/ had to reach for the mouse to act on anything it
+// listed. The cursor lives on the action rows only (inert rows cannot be
+// chosen, so they are skipped rather than lit), starts on the best match so
+// that typing "graph" and pressing Enter is the whole gesture, and follows
+// genuine pointer movement the way the palette's does.
+//
 // THREE filters, and they are the same rule three times. `admin` drops the
 // rows a read-only session cannot act on; `shell` drops the rows the mounted
 // shell does not have; `desktop` drops the rows only the desktop app can be
@@ -344,7 +352,10 @@ export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
   const admin = useStore((s) => s.admin);
   useStore((s) => s.language); // re-render the chrome strings on language change
   const [query, setQuery] = useState("");
+  /** Index into `actions` below: the row Enter would run. */
+  const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   // WHAT THE READER'S KEYBOARD ACTUALLY TYPES. Every keystroke below is
   // resolved by physical position when the layout produces no Latin letter
   // (client/keys.ts), so on an Arabic keyboard the palette really is the key
@@ -358,6 +369,7 @@ export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
   useEffect(() => {
     if (!open) return;
     setQuery("");
+    setCursor(0);
     requestAnimationFrame(() => inputRef.current?.focus());
     let live = true;
     void loadLayoutHints().then((map) => {
@@ -397,6 +409,54 @@ export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
     return q ? [...scored].sort((a, b) => b.best - a.best) : scored;
   }, [query, admin, shell]);
 
+  /** The rows the cursor can land on, in the order the sheet prints them —
+   *  one flat list across the groups, so ↓ walks straight through a heading
+   *  the way the eye does. Keyed the same way the rows are, so a row can
+   *  find its own index without a second traversal. */
+  const actions = useMemo(() => {
+    const out: string[] = [];
+    for (const group of groups) {
+      for (const { item } of group.items) {
+        if (item.run) out.push(`${group.title}:${item.label}`);
+      }
+    }
+    return out;
+  }, [groups]);
+  const runAt = useMemo(() => {
+    const map = new Map<string, () => void>();
+    for (const group of groups) {
+      for (const { item } of group.items) {
+        if (item.run) map.set(`${group.title}:${item.label}`, item.run);
+      }
+    }
+    return map;
+  }, [groups]);
+
+  // A new query is a new list: the cursor goes back to the best match, and
+  // is clamped whenever the list shrinks under it (the admin filter, a peer
+  // window signing out) so Enter can never fire on a row that is not there.
+  useEffect(() => {
+    setCursor(0);
+  }, [query]);
+  const cursorKey = actions[Math.min(cursor, Math.max(actions.length - 1, 0))];
+
+  // Keep the chosen row in view as the cursor walks: the sheet is taller
+  // than most windows, and a selection that walks off the bottom is a
+  // selection the reader cannot see.
+  useEffect(() => {
+    if (!open) return;
+    listRef.current?.querySelector(".s-shortcuts__row--cursor")?.scrollIntoView({ block: "nearest" });
+  }, [open, cursorKey]);
+
+  /** Close first, then run — the same order the click handler uses, and for
+   *  the same reason: the command acts on the app, not on a modal. */
+  const runCursor = (): void => {
+    const run = cursorKey ? runAt.get(cursorKey) : undefined;
+    if (!run) return;
+    setOpen(false);
+    run();
+  };
+
   if (!open) return null;
 
   return (
@@ -409,6 +469,14 @@ export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
       >
         <div className="s-shortcuts__head">
           <h2 className="s-shortcuts__title">{t("shortcutsTitle")}</h2>
+          {/* The sheet's own keys, said where the reader is already looking
+              for keys. Only Esc used to be named here, and the arrows were a
+              secret — on the one surface that exists to end secrets. */}
+          <span className="s-shortcuts__ownkeys" aria-hidden="true">
+            <kbd className="s-kbd">↑</kbd>
+            <kbd className="s-kbd">↓</kbd>
+            <kbd className="s-kbd">Enter</kbd>
+          </span>
           <kbd className="s-kbd">Esc</kbd>
         </div>
         <input
@@ -417,11 +485,28 @@ export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
           type="text"
           value={query}
           placeholder={t("shortcutsPlaceholder")}
+          aria-controls="s-shortcuts-list"
+          aria-activedescendant={cursorKey ? `s-sc-opt-${actions.indexOf(cursorKey)}` : undefined}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               e.preventDefault();
               setOpen(false);
+            } else if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setCursor((c) => (actions.length ? (c + 1) % actions.length : 0));
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setCursor((c) => (actions.length ? (c - 1 + actions.length) % actions.length : 0));
+            } else if (e.key === "Home" && actions.length) {
+              e.preventDefault();
+              setCursor(0);
+            } else if (e.key === "End" && actions.length) {
+              e.preventDefault();
+              setCursor(actions.length - 1);
+            } else if (e.key === "Enter") {
+              e.preventDefault();
+              runCursor();
             }
           }}
           spellCheck={false}
@@ -431,7 +516,7 @@ export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
             i.e. exactly when the letters on this sheet need explaining. On a
             US, AZERTY or Dvorak keyboard the map is empty and so is this. */}
         {hints.size > 0 && <p className="s-shortcuts__layout">{t("scLayoutNote")}</p>}
-        <div className="s-shortcuts__list">
+        <div className="s-shortcuts__list" id="s-shortcuts-list" ref={listRef}>
           {groups.map((group) => (
             <section className="s-shortcuts__group" key={group.title}>
               <h3 className="s-palette-section">{t(group.title)}</h3>
@@ -472,14 +557,24 @@ export default function ShortcutsHelp({ shell = "app" }: { shell?: Shell }) {
                   </>
                 );
                 const key = `${group.title}:${item.label}`;
+                const at = item.run ? actions.indexOf(key) : -1;
+                const lit = at !== -1 && key === cursorKey;
                 // Close FIRST: every one of these commands acts on the app,
                 // and running one behind an open modal is a change the reader
                 // cannot see.
                 return item.run ? (
                   <button
                     type="button"
-                    className="s-shortcuts__row s-shortcuts__row--action"
+                    className={`s-shortcuts__row s-shortcuts__row--action${lit ? " s-shortcuts__row--cursor" : ""}`}
+                    id={`s-sc-opt-${at}`}
                     key={key}
+                    // onMouseMove, not onMouseEnter — the palette's rule: the
+                    // sheet opens under a resting pointer, and the row that
+                    // happens to lie beneath it must not steal the cursor
+                    // from the best match until the hand actually moves.
+                    onMouseMove={() => {
+                      if (at !== cursor) setCursor(at);
+                    }}
                     onClick={() => {
                       setOpen(false);
                       item.run?.();
