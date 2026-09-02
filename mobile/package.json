@@ -1,6 +1,6 @@
 {
   "name": "vellum-mobile",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "description": "The Vellum Android app: a Capacitor shell whose only job is to find your server and then get out of the way.",
   "type": "module",
