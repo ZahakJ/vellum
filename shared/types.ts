@@ -606,9 +606,10 @@ export interface SettingsData {
   languageFilter?: LanguageFilterMode;
   /** Offer visitors a small EN/ع switch in the public chrome. Their choice
    *  lives in their own localStorage and overrides the site language for
-   *  chrome strings and direction only — never for note content, dates or
-   *  numerals (those stay on the instance's blogLocale). Default false:
-   *  off means the public site looks exactly as it does today. */
+   *  chrome strings, direction, and month names. Note content is never
+   *  translated. Digits stay on the instance numeral policy (localeDigits),
+   *  not on a second numbering system. Default false: off means the public
+   *  site looks exactly as it does today. */
   languageToggle?: boolean;
   /** BCP47 date-formatting locale (overrides BLOG_LOCALE). */
   blogLocale?: string;

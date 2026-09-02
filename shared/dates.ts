@@ -71,11 +71,24 @@ function formatOne(
   }
 }
 
+/** Intl locale that supplies month names (and relative-time words).
+ *
+ *  Chrome language wins: an English visitor on an Arabic instance must read
+ *  "14 August 2026", not "14 أغسطس 2026". Digits still come from
+ *  `localeDigits()` so the instance numeral policy is unchanged.
+ *  A regional tag is kept only when it already matches the chrome language
+ *  (`en-GB` stays `en-GB` for English; `ar-EG` stays for Arabic). */
+export function dateNamesLocale(blogLocale: string, lang: "en" | "ar"): string {
+  const tag = blogLocale.trim() || lang;
+  if (lang === "en") return /^en\b/i.test(tag) ? tag : "en";
+  return /^ar\b/i.test(tag) ? tag : "ar";
+}
+
 /** Render `date` under the instance's calendar setting.
  *
- *  `lang` is the SITE language and decides only the ORDER of the two halves in
- *  `"both"` mode — never which digits or which month names are used, both of
- *  which come from `locale` (blogLocale) exactly as they always have. */
+ *  `lang` is the chrome language: it orders the two halves in `"both"` mode
+ *  AND (via `dateNamesLocale`) picks the month names. Digits still follow
+ *  `localeDigits` on that tag. */
 export function formatCalendarDate(
   date: Date,
   locale: string,

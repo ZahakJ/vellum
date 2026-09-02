@@ -10,9 +10,10 @@
 //
 // So every caller goes through `siteDate()`. The CALENDAR comes from settings
 // (state.ts pushes it in, exactly as it pushes the language into i18n.ts), the
-// numerals come from `shared/numerals.ts` via the locale, the month names come
-// from Intl, and the ORDER of the two halves in "both" mode comes from the
-// chrome language. Nothing here hand-rolls a month name in either calendar.
+// numerals come from `shared/numerals.ts` via localeDigits, month names come
+// from Intl in the chrome language (an English reader on an Arabic instance
+// sees "August", not "أغسطس"), and the ORDER of the two halves in "both"
+// mode comes from the chrome language. Nothing here hand-rolls a month name.
 //
 // RSS is deliberately NOT a caller: `/feed.xml` is a wire format and its
 // <pubDate> stays RFC-822 Gregorian whatever this instance displays. A reader
@@ -20,6 +21,7 @@
 
 import {
   DEFAULT_DATE_CALENDAR,
+  dateNamesLocale,
   formatCalendarDate,
   isDateCalendar,
   type DateCalendar,
@@ -47,7 +49,8 @@ export function siteDate(
   options: Intl.DateTimeFormatOptions,
 ): string {
   const date = value instanceof Date ? value : new Date(value);
-  return formatCalendarDate(date, locale, calendar, getLang(), options);
+  const lang = getLang();
+  return formatCalendarDate(date, dateNamesLocale(locale, lang), calendar, lang, options);
 }
 
 /** How recent a moment has to be to be told as a DISTANCE rather than a date.
@@ -61,10 +64,9 @@ const RELATIVE_MAX_DAYS = 30;
  *  This lives here rather than in the one panel that needs it because of the
  *  rule at the top of this file: FOUR surfaces used to hold their own
  *  `Intl.DateTimeFormat` call and the note-history timeline would have been
- *  the fifth. `Intl.RelativeTimeFormat` takes the instance's own locale tag,
- *  so an `ar-EG-u-nu-latn` instance gets Latin digits here exactly as it does
- *  everywhere else, and the absolute fallback goes through `siteDate()` — so
- *  a Hijri instance dates its own history in Hijri.
+ *  the fifth. `Intl.RelativeTimeFormat` takes the chrome-matched locale
+ *  (English chrome says "yesterday"), digits still follow localeDigits, and
+ *  the absolute fallback goes through `siteDate()`.
  *
  *  There is no calendar question in the relative half: "three days ago" is
  *  three days ago in every calendar there is. */
@@ -79,7 +81,7 @@ export function relativeDate(
   const elapsed = Date.now() - ms;
   const days = elapsed / 86_400_000;
   if (elapsed < 0 || days > RELATIVE_MAX_DAYS) return siteDate(date, locale, options);
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const rtf = new Intl.RelativeTimeFormat(dateNamesLocale(locale, getLang()), { numeric: "auto" });
   const minutes = elapsed / 60_000;
   if (minutes < 1) return rtf.format(0, "second");
   if (minutes < 60) return rtf.format(-Math.round(minutes), "minute");

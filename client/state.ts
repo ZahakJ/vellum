@@ -782,9 +782,11 @@ function applyLanguage(lang: Lang, locale: string): void {
   // is Arabic that put Eastern Arabic digits inside an ENGLISH interface — the
   // owner met it as "the zoom shows ١٤٠٪ and my editor is in English", which
   // is mixed-script chrome, the exact thing tf()'s isolates exist to prevent
-  // one level down. The visitor's cards are untouched: their dates go through
-  // siteDate(date, blogLocale), which carries the site locale explicitly, and
-  // a visitor page's chrome language IS the language whose digits it gets.
+  // one level down. Visitor CARD dates go through siteDate(), which now
+  // takes month names from the chrome language and digits from localeDigits.
+  // Month names follow that same chrome language in siteDate(); blogLocale
+  // is still passed in so a regional tag (ar-EG, en-GB) can survive when it
+  // matches.
   setNumeralLocale(lang === "ar" ? locale || "ar" : "en");
   const root = document.documentElement;
   if (lang === "ar") {
@@ -1179,9 +1181,9 @@ export const useStore = create<State>()((set, get) => {
       api.setReaderLang(lang);
       // Same order loadMe uses: dictionary + <html dir/lang> first, so the
       // components re-rendering off `language` already read the new strings.
-      // The date locale is deliberately NOT touched — dates and numerals stay
-      // on the instance's blogLocale (CONTRACTS: one numbering system per
-      // instance, chosen by the date locale).
+      // Numerals stay one system per instance (localeDigits). Month names
+      // follow this chrome language inside siteDate() — English chrome must
+      // not print "أغسطس".
       applyLanguage(lang, get().blogLocale);
       // Same rule as loadMe: an "auto" side follows the direction LIVE, so a
       // visitor flipping the EN/ع switch moves the notes sidebar with it.

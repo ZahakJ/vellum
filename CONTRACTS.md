@@ -3184,15 +3184,14 @@ in its **own script**, so "English" is findable from an Arabic interface and «�
 English one. `tests/langPref.test.ts` holds the whole rule as a table plus the two invariants
 stated over every combination of the inputs.
 
-**`settings.languageToggle` (default false) is a VISITOR override, and it moves two things
-only: the chrome dictionary and `<html dir>`.** `client/langPref.ts` owns the stored value
+**`settings.languageToggle` (default false) is a VISITOR override.** `client/langPref.ts` owns the stored value
 (`localStorage["vellum.lang"]`), and `chromeLang()` applies it over `me.language` for visitor
 sessions — and only while `me.languageToggle` is true, so turning the setting off restores the
-site language for everyone regardless of what their browser remembers. What it must NOT touch is `blogLocale`:
-dates and numerals are one system per instance chosen by the date locale (see the numerals note
-above), and letting a visitor's chrome choice re-pick the numbering system would reintroduce
-exactly the two-numeral-systems-on-one-line bug that rule exists to prevent. Note content is
-untouched for the usual reason — it was never localized in the first place.
+site language for everyone regardless of what their browser remembers. It moves the chrome
+dictionary, `<html dir>`, and **month names** (`shared/dates.ts::dateNamesLocale`: English chrome
+prints "August", Arabic chrome prints "أغسطس"). What it must NOT re-pick is the numbering
+system: digits stay on `localeDigits` so a visitor's EN/ع tap cannot reintroduce two numeral
+systems on one line. Note content is untouched — it was never localized in the first place.
 
 `settings.language` is parsed leniently — `settings.ts` trims and lowercases before matching, so
 `"AR"` and `" ar "` are accepted and stored as `"ar"`. `languageFilter` now gets **the same**
@@ -6232,8 +6231,9 @@ so a default instance's payload is byte-for-byte what it was.
   leads with the Hijri date and parenthesises the Gregorian one; English does the reverse. The
   parentheses go INSIDE the FSI…PDI isolate, because they belong to the run they enclose — the
   same rule `tf()` applies to every interpolated value. Month names come from Intl and digits
-  from `localeDigits(blogLocale)`: nothing is hand-spelled, and one line never carries two
-  numbering systems.
+  from `localeDigits` on the chrome-matched tag (`dateNamesLocale`): nothing is hand-spelled,
+  and one line never carries two numbering systems. English chrome prints English month names
+  even when `blogLocale` is Arabic.
 - **RSS IS NOT A CALLER.** `/feed.xml` keeps RFC-822 Gregorian `<pubDate>`s whatever the
   instance displays. It is a wire format an aggregator parses, not a date a person reads, and a
   reader changing their site's calendar must not change what a feed consumer sees.

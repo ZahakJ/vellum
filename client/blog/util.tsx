@@ -7,8 +7,9 @@ import { siteDate } from "../dates.ts";
 import { t } from "../i18n.ts";
 import { go } from "./nav.ts";
 
-/** ISO date → localized long date ("14 August 2026", "١٤ أغسطس ٢٠٢٦",
- *  "٢ صفر ١٤٤٨ هـ"…) in whatever calendar the instance is set to.
+/** ISO date → localized long date ("14 August 2026", "14 أغسطس 2026",
+ *  "2 صفر 1448 هـ"…) in the chrome language, in whatever calendar the
+ *  instance is set to.
  *
  *  The formatting itself moved to `client/dates.ts` — the ONE place a date is
  *  rendered for a human — when the calendar became a setting: the blog card,
