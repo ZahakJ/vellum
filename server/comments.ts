@@ -67,6 +67,11 @@ function openDb(): void {
   }
 }
 
+/** COMMENTS alone — what the comments row's "Inherit" would land on. */
+export function envCommentsEnabled(): boolean {
+  return envOn;
+}
+
 /** Live merge: settings.commentsEnabled when set, else COMMENTS. Turning the
  *  feature on at runtime opens the db lazily right here; turning it off keeps
  *  the db file (and the open handle) but darkens every route/UI surface. */

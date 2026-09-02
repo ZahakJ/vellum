@@ -229,6 +229,17 @@ export function publicLayout(): "app" | "blog" | "designed" {
   return getSettings().publicLayout ?? config.publicLayout;
 }
 
+/** PUBLIC_LAYOUT alone — what the layout row's "Inherit" would land on. */
+export function envPublicLayout(): "app" | "blog" | "designed" {
+  return config.publicLayout;
+}
+
+/** DEFAULT_THEME alone, settled the way themePref() settles it: unset is
+ *  "follow". What the default-theme row's "inherit" option would land on. */
+export function envThemePref(): string {
+  return config.defaultTheme ?? FOLLOW_THEME;
+}
+
 /** Masthead subtitle (settings.tagline, else SITE_TAGLINE), or null. */
 export function tagline(): string | null {
   return getSettings().tagline ?? config.tagline;
@@ -293,6 +304,14 @@ export function envSiteLanguage(): "en" | "ar" {
 export function languageFilterMode(): LanguageFilterMode {
   const stored = getSettings().languageFilter;
   if (stored !== undefined) return stored;
+  return config.languageFilter === "site" ? siteLanguage() : config.languageFilter;
+}
+
+/** LANGUAGE_FILTER alone — what the filter row's "Inherit" would land on.
+ *  The legacy "site" sentinel resolves against the site language IN FORCE
+ *  (stored or env), because clearing the filter key leaves the language key
+ *  exactly where it is. */
+export function envLanguageFilterMode(): LanguageFilterMode {
   return config.languageFilter === "site" ? siteLanguage() : config.languageFilter;
 }
 

@@ -2391,6 +2391,12 @@ export default function SettingsModal() {
   }, [saving]);
 
   const eff = loaded?.effective;
+  /** What each empty field WOULD resolve to — never `eff`, which is the stored
+   *  value whenever one is stored. Every "Inherit" note and every "if this is
+   *  left empty…" consequence below reads this one; a panel that predicted an
+   *  empty language field with the language it currently held told the owner
+   *  of an Arabic site that clearing it would keep it Arabic. */
+  const inh = loaded?.inherited;
   // The live consequence preview, shared by every row that can shrink the
   // public site (language filter, excluded tags, home note) and by both tabs'
   // standing summary. One request per settled edit, for all of them.
@@ -2461,9 +2467,9 @@ export default function SettingsModal() {
         </div>
 
         {loadError && <div className="s-bmodal__empty">{loadError}</div>}
-        {!loadError && (!form || !eff) && <div className="s-bmodal__empty">{t("loading")}</div>}
+        {!loadError && (!form || !eff || !inh) && <div className="s-bmodal__empty">{t("loading")}</div>}
 
-        {form && eff && (
+        {form && eff && inh && (
           <div className="s-smodal__cols">
             {/* Six tabs, not six anchors: the rail switches what the panel
                 is showing, and it is sticky so the whole map stays on screen
@@ -2641,7 +2647,7 @@ export default function SettingsModal() {
                     <SegmentedControl
                       label={t("rowLanguage")}
                       segments={[
-                        { value: "", label: t("inheritSegment"), note: eff.language },
+                        { value: "", label: t("inheritSegment"), note: inh.language === "ar" ? "العربية" : "English" },
                         { value: "en", label: "English" },
                         { value: "ar", label: "العربية" },
                       ]}
@@ -2678,7 +2684,7 @@ export default function SettingsModal() {
                     <SegmentedControl
                       label={t("rowLanguageFilter")}
                       segments={[
-                        { value: "", label: t("inheritSegment"), note: langFilterLabel(eff.languageFilter) },
+                        { value: "", label: t("inheritSegment"), note: langFilterLabel(inh.languageFilter) },
                         { value: "off", label: t("langFilterOff"), note: t("langFilterOffNote") },
                         {
                           value: "follow",
@@ -2692,12 +2698,12 @@ export default function SettingsModal() {
                     />
                     {impact && (
                       <LanguageConsequence
-                        mode={form.languageFilter === "" ? eff.languageFilter : form.languageFilter}
+                        mode={form.languageFilter === "" ? inh.languageFilter : form.languageFilter}
                         impact={impact}
                         toggleOn={
-                          form.languageToggle === "" ? eff.languageToggle : form.languageToggle === "on"
+                          form.languageToggle === "" ? inh.languageToggle : form.languageToggle === "on"
                         }
-                        siteLang={form.language === "" ? eff.language : form.language}
+                        siteLang={form.language === "" ? inh.language : form.language}
                       />
                     )}
                     {impact && impact.topics.visible < impact.topics.total && (
@@ -2721,11 +2727,11 @@ export default function SettingsModal() {
                   <Row label={t("rowLanguageToggle")} hint={t("hintLanguageToggle")}>
                     <SegmentedControl
                       label={t("rowLanguageToggle")}
-                      segments={onOffSegments(eff.languageToggle)}
+                      segments={onOffSegments(inh.languageToggle)}
                       {...field("languageToggle")}
                     />
                   </Row>
-                  {(form.languageToggle === "on" || (form.languageToggle === "" && eff.languageToggle)) && (
+                  {(form.languageToggle === "on" || (form.languageToggle === "" && inh.languageToggle)) && (
                     <p className="s-smodal__offnote">{t("visitorSwitchOn")}</p>
                   )}
 
@@ -2772,7 +2778,7 @@ export default function SettingsModal() {
                       prints because its language changed would be a settings
                       panel making an editorial decision. So the panel says the
                       sentence and leaves the click to the owner. */}
-                  {(form.language === "ar" || (form.language === "" && eff.language === "ar")) &&
+                  {(form.language === "ar" || (form.language === "" && inh.language === "ar")) &&
                     form.dateCalendar === "gregorian" && (
                       <p className="s-smodal__offnote">{t("calArabicSuggest")}</p>
                     )}
@@ -2858,7 +2864,7 @@ export default function SettingsModal() {
                        wires the label onto its ONE control child. */
                     after={
                       <VisitorThemeLine
-                        pref={form.defaultTheme === "" ? eff.defaultTheme : form.defaultTheme}
+                        pref={form.defaultTheme === "" ? inh.defaultTheme : form.defaultTheme}
                         effective={eff.visitorTheme}
                         onSet={(v) => setForm((f) => (f ? { ...f, defaultTheme: v } : f))}
                       />
@@ -2874,7 +2880,7 @@ export default function SettingsModal() {
                         take and what a reader has to type into a .env. */}
                     <Select
                       label={t("rowDefaultTheme")}
-                      groups={themeChoices(eff.defaultTheme)}
+                      groups={themeChoices(inh.defaultTheme)}
                       {...field("defaultTheme")}
                     />
                   </Row>
@@ -2889,7 +2895,7 @@ export default function SettingsModal() {
                     <SegmentedControl
                       label={t("rowPublicLayout")}
                       segments={[
-                        { value: "", label: t("inheritSegment"), note: enumLabel(eff.publicLayout) },
+                        { value: "", label: t("inheritSegment"), note: enumLabel(inh.publicLayout) },
                         { value: "app", label: t("layoutApp") },
                         { value: "blog", label: t("layoutBlog") },
                         // The third value. Flipping between blog and designed
@@ -2963,14 +2969,14 @@ export default function SettingsModal() {
                   >
                     <SegmentedControl
                       label={t("rowComments")}
-                      segments={onOffSegments(eff.commentsEnabled)}
+                      segments={onOffSegments(inh.commentsEnabled)}
                       {...field("comments")}
                     />
                   </Row>
                   <Row label={t("rowShareButtons")} hint={t("hintShareButtons")}>
                     <SegmentedControl
                       label={t("rowShareButtons")}
-                      segments={onOffSegments(eff.shareButtons)}
+                      segments={onOffSegments(inh.shareButtons)}
                       {...field("share")}
                     />
                   </Row>
@@ -2983,7 +2989,7 @@ export default function SettingsModal() {
                   <Row label={t("rowAmbient")} hint={t("hintAmbient")}>
                     <SegmentedControl
                       label={t("rowAmbient")}
-                      segments={onOffSegments(eff.ambient)}
+                      segments={onOffSegments(inh.ambient)}
                       {...field("ambient")}
                     />
                   </Row>
@@ -3091,7 +3097,7 @@ export default function SettingsModal() {
                       label={t("rowMode")}
                       disabled={homeOff}
                       segments={[
-                        { value: "", label: t("inheritSegment"), note: enumLabel(eff.home.mode) },
+                        { value: "", label: t("inheritSegment"), note: enumLabel(inh.homeMode) },
                         { value: "note", label: t("modeNote") },
                         { value: "dashboard", label: t("modeDashboard") },
                       ]}
@@ -3206,7 +3212,7 @@ export default function SettingsModal() {
                       options={[
                         {
                           value: "",
-                          label: tf("inheritOption", { value: enumLabel(eff.attachments.mode) }),
+                          label: tf("inheritOption", { value: enumLabel(inh.attachmentsMode) }),
                         },
                         { value: "vault-root", label: t("locVaultRoot") },
                         { value: "same-folder", label: t("locSameFolder") },
@@ -3221,14 +3227,14 @@ export default function SettingsModal() {
                   <Row
                     label={t("rowAttachmentFolder")}
                     hint={t(
-                      (form.attachMode || eff.attachments.mode) === "subfolder"
+                      (form.attachMode || inh.attachmentsMode) === "subfolder"
                         ? "hintAttachmentSubfolder"
                         : "hintAttachmentFolder",
                     )}
                     error={errors.attachFolder}
                     off={
                       !modeUsesFolder(
-                        isAttachmentMode(form.attachMode) ? form.attachMode : eff.attachments.mode,
+                        isAttachmentMode(form.attachMode) ? form.attachMode : inh.attachmentsMode,
                       )
                     }
                   >
@@ -3242,7 +3248,7 @@ export default function SettingsModal() {
                         !modeUsesFolder(
                           isAttachmentMode(form.attachMode)
                             ? form.attachMode
-                            : eff.attachments.mode,
+                            : inh.attachmentsMode,
                         )
                       }
                       {...field("attachFolder")}

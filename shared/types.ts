@@ -712,6 +712,13 @@ export type TextAlignSetting = "start" | "left" | "right" | "center" | "justify"
  *  using right now (stored value when set, else env default). */
 export interface SettingsResponse extends SettingsData {
   effective: EffectiveSettings;
+  /** What each row that offers an "Inherit" state would resolve to with ITS
+   *  OWN KEY absent from settings.json, everything else left as it is. The
+   *  panel used to print `effective` under "Inherit", which is the stored
+   *  value whenever one is stored: an instance with `language: "ar"` saved and
+   *  no SITE_LANG read "Inherit (ar)" while clearing the key would have made
+   *  the site English. Every prediction of an empty field reads this. */
+  inherited: InheritedSettings;
   /** The typography catalog the panel's four selects are built from. Static
    *  per build; travels with the settings payload so the panel needs no
    *  second request. */
@@ -740,6 +747,26 @@ export interface AboutInfo {
   published: number;    // notes with publish: true
   attachments: number;  // indexed image attachments
   tags: number;         // distinct tags
+}
+
+/** The env-or-built-in defaults behind the rows that can be left empty — see
+ *  SettingsResponse.inherited. Only rows with an "Inherit" state are here;
+ *  a row that must always hold a value has nothing to inherit. */
+export interface InheritedSettings {
+  language: "en" | "ar";
+  /** LANGUAGE_FILTER as it resolves TODAY: the legacy `true` means "the site
+   *  language", which is the stored one if there is one. */
+  languageFilter: LanguageFilterMode;
+  publicLayout: "app" | "blog" | "designed";
+  /** DEFAULT_THEME, or "follow" when unset — the same settling themePref()
+   *  does for the effective value. */
+  defaultTheme: string;
+  homeMode: NonNullable<HomeSettings["mode"]>;
+  attachmentsMode: NonNullable<AttachmentSettings["mode"]>;
+  languageToggle: boolean;
+  commentsEnabled: boolean;
+  shareButtons: boolean;
+  ambient: boolean;
 }
 
 export interface EffectiveSettings {

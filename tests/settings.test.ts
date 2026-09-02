@@ -12,6 +12,7 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import {
   effectiveSettings,
   getSettings,
+  inheritedSettings,
   moveFolderIcons,
   patchSettings,
   setAdminTheme,
@@ -621,5 +622,52 @@ describe("the stored file", () => {
     const file = path.join(data, "settings.json");
     writeFileSync(file, "{not json");
     assert.deepEqual(getSettings(), {});
+  });
+});
+
+// WHAT "INHERIT" WOULD ACTUALLY DO. The panel prints a value under every
+// Inherit segment, and it used to print `effective` — the stored value
+// whenever one is stored. The owner of a site with `language: "ar"` saved and
+// no SITE_LANG read "Inherit (ar)", picked it, and would have got an English
+// site: the note described the field, not the choice. `inherited` describes
+// the choice: each key absent, everything else as it is.
+describe("inheritedSettings", () => {
+  it("names the env default, not the stored value", () => {
+    patchSettings({ language: "ar", publicLayout: "designed", defaultTheme: "solar" });
+    assert.equal(effectiveSettings().language, "ar", "the site IS Arabic while the key is stored");
+    assert.equal(inheritedSettings().language, "en", "clearing the key makes it English (no SITE_LANG)");
+    assert.equal(effectiveSettings().publicLayout, "designed");
+    assert.equal(inheritedSettings().publicLayout, "app");
+    assert.equal(effectiveSettings().defaultTheme, "solar");
+    assert.equal(inheritedSettings().defaultTheme, "follow", "unset DEFAULT_THEME settles to follow, as themePref() does");
+  });
+
+  it("agrees with effective when nothing is stored", () => {
+    const inh = inheritedSettings();
+    const eff = effectiveSettings();
+    assert.equal(inh.language, eff.language);
+    assert.equal(inh.languageFilter, eff.languageFilter);
+    assert.equal(inh.publicLayout, eff.publicLayout);
+    assert.equal(inh.defaultTheme, eff.defaultTheme);
+    assert.equal(inh.homeMode, eff.home.mode);
+    assert.equal(inh.attachmentsMode, eff.attachments.mode);
+    assert.equal(inh.languageToggle, eff.languageToggle);
+    assert.equal(inh.commentsEnabled, eff.commentsEnabled);
+    assert.equal(inh.shareButtons, eff.shareButtons);
+    assert.equal(inh.ambient, eff.ambient);
+  });
+
+  it("resolves the legacy LANGUAGE_FILTER=true against the site language in force", () => {
+    // Clearing the FILTER key leaves the LANGUAGE key where it is, so the
+    // legacy "site" sentinel follows the stored language, not SITE_LANG.
+    initSite({ VELLUM_DATA: data, LANGUAGE_FILTER: "true" });
+    try {
+      patchSettings({ language: "ar" });
+      assert.equal(inheritedSettings().languageFilter, "ar");
+      patchSettings({ language: null });
+      assert.equal(inheritedSettings().languageFilter, "en");
+    } finally {
+      initSite({ VELLUM_DATA: data });
+    }
   });
 });

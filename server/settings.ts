@@ -30,6 +30,7 @@ import type {
   AuthorSiteRef,
   AttachmentSettings,
   EffectiveSettings,
+  InheritedSettings,
   FontSlotsEffective,
   HomeSettings,
   LanguageFilterMode,
@@ -92,7 +93,7 @@ import { isCustomThemeId } from "../shared/customTheme.ts";
 // import is one-way (designs.ts asks site.ts for dataDir, never this module).
 import { hasThemeChoice } from "./designs.ts";
 import { envHomeNote } from "./auth.ts";
-import { commentsEnabled } from "./comments.ts";
+import { commentsEnabled, envCommentsEnabled } from "./comments.ts";
 // Backup & sync: the gitSync validators and the write-only credential store
 // live in gitSync.ts (this import pair is circular and inert — both modules
 // export functions only and neither calls the other at module top level).
@@ -112,7 +113,10 @@ import {
   excludedTags,
   footerTemplate,
   LANGUAGE_FILTER_MODES,
+  envLanguageFilterMode,
+  envPublicLayout,
   envSiteLanguage,
+  envThemePref,
   languageFilterMode,
   publicLayout,
   siteLanguage,
@@ -626,10 +630,41 @@ export function effectiveSettings(): EffectiveSettings {
   };
 }
 
-/** GET/PATCH /api/settings payload: stored keys + the effective merge (plus
- *  the typography catalog the panel's selects are built from). */
+/** What each "Inherit" would land on — the value a row takes with its own
+ *  stored key ABSENT and every other key left as it is. Not `effective`: that
+ *  is the stored value whenever one is stored, and a panel that predicts an
+ *  empty field with the value the field currently holds predicts nothing.
+ *  The owner of an instance with `language: "ar"` saved and no SITE_LANG was
+ *  shown "Inherit (ar)" — and would have got an English site by picking it. */
+export function inheritedSettings(): InheritedSettings {
+  return {
+    language: envSiteLanguage(),
+    languageFilter: envLanguageFilterMode(),
+    publicLayout: envPublicLayout(),
+    defaultTheme: envThemePref(),
+    homeMode: "note",
+    attachmentsMode: "specified",
+    // Four rows with no env counterpart: their "inherit" is the built-in
+    // default, and it is spelled here rather than in the panel so the panel
+    // never has to know which rows have a variable behind them.
+    languageToggle: false,
+    commentsEnabled: envCommentsEnabled(),
+    shareButtons: true,
+    ambient: false,
+  };
+}
+
+/** GET/PATCH /api/settings payload: stored keys + the effective merge + what
+ *  each empty field would inherit (plus the typography catalog the panel's
+ *  selects are built from). */
 export function settingsResponse(): SettingsResponse {
-  return { ...getSettings(), effective: effectiveSettings(), fontCatalog: catalogList(), about: aboutInfo() };
+  return {
+    ...getSettings(),
+    effective: effectiveSettings(),
+    inherited: inheritedSettings(),
+    fontCatalog: catalogList(),
+    about: aboutInfo(),
+  };
 }
 
 /** package.json's version, read once. The file sits next to server/ in every
