@@ -336,6 +336,22 @@ ping-pong one preference forever.
 **Signing out is a barrier, not an event.** A window that kept its admin shell after another signed
 out would hold a tree it may no longer read and offer writes the server will refuse.
 
+**Preview is not a sign-out, and the bus must never mistake one for the other.** `admin` also
+flips false while a window previews as a visitor — `loadMe()` reports the server's word, which is
+"visitor" under `X-Vellum-Preview` — and broadcasting that flip as an auth event made every peer
+window call `logout()`, which POSTs `/api/logout`, which bumps the session epoch, which revokes
+EVERY session on EVERY device. One "Preview as visitor" with a second tab open signed the owner out
+of the web admin, the desktop app and the phone at once, and each fell back to the site language as
+a visitor. The broadcast is guarded on `previewVisitor`, which `setPreviewVisitor` sets BEFORE the
+`loadMe()` that flips `admin`, so it is a reliable witness at the moment the subscription fires.
+
+**The language travels as the PREFERENCE, never as the language a window is showing.** A `prefs`
+message carries `editorLang` — a pin, or `null` for "follow the site" — and a peer applies it with
+`setEditorLang`, comparing against its own `editorLangPref`. Broadcasting the resolved `language`
+pinned every peer to whatever the sender happened to be showing, including a previewing window's
+site language; and comparing against `localStorage` on receipt found the key already written by
+the sender and returned without repainting, so a second window kept its old chrome until a reload.
+
 **What is deliberately NOT mirrored is the document as it is typed.** A full-text broadcast on every
 keystroke is a real cost with no bound. Inside one window a second pane reads the same buffer and is
 character-live for free; across windows the peer updates when the writer SAVES — one autosave behind,
@@ -1403,6 +1419,17 @@ in the panel, in both languages. It is one `.s-ctl-select`-shaped trigger now: s
 border, same chevron, carrying the miniature the picker itself draws. What it opens is a browsing
 panel rather than a list, which is the honest difference — twenty-one rooms are chosen by looking at
 them.
+
+**"INHERIT" NAMES WHAT CLEARING THE FIELD WOULD DO, WHICH IS NOT THE VALUE THE FIELD HOLDS.**
+`/api/settings` answers two merges: `effective` (stored value when set, else the env or built-in
+default — what the site is doing right now) and `inherited` (each key ABSENT, everything else as it
+is — what "Inherit" would land on). Every Inherit segment, every `inherit (…)` option and every
+"if this is left empty…" consequence in the panel reads `inherited`; only placeholders and
+"right now" lines read `effective`. The two agree exactly while nothing is stored and diverge the
+moment something is, which is when the note matters: an instance with `language: "ar"` saved and no
+`SITE_LANG` read "Inherit (ar)" — and would have got an English site by picking it. The legacy
+`LANGUAGE_FILTER=true` still resolves against the site language IN FORCE there, because clearing the
+filter key leaves the language key where it is. `tests/settings.test.ts` pins both halves.
 
 **THE ENVIRONMENT IS AN OPERATOR'S BUSINESS, AND IT SITS BEHIND A ⓘ.** Every
 row with an env variable used to carry two pieces of standing chrome: an
