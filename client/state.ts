@@ -1174,6 +1174,20 @@ export const useStore = create<State>()((set, get) => {
     commentsEnabled: false,
     setVisitorLang: (lang) => {
       if (!get().languageToggle || get().language === lang) return;
+      // THE OWNER, SIGNED IN, TAPPING THEIR OWN SITE'S ع. Their chrome is
+      // their editor language — chromeLang() never reads the visitor key for
+      // an admin — so writing the visitor key here flipped the shell for
+      // exactly as long as it took the next loadMe() (a save, a sign-in, a
+      // preview) to resolve it back to the editor preference: a switch that
+      // worked and then quietly undid itself. The tap is the same choice the
+      // This-device row makes, so it goes to the same place — and lands on
+      // "follow" rather than a pin when it names the site's own language,
+      // which keeps the default reachable from the switch too. Visitors are
+      // untouched: for them this branch never runs.
+      if (get().admin) {
+        get().setEditorLang(lang === get().siteLanguage ? null : lang);
+        return;
+      }
       writeVisitorLang(lang);
       // Tell the API layer BEFORE anything refetches: every subsequent call
       // (including the loadMe below) must declare the new language, or the
@@ -1215,8 +1229,12 @@ export const useStore = create<State>()((set, get) => {
       if (!get().admin) return; // admin-only affordance, like previewVisitor
       // The guard is on the PREFERENCE, not on the language it resolves to:
       // picking "English" while following an English site is a real change
-      // (it pins), and only re-picking what is already stored is the no-op.
-      if (lang === readEditorLang()) return;
+      // (it pins), and only re-picking what this window already holds is the
+      // no-op. THIS WINDOW'S, not localStorage's: a peer window writes the
+      // shared key before its bus message arrives here, so a guard on the
+      // stored value saw "already ar" and returned without repainting — the
+      // second window kept its old chrome until a reload.
+      if (lang === get().editorLangPref) return;
       writeEditorLang(lang);
       const next = lang ?? get().siteLanguage;
       // Same order loadMe and setVisitorLang use: dictionary + <html dir/lang>

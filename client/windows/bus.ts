@@ -37,8 +37,15 @@ export type BusMessage =
   /** I saved this note; its mtime is now this. Lets a peer holding the same
    *  note re-base its own precondition without a round trip. */
   | { t: "wrote"; id: string; path: string; mtimeMs: number }
-  /** A device preference changed and every window should follow. */
-  | { t: "prefs"; id: string; theme?: string; language?: string }
+  /** A device preference changed and every window should follow. The
+   *  language travels as the PREFERENCE (`editorLang`: a pin, or null for
+   *  "follow the site"), never as the language a window happens to be
+   *  showing: a window previewing as a visitor, or one whose session had
+   *  lapsed, shows the site's language, and broadcasting THAT pinned every
+   *  other window's editor to it — the owner's "English" override turning
+   *  back into Arabic with nobody having touched the setting. An old window
+   *  still sending `language` is ignored by a new one, and vice versa. */
+  | { t: "prefs"; id: string; theme?: string; editorLang?: "en" | "ar" | null }
   /** Somebody signed out, or a session expired. Every window is now a
    *  visitor and must stop pretending otherwise. */
   | { t: "auth"; id: string; admin: boolean };

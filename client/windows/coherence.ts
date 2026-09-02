@@ -40,8 +40,11 @@ export function installWindowCoherence(): () => void {
         if (msg.theme !== undefined && msg.theme !== store.theme) {
           store.setTheme(msg.theme as Parameters<typeof store.setTheme>[0]);
         }
-        if (msg.language !== undefined && msg.language !== store.language) {
-          store.setEditorLang(msg.language as Parameters<typeof store.setEditorLang>[0]);
+        // The PREFERENCE, compared against the preference — see the bus's
+        // note on `editorLang`. A null (follow the site) is a real value
+        // here; only an absent field means "nothing about language".
+        if (msg.editorLang !== undefined && msg.editorLang !== store.editorLangPref) {
+          store.setEditorLang(msg.editorLang);
         }
       } finally {
         applying = false;
@@ -67,10 +70,21 @@ export function installWindowCoherence(): () => void {
   const unsub = useStore.subscribe((s, prev) => {
     if (applying) return;
     if (s.theme !== prev.theme) postBus({ t: "prefs", id: windowId, theme: s.theme });
-    if (s.language !== prev.language) {
-      postBus({ t: "prefs", id: windowId, language: s.language });
+    if (s.editorLangPref !== prev.editorLangPref) {
+      postBus({ t: "prefs", id: windowId, editorLang: s.editorLangPref });
     }
-    if (s.admin !== prev.admin && s.authReady) {
+    // PREVIEW IS NOT A SIGN-OUT. `admin` also flips false while this window
+    // previews as a visitor (loadMe reports the server's word, which is
+    // "visitor" for the preview), and broadcasting that as an auth event
+    // made every peer window call logout() — which POSTs /api/logout, which
+    // bumps the session epoch, which revokes EVERY session on EVERY device.
+    // One "Preview as visitor" with a second tab open signed the owner out
+    // of the web admin, the desktop app and the phone at once, and each of
+    // them fell back to the site language as a visitor — the "my editor
+    // language randomly went back to Arabic" report. The flag is set before
+    // loadMe flips admin (state.ts::setPreviewVisitor), so it is a reliable
+    // witness here.
+    if (s.admin !== prev.admin && s.authReady && !s.previewVisitor) {
       postBus({ t: "auth", id: windowId, admin: s.admin });
     }
   });
