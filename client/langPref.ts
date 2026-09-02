@@ -20,12 +20,12 @@
 //                      restores the site language for everyone regardless of
 //                      what their browser remembers.
 //
-// Scope, deliberately narrow, and the same for both: chrome STRINGS and
-// DIRECTION only. Note content is never re-directed (it renders per block
-// with dir="auto", as authored), and dates/numerals stay on the instance's
-// blogLocale — CONTRACTS pins one numbering system per instance, chosen by
-// the date locale, and a per-person override of that would put two numeral
-// systems on one line again.
+// Scope, deliberately narrow, and the same for both: chrome STRINGS,
+// DIRECTION, and month names (`dateNamesLocale`). Note content is never
+// re-directed (it renders per block with dir="auto", as authored). Digits
+// stay on the instance's numeral policy (`localeDigits`) — CONTRACTS pins
+// one numbering system per instance, and a per-person override of that
+// would put two numeral systems on one line again.
 
 import type { Lang } from "./i18n.ts";
 

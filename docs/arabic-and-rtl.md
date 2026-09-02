@@ -98,21 +98,20 @@ switch** (settings key `languageToggle`, **off by default**, no env counterpart)
 themselves. Their choice lives in their own browser's `localStorage` and survives return visits;
 nobody else's site changes.
 
-It moves exactly two things: the **chrome strings** and the **text direction** — and it moves
-them for *that reader*. It cannot reach your editor: an admin session reads its own **Editor
-language** and never a visitor's, which is why flipping the public switch to check what a reader
-sees no longer leaves you editing in a language you did not pick. (Visitor *preview* is the
-honest way to check: previewing puts you on the visitor's side of that line deliberately, so you
-see their language, not yours.) Note content is untouched — it renders as authored, per block, the way it always does — and so are dates and
-numerals, which stay on the instance's `BLOG_LOCALE` so a page never shows two numbering systems
-at once. Leave the switch off (the default) and the public site has no language chrome at all.
+It moves the **chrome strings**, the **text direction**, and **month names** — for *that
+reader*. English chrome prints "August"; Arabic chrome prints "أغسطس". Digits stay on the
+instance's numeral policy, so a visitor's EN/ع tap cannot mix `١٤` with `14` on one line. It
+cannot reach your editor: an admin session reads its own **Editor language** and never a
+visitor's, which is why flipping the public switch to check what a reader sees no longer leaves
+you editing in a language you did not pick. (Visitor *preview* is the honest way to check:
+previewing puts you on the visitor's side of that line deliberately, so you see their language,
+not yours.) Note content is untouched — it renders as authored, per block, the way it always
+does. Leave the switch off (the default) and the public site has no language chrome at all.
 
-> **If you turn the switch on, set `BLOG_LOCALE` deliberately.** Dates are per *instance*, not
-> per visitor — that is what keeps one line from mixing `١٤` with `14`. So an English-locale
-> instance whose visitor picks Arabic reads `١١ دقيقة قراءة · August 15, 2026`: Arabic chrome,
-> English dates. Nothing is broken, but the first screen reads half-translated. If your audience
-> is mostly Arabic, `BLOG_LOCALE=ar` (or `ar-u-nu-latn` for Arabic months with Latin digits) is
-> usually the tag you want; if it is mostly English, expect the reverse for readers who switch.
+> **Digits are still per instance.** `BLOG_LOCALE` picks the numeral tag (and the RSS channel
+> language). An Arabic instance whose visitor picks English reads `14 August 2026`, not
+> `14 أغسطس 2026`. Flip the switch back and the Arabic names return. Eastern digits still
+> require an explicit `-u-nu-arab` on that tag.
 
 ## Language filter
 
@@ -198,9 +197,9 @@ The Hijri calendar is **Umm al-Qura** (`islamic-umalqura`). Intl offers four Isl
 `islamic` is observational and its answer drifts by a day between platforms; the two tabular
 variants never drift but are not what anyone's wall calendar says. Umm al-Qura is both stable
 and recognisable, so it is the one Vellum uses — this is a display convention, not a preference
-with a long tail. Month names come from `Intl` and digits from the same numeral rule everything
-else uses (`BLOG_LOCALE`), so nothing is hand-spelled and one instance never mixes two numbering
-systems on a line.
+with a long tail. Month names come from `Intl` in the chrome language (English chrome says
+"August", Arabic chrome says "أغسطس") and digits from the same numeral rule everything else
+uses, so nothing is hand-spelled and one instance never mixes two numbering systems on a line.
 
 It reaches **every human-facing date**: blog post meta and dashboard cards, comment timestamps
 (the relative "5 minutes ago" keeps its wording and gains the absolute date in its tooltip),

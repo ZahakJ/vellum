@@ -14,7 +14,9 @@ tags, comments below (with `COMMENTS=on`), and a footer (`SITE_FOOTER`, default
 RTL content renders per-article in its natural direction — and `SITE_LANG=ar` mirrors the whole
 blog shell to match (see [Arabic & RTL](arabic-and-rtl.md)). Signed-in admins are unaffected — the
 full app, sidebar and all, stays exactly as it is; the blog shell exists only for visitors. Post
-dates are formatted in `BLOG_LOCALE` (any BCP47 tag, default `en`).
+dates take month names from the chrome language (English chrome says August, Arabic chrome says
+أغسطس) and digits from the instance numeral policy; `BLOG_LOCALE` is that tag, and the RSS
+channel language (any BCP47 tag, default `en`).
 
 ![Blog dashboard home](screenshots/blog-dashboard.png)
 
