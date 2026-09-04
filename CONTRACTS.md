@@ -4070,6 +4070,97 @@ punched out of the paper on every other surface. Both are transparent now — by
 `flat` — and `--dsg-ground` (which follows the surface) comes back on the one state that cannot do
 without it: a bar pinned over scrolling content.
 
+**A SECOND GROUND, AND IT IS MADE OF LIGHT RATHER THAN INK.** `chrome.surface` answers "what is
+this printed ON" and answers it hue-free by construction — five textures, every one a `color-mix`
+of `--text` into transparent, so one rule is right in twenty-one rooms. That was correct for a sheet
+of paper and it is the reason seventy-one finished designs could differ in measure, in face, in
+arrangement and in ground and still read, side by side in the gallery, as seventy-one settings of
+the same page: every one of them was ink on paper, and a reader who asked for a space design could
+be offered a narrower column. `chrome.scenery` answers the other question — WHAT IS THE PAGE
+STANDING IN — with five worlds (`starfield`, `aurora`, `horizon`, `topography`, `halftone`, plus
+`none`), and `chrome.ornament` gives a design the mark it breaks itself with instead of the
+product's own `✦`. Both are top-level `chrome` scalars for the reason `surface` is: `site` is a
+closed allowlist whose keys are a schema bump, `chrome` is leniently normalized, so a design written
+before these fields renders with no sky and the wordmark, and one written after them renders on an
+older build as the page it always was.
+
+**A SCENERY IS FIXED TO THE WINDOW; A SURFACE IS FIXED TO THE SHEET.** That is the whole difference
+and it is mechanical: a surface is a `background-image` with `background-attachment: local`, so its
+rules travel with the words because they are printed on the paper; a scenery is a screen-tall
+`position: sticky` layer pinned to the top of the scrollport — with a negative block margin of the
+same length, so it costs nothing in flow — and the reader moves while the world stays. The two
+COMPOSE (laid paper under a starfield is a letter written somewhere), and `check-presets`' shape key
+folds `scenery` in beside `surface`, because a design standing in a starfield and one standing in
+nothing are not twins at any size.
+
+**THE MEASUREMENT REWROTE THE FEATURE, and this is the part worth reading.** The obvious build — one
+translucent layer of accent, bounded like a surface — was measured the way the surfaces were, over a
+matrix the surfaces never faced: six worlds × twenty-one rooms, real pixels, animations running, the
+extreme pixel of the frame ratioed against the three text tokens. **Every world failed, including
+the quietest.** `--text-muted` starts at 5.01:1 on parchment against a 4.5 floor and `--text-faint`
+at 3.16:1 on linen against a 3:1 floor — 0.51 and 0.16 of room — and the five surfaces had already
+spent most of the second one. A decoration bounded to 0.16 of a ratio is the seventy-one designs
+this feature exists because of.
+
+**SO THE WORLD STOPS WHERE THE WORDS START.** A ratio is only ever measured under TEXT; text only
+ever happens inside the reading column, `--dsn-width` wide and centred; outside it there is nothing
+to be legible against. Both layers therefore wear one mask — full strength in the margins,
+TRANSPARENT across the column, with 140px of falloff landing exactly on the column's edge — so the
+ground under every word is byte-for-byte the ground the same design has with no scenery at all. That
+is a guarantee **by construction** rather than a margin somebody measured, and it is what lets the
+worlds be loud: the contour ink runs at 9%, three times the loudest surface, because none of it is
+ever under a word. It is also why every design on the new shelf keeps a narrow page — the world
+lives in the margins, so a design that wants one has to leave it somewhere to be. On a window narrower
+than the column every mask stop resolves out of order and a gradient clamps its stops to be
+non-decreasing, so the transparent pair swallows the box and **a phone gets no world at all** — the
+safe direction and the true one, since a window with no margins is a window that is all reading
+column. The design still arrives as its type, its arrangement, its ground and its room.
+
+**THE MASK IS ON THE BOX AND THE FIELDS MOVE INSIDE IT**, which is why the layer is a real screen
+tall rather than a zero-height box with its fields hung off it. A mask is painted in the element's
+own coordinates and TRAVELS WITH ITS TRANSFORM: with the mask on the pseudo-element, the starfield's
+340px drift and the aurora's 6% sway carried the clear band along with them, and a sweep showed a
+"12%" mask costing exactly what a 100% one did — the worst pixel was the margin, arrived under the
+column.
+
+**TWO LAYERS, AND NOT FOR SAFETY.** The mask does safety. The split is that a coloured light and a
+translucent wash are different things and a world needs both. `.s-dsn-sky--ink` is ordinary
+compositing: the marks (stars, rings, dots) and the VALUE of the light, which is the only layer that
+can brighten a room. `.s-dsn-sky--hue` is `mix-blend-mode: color`: it writes hue and chroma and
+keeps the backdrop's luminosity, so a curtain over parchment is parchment gone violet rather than
+parchment gone pale — which a translucent wash cannot do, and which on `murex` and `nocturne` could
+not brighten anything until it got its twin on the layer above. **They are siblings and they had to
+be**: the light was first written as a CHILD of the marks layer and measured a cost of exactly 0.00
+in every room, which was true and was not a result — `.s-dsn-sky` carries `z-index: -1`, every
+stacking context is an isolated group for compositing, and a `mix-blend-mode` inside one sees a
+transparent backdrop and paints its own raw colour. It was a nebula that had not been drawn.
+
+**AND THE MATRIX SAYS SO.** Six worlds × five grounds × twenty-one rooms, 630 rows, screenshotted
+inside the reading column with the animations running: of the 525 rows that carry a sky, **525 are
+identical to the same room on the same ground with no sky at all** — max cost 0.00 to `--text`, 0.00
+to `--text-muted`, 0.00 to `--text-faint`. The floors across the whole matrix are the floors the
+GROUNDS already had (worst `--text` 10.29, worst `--text-muted` 4.66 against 4.5).
+
+**A PRE-EXISTING READING, RECORDED BECAUSE THE MATRIX FOUND IT.** On `linen`, the shipped
+`ruled` (2.95), `grid` (2.95) and `paper` (2.97) surfaces measure `--text-faint` under 3.0 with no
+scenery at all. The
+surfaces' own table was taken over five rooms and `linen` was not one of them. Nothing here caused
+it and nothing here changes it — the scenery's cost on those rows is zero like everywhere else — but
+a matrix that finds a number and does not say so is worse than no matrix.
+
+**`prefers-reduced-motion` FREEZES A SCENERY RATHER THAN DELETING IT**, and this is the one place
+the feature parts company with the ambient layer, which deletes its own. An atmosphere the OWNER
+switched on behind a masthead costs nothing when it is gone; a scenery is what the AUTHOR chose
+their site to stand in, and deleting it hands a reader who asked for less motion a different design.
+The fields stay, the drift stops, and two screenshots 2.5s apart are byte-identical.
+
+**THE MINIATURE DRAWS THE WORLD AND DOES NOT SPLIT THE LAYER.** `DesignThumb` gained `scenery`
+beside the masthead's shape, the ground and the shape of the end of the page, because the world is
+the one thing a 200px card always resolves — two designs that differ in measure and in face are one
+grey card twice. It draws all five in one field, static and unmasked: a card has no text in it at
+all, so there is no floor to hold and no column to keep clear, and the gallery paints seventy-six of
+them at once, which is not the place for seventy-six animating compositor layers.
+
 **`DesignThumb` and `silhouette()` learn three of the four.** The masthead's shape, the page's
 ground and the shape of the end of the page are three different pictures at 200px, so the miniature
 draws them and the collision key folds them in. `nav.style` is deliberately in neither, for the
@@ -4077,6 +4168,9 @@ reason `divider.style` is not: pills, a rail and a pair of brackets on a 7px bar
 bar, and a key that gains a term the reader cannot see is quieter rather than finer.
 `check-presets` also grew the loop it was missing — its no-clamp check walked `header`/`footer`/`nav`
 and nothing else, so a top-level `chrome` scalar like `surface` could be silently normalized away.
+There are three such scalars now (`surface`, `scenery`, `ornament`), so the same omission would be
+three times as quiet; the shape key carries `scenery` beside `surface` and leaves `ornament` out, for
+the reason it leaves `nav.style` out.
 
 ### Presets (`shared/presets.ts`, `shared/presetCatalog.ts`)
 
