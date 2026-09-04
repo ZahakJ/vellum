@@ -31,6 +31,8 @@ import {
 import { createRoot, type Root } from "react-dom/client";
 import { useDialog } from "../../a11y.ts";
 import {
+  type ChromeOrnament,
+  type ChromeScenery,
   type ChromeSurface,
   type DesignChrome,
   type FooterForm,
@@ -1600,6 +1602,49 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
                       { value: "grid", label: t("designSurfaceGrid") },
                       { value: "tinted", label: t("designSurfaceTinted") },
                       { value: "paper", label: t("designSurfacePaper") },
+                    ]}
+                  />
+                </Row>
+                {/* THE WORLD SITS UNDER THE GROUND, LITERALLY AND IN THE
+                    PANEL. A surface is what the page is printed ON; a scenery
+                    is what it is standing IN, and the two compose — laid paper
+                    under a starfield is a letter written somewhere. The note
+                    under the row is the honest half about motion, said once
+                    here rather than smuggled into six labels. */}
+                <Row label={t("designScenery")} hint={t("designSceneryHint")} stack>
+                  <SegmentedControl
+                    value={chrome.scenery}
+                    onChange={(value) => set({ scenery: value as ChromeScenery })}
+                    label={t("designScenery")}
+                    segments={[
+                      { value: "none", label: t("designSceneryNone") },
+                      { value: "starfield", label: t("designSceneryStarfield") },
+                      { value: "aurora", label: t("designSceneryAurora") },
+                      { value: "horizon", label: t("designSceneryHorizon") },
+                      { value: "topography", label: t("designSceneryTopography") },
+                      { value: "halftone", label: t("designSceneryHalftone") },
+                    ]}
+                  />
+                </Row>
+                <p className="s-dsgr__prose">{t("designSceneryMotionNote")}</p>
+                {/* THE MARK IS A PAGE-LEVEL DECISION for the reason the ground
+                    is: every divider in the document draws it, and a design
+                    that signs half its breaks with one glyph and half with
+                    another has not decided anything. The GLYPH is the label and
+                    its name is the note, because the reader is picking a mark
+                    and not a word — the same row shape the face pickers use. */}
+                <Row label={t("designOrnament")} hint={t("designOrnamentHint")} stack>
+                  <SegmentedControl
+                    value={chrome.ornament}
+                    onChange={(value) => set({ ornament: value as ChromeOrnament })}
+                    label={t("designOrnament")}
+                    segments={[
+                      { value: "asterism", label: "\u2726", note: t("designOrnamentAsterism") },
+                      { value: "star", label: "\u2727", note: t("designOrnamentStar") },
+                      { value: "burst", label: "\u2736", note: t("designOrnamentBurst") },
+                      { value: "moon", label: "\u263E", note: t("designOrnamentMoon") },
+                      { value: "lozenge", label: "\u25C8", note: t("designOrnamentLozenge") },
+                      { value: "fleuron", label: "\u2766", note: t("designOrnamentFleuron") },
                     ]}
                   />
                 </Row>

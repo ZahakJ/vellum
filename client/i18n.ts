@@ -2909,6 +2909,34 @@ const DICT = {
   designSurfaceTinted: { en: "Tinted", ar: "مصبوغ" },
   designSurfacePaper: { en: "Paper", ar: "ورقي" },
 
+  designScenery: { en: "The world", ar: "العالم" },
+  designSceneryHint: {
+    en: "What the page is standing in: a field of the theme’s own light behind everything, fixed to the window rather than to the paper. It clears away where the writing is, so no text is less readable for it — which also means a narrow page leaves the world more room, and a phone shows none of it.",
+    ar: "ما يقف فيه الموقع: حقل من ضوء السمة نفسها خلف كل شيء، ثابت مع النافذة لا مع الورق. ينحسر حيث تقع الكتابة، فلا يقلّ وضوح أي نص بسببه — ولهذا تترك الصفحة الضيّقة مجالًا أوسع للعالم، ولا يظهر منه شيء على الهاتف.",
+  },
+  designSceneryNone: { en: "None", ar: "بلا" },
+  designSceneryStarfield: { en: "Stars", ar: "نجوم" },
+  designSceneryAurora: { en: "Aurora", ar: "شفق" },
+  designSceneryHorizon: { en: "Horizon", ar: "أفق" },
+  designSceneryTopography: { en: "Contours", ar: "تضاريس" },
+  designSceneryHalftone: { en: "Halftone", ar: "نقط طباعة" },
+  designSceneryMotionNote: {
+    en: "Stars and aurora drift, slowly. A reader whose system asks for less motion sees the same sky, standing still.",
+    ar: "تنساب النجوم والشفق ببطء. من يطلب نظامه تقليل الحركة يرى السماء نفسها ساكنة.",
+  },
+
+  designOrnament: { en: "Mark", ar: "العلامة" },
+  designOrnamentHint: {
+    en: "The glyph a divider signs itself with, on this design’s pages.",
+    ar: "الرمز الذي يوقّع به الفاصل نفسه في صفحات هذا التصميم.",
+  },
+  designOrnamentAsterism: { en: "Asterism", ar: "نجمة" },
+  designOrnamentStar: { en: "Star", ar: "نجمة مفرغة" },
+  designOrnamentBurst: { en: "Burst", ar: "شعاع" },
+  designOrnamentMoon: { en: "Moon", ar: "هلال" },
+  designOrnamentLozenge: { en: "Lozenge", ar: "معيَّن" },
+  designOrnamentFleuron: { en: "Fleuron", ar: "وردة" },
+
   designHeaderSection: { en: "Header", ar: "الترويسة" },
   designHeaderLayout: { en: "Identity", ar: "الهوية" },
   designLayoutStacked: { en: "Centred", ar: "في الوسط" },
