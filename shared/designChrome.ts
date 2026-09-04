@@ -452,6 +452,14 @@ export const CHROME_SURFACES: readonly ChromeSurface[] = [
  *               has walked.
  *   halftone    a coarse dot screen at 45°, printed loud. The one world made of
  *               ink rather than light, and the reason `--text` appears below.
+ *   nebula      the deep field: three great clouds at different depths over
+ *               four star layers, the near ones drifting visibly and the far
+ *               ones almost not at all. `starfield` is a clear night; this is
+ *               the picture a long exposure of the same sky returns, and it is
+ *               the loudest thing in the engine.
+ *   fog         banks of it, crossing the window on periods that do not divide
+ *               into each other, under a vignette that closes the corners. The
+ *               one world that takes light AWAY.
  *
  * IT IS FIXED TO THE WINDOW, NOT TO THE PAPER, and that is the whole difference
  * between a scenery and a surface. `background-attachment: local` is what makes
@@ -487,7 +495,9 @@ export type ChromeScenery =
   | "aurora"
   | "horizon"
   | "topography"
-  | "halftone";
+  | "halftone"
+  | "nebula"
+  | "fog";
 
 export const CHROME_SCENERIES: readonly ChromeScenery[] = [
   "none",
@@ -496,6 +506,8 @@ export const CHROME_SCENERIES: readonly ChromeScenery[] = [
   "horizon",
   "topography",
   "halftone",
+  "nebula",
+  "fog",
 ];
 
 /**
@@ -515,6 +527,93 @@ export const CHROME_SCENERIES: readonly ChromeScenery[] = [
  * which the serif, sans and mono stacks all have — so a design does not fall
  * back to a box on somebody else's machine.
  */
+/**
+ * WHERE THE CHROME LIVES — and this is the axis the shelf was really missing.
+ *
+ * `surface` is what the page is printed on and `scenery` is what it stands in,
+ * and between them a design can be almost anything… as long as it is a masthead
+ * on top of one centred column on top of a footer. That skeleton is every
+ * design in the catalogue. It is why seventy-six finished houses still read, to
+ * the person who asked for them, as "changing colours and rearranging things":
+ * the FURNITURE moved and the ROOM never did.
+ *
+ * A shell is the room. Five of them, and each one puts the chrome somewhere the
+ * others cannot:
+ *
+ *   stack    The masthead over the column over the footer. Every design that
+ *            existed before this field, and still the right answer for anything
+ *            that wants to read like a page rather than like an application.
+ *   rail     A standing SIDE COLUMN — identity, menu, topics, tools — with the
+ *            writing beside it. The menu is a list rather than a row, so it can
+ *            hold twenty items without wrapping, and it never leaves the
+ *            window: a reader four screens down is still one glance from every
+ *            part of the site. The shape a documentation site and a shop have
+ *            in common.
+ *   dock     The chrome comes OFF the page: one floating bar, rounded and
+ *            translucent, hanging over the writing rather than sitting above
+ *            it. The page is full-bleed underneath it, which is the only
+ *            arrangement in the engine where content passes UNDER chrome.
+ *   split    A fixed PANEL on one side that does not scroll at all — the name,
+ *            the tagline, the menu, standing still — against a column that
+ *            does. Two speeds on one screen, which is the whole gesture.
+ *   console  An instrument: a thin fixed strip across the top, a gutter of meta
+ *            down the side, and the content in the middle. Dense, ruled, and
+ *            the one shell that reads as a machine rather than a publication.
+ *
+ * IT IS ONE FIELD AND IT MOVES FOUR THINGS, which is why it is a shell rather
+ * than four switches: where the identity sits, whether the menu is a row or a
+ * list, what scrolls and what does not, and where the reading column is on the
+ * screen. A design that could set those independently would be a design with
+ * fifteen broken combinations in it.
+ *
+ * WHAT IT DOES NOT MOVE is the section vocabulary. Every shell renders the same
+ * sections, the same cards, the same runs — `DesignedSite` composes ONE tree and
+ * the shells are grid arrangements of it, so a section written for `stack` is
+ * correct in `console` without knowing it exists. That is also the test a new
+ * shell has to pass: if it needs its own section renderer it is not a shell.
+ *
+ * ON A PHONE THERE IS ONE SHELL. A rail, a split panel and a console gutter all
+ * want a second axis of screen, and a phone has none — so under 900px every
+ * shell collapses to `stack` with the design's own masthead, which is the
+ * arrangement all five degrade to honestly. `design.css` does that in one media
+ * query rather than five.
+ */
+export type ChromeShell = "stack" | "rail" | "dock" | "split" | "console";
+
+export const CHROME_SHELLS: readonly ChromeShell[] = [
+  "stack",
+  "rail",
+  "dock",
+  "split",
+  "console",
+];
+
+/**
+ * WHAT A BLOCK OF CONTENT IS SITTING IN.
+ *
+ * `postGrid.card` already says what a POST's tile looks like; this says what
+ * every framed block on the page looks like — the cards, the CTA panel, the
+ * band hero — and it is the difference between a page of content and a page of
+ * OBJECTS.
+ *
+ *   plain    No frame beyond what the card shape itself draws. What every
+ *            design did before this field.
+ *   window   Each block wears a title bar: a strip of raised ground with three
+ *            dots at the leading edge, square corners, a hairline under it. A
+ *            page of panels rather than a page of cards — the arrangement a
+ *            desktop, a console and a zine full of pasted-up boxes share.
+ *   float    The blocks lift off the ground: no border at all, a soft shadow
+ *            underneath, generous radius. Nothing is ruled and everything is
+ *            hovering, which is what a page looks like when the ground behind
+ *            it is a world rather than a sheet.
+ *
+ * All three are pure decoration on a box that already exists, so a frame costs
+ * no markup and no renderer knows about it.
+ */
+export type ChromeFrame = "plain" | "window" | "float";
+
+export const CHROME_FRAMES: readonly ChromeFrame[] = ["plain", "window", "float"];
+
 export type ChromeOrnament =
   | "asterism" // ✦ the wordmark, and the default every design had
   | "star" // ✧ hollow — a night sky, a map's legend
@@ -544,6 +643,10 @@ export interface DesignChrome {
    *  written somewhere. */
   scenery: ChromeScenery;
   ornament: ChromeOrnament;
+  /** WHERE THE CHROME LIVES, and what the blocks under it are sitting in. The
+   *  first is the ROOM and the four above are what is in it. */
+  shell: ChromeShell;
+  frame: ChromeFrame;
 }
 
 export const DEFAULT_CHROME: DesignChrome = {
@@ -589,6 +692,8 @@ export const DEFAULT_CHROME: DesignChrome = {
   surface: "flat",
   scenery: "none",
   ornament: "asterism",
+  shell: "stack",
+  frame: "plain",
 };
 
 /** A deep copy of the stock defaults — "reset to stock defaults", and the
@@ -874,6 +979,8 @@ export function normalizeChrome(raw: unknown): DesignChrome {
     surface: oneOf(source.surface, CHROME_SURFACES, DEFAULT_CHROME.surface),
     scenery: oneOf(source.scenery, CHROME_SCENERIES, DEFAULT_CHROME.scenery),
     ornament: oneOf(source.ornament, CHROME_ORNAMENTS, DEFAULT_CHROME.ornament),
+    shell: oneOf(source.shell, CHROME_SHELLS, DEFAULT_CHROME.shell),
+    frame: oneOf(source.frame, CHROME_FRAMES, DEFAULT_CHROME.frame),
   };
 }
 
@@ -1149,8 +1256,10 @@ export function validateChrome(raw: unknown): DesignChrome {
   const scenery = enumKey("scenery", raw.scenery, CHROME_SCENERIES) ?? DEFAULT_CHROME.scenery;
   const ornament =
     enumKey("ornament", raw.ornament, CHROME_ORNAMENTS) ?? DEFAULT_CHROME.ornament;
+  const shell = enumKey("shell", raw.shell, CHROME_SHELLS) ?? DEFAULT_CHROME.shell;
+  const frame = enumKey("frame", raw.frame, CHROME_FRAMES) ?? DEFAULT_CHROME.frame;
 
-  return { nav, typography: typo, header, footer, surface, scenery, ornament };
+  return { nav, typography: typo, header, footer, surface, scenery, ornament, shell, frame };
 }
 
 // ── Derived values (one implementation, used by the site and the preview) ───

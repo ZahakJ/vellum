@@ -2947,10 +2947,37 @@ const DICT = {
   designSceneryHorizon: { en: "Horizon", ar: "أفق" },
   designSceneryTopography: { en: "Contours", ar: "تضاريس" },
   designSceneryHalftone: { en: "Halftone", ar: "نقط طباعة" },
+  designSceneryNebula: { en: "Deep field", ar: "الحقل العميق" },
+  designSceneryFog: { en: "Fog", ar: "ضباب" },
   designSceneryMotionNote: {
     en: "Stars and aurora drift, slowly. A reader whose system asks for less motion sees the same sky, standing still.",
     ar: "تنساب النجوم والشفق ببطء. من يطلب نظامه تقليل الحركة يرى السماء نفسها ساكنة.",
   },
+
+  designShellSection: { en: "The room", ar: "الغرفة" },
+  designShell: { en: "Where the chrome lives", ar: "موضع الإطار" },
+  designShellHint: {
+    en: "The biggest choice on this panel: whether the menu sits above the writing, beside it, or floats over it. Everything else on the page is the same in all five.",
+    ar: "أكبر اختيار في هذه اللوحة: هل تجلس القائمة فوق الكتابة أم بجانبها أم تطفو فوقها؟ وكل ما عدا ذلك في الصفحة واحد في الخمسة جميعًا.",
+  },
+  designShellStack: { en: "Above", ar: "فوق" },
+  designShellRail: { en: "Side rail", ar: "شريط جانبي" },
+  designShellDock: { en: "Floating bar", ar: "شريط طافٍ" },
+  designShellSplit: { en: "Fixed panel", ar: "لوحة ثابتة" },
+  designShellConsole: { en: "Console", ar: "لوحة قيادة" },
+  designShellPhoneNote: {
+    en: "A phone has no room for a side column, so all five read as “Above” there. The design still arrives as its type, its ground and its world.",
+    ar: "لا مكان في الهاتف لعمود جانبي، فتظهر الخمسة جميعًا بصيغة «فوق». ويصل التصميم بخطّه وأرضيته وعالمه كما هو.",
+  },
+
+  designFrame: { en: "Blocks", ar: "الكتل" },
+  designFrameHint: {
+    en: "What a card, a call to action or a band is sitting in.",
+    ar: "ما تجلس فيه البطاقة أو زر الدعوة أو الشريط.",
+  },
+  designFramePlain: { en: "Plain", ar: "سادة" },
+  designFrameWindow: { en: "Windows", ar: "نوافذ" },
+  designFrameFloat: { en: "Floating", ar: "طافية" },
 
   designOrnament: { en: "Mark", ar: "العلامة" },
   designOrnamentHint: {

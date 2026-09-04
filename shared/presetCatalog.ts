@@ -1,4 +1,4 @@
-// THE SHIPPED CATALOG. Seventy-six finished designs, as data.
+// THE SHIPPED CATALOG. Eighty finished designs, as data.
 //
 // FOUR ARE HERE. The rest are written against the same three rules,
 // and the rules are the whole contract for adding one:
@@ -58,6 +58,7 @@ import { SIGNATURE_A_PRESETS } from "./presetsSignatureA.ts";
 import { SIGNATURE_B_PRESETS } from "./presetsSignatureB.ts";
 import { SIGNATURE_C_PRESETS } from "./presetsSignatureC.ts";
 import { SIGNATURE_D_PRESETS } from "./presetsSignatureD.ts";
+import { SIGNATURE_E_PRESETS } from "./presetsSignatureE.ts";
 import {
   assertCatalog,
   presetChrome as chrome,
@@ -280,6 +281,7 @@ export const PRESETS: readonly Preset[] = [
   ...SIGNATURE_B_PRESETS,
   ...SIGNATURE_C_PRESETS,
   ...SIGNATURE_D_PRESETS,
+  ...SIGNATURE_E_PRESETS,
   broadsheet,
   ...EDITORIAL_PRESETS,
   quietPage,

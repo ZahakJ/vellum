@@ -2100,8 +2100,8 @@
    surfaces × twenty-one rooms, 630 rows, screenshotted INSIDE the reading
    column with the animations running:
 
-     WORLDS      6 (five + `none`)   ROOMS  21   GROUNDS  5   ROWS  630
-     Of the 525 rows that carry a sky, 525 are IDENTICAL to the same room on
+     WORLDS      8 (seven + `none`)   ROOMS  21   GROUNDS  5   ROWS  840
+     Of the 735 rows that carry a sky, 735 are IDENTICAL to the same room on
      the same ground with no sky at all. Not "within a rounding error" —
      identical, in all three tokens, to two decimal places:
 
@@ -2110,7 +2110,10 @@
        max cost to --text-faint  0.00
 
      …which is what "the world stops where the words start" means when it is
-     built rather than tuned. The floors across the whole matrix are therefore
+     built rather than tuned — and it is why `nebula`, which is by a distance
+     the loudest thing in this file, measured the same 0.00 as `none` on its
+     first run: a guarantee that comes from the geometry does not have to be
+     re-earned by every world that arrives after it. The floors across the whole matrix are therefore
      the floors the GROUNDS already had: worst --text 10.29, worst --text-muted
      4.66 against 4.5, worst --text-faint 2.95.
 
@@ -2558,6 +2561,204 @@
     radial-gradient(2.5px 2.5px at 16px 17px, var(--dsg-sky-hue) 58%, transparent 64%);
 }
 
+/* ── nebula ─────────────────────────────────────────────────────────────────
+   THE DEEP FIELD, and the loudest thing in this file. `starfield` is what a
+   clear night looks like; this is what a long exposure of the same sky returns
+   — three great clouds at three depths, four layers of stars, and every one of
+   them moving at a different rate.
+
+   PARALLAX IS THE WHOLE EFFECT AND IT IS FOUR ANIMATIONS, not a scroll
+   listener. The near field crosses its tile in 90s, the mid in 150s, the far in
+   260s and the clouds in 420s; nothing in here reads the scroll position,
+   nothing runs on the main thread, and every animated property is a
+   `translate3d` or an `opacity`, so a phone that is scrolling past it does not
+   warm up. Depth on a flat page is just four speeds.
+
+   The near stars are bright and small, the far ones dim and large — which is
+   backwards for real stars and correct for a picture of them: what a lens does
+   to an out-of-focus point is spread it. */
+
+.s-dsg-sky--nebula .s-dsn-sky--ink::before {
+  content: "";
+  opacity: 0.62;
+  background-size:
+    260px 260px,
+    430px 430px;
+  background-image:
+    radial-gradient(1px 1px at 18% 14%, var(--dsg-sky-near) 50%, transparent 52%),
+    radial-gradient(1px 1px at 66% 31%, var(--dsg-sky-near) 50%, transparent 52%),
+    radial-gradient(1px 1px at 37% 58%, var(--dsg-sky-near) 50%, transparent 52%),
+    radial-gradient(1px 1px at 84% 77%, var(--dsg-sky-near) 50%, transparent 52%),
+    radial-gradient(1px 1px at 9% 88%, var(--dsg-sky-near) 50%, transparent 52%),
+    radial-gradient(2px 2px at 44% 22%, var(--dsg-sky-far) 45%, transparent 62%),
+    radial-gradient(2px 2px at 77% 63%, var(--dsg-sky-far) 45%, transparent 62%),
+    radial-gradient(2px 2px at 21% 79%, var(--dsg-sky-far) 45%, transparent 62%);
+  animation: s-dsg-sky-deep-near 90s linear infinite;
+}
+
+.s-dsg-sky--nebula .s-dsn-sky--ink::after {
+  content: "";
+  opacity: 0.4;
+  background-size: 690px 690px;
+  background-image:
+    radial-gradient(3px 3px at 31% 26%, var(--dsg-sky-far) 35%, transparent 66%),
+    radial-gradient(3px 3px at 72% 48%, var(--dsg-sky-far) 35%, transparent 66%),
+    radial-gradient(3px 3px at 47% 81%, var(--dsg-sky-far) 35%, transparent 66%),
+    radial-gradient(4px 4px at 88% 12%, var(--dsg-sky-far) 30%, transparent 70%);
+  animation:
+    s-dsg-sky-deep-far 260s linear infinite,
+    s-dsg-sky-breathe 17s ease-in-out infinite alternate;
+}
+
+/* THE CLOUDS. Three ellipses at three sizes and three angles, on the light
+   layer where a field this big has to be, plus the same three again in value on
+   the marks layer — a nebula that only had hue would be a stain and one that
+   only had value would be a smudge. */
+.s-dsg-sky--nebula .s-dsn-sky--hue::before {
+  content: "";
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-size:
+    120% 70%,
+    90% 55%,
+    70% 46%;
+  background-position:
+    12% 22%,
+    82% 64%,
+    46% 88%;
+  background-image:
+    radial-gradient(closest-side, var(--dsg-sky-hue), transparent 78%),
+    radial-gradient(closest-side, var(--dsg-sky-hue), transparent 74%),
+    radial-gradient(closest-side, var(--dsg-sky-hue), transparent 76%);
+  animation: s-dsg-sky-cloud 420s ease-in-out infinite alternate;
+}
+
+.s-dsg-sky--nebula .s-dsn-sky--ink {
+  /* The clouds' own light, under the stars rather than over them. */
+  background-repeat: no-repeat, no-repeat;
+  background-size:
+    115% 66%,
+    85% 52%;
+  background-position:
+    12% 22%,
+    82% 64%;
+  background-image:
+    radial-gradient(
+      closest-side,
+      color-mix(in srgb, var(--dsg-sky-glow) 60%, transparent),
+      transparent 80%
+    ),
+    radial-gradient(
+      closest-side,
+      color-mix(in srgb, var(--dsg-sky-glow) 42%, transparent),
+      transparent 78%
+    );
+}
+
+@keyframes s-dsg-sky-deep-near {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-260px, 260px, 0);
+  }
+}
+
+@keyframes s-dsg-sky-deep-far {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-690px, 690px, 0);
+  }
+}
+
+@keyframes s-dsg-sky-cloud {
+  from {
+    transform: translate3d(-2%, 1%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(2%, -1%, 0) scale(1.08);
+  }
+}
+
+/* ── fog ────────────────────────────────────────────────────────────────────
+   THE ONE WORLD THAT TAKES LIGHT AWAY. Every other scenery adds something to
+   the ground; this one closes the corners of the window down and then drags
+   banks across what is left, which is the difference between a room with
+   weather in it and a room somebody has left.
+
+   THE VIGNETTE IS DRAWN IN THE ROOM'S OWN GROUND, not in black. `--bg` at the
+   edges means a light room fogs to pale and a dark one to ink, and neither ever
+   posts a colour the theme does not have. Two banks at 190s and 310s — co-prime
+   enough that the pair never repeats a shape inside a reading session — and
+   they are wider than the window so no edge is ever in it. */
+
+.s-dsg-sky--fog .s-dsn-sky--ink::before {
+  content: "";
+  inset-inline: -25%;
+  background-repeat: no-repeat, no-repeat;
+  background-size:
+    70% 46%,
+    52% 34%;
+  background-position:
+    18% 32%,
+    74% 72%;
+  background-image:
+    radial-gradient(closest-side, var(--dsg-sky-glow), transparent 76%),
+    radial-gradient(closest-side, var(--dsg-sky-glow), transparent 72%);
+  opacity: 0.55;
+  animation: s-dsg-sky-bank 190s ease-in-out infinite alternate;
+}
+
+.s-dsg-sky--fog .s-dsn-sky--ink::after {
+  content: "";
+  inset-inline: -25%;
+  background-repeat: no-repeat, no-repeat;
+  background-size:
+    58% 38%,
+    44% 60%;
+  background-position:
+    62% 18%,
+    26% 84%;
+  background-image:
+    radial-gradient(closest-side, var(--dsg-sky-glow), transparent 74%),
+    radial-gradient(closest-side, var(--dsg-sky-glow), transparent 78%);
+  opacity: 0.4;
+  animation: s-dsg-sky-bank-slow 310s ease-in-out infinite alternate;
+}
+
+/* THE VIGNETTE IS ON THE LAYER ITSELF, not on a pseudo, and it is the reason
+   this world needs no third slot: `.s-dsn-sky--ink` has a box of its own and
+   nothing else in the file paints on it. It is unmasked in the sense that
+   matters — it is `--bg` closing on `--bg`, so under the reading column it
+   composites to the ground exactly. */
+.s-dsg-sky--fog .s-dsn-sky--ink {
+  background-image: radial-gradient(
+    120% 92% at 50% 42%,
+    transparent 38%,
+    color-mix(in srgb, var(--bg) 72%, transparent) 78%,
+    var(--bg) 100%
+  );
+}
+
+@keyframes s-dsg-sky-bank {
+  from {
+    transform: translate3d(-7%, 0, 0);
+  }
+  to {
+    transform: translate3d(7%, 2%, 0);
+  }
+}
+
+@keyframes s-dsg-sky-bank-slow {
+  from {
+    transform: translate3d(6%, 1%, 0);
+  }
+  to {
+    transform: translate3d(-8%, -2%, 0);
+  }
+}
+
 /* The setting that stops the motion and does not take the sky away — the
    argument is at the top of this section. `starfield` becomes a still sky,
    `aurora` a still curtain, and the three that never moved are untouched. */
@@ -2568,6 +2769,359 @@
   .s-dsn-sky--hue::after {
     animation: none;
   }
+}
+
+/* ── The shells ───────────────────────────────────────────────────────────
+   WHERE THE CHROME LIVES, which is the axis seventy-six designs did not have.
+   `shared/designChrome.ts` carries the argument; this is the arrangement.
+
+   ONE TREE, FIVE ROOMS. `DesignedSite` composes exactly one DOM in every shell
+   — sky, chrome, main, footer — and each shell below is a different way of
+   PLACING those four. That is the test a new shell has to pass: if it needs its
+   own markup it is not arranging this page, it is drawing another one. It is
+   also what makes the shells free for everything else in the file — a section,
+   a card, a run and an article are correct in `console` without knowing the
+   word exists.
+
+   FOUR OF THE FIVE ARE ONE GRID. `.s-dsn` becomes a two-column grid, the chrome
+   is placed in column one and told to stay, and EVERYTHING ELSE lands in column
+   two by a catch-all — which is the half that matters, because the children of
+   this element are conditional (an owner's failure notice, a search overlay, a
+   login modal) and a named-areas layout would have to enumerate them. A
+   catch-all plus three exceptions cannot be surprised by a fifth child.
+
+   THE SKY IS PLACED IN THE CONTENT COLUMN, and that is load-bearing rather than
+   tidy: the scenery mask is computed as `(100% − --dsn-width) / 2` against the
+   layer's OWN box, so a sky spanning the whole window in a railed shell would
+   clear a band down the middle of the window rather than down the middle of the
+   writing. In column two its 100% is the writing's own width and the mask lands
+   where it lands in `stack`. Its rows collapse to nothing on their own — the
+   layer is one screen tall with a negative block margin of the same length, and
+   a grid track sizes to the MARGIN box.
+
+   ON A PHONE THERE IS ONE SHELL, at the foot of this section: under 900px every
+   arrangement here is switched off and the page is `stack` again. A rail, a
+   fixed panel and a gutter all want a second axis of screen and a phone has
+   none; five different ways of being cramped is worse than one honest one. */
+
+/* ── dock: the chrome comes off the page ────────────────────────────────────
+   One floating bar, rounded, over content that runs full-bleed underneath it.
+   It is the only arrangement in the engine where the page passes UNDER the
+   chrome, which is the whole gesture — and the reason it is `fixed` rather than
+   `sticky`: sticky pins to a scrollport and this bar is not on the page at all.
+
+   THE BAR IS TRANSLUCENT AND THE BLUR IS A FALLBACK, NOT THE EFFECT. Content
+   scrolling under a bar has to stay readable at the moment it is half under it,
+   so the ground is `--bg` at 88% — which alone is enough — and
+   `backdrop-filter` is layered on top for the browsers that have it. A design
+   that needed the blur to be legible would be a design that is illegible in
+   Firefox with `backdrop-filter` off. */
+.s-dsg-shell--dock .s-dsg-top {
+  position: fixed;
+  inset-block-start: 14px;
+  inset-inline: 0;
+  z-index: 7;
+  inline-size: fit-content;
+  max-inline-size: calc(100% - 28px);
+  margin-inline: auto;
+  padding-inline: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 6px 26px -12px rgb(0 0 0 / 45%);
+  overflow: hidden;
+}
+
+/* The bar is a PILL, so nothing inside it may draw an edge that squares it off,
+   and the masthead's own bands are exactly such edges. */
+.s-dsg-shell--dock .s-dsg-nav,
+.s-dsg-shell--dock .s-dsg-head {
+  border: 0;
+  background: transparent;
+}
+
+.s-dsg-shell--dock .s-dsg-nav__inner,
+.s-dsg-shell--dock .s-dsg-head__inner {
+  padding-block: 6px;
+}
+
+/* The writing starts under the bar rather than after it — the bar is over the
+   page, so the page owes it clearance and nothing else. */
+.s-dsg-shell--dock .s-dsn-main {
+  padding-block-start: 76px;
+}
+
+/* ── rail, split, console: the chrome stands beside the page ───────────────
+   Three rooms, one arrangement: the chrome is taken OUT OF FLOW and pinned to
+   the side of the window, and the page is given a margin the width of it. The
+   three differ in what the column IS — a rail scrolls with its own overflow, a
+   split panel is a fixed object the writing moves past, a console gutter is an
+   instrument — and share every line below.
+
+   IT IS `fixed` AND NOT A GRID COLUMN, and the first cut was the grid. `.s-dsn`
+   became `grid-template-columns: rail 1fr` with the chrome spanning every row,
+   which places correctly and then sizes wrong: a spanning item with a height of
+   `100dvh` contributes that height to the tracks it spans, so the split panel
+   inflated the first content row and pushed the whole page below the fold — an
+   empty column beside a full one, measured. Out of flow, the chrome has no
+   tracks to inflate, the page lays out exactly as it does in `stack` with a
+   padding on one side, and the scenery layer keeps its own box (its mask is
+   `(100% − --dsn-width) / 2` against ITSELF, so the clear band follows the
+   writing rather than the window).
+
+   `inset-inline-start` and `padding-inline-start` are logical, so the whole
+   arrangement mirrors in an Arabic instance with no second rule: the rail
+   stands at the reading edge, wherever that is. */
+.s-dsg-rail {
+  padding-inline-start: var(--dsg-rail, 264px);
+}
+
+.s-dsg-rail > .s-dsg-top {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-start: 0;
+  z-index: 6;
+  inline-size: var(--dsg-rail, 264px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-inline-end: 1px solid var(--border);
+  background: var(--dsg-ground);
+}
+
+/* A rail is a long thing you can reach the bottom of: it starts at the top and
+   its own scrollbar takes over if the menu outgrows the window. */
+.s-dsg-shell--rail > .s-dsg-top {
+  display: block;
+}
+
+/* The identity stops being a masthead and becomes a HEAD OF COLUMN: flushed to
+   the reading edge, no centring, no full-width bands. Every masthead layout is
+   welcome in a rail and all five arrive here as the same block, because a rail
+   is 264px wide and the difference between a centred plate and a ruled one is
+   not something 264px can say. */
+.s-dsg-rail .s-dsg-head {
+  align-items: stretch;
+  text-align: start;
+  padding: 18px;
+  border: 0;
+  background: transparent;
+}
+
+.s-dsg-rail .s-dsg-head::before {
+  content: none;
+}
+
+/* `inline` is the one masthead with a second tree — identity, burger, menu and
+   tools in one row — and a row is exactly what a rail cannot have. It is the
+   same block as the other four here. */
+.s-dsg-rail .s-dsg-head__row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  max-inline-size: none;
+}
+
+.s-dsg-rail .s-dsg-nav {
+  border-block-end: 0;
+  background: transparent;
+}
+
+.s-dsg-rail .s-dsg-nav__inner {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  max-inline-size: none;
+  padding: 0 18px 18px;
+}
+
+/* THE MENU IS A LIST, and this is the one rule that makes a rail a rail: the
+   items stack, they fill the column, and they are targets rather than words in
+   a sentence. It is also why a rail is the shell a site with twenty topics can
+   actually use — a row wraps at eight and a column does not. */
+.s-dsg-rail .s-dsg-nav__links {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.s-dsg-rail .s-dsg-nav__link {
+  display: flex;
+  justify-content: flex-start;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  /* The bracket and pill treatments centre their own text, which is right on a
+     bar and wrong in a column — a list whose items do not share a start edge is
+     not a list. */
+  text-align: start;
+}
+
+.s-dsg-rail .s-dsg-nav__link:hover {
+  background: var(--bg-hover);
+}
+
+/* The tools stop being a right-hand cluster and become the last row of the
+   column. `margin-inline-start: auto` is what pushed them to the far end of a
+   bar; in a column it pushes them nowhere and leaves them mis-aligned. */
+.s-dsg-rail .s-dsg-nav__tools {
+  margin-inline-start: 0;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+/* The burger is a phone control and a rail is not a phone. */
+.s-dsg-rail .s-dsg-nav__burger {
+  display: none;
+}
+
+/* ── split: two speeds on one screen ───────────────────────────────────────
+   The panel does not scroll at all. That is the whole difference from a rail
+   and it is a bigger one than it sounds: a rail is a long thing you can reach
+   the bottom of, and a split panel is a FIXED OBJECT the writing moves past.
+   Its contents are centred in a whole screen of its own ground, so the page
+   reads as two surfaces rather than as one page with a margin. */
+.s-dsg-shell--split {
+  --dsg-rail: 320px;
+}
+
+.s-dsg-shell--split > .s-dsg-top {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--bg-raised);
+}
+
+/* ── console: an instrument ────────────────────────────────────────────────
+   A gutter rather than a rail: narrower, ruled, monospaced, everything in it
+   set small and spaced out. The one shell that reads as a machine rather than a
+   publication, and it gets there by making the chrome look like READOUT — the
+   labels a strip of instrument panel prints beside a dial. */
+.s-dsg-shell--console {
+  --dsg-rail: 216px;
+}
+
+.s-dsg-shell--console > .s-dsg-top {
+  background: var(--bg-raised);
+}
+
+.s-dsg-shell--console .s-dsg-nav__link,
+.s-dsg-shell--console .s-dsg-head__tagline {
+  font-family: var(--dsg-mono-font, var(--font-mono));
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.s-dsg-shell--console .s-dsg-nav__links {
+  gap: 0;
+}
+
+.s-dsg-shell--console .s-dsg-nav__link {
+  border-radius: 0;
+  border-block-end: 1px solid var(--border);
+  padding-block: 7px;
+}
+
+/* ── one shell on a phone ──────────────────────────────────────────────────
+   Every arrangement above wants a second axis of screen. A phone has none, so
+   all four collapse to the page every design had before this field: chrome on
+   top, one column, footer. One query rather than four, because "there is no
+   room for a rail" is one fact. */
+@media (max-width: 900px) {
+  .s-dsg-rail {
+    padding-inline-start: 0;
+  }
+
+  .s-dsg-rail > .s-dsg-top {
+    position: static;
+    inline-size: auto;
+    display: block;
+    overflow: visible;
+    border-inline-end: 0;
+    border-block-end: 1px solid var(--border);
+    background: transparent;
+  }
+
+  .s-dsg-rail .s-dsg-nav__links,
+  .s-dsg-rail .s-dsg-head__row,
+  .s-dsg-rail .s-dsg-nav__inner {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .s-dsg-rail .s-dsg-nav__burger {
+    display: inline-flex;
+  }
+
+  .s-dsg-shell--dock .s-dsn-main {
+    padding-block-start: 68px;
+  }
+}
+
+/* ── The frames ───────────────────────────────────────────────────────────
+   What a block of content is SITTING IN, which is a different question from
+   what a post's tile looks like (`postGrid.card`) and composes with it.
+
+   Both frames are decoration on a box that already exists — no renderer knows
+   they are here, and `plain` writes nothing at all. */
+
+/* WINDOW: every block wears a title bar. Three dots at the leading edge of a
+   strip of raised ground, square corners under it, a hairline between. The dots
+   are drawn with a repeating gradient rather than three elements, because a
+   frame that needed markup would be a component. */
+.s-dsg-frame--window :is(.s-dsn-card--boxed, .s-dsn-cta, .s-dsn-hero--band) {
+  position: relative;
+  border-radius: 0;
+  padding-block-start: 34px;
+  overflow: hidden;
+}
+
+.s-dsg-frame--window :is(.s-dsn-card--boxed, .s-dsn-cta, .s-dsn-hero--band)::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: 24px;
+  background:
+    radial-gradient(
+        circle at 12px 12px,
+        color-mix(in oklab, var(--text) 26%, transparent) 3px,
+        transparent 3.5px
+      )
+      no-repeat,
+    radial-gradient(
+        circle at 28px 12px,
+        color-mix(in oklab, var(--text) 26%, transparent) 3px,
+        transparent 3.5px
+      )
+      no-repeat,
+    radial-gradient(
+        circle at 44px 12px,
+        color-mix(in oklab, var(--text) 26%, transparent) 3px,
+        transparent 3.5px
+      )
+      no-repeat,
+    var(--bg-raised);
+  border-block-end: 1px solid var(--border);
+}
+
+/* The dots are physical (`12px` from the left), so in an Arabic instance the
+   whole strip mirrors and the dots go with it. */
+[dir="rtl"] .s-dsg-frame--window :is(.s-dsn-card--boxed, .s-dsn-cta, .s-dsn-hero--band)::before {
+  transform: scaleX(-1);
+}
+
+/* FLOAT: nothing is ruled and everything is hovering. This is the frame for a
+   page whose ground is a WORLD rather than a sheet — a border is an edge cut
+   out of paper and there is no paper here. */
+.s-dsg-frame--float :is(.s-dsn-card--boxed, .s-dsn-cta, .s-dsn-hero--band, .s-dsn-hero--panel) {
+  border-color: transparent;
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 16%),
+    0 14px 34px -16px rgb(0 0 0 / 55%);
 }
 
 /* ── Header ────────────────────────────────────────────────────────────── */

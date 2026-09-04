@@ -4070,6 +4070,57 @@ punched out of the paper on every other surface. Both are transparent now — by
 `flat` — and `--dsg-ground` (which follows the surface) comes back on the one state that cannot do
 without it: a bar pinned over scrolling content.
 
+**AND A THIRD AXIS, WHICH IS THE ONE THAT MOVES WALLS.** `surface`, `scenery`, the faces, the runs
+and the card shapes are all decisions about what is ON the page — and every one of them was made
+inside the same room: a masthead over one centred column over a footer, which was the shape of every
+design in this catalogue. Eighty finished houses and one floor plan is why they read, to the person
+who commissioned them, as "changing colours and rearranging things". `chrome.shell` is the room:
+
+- `stack` — the masthead over the column over the footer. Every design that existed before the
+  field, and still the right answer for anything that wants to read like a page.
+- `rail` — a standing side column, and the menu becomes a LIST rather than a row. That is the
+  feature and not a styling of it: a row wraps at eight items and a column does not, so this is the
+  only shell a site with twenty topics can use, and it never leaves the window.
+- `dock` — the chrome comes OFF the page: one floating translucent pill over content that runs
+  full-bleed underneath it. The only arrangement in the engine where the page passes UNDER chrome.
+- `split` — a panel that does not scroll at all, against a column that does. Two speeds on one
+  screen, and the still one is the one with the name on it.
+- `console` — a gutter rather than a rail: narrower, ruled, monospaced, uppercase. The one shell
+  that reads as a machine rather than a publication.
+
+**IT IS ONE FIELD BECAUSE IT MOVES FOUR THINGS AT ONCE** — where the identity sits, whether the menu
+is a row or a list, what scrolls and what does not, and where the reading column is on the screen. A
+design that could set those independently would be a design with fifteen broken combinations in it.
+`chrome.frame` is the separate, composable question of what a BLOCK is sitting in (`plain`, a
+`window` with a title bar and three dots, or `float` with no border and a shadow).
+
+**WHAT A SHELL MAY NOT DO IS TOUCH THE SECTION VOCABULARY.** `DesignedSite` composes exactly one
+tree in every shell and each shell is an arrangement of it, so a section, a card, a run and an
+article are correct in `console` without knowing the word exists. That is the test a new shell has
+to pass: if it needs its own renderer it is not a shell, it is a second site.
+
+**THE THREE SIDE SHELLS TAKE THE CHROME OUT OF FLOW, and the grid was the first cut and the wrong
+one.** `.s-dsn` became `grid-template-columns: rail 1fr` with the chrome spanning every row, which
+places correctly and sizes wrong: a spanning item with `block-size: 100dvh` contributes that height
+to the tracks it spans, so the split panel inflated the first content row and pushed the entire page
+below the fold — an empty column beside a full one, measured on a screenshot. `position: fixed` plus
+a `padding-inline-start` the width of the rail has no tracks to inflate, lays the page out exactly
+as `stack` does, and leaves the scenery layer its own box — which matters, because the sky's mask is
+`(100% − --dsn-width) / 2` against ITSELF, so a sky spanning the window in a railed shell would
+clear a band down the middle of the WINDOW rather than down the middle of the writing. Both
+properties are logical, so the whole arrangement mirrors in an Arabic instance with no second rule.
+
+**ON A PHONE THERE IS ONE SHELL.** A rail, a fixed panel and a gutter all want a second axis of
+screen and a phone has none, so under 900px all four collapse to `stack` — one media query rather
+than four, because "there is no room for a rail" is one fact. The design still arrives as its type,
+its arrangement, its ground and its world, and the panel's own hint says so rather than leaving an
+author to discover it on their phone.
+
+**`DesignThumb` DRAWS THE ROOM**, and `silhouette()`'s collision key folds `shell` in beside
+`surface` and `scenery`. A rail, a floating bar and a fixed panel are three different CARDS before a
+reader has read a word of one — it is the loudest term the miniature carries. `frame` is in neither,
+for the reason `nav.style` is not: at 200px a title bar on a card is a card.
+
 **A SECOND GROUND, AND IT IS MADE OF LIGHT RATHER THAN INK.** `chrome.surface` answers "what is
 this printed ON" and answers it hue-free by construction — five textures, every one a `color-mix`
 of `--text` into transparent, so one rule is right in twenty-one rooms. That was correct for a sheet
@@ -4078,8 +4129,8 @@ arrangement and in ground and still read, side by side in the gallery, as sevent
 the same page: every one of them was ink on paper, and a reader who asked for a space design could
 be offered a narrower column. `chrome.scenery` answers the other question — WHAT IS THE PAGE
 STANDING IN — with five worlds (`starfield`, `aurora`, `horizon`, `topography`, `halftone`, plus
-`none`), and `chrome.ornament` gives a design the mark it breaks itself with instead of the
-product's own `✦`. Both are top-level `chrome` scalars for the reason `surface` is: `site` is a
+`none`, plus `nebula` and `fog`), and `chrome.ornament` gives a design the mark it breaks itself
+with instead of the product's own `✦`. Both are top-level `chrome` scalars for the reason `surface` is: `site` is a
 closed allowlist whose keys are a schema bump, `chrome` is leniently normalized, so a design written
 before these fields renders with no sky and the wordmark, and one written after them renders on an
 older build as the page it always was.
@@ -4135,10 +4186,12 @@ in every room, which was true and was not a result — `.s-dsn-sky` carries `z-i
 stacking context is an isolated group for compositing, and a `mix-blend-mode` inside one sees a
 transparent backdrop and paints its own raw colour. It was a nebula that had not been drawn.
 
-**AND THE MATRIX SAYS SO.** Six worlds × five grounds × twenty-one rooms, 630 rows, screenshotted
-inside the reading column with the animations running: of the 525 rows that carry a sky, **525 are
+**AND THE MATRIX SAYS SO.** Eight worlds × five grounds × twenty-one rooms, 840 rows, screenshotted
+inside the reading column with the animations running: of the 735 rows that carry a sky, **735 are
 identical to the same room on the same ground with no sky at all** — max cost 0.00 to `--text`, 0.00
-to `--text-muted`, 0.00 to `--text-faint`. The floors across the whole matrix are the floors the
+to `--text-muted`, 0.00 to `--text-faint`. `nebula`, which is by a distance the loudest thing in the
+file, measured 0.00 on its first run: a guarantee that comes from the geometry is not re-earned by
+each world that arrives after it. The floors across the whole matrix are the floors the
 GROUNDS already had (worst `--text` 10.29, worst `--text-muted` 4.66 against 4.5).
 
 **A PRE-EXISTING READING, RECORDED BECAUSE THE MATRIX FOUND IT.** On `linen`, the shipped

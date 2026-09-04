@@ -17,17 +17,21 @@
 //      `validateChrome` says no out loud. A value one of them accepts and the
 //      other refuses is a design that saves and never loads, or loads and never
 //      saves.
-//   4. `surface`, `scenery` AND `ornament` ARE TOP-LEVEL CHROME KEYS. They are
+//   4. `surface`, `scenery`, `ornament`, `shell` AND `frame` ARE TOP-LEVEL
+//      CHROME KEYS. They are
 //      the scalars that are not inside `header` / `footer` / `nav`, which is
 //      exactly the shape a loop over those three groups walks past — it did
-//      once, in check-presets, when `surface` was the only one. There are three
-//      now, so the same omission would be three times as quiet.
+//      once, in check-presets, when `surface` was the only one. There are five
+//      now, so the same omission would be five times as quiet — and one of
+//      them, `shell`, decides where the chrome IS.
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  CHROME_FRAMES,
   CHROME_ORNAMENTS,
   CHROME_SCENERIES,
+  CHROME_SHELLS,
   CHROME_SURFACES,
   DesignError,
   FOOTER_FORMS,
@@ -87,6 +91,11 @@ describe("design chrome: the shape fields", () => {
       // of them drew yesterday.
       assert.equal(chrome.scenery, "none");
       assert.equal(chrome.ornament, "asterism");
+      // AND THE ROOM. `shell` is the field that moves walls rather than
+      // furniture, so an upgraded design coming back as anything but "stack"
+      // would be every existing site relaid out overnight.
+      assert.equal(chrome.shell, "stack");
+      assert.equal(chrome.frame, "plain");
     }
   });
 
@@ -95,6 +104,8 @@ describe("design chrome: the shape fields", () => {
     assert.equal(stock.surface, "flat");
     assert.equal(stock.scenery, "none");
     assert.equal(stock.ornament, "asterism");
+    assert.equal(stock.shell, "stack");
+    assert.equal(stock.frame, "plain");
     assert.equal(stock.nav.style, "plain");
     assert.equal(stock.footer.form, "columns");
     assert.equal(stock.header.layout, "stacked");
@@ -130,6 +141,16 @@ describe("design chrome: the shape fields", () => {
       const raw = { ornament };
       assert.equal(normalizeChrome(raw).ornament, ornament);
       assert.equal(validateChrome(raw).ornament, ornament);
+    }
+    for (const shell of CHROME_SHELLS) {
+      const raw = { shell };
+      assert.equal(normalizeChrome(raw).shell, shell);
+      assert.equal(validateChrome(raw).shell, shell);
+    }
+    for (const frame of CHROME_FRAMES) {
+      const raw = { frame };
+      assert.equal(normalizeChrome(raw).frame, frame);
+      assert.equal(validateChrome(raw).frame, frame);
     }
   });
 
@@ -167,12 +188,16 @@ describe("design chrome: the shape fields", () => {
     assert.equal(refusal({ surface: "linen" }), "surface");
     // A non-string is the same refusal: the vocabulary is the check.
     assert.equal(refusal({ surface: 3 }), "surface");
-    // The two new vocabularies answer the same way, and the names matter: a
-    // reader who hand-edits `scenery: "nebula"` after a changelog gets the
-    // field back, not a page that quietly stands in nothing.
-    assert.equal(refusal({ scenery: "nebula" }), "scenery");
+    // The new vocabularies answer the same way, and the names matter: a reader
+    // who hand-edits `scenery: "starlight"` after a changelog gets the field
+    // back, not a page that quietly stands in nothing. (It was `nebula` here
+    // until `nebula` became a real world, which is the shape of test that
+    // stops being a test the moment the thing it names ships.)
+    assert.equal(refusal({ scenery: "starlight" }), "scenery");
     assert.equal(refusal({ ornament: "logo" }), "ornament");
     assert.equal(refusal({ scenery: 3 }), "scenery");
+    assert.equal(refusal({ shell: "sidebar" }), "shell");
+    assert.equal(refusal({ frame: "card" }), "frame");
     assert.equal(refusal({ nav: { style: null } }), "nav.style");
   });
 
@@ -181,6 +206,8 @@ describe("design chrome: the shape fields", () => {
       assert.equal(normalizeChrome({ surface: junk }).surface, "flat");
       assert.equal(normalizeChrome({ scenery: junk }).scenery, "none");
       assert.equal(normalizeChrome({ ornament: junk }).ornament, "asterism");
+      assert.equal(normalizeChrome({ shell: junk }).shell, "stack");
+      assert.equal(normalizeChrome({ frame: junk }).frame, "plain");
       assert.equal(normalizeChrome({ nav: { style: junk } }).nav.style, "plain");
       assert.equal(normalizeChrome({ footer: { form: junk } }).footer.form, "columns");
       assert.equal(normalizeChrome({ header: { layout: junk } }).header.layout, "stacked");
@@ -207,6 +234,8 @@ describe("design chrome: the shape fields", () => {
       surface: "ruled",
       scenery: "topography",
       ornament: "lozenge",
+      shell: "console",
+      frame: "window",
       header: { layout: "rule", density: "tall" },
       footer: { form: "colophon", align: "center" },
       nav: { style: "underline" },

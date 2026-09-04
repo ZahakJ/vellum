@@ -116,6 +116,15 @@ export interface DesignCanvasProps {
  *  at, and the size every preset in the catalog was drawn against. */
 export const CANVAS_WIDTH = 1120;
 
+/** THE THREE SHELLS THAT PUT THE CHROME BESIDE THE PAGE rather than above it.
+ *  They wear a second class as well as their own, because the grid, the
+ *  catch-all that lands every other child in the content column, and the whole
+ *  business of turning a menu-row into a menu-LIST are one arrangement that
+ *  three rooms share — and a stylesheet that repeated it three times would be
+ *  three places for it to drift. `design.css` reads `.s-dsg-rail` for the
+ *  shared half and `.s-dsg-shell--<name>` for what makes each one itself. */
+const RAILED = new Set(["rail", "split", "console"]);
+
 export default function DesignCanvas({
   design,
   content,
@@ -267,6 +276,10 @@ export default function DesignCanvas({
           chrome.surface ?? "flat"
         } s-dsg-sky--${chrome.scenery ?? "none"} s-dsg-orn--${
           chrome.ornament ?? "asterism"
+        } s-dsg-shell--${chrome.shell ?? "stack"}${
+          RAILED.has(chrome.shell ?? "stack") ? " s-dsg-rail" : ""
+        } s-dsg-frame--${
+          chrome.frame ?? "plain"
         }${sticky !== "none" ? " s-dsn--sticky" : ""}`}
         style={style}
         data-lang={language}

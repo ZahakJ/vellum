@@ -377,6 +377,13 @@ const chromeShape = (chrome) =>
     // them. `ornament` is deliberately out, for the reason `nav.style` is: a
     // 7px divider is a 7px divider whichever glyph is centred on it.
     chrome?.scenery ?? "none",
+    // AND THE ROOM, which is now the loudest term in the key by a distance. A
+    // rail, a floating bar and a fixed panel are three different pages before a
+    // reader has read a word of one — the miniature draws it, which is this
+    // key's bar, and two designs that share every other term and differ here
+    // are not twins in any sense a reader would recognise. `frame` is out for
+    // the reason `nav.style` is: at 200px a title bar on a card is a card.
+    chrome?.shell ?? "stack",
     chrome?.footer?.form ?? "columns",
   ].join(":");
 const shapes = new Map();

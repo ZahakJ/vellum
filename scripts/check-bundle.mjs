@@ -533,7 +533,15 @@ const AUDIENCES = [
 // seeing, the move in each direction, and the sentence saying nothing is lost
 // either way. The bar itself is markup in the designer panel's own chunk and
 // ~70 lines in designer.css, which is loaded with it.
-  { name: "entry (everyone)", keys: entry, budget: 563 * 1024 },
+// …and again for THE ROOMS (563.1 kB actual → 565, actual + ~0.34%). Sixteen
+// dictionary entries: five shell names, three frame names, two more worlds,
+// two hints, a section heading and the note about what a phone does with a side
+// rail. It is the largest copy round the design engine has had and it is copy
+// for the largest decision on the panel — the one that moves walls rather than
+// furniture. The ~11 kB that DRAWS the five rooms is in `design.css`, the ~4 kB
+// that draws them at 200px is in `presets.css`, the two controls are in the
+// designer's chunk and Studio E's four houses are in `presetCatalog-*.js`.
+  { name: "entry (everyone)", keys: entry, budget: 565 * 1024 },
   // RE-BASELINED for the DICTIONARY, and this one deserves naming as a debt
   // rather than a measurement. `client/i18n.ts` is a single object read by
   // `t()` on every surface, so it lands whole in every first paint — and this
@@ -685,7 +693,9 @@ const AUDIENCES = [
   // thirteen dictionary keys they will never see rendered.
   // …and again for THE WAY BACK (776.5 kB actual → 778): the entry's six
   // dictionary keys, carried. A visitor never opens the designer.
-  { name: "anonymous blog reader", keys: blog, budget: 778 * 1024 },
+  // …and again for THE ROOMS (778.1 kB actual → 780): the entry's sixteen keys,
+  // carried. The designed shell is not in this closure and never was.
+  { name: "anonymous blog reader", keys: blog, budget: 780 * 1024 },
   // RE-BASELINED for PER-FOLDER TREE ICONS (1089.4 kB actual → 1099.4 kB,
   // budget = actual + ~1.1%), and the growth here is almost all feature A's:
   // +3.4 kB FolderGlyph (now a shared chunk, since the sidebar and the blog
@@ -756,7 +766,8 @@ const AUDIENCES = [
   // this closure's own.
   // …and again for THE WAY BACK (1183.0 kB actual → 1185): the same six keys.
   // The bar is in DesignerPanel-*.js, behind the door it is a control on.
-  { name: "admin first paint", keys: app, budget: 1185 * 1024 },
+  // …and again for THE ROOMS (1184.6 kB actual → 1187): the same sixteen keys.
+  { name: "admin first paint", keys: app, budget: 1187 * 1024 },
 ];
 
 // ── things that must never be in a first paint ──────────────────────────────

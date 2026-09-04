@@ -257,6 +257,11 @@ export default function DesignThumb({ design, seed, className }: DesignThumbProp
   // sky are two cards. It is the reason `scenery` earned a place on a miniature
   // that deliberately refuses `nav.style`.
   const scenery = design.chrome.scenery ?? "none";
+  // AND THE ROOM, which is the loudest term of all at 200px. A rail, a floating
+  // bar and a fixed panel are three different CARDS before a reader has read a
+  // word of one — this is the first thing the eye resolves and the last thing
+  // the old miniature knew about.
+  const shell = design.chrome.shell ?? "stack";
   const form = footer.form ?? "columns";
   const sections = design.sections.filter((section) => !section.hidden).slice(0, 6);
   // The column, as a PERCENTAGE of the canvas the design is drawn against —
@@ -274,7 +279,7 @@ export default function DesignThumb({ design, seed, className }: DesignThumbProp
 
   return (
     <div
-      className={`s-dsgt s-dsgt--${design.site.density} s-dsgt--surf-${surface} s-dsgt--sky-${scenery}${className ? ` ${className}` : ""}`}
+      className={`s-dsgt s-dsgt--${design.site.density} s-dsgt--surf-${surface} s-dsgt--sky-${scenery} s-dsgt--shell-${shell}${className ? ` ${className}` : ""}`}
       style={style}
       aria-hidden="true"
     >

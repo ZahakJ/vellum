@@ -325,11 +325,175 @@
     );
 }
 
+/* The deep field: the same three clouds and two star scales the page draws,
+   flattened into one field because a card does not parallax. */
+.s-dsgt--sky-nebula .s-dsgt-sky {
+  opacity: 0.8;
+  background-repeat: no-repeat, no-repeat, repeat, repeat;
+  background-size:
+    120% 70%,
+    90% 55%,
+    14cqw 14cqw,
+    26cqw 26cqw;
+  background-position:
+    12% 22%,
+    82% 64%,
+    0 0,
+    0 0;
+  background-image:
+    radial-gradient(closest-side, var(--dsgt-sky-wash), transparent 78%),
+    radial-gradient(closest-side, var(--dsgt-sky-wash), transparent 74%),
+    radial-gradient(0.45cqw 0.45cqw at 18% 14%, var(--dsgt-sky-near) 50%, transparent 55%),
+    radial-gradient(0.9cqw 0.9cqw at 66% 52%, var(--dsgt-sky-far) 45%, transparent 62%);
+}
+
+/* Fog takes light AWAY, so the card's version is the vignette and one bank —
+   the two marks that make it unmistakable at this size. */
+.s-dsgt--sky-fog .s-dsgt-sky {
+  background-repeat: no-repeat, no-repeat;
+  background-size:
+    100% 100%,
+    70% 46%;
+  background-position:
+    50% 50%,
+    22% 34%;
+  background-image:
+    radial-gradient(
+      120% 92% at 50% 42%,
+      transparent 36%,
+      color-mix(in srgb, var(--bg) 72%, transparent) 78%,
+      var(--bg) 100%
+    ),
+    radial-gradient(closest-side, var(--dsgt-sky-wash), transparent 76%);
+}
+
 .s-dsgt--sky-halftone .s-dsgt-sky {
   background-size: 4cqw 4cqw;
   background-image:
     radial-gradient(0.6cqw 0.6cqw at 1cqw 1cqw, var(--dsgt-sky-ink) 60%, transparent 66%),
     radial-gradient(0.6cqw 0.6cqw at 3cqw 3cqw, var(--dsgt-sky-ink) 60%, transparent 66%);
+}
+
+/* ── the room, at 200px ────────────────────────────────────────────────────
+   A rail, a floating bar and a fixed panel are three different CARDS before a
+   reader has read a word of one, which makes `shell` the loudest term the
+   miniature carries and the one it most needed. All four non-stack rooms are
+   drawn by moving the miniature's own head — no new element, because a card
+   that needed markup per shell would be four cards.
+
+   The head is `position: absolute` in the railed ones and the body is given a
+   margin, which is the same arrangement the real page uses (`design.css`: out
+   of flow, with a padding the width of it) at a fortieth of the size. */
+.s-dsgt--shell-rail,
+.s-dsgt--shell-split,
+.s-dsgt--shell-console {
+  position: relative;
+}
+
+.s-dsgt--shell-rail .s-dsgt-head,
+.s-dsgt--shell-split .s-dsgt-head,
+.s-dsgt--shell-console .s-dsgt-head {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 26cqw;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 2cqw;
+  padding: 4cqw 3cqw;
+  border-block-end: 0;
+  border-inline-end: 1px solid var(--border);
+}
+
+.s-dsgt--shell-rail .s-dsgt-body,
+.s-dsgt--shell-split .s-dsgt-body,
+.s-dsgt--shell-console .s-dsgt-body {
+  margin-inline-start: 26cqw;
+}
+
+/* The menu becomes a column of bars, which is the one thing a 200px card can
+   say about a rail that is unambiguously TRUE of it. */
+.s-dsgt--shell-rail .s-dsgt-nav,
+.s-dsgt--shell-split .s-dsgt-nav,
+.s-dsgt--shell-console .s-dsgt-nav {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1.6cqw;
+  inline-size: 100%;
+}
+
+.s-dsgt--shell-rail .s-dsgt-navitem,
+.s-dsgt--shell-split .s-dsgt-navitem,
+.s-dsgt--shell-console .s-dsgt-navitem {
+  inline-size: 100%;
+}
+
+.s-dsgt--shell-rail .s-dsgt-mark,
+.s-dsgt--shell-split .s-dsgt-mark,
+.s-dsgt--shell-console .s-dsgt-mark {
+  inline-size: 80%;
+}
+
+/* A split panel is a GROUND of its own and its contents are centred in it —
+   the two facts that separate it from a rail at any size. */
+.s-dsgt--shell-split .s-dsgt-head {
+  justify-content: center;
+  background: var(--bg-raised);
+  inline-size: 30cqw;
+}
+
+.s-dsgt--shell-split .s-dsgt-body {
+  margin-inline-start: 30cqw;
+}
+
+/* A console gutter is narrower, ruled between every item, and on raised ground. */
+.s-dsgt--shell-console .s-dsgt-head {
+  inline-size: 21cqw;
+  background: var(--bg-raised);
+}
+
+.s-dsgt--shell-console .s-dsgt-body {
+  margin-inline-start: 21cqw;
+}
+
+.s-dsgt--shell-console .s-dsgt-nav {
+  gap: 0;
+}
+
+.s-dsgt--shell-console .s-dsgt-navitem {
+  padding-block-end: 1.2cqw;
+  border-block-end: 1px solid var(--border);
+}
+
+/* THE FLOATING BAR, and the card has to show that the writing runs UNDER it —
+   which is the whole gesture and is invisible if the bar merely sits at the
+   top. So the head is lifted off the ground into a pill with air on every side
+   and the body starts above where the pill ends. */
+.s-dsgt--shell-dock {
+  position: relative;
+}
+
+.s-dsgt--shell-dock .s-dsgt-head {
+  position: absolute;
+  inset-block-start: 3cqw;
+  inset-inline: 8cqw;
+  z-index: 1;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2cqw;
+  padding: 2cqw 3cqw;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+}
+
+.s-dsgt--shell-dock .s-dsgt-tagline {
+  display: none;
+}
+
+.s-dsgt--shell-dock .s-dsgt-body {
+  padding-block-start: 12cqw;
 }
 
 /* ── the surface ───────────────────────────────────────────────────────────

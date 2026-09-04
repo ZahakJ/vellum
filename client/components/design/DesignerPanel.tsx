@@ -31,8 +31,10 @@ import {
 import { createRoot, type Root } from "react-dom/client";
 import { useDialog } from "../../a11y.ts";
 import {
+  type ChromeFrame,
   type ChromeOrnament,
   type ChromeScenery,
+  type ChromeShell,
   type ChromeSurface,
   type DesignChrome,
   type FooterForm,
@@ -1647,7 +1649,44 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
               </>
             ) : tab === "chrome" ? (
               <>
-                {/* THE GROUND COMES FIRST because it is under everything below
+                {/* THE ROOM COMES BEFORE THE FURNITURE, and this row is first
+                    on the tab because it is the one decision that changes what
+                    the other rows are decisions ABOUT. A ground, a world and a
+                    mark rearrange a page; a shell moves the page. It was also
+                    the axis the catalogue did not have — seventy-six finished
+                    designs, and every one of them a masthead over one column
+                    over a footer, which is why they read as one page in
+                    different clothes. */}
+                <h2 className="s-dsgr__section">{t("designShellSection")}</h2>
+                <Row label={t("designShell")} hint={t("designShellHint")} stack>
+                  <SegmentedControl
+                    value={chrome.shell}
+                    onChange={(value) => set({ shell: value as ChromeShell })}
+                    label={t("designShell")}
+                    segments={[
+                      { value: "stack", label: t("designShellStack") },
+                      { value: "rail", label: t("designShellRail") },
+                      { value: "dock", label: t("designShellDock") },
+                      { value: "split", label: t("designShellSplit") },
+                      { value: "console", label: t("designShellConsole") },
+                    ]}
+                  />
+                </Row>
+                <p className="s-dsgr__prose">{t("designShellPhoneNote")}</p>
+                <Row label={t("designFrame")} hint={t("designFrameHint")} stack>
+                  <SegmentedControl
+                    value={chrome.frame}
+                    onChange={(value) => set({ frame: value as ChromeFrame })}
+                    label={t("designFrame")}
+                    segments={[
+                      { value: "plain", label: t("designFramePlain") },
+                      { value: "window", label: t("designFrameWindow") },
+                      { value: "float", label: t("designFrameFloat") },
+                    ]}
+                  />
+                </Row>
+
+                {/* THE GROUND COMES NEXT because it is under everything below
                     it — the masthead, the writing and the footer are all
                     printed on whatever this row says. */}
                 <h2 className="s-dsgr__section">{t("designSurfaceSection")}</h2>
@@ -1683,6 +1722,8 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
                       { value: "horizon", label: t("designSceneryHorizon") },
                       { value: "topography", label: t("designSceneryTopography") },
                       { value: "halftone", label: t("designSceneryHalftone") },
+                      { value: "nebula", label: t("designSceneryNebula") },
+                      { value: "fog", label: t("designSceneryFog") },
                     ]}
                   />
                 </Row>

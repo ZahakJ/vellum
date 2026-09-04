@@ -74,6 +74,15 @@ function parseRoute(pathname: string): Route {
   return { kind: "missing" };
 }
 
+/** THE THREE SHELLS THAT PUT THE CHROME BESIDE THE PAGE rather than above it.
+ *  They wear a second class as well as their own, because the grid, the
+ *  catch-all that lands every other child in the content column, and the whole
+ *  business of turning a menu-row into a menu-LIST are one arrangement that
+ *  three rooms share — and a stylesheet that repeated it three times would be
+ *  three places for it to drift. `design.css` reads `.s-dsg-rail` for the
+ *  shared half and `.s-dsg-shell--<name>` for what makes each one itself. */
+const RAILED = new Set(["rail", "split", "console"]);
+
 export default function DesignedSite() {
   const siteName = useStore((s) => s.siteName);
   const tagline = useStore((s) => s.tagline);
@@ -277,7 +286,7 @@ export default function DesignedSite() {
       // writing and gives the header a seam. `flat` emits the class too and
       // draws nothing, so the five values are five rules and none of them is
       // "the absence of a rule".
-      className={`s-dsn s-dsg s-dsn--${site.density} s-dsg-surf--${chrome.surface} s-dsg-sky--${chrome.scenery} s-dsg-orn--${chrome.ornament}${sticky !== "none" ? " s-dsn--sticky" : ""}`}
+      className={`s-dsn s-dsg s-dsn--${site.density} s-dsg-surf--${chrome.surface} s-dsg-sky--${chrome.scenery} s-dsg-orn--${chrome.ornament} s-dsg-shell--${chrome.shell}${RAILED.has(chrome.shell) ? " s-dsg-rail" : ""} s-dsg-frame--${chrome.frame}${sticky !== "none" ? " s-dsn--sticky" : ""}`}
       style={style}
       ref={scrollRef}
       // Chrome copy inside re-renders on a live language switch; keeping the

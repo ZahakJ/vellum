@@ -173,11 +173,13 @@ export function presetChrome(patch: {
   header?: Partial<DesignChrome["header"]>;
   footer?: Partial<DesignChrome["footer"]>;
   nav?: Partial<DesignChrome["nav"]>;
-  /** Scalars, so they merge by REPLACEMENT rather than by spread — the three
+  /** Scalars, so they merge by REPLACEMENT rather than by spread — the five
    *  chrome keys that are not a group of their own. */
   surface?: DesignChrome["surface"];
   scenery?: DesignChrome["scenery"];
   ornament?: DesignChrome["ornament"];
+  shell?: DesignChrome["shell"];
+  frame?: DesignChrome["frame"];
 }): DesignChrome {
   const base = stockChrome();
   return {
@@ -188,6 +190,8 @@ export function presetChrome(patch: {
     surface: patch.surface ?? base.surface,
     scenery: patch.scenery ?? base.scenery,
     ornament: patch.ornament ?? base.ornament,
+    shell: patch.shell ?? base.shell,
+    frame: patch.frame ?? base.frame,
   };
 }
 
