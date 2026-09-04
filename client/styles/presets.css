@@ -66,6 +66,56 @@
   overflow: visible;
 }
 
+/* …AND THE SKY FOLLOWS THE SCROLLER IT NO LONGER HAS. The scenery layer
+   (design.css) is a zero-height `sticky` box pinned to the top of `.s-dsn`,
+   with its field hanging one SCREEN below it — which is the right arrangement
+   on the live site and on the live frame, where `.s-dsn` is the scrollport, and
+   is nothing at all in a card, where the override above just took the scroller
+   away: `sticky` with no scroll container is `static`, and `100dvh` is the
+   admin's window rather than the miniature's. So in a card the layer is given a
+   real box that IS the page, and a "screen" becomes 100% of it. One variable,
+   because the rules that draw the five worlds must not know which surface they
+   are on.
+
+   `--live` is excluded on purpose and by the same reasoning as the block above:
+   PreviewFrame puts the scroller back, so the frame is the visitor's
+   arrangement exactly — including their sky. */
+.s-dsgv:not(.s-dsgv--live) .s-dsgv__page .s-dsn-sky {
+  position: absolute;
+  inset: 0;
+  block-size: auto;
+  /* The live layer takes itself back out of the flow with a negative block
+     margin; an absolutely positioned one was never in it. */
+  margin-block-end: 0;
+  --dsg-sky-h: 100%;
+
+  /* AND THE MASK COMES OFF, which is the one place a card is allowed to differ
+     from the page it is a picture of. On the live site the world is taken to
+     nothing across the reading column, because that is where the words are —
+     and it is why the five houses that have a world keep a narrow page, so the
+     margins are wide enough to hold one. A canvas has no such margins: it lays
+     every design out at `CANVAS_WIDTH` and scales the result, so a 980px design
+     inside a 1120px canvas has 70 laid-out pixels a side, which at card scale
+     is four. Masked, the card that has to say "this design stands in a
+     starfield" said nothing at all — measured on the shelf, and it is the whole
+     job of that card.
+
+     It is legal here for the reason the miniature's version of the same field
+     is legal: a card is `aria-hidden`, `pointer-events: none` and `role="img"`
+     — a PICTURE of a page, with no text anybody reads and no floor to hold. The
+     one preview that is a page rather than a picture is `--live`, the frame the
+     designer's own stage draws, and it keeps the mask and shows the truth while
+     the author works. */
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+/* The scaled canvas is already `position: absolute`; the native one keeps flow
+   and needs telling that it is the box the sky is measured against. */
+.s-dsgv--native .s-dsgv__page {
+  position: relative;
+}
+
 /* The cut, when a canvas is clipped: the page does not END there, and a hard
    edge says it does. */
 .s-dsgv::after {
@@ -112,6 +162,19 @@
   --dsgt-ink: color-mix(in oklab, var(--text) 34%, transparent);
   --dsgt-ink-strong: color-mix(in oklab, var(--text) 68%, transparent);
   --dsgt-ink-faint: color-mix(in oklab, var(--text) 18%, transparent);
+  /* The miniature's own sky, in the same four mixes the real page uses — the
+     card must sell the world, and at 200px the world is most of what a reader
+     can actually see. */
+  --dsgt-sky-near: color-mix(in srgb, var(--accent) 74%, #ffffff);
+  --dsgt-sky-far: color-mix(in srgb, var(--accent) 52%, transparent);
+  /* Louder than the real page's tokens on purpose, and by the same argument the
+     rest of this file makes: a miniature has to READ at 200px. The site's own
+     numbers are bounded where they fall under text; nothing here is text. */
+  --dsgt-sky-wash: color-mix(in srgb, var(--accent) 20%, transparent);
+  --dsgt-sky-ink: color-mix(in oklab, var(--text) 9%, transparent);
+  /* So the sky can sit BEHIND the miniature's own marks without escaping the
+     card (design.css makes the same argument for the real page). */
+  isolation: isolate;
 }
 
 .s-dsgt--compact {
@@ -178,6 +241,95 @@
 .s-dsgt-head--banner {
   background: var(--bg-raised);
   padding-block: 5.5cqw;
+}
+
+/* ── the scenery, at 200px ─────────────────────────────────────────────────
+   THE CARD HAS TO SELL THE WORLD, because at this size the world is most of
+   what a reader can see: two designs that differ in measure and in face are one
+   grey card twice, and two that differ in SKY are two cards. So the miniature
+   draws all five, on a `::before` rather than on its own background — that
+   slot is spoken for by the surface, and a sheet of ruled paper under a
+   starfield is a design somebody will make.
+
+   NOTHING HERE MOVES, and that is a budget rather than an oversight. The
+   gallery draws seventy-six of these at once; seventy-six drifting star fields
+   is seventy-six compositor layers animating behind a grid the reader is
+   scrolling. The real page moves, the hover canvas moves, and the resting card
+   is the still frame.
+
+   AND IT IS ONE LAYER WHERE THE REAL PAGE IS TWO. On the site the marks and the
+   light are separate elements because they blend differently and only one of
+   them is bounded by a contrast floor (design.css). A miniature has no text in
+   it at all — it is `aria-hidden`, and every mark in it is a bar — so there is
+   no floor to hold, no mask to draw and no reason to pay a second node on every
+   one of seventy-six cards. The two are composited into one field here, at the
+   strength the card needs to read at 200px rather than at the strength the
+   measurement allows.
+
+   The geometry is in `cqw` for the reason every other dimension in this file
+   is: one coordinate system, correct at 160px and at 400px. */
+.s-dsgt-sky {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.s-dsgt--sky-starfield .s-dsgt-sky {
+  opacity: 0.55;
+  background-repeat: repeat, repeat, no-repeat;
+  background-size:
+    18cqw 18cqw,
+    31cqw 31cqw,
+    150% 55%;
+  background-position:
+    0 0,
+    0 0,
+    50% 26%;
+  background-image:
+    radial-gradient(0.5cqw 0.5cqw at 14% 11%, var(--dsgt-sky-near) 50%, transparent 55%),
+    radial-gradient(0.8cqw 0.8cqw at 62% 44%, var(--dsgt-sky-far) 50%, transparent 60%),
+    radial-gradient(60% 50% at 50% 50%, var(--dsgt-sky-wash) 0%, transparent 72%);
+}
+
+.s-dsgt--sky-aurora .s-dsgt-sky {
+  background-image: repeating-linear-gradient(
+    68deg,
+    transparent 0 6%,
+    var(--dsgt-sky-wash) 9%,
+    color-mix(in srgb, var(--dsgt-sky-wash) 40%, transparent) 14%,
+    transparent 20% 30%
+  );
+}
+
+.s-dsgt--sky-horizon .s-dsgt-sky {
+  background-image: radial-gradient(
+    140% 58% at 50% 104%,
+    var(--dsgt-sky-wash) 0%,
+    color-mix(in srgb, var(--dsgt-sky-wash) 38%, transparent) 38%,
+    transparent 72%
+  );
+}
+
+.s-dsgt--sky-topography .s-dsgt-sky {
+  background-image:
+    repeating-radial-gradient(
+      circle at 22% 28%,
+      transparent 0 5cqw,
+      var(--dsgt-sky-ink) 5cqw calc(5cqw + 1px)
+    ),
+    repeating-radial-gradient(
+      circle at 84% 76%,
+      transparent 0 6.8cqw,
+      var(--dsgt-sky-ink) 6.8cqw calc(6.8cqw + 1px)
+    );
+}
+
+.s-dsgt--sky-halftone .s-dsgt-sky {
+  background-size: 4cqw 4cqw;
+  background-image:
+    radial-gradient(0.6cqw 0.6cqw at 1cqw 1cqw, var(--dsgt-sky-ink) 60%, transparent 66%),
+    radial-gradient(0.6cqw 0.6cqw at 3cqw 3cqw, var(--dsgt-sky-ink) 60%, transparent 66%);
 }
 
 /* ── the surface ───────────────────────────────────────────────────────────

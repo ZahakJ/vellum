@@ -265,11 +265,23 @@ export default function DesignCanvas({
       <div
         className={`s-dsgv__page s-dsn s-dsg s-dsn--${design.site.density} s-dsg-surf--${
           chrome.surface ?? "flat"
+        } s-dsg-sky--${chrome.scenery ?? "none"} s-dsg-orn--${
+          chrome.ornament ?? "asterism"
         }${sticky !== "none" ? " s-dsn--sticky" : ""}`}
         style={style}
         data-lang={language}
         aria-hidden="true"
       >
+        {/* A card that sells a design standing in a starfield has to be
+            standing in one. The layer is the live site's, and presets.css
+            gives it the box a canvas has instead of the scroller it does
+            not. */}
+        {(chrome.scenery ?? "none") !== "none" && (
+          <>
+            <div className="s-dsn-sky s-dsn-sky--ink" aria-hidden="true" />
+            <div className="s-dsn-sky s-dsn-sky--hue" aria-hidden="true" />
+          </>
+        )}
         <PreviewContentProvider value={content}>
           <div
             className={`s-dsg-top${

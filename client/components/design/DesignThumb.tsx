@@ -252,6 +252,11 @@ export default function DesignThumb({ design, seed, className }: DesignThumbProp
   // Each default is restated because a preset's sections and chrome reach this
   // component as AUTHORED, without passing the normalizer.
   const surface = design.chrome.surface ?? "flat";
+  // THE WORLD IS THE ONE THING A 200px CARD ALWAYS RESOLVES. Two designs that
+  // differ in measure and in face are one grey card twice; two that differ in
+  // sky are two cards. It is the reason `scenery` earned a place on a miniature
+  // that deliberately refuses `nav.style`.
+  const scenery = design.chrome.scenery ?? "none";
   const form = footer.form ?? "columns";
   const sections = design.sections.filter((section) => !section.hidden).slice(0, 6);
   // The column, as a PERCENTAGE of the canvas the design is drawn against —
@@ -269,10 +274,11 @@ export default function DesignThumb({ design, seed, className }: DesignThumbProp
 
   return (
     <div
-      className={`s-dsgt s-dsgt--${design.site.density} s-dsgt--surf-${surface}${className ? ` ${className}` : ""}`}
+      className={`s-dsgt s-dsgt--${design.site.density} s-dsgt--surf-${surface} s-dsgt--sky-${scenery}${className ? ` ${className}` : ""}`}
       style={style}
       aria-hidden="true"
     >
+      {scenery !== "none" && <span className="s-dsgt-sky" />}
       <div className={`s-dsgt-head s-dsgt-head--${header.layout} s-dsgt-head--${header.density}${header.divider ? " s-dsgt-head--ruled" : ""}`}>
         <span className={`s-dsgt-mark${typography.headingCase === "uppercase" ? " s-dsgt-mark--upper" : ""}`} />
         {header.showTagline && <span className="s-dsgt-tagline" />}

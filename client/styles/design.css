@@ -1195,8 +1195,46 @@
 }
 
 .s-dsn-div--dots::before {
-  content: "✦✦✦";
+  /* THE MARK IS THE DESIGN'S, NOT THE PRODUCT'S. `✦` is Vellum's own wordmark
+     and it was hard-coded into both dividers, so every design on the shelf
+     signed its breaks with our monogram — including, once the scenery landed, a
+     page standing in a starfield. `--dsg-orn` is set per design by
+     `.s-dsg-orn--*` below and falls back to the wordmark, so a document written
+     before the field existed draws exactly the character it always drew. The
+     three-up spelling is built by repeating the variable rather than by storing
+     a three-glyph string: one table, and the ornament divider reads the same
+     one. */
+  content: var(--dsg-orn, "✦") var(--dsg-orn, "✦") var(--dsg-orn, "✦");
   font-size: 0.7rem;
+}
+
+/* The six marks. A closed set of GLYPHS rather than images, because a preset
+   may not name a file, a divider has to survive `print.css` and a copy, and a
+   screen reader is told to ignore it either way — and all six sit inside
+   U+2020..U+27BF, which the serif, sans and mono stacks all cover, so nobody
+   gets a box. `shared/designChrome.ts` carries what each one is FOR. */
+.s-dsg-orn--asterism {
+  --dsg-orn: "✦";
+}
+
+.s-dsg-orn--star {
+  --dsg-orn: "✧";
+}
+
+.s-dsg-orn--burst {
+  --dsg-orn: "✶";
+}
+
+.s-dsg-orn--moon {
+  --dsg-orn: "☾";
+}
+
+.s-dsg-orn--lozenge {
+  --dsg-orn: "◈";
+}
+
+.s-dsg-orn--fleuron {
+  --dsg-orn: "❦";
 }
 
 /* THE ORNAMENT IS THE READING VIEW'S OWN DIVIDER, drawn by the same idiom and
@@ -1231,7 +1269,7 @@
    mirrors. Auto margins between two zeroed inline insets are the one centring
    idiom that means the same thing in both directions. */
 .s-dsn-div--ornament::after {
-  content: "✦";
+  content: var(--dsg-orn, "✦");
   position: absolute;
   inset-block-start: 50%;
   inset-inline: 0;
@@ -1807,6 +1845,50 @@
   /* Graph paper's cell is TWO line boxes. See `.s-dsg-surf--grid` for why the
      square grew rather than the ink. */
   --dsg-surf-cell: calc(var(--dsg-surf-pitch) * 2);
+
+  /* THE SKY'S OWN LIGHT, mixed once here so that five worlds cost twenty-one
+     rooms nothing. Three of the four are the room's ACCENT, which is what makes
+     a starfield in `sidereal` cold starlight, one in `murex` Tyrian and one in
+     `phosphor` a green nobody else has — and it is why the scenery list has no
+     colour control on it. The fourth is INK, because a halftone screen and a
+     contour line are printing marks and a printing mark is the colour of the
+     ink rather than of the room.
+
+     The pitch of the alphas is set in the measured table below, not here. */
+  /* A STAR IS MOSTLY WHITE WITH THE ROOM'S TINT IN IT — starlight has a colour
+     and it is never the accent at full strength. Mixed the other way (74%
+     accent into white, which was the first draft) a night room got a warm star
+     and cream paper got a dark speck, which is a smudge rather than a sky. */
+  --dsg-sky-near: color-mix(in srgb, var(--accent) 42%, #ffffff);
+  --dsg-sky-far: color-mix(in srgb, var(--accent) 58%, #ffffff);
+  /* THE LIGHT, and it is nearly the accent itself. It can be, because the layer
+     it is painted on writes hue and chroma only — see the argument below the
+     surfaces. A 9% wash was what the first, luminance-carrying draft could
+     afford, and it is the reason that draft was invisible. */
+  --dsg-sky-hue: color-mix(in srgb, var(--accent) 82%, transparent);
+  /* THE SAME LIGHT WITH ITS VALUE STILL IN IT. A colour blend cannot brighten a
+     near-black room — it writes hue and chroma and keeps the ground's
+     luminosity — so on `murex` and `nocturne` the curtains and the dusk came
+     out as a violet nobody could see. This is their twin on the marks layer:
+     ordinary compositing, so it lifts the ground, which is legal for exactly
+     the reason every other mark is legal — the mask takes it to nothing at the
+     reading column's edge and it lives where nothing is read. */
+  --dsg-sky-glow: color-mix(in srgb, var(--accent) 52%, transparent);
+  /* NINE PERCENT, WHICH IS THREE TIMES THE LOUDEST SURFACE, and it is legal for
+     one reason: none of it is ever under a word. The mask below takes both
+     layers to nothing at the reading column's edge, so a contour line and a
+     halftone dot live in the margin where the only thing to be legible against
+     is the page. An ink bounded by a ratio would be 1.4% — that was the first
+     draft, and it drew a fax. */
+  --dsg-sky-ink: color-mix(in oklab, var(--text) 9%, transparent);
+}
+
+/* THE PAGE IS A STACKING CONTEXT, so the sky's `z-index: -1` lands between the
+   page's own ground and everything drawn on it rather than escaping into the
+   app and painting under the shell. `.s-dsn` already had the ground; this is
+   the one line that makes a layer BEHIND it possible. */
+.s-dsn {
+  isolation: isolate;
 }
 
 /* `flat` draws nothing, and it is written out anyway so that five values are
@@ -1912,6 +1994,580 @@
     repeating-linear-gradient(113deg, var(--dsg-surf-fleck-2) 0 2px, transparent 2px 17px),
     repeating-linear-gradient(71deg, var(--dsg-surf-fleck-2) 0 2px, transparent 2px 23px);
   background-attachment: local;
+}
+
+
+/* ── The scenery ──────────────────────────────────────────────────────────
+   THE WORLD BEHIND THE PAGE. `shared/designChrome.ts` carries the argument for
+   why this is a second axis rather than five more values of `surface`; what is
+   here is the drawing, the geometry, and the measurement that decided the whole
+   architecture of the layer.
+
+   ── THE LAYER IS ONE STICKY DIV WITH NO HEIGHT ──────────────────────────────
+   `.s-dsn` is the scrollport, so a `position: absolute; inset: 0` layer would
+   be one screen tall pinned to the TOP OF THE CONTENT and would scroll away at
+   the first flick — a sky that ends. Sticky at `inset-block-start: 0` with
+   `block-size: 0` contributes nothing to flow and stays pinned to the top of
+   the WINDOW; the fields hang one screen down from it, so the world is always
+   exactly the visible box and the reader travels through it. That is the whole
+   difference from a surface, which is `background-attachment: local` and
+   travels WITH the words because it is printed on the sheet.
+
+   `--dsg-sky-h` is the one number that differs between the live site and a
+   gallery card: in a scrollport a screen is `100dvh`, and in the canvas — which
+   is not a scroller, so `sticky` degrades to static — the layer is given a real
+   box and a screen is `100%` of it (presets.css).
+
+   IT IS NOT CONTENT: `aria-hidden`, empty, `pointer-events: none`, `z-index:
+   -1` inside `.s-dsn`'s own `isolation: isolate`, so the negative index cannot
+   escape the page and slide under the app.
+
+   ── THE MEASUREMENT THAT REWROTE THE FEATURE ────────────────────────────────
+   Worth the space, because the obvious build of a scenery cannot ship and the
+   reason is a number rather than a taste.
+
+   The first cut was one layer of translucent accent, bounded like a surface,
+   and it was measured like one: paint the sky ALONE over each room's ground
+   with the animations running, screenshot real pixels, and ratio the three text
+   tokens against the WORST pixel in the frame. Six worlds × twenty-one rooms:
+
+     world        worst --muted        worst --faint
+     aurora       4.13  (parchment)    2.61  (linen)
+     starfield    4.32  (parchment)    2.72  (linen)
+     horizon      4.49  (parchment)    2.83  (linen)
+     topography   4.55  (parchment)    2.87  (linen)
+     halftone     4.59  (parchment)    2.90  (linen)
+     — and the BARE ground, for scale: 5.01 (parchment) and 3.16 (linen).
+
+   Every world failed, including the quietest, and the last line says why.
+   `--text-muted` starts at 5.01 against a 4.5 floor and `--text-faint` at 3.16
+   against a 3.0 floor — 0.51 and 0.16 of room — AND THE FIVE SURFACES HAD
+   ALREADY SPENT MOST OF THE SECOND ONE. (Measured here rather than assumed: on
+   `linen`, `ruled`/`grid`/`paper` come in at 2.95–2.97 with no sky at all. The
+   surfaces' own table was taken over five rooms and `linen` was not one of
+   them. That is a pre-existing reading, not this feature's, and it is recorded
+   because a matrix that finds it and does not say so is worse than no matrix.)
+
+   A decoration bounded to 0.16 of a ratio is exactly the seventy-one designs
+   this feature exists because of. Turning the alphas down would have shipped
+   the complaint.
+
+   ── SO THE WORLD STOPS WHERE THE WORDS START ────────────────────────────────
+   A ratio is only ever measured under TEXT; text only ever happens inside the
+   reading column, `--dsn-width` wide and centred; outside it there is nothing
+   to be legible against. So both layers wear one mask, full strength in the
+   margins and TRANSPARENT across the column, with 140px of falloff that lands
+   exactly on the column's edge. The ground under every word is then byte-for-
+   byte the ground the same design has with no scenery at all — which is a
+   guarantee by construction rather than a margin somebody measured, and the
+   630-row matrix below is how it was checked rather than how it was decided.
+
+   That is also why every design on Studio D's shelf keeps a narrow page: the
+   world lives in the margins, so a design that wants one has to leave it
+   somewhere to be (`shared/presetsSignatureD.ts`).
+
+   ── AND WHY THERE ARE STILL TWO LAYERS ──────────────────────────────────────
+   Not for safety — the mask does that — but because a coloured light and a
+   translucent wash are different things and a world needs both.
+
+     .s-dsn-sky--ink   NORMAL BLEND. The marks (stars, contour rings, halftone
+                       dots) and the VALUE of the light: aurora's curtains and
+                       horizon's dusk drawn again in `--dsg-sky-glow`. This is
+                       the layer that can BRIGHTEN a room.
+     .s-dsn-sky--hue   `mix-blend-mode: color`. The COLOUR of the light: it
+                       writes hue and chroma and keeps the backdrop's
+                       luminosity, so a curtain over parchment is parchment gone
+                       violet rather than parchment gone pale. A translucent
+                       wash cannot do that — it washes the ground out — and a
+                       colour blend cannot do the other thing: on `murex` and
+                       `nocturne` the dusk was a violet nobody could see until
+                       it got its twin on the layer above.
+
+   THEY ARE SIBLINGS AND THEY HAD TO BE, which cost a round to learn. The light
+   was first written as a CHILD of the marks layer and measured a cost of
+   exactly 0.00 in every room — true, and not a result: `.s-dsn-sky` carries
+   `z-index: -1`, every stacking context is an ISOLATED GROUP for compositing,
+   and a `mix-blend-mode` inside one sees a transparent backdrop and paints its
+   own raw colour. It was a nebula that had not been drawn. Two siblings under
+   `.s-dsn`, whose `isolation: isolate` is the group the blend is meant to see.
+
+   Four slots in all — two elements, two pseudos each — which is what let
+   `starfield` be two star fields AND a galaxy.
+
+   ── WHAT THE FINAL BUILD MEASURES ───────────────────────────────────────────
+   Same method, and a bigger matrix than the surfaces ever faced, because a
+   scenery does not replace a ground — it stands behind one. Six worlds × five
+   surfaces × twenty-one rooms, 630 rows, screenshotted INSIDE the reading
+   column with the animations running:
+
+     WORLDS      6 (five + `none`)   ROOMS  21   GROUNDS  5   ROWS  630
+     Of the 525 rows that carry a sky, 525 are IDENTICAL to the same room on
+     the same ground with no sky at all. Not "within a rounding error" —
+     identical, in all three tokens, to two decimal places:
+
+       max cost to --text        0.00
+       max cost to --text-muted  0.00
+       max cost to --text-faint  0.00
+
+     …which is what "the world stops where the words start" means when it is
+     built rather than tuned. The floors across the whole matrix are therefore
+     the floors the GROUNDS already had: worst --text 10.29, worst --text-muted
+     4.66 against 4.5, worst --text-faint 2.95.
+
+     THAT LAST NUMBER IS NOT THIS FEATURE'S AND IT IS RECORDED ANYWAY. It is
+     `linen` under `ruled` (2.95), `grid` (2.95) and `paper` (2.97), WITH NO SKY
+     — the shipped surfaces, in a room their own five-room table never covered.
+     The scenery's cost on those three rows is 0.00 like everywhere else. A
+     matrix that finds a number and does not say so is worse than no matrix, so
+     it is here, in the file that drew it, for whoever retunes those inks.
+
+     Re-derivable: `scratchpad/sky/measure-sky.mjs` in the session that built
+     this — strip the document to one page root and the two sky layers, set the
+     room and the ground, screenshot INSIDE the reading column with the
+     animations running, decode the PNG, and take the pixel that gives each
+     token its lowest ratio.
+
+   ── prefers-reduced-motion FREEZES IT RATHER THAN DELETING IT ───────────────
+   `ambient.css` deletes its layer and is right to: an atmosphere the OWNER
+   switched on behind a masthead costs nothing when it is gone. A scenery is
+   what the AUTHOR chose their site to stand in, and deleting it hands a reader
+   who asked for less motion a different design. So the fields stay and the
+   drift stops.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+.s-dsn-sky {
+  position: sticky;
+  inset-block-start: 0;
+  /* ONE SCREEN TALL AND WORTH NOTHING IN FLOW. The layer was first written as a
+     zero-height box with its fields hanging off it, which is the smaller trick
+     and the wrong one: the mask below has to sit on a box that DOES NOT MOVE,
+     and the fields move (see it, one rule down). So the box is a real screen
+     and a negative block margin of the same length takes it straight back out
+     of the flow — a LENGTH, not a percentage, because a percentage margin
+     resolves against the inline size and would be one screen wide instead. */
+  block-size: var(--dsg-sky-h, 100dvh);
+  margin-block-end: calc(-1 * var(--dsg-sky-h, 100dvh));
+  z-index: -1;
+  pointer-events: none;
+  /* The aurora's curtains are 160% of the window wide so that neither edge is
+     ever in it; this is what keeps the other 60% out of the scrollport. */
+  overflow: hidden;
+}
+
+.s-dsn-sky::before,
+.s-dsn-sky::after {
+  content: none;
+  position: absolute;
+  inset: 0;
+  background-repeat: repeat;
+}
+
+/* THE PAGE DIMS THE WORLD BEHIND IT, and this one declaration is what let the
+   marks be marks. The reasoning is in the section header; the arithmetic is
+   here. A mark carries VALUE, so it is bounded by a ratio, and the ratio it is
+   bounded by is measured under TEXT — which only ever happens inside the
+   reading column, `--dsn-width` wide and centred. Outside it there is nothing
+   to be legible against. So the marks layer wears a mask that runs at full
+   strength in the margins and at 32% across the column, with an 80px falloff
+   on each side so the transition reads as a page catching the light rather
+   than as an edge somebody drew.
+
+   BOTH LAYERS WEAR IT, and the light layer wears it because the measurement
+   said so and not because it was tidy. `mix-blend-mode: color` keeps the
+   BACKDROP'S LUMINOSITY as CSS compositing defines it — `Lum()` is
+   0.30/0.59/0.11 — and a contrast ratio is WCAG relative luminance, which is
+   0.2126/0.7152/0.0722. The two disagree most on saturated blue, and the row
+   that found it is `sumi` under `aurora`: the worst pixel came back `#09196f`,
+   which is the correct colour-blend of that room's accent over its ground and
+   is 60% brighter than the ground in the units that matter. 3.22 → 2.91 from a
+   layer that was supposed to be free. So the light is masked with the marks.
+
+   THE MASK IS ON THE BOX AND THE FIELDS MOVE INSIDE IT, which is the whole
+   reason the box is a screen tall rather than nothing. A mask is painted in the
+   element's own coordinates and travels with its transform: with the mask on
+   the ::before, the starfield's 340px drift and the aurora's 6% sway carried
+   the clear band along with them, and the measurement showed a "12%" mask
+   costing exactly what a 100% one did — the worst pixel was simply the margin,
+   arrived under the column. Masking the parent and animating the children puts
+   the clear band where the words are and leaves it there.
+
+   `to right` is physical and stays physical: the mask is symmetric about the
+   centre, so it means the same thing in both directions and needs no [dir]
+   rule. */
+.s-dsn-sky {
+  --dsg-sky-edge: calc((100% - var(--dsn-width, 720px)) / 2);
+  /* ON A PHONE THERE IS NO WORLD, and that falls out of the arithmetic rather
+     than needing a query. `--dsg-sky-edge` goes negative the moment the window
+     is narrower than the column, every stop resolves out of order, and a
+     gradient clamps its stops to be non-decreasing — so the transparent pair
+     swallows the whole box and the field is gone. It is the safe direction and
+     it is also the true one: a window with no margins is a window that is all
+     reading column, and a world with nowhere to be is not a world that has been
+     hidden. The design still arrives as its type, its arrangement, its ground
+     and its room, which is what a phone can show of it. */
+  -webkit-mask-image: var(--dsg-sky-mask);
+  mask-image: var(--dsg-sky-mask);
+  --dsg-sky-mask: linear-gradient(
+    to right,
+    #000 0,
+    #000 calc(var(--dsg-sky-edge) - 140px),
+    transparent var(--dsg-sky-edge),
+    transparent calc(100% - var(--dsg-sky-edge)),
+    #000 calc(100% - var(--dsg-sky-edge) + 140px),
+    #000 100%
+  );
+}
+
+/* THE LIGHT LAYER, and the one line that makes a loud sky legal. `color` takes
+   the hue and the chroma of this layer and the LUMINOSITY of what is under it,
+   so a curtain of Tyrian over parchment is parchment that has gone violet
+   rather than parchment that has gone dark — and a contrast ratio, which reads
+   luminance and nothing else, barely moves. The residual movement is real and
+   is measured above: CSS's `Lum()` is 0.30/0.59/0.11 and WCAG's relative
+   luminance is 0.2126/0.7152/0.0722, so the two disagree by a little and the
+   table is taken rather than assumed. */
+.s-dsn-sky--hue {
+  mix-blend-mode: color;
+}
+
+/* ── starfield ──────────────────────────────────────────────────────────────
+   Two dot fields at two scales drifting at two rates, which is the trick the
+   ambient layer found: one field of dots at one speed reads as a moving
+   texture and two read as DEPTH. The near field is starlight — the room's
+   accent mixed toward white, so sidereal's sky is cold, murex's is Tyrian and
+   phosphor's is a green no other room has — and the far one is the accent
+   itself, larger and dimmer, breathing on a period that never locks step with
+   the drift.
+
+   A STAR IS THE ONE MARK THAT COSTS NOTHING TO MAKE BRIGHT, and that is
+   geometry rather than luck. On a dark room it is a 1px near-white dot on
+   near-black, which is the case `ambient.css` measured at 9.63; on a LIGHT room
+   `--dsg-sky-near` is the accent already mixed 74% toward white, so it lands on
+   pale paper as almost the paper. The fields are the loudest normal-blend marks
+   in the file for that reason.
+
+   THE GALAXY IS ON THE LIGHT LAYER, where a band of that size has to be. */
+
+.s-dsg-sky--starfield .s-dsn-sky--ink::before {
+  content: "";
+  opacity: 0.5;
+  background-size: 340px 340px;
+  background-image:
+    radial-gradient(1px 1px at 14% 11%, var(--dsg-sky-near) 50%, transparent 52%),
+    radial-gradient(1px 1px at 62% 24%, var(--dsg-sky-near) 50%, transparent 52%),
+    radial-gradient(1px 1px at 33% 47%, var(--dsg-sky-near) 50%, transparent 52%),
+    radial-gradient(1px 1px at 88% 58%, var(--dsg-sky-near) 50%, transparent 52%),
+    radial-gradient(1px 1px at 51% 72%, var(--dsg-sky-near) 50%, transparent 52%),
+    radial-gradient(1px 1px at 8% 84%, var(--dsg-sky-near) 50%, transparent 52%),
+    radial-gradient(1px 1px at 74% 91%, var(--dsg-sky-near) 50%, transparent 52%);
+  animation: s-dsg-sky-drift 150s linear infinite;
+}
+
+.s-dsg-sky--starfield .s-dsn-sky--ink::after {
+  content: "";
+  opacity: 0.42;
+  background-size: 620px 620px;
+  background-image:
+    radial-gradient(2px 2px at 27% 19%, var(--dsg-sky-far) 50%, transparent 60%),
+    radial-gradient(2px 2px at 71% 41%, var(--dsg-sky-far) 50%, transparent 60%),
+    radial-gradient(2px 2px at 44% 66%, var(--dsg-sky-far) 50%, transparent 60%),
+    radial-gradient(2px 2px at 91% 82%, var(--dsg-sky-far) 50%, transparent 60%),
+    radial-gradient(2px 2px at 12% 93%, var(--dsg-sky-far) 50%, transparent 60%);
+  animation:
+    s-dsg-sky-drift-far 260s linear infinite,
+    s-dsg-sky-breathe 13s ease-in-out infinite alternate;
+}
+
+/* The band, on the light layer: one wide ellipse across the upper third,
+   drifting slowly enough that a galaxy moves like a galaxy. */
+.s-dsg-sky--starfield .s-dsn-sky--hue::before {
+  content: "";
+  background-repeat: no-repeat;
+  background-size: 175% 64%;
+  background-position: 50% 20%;
+  background-image: radial-gradient(
+    58% 50% at 50% 50%,
+    var(--dsg-sky-hue) 0%,
+    color-mix(in srgb, var(--dsg-sky-hue) 40%, transparent) 46%,
+    transparent 74%
+  );
+  animation: s-dsg-sky-drift-far 260s linear infinite;
+}
+
+@keyframes s-dsg-sky-drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-340px, 340px, 0);
+  }
+}
+
+@keyframes s-dsg-sky-drift-far {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-620px, 620px, 0);
+  }
+}
+
+@keyframes s-dsg-sky-breathe {
+  from {
+    opacity: 0.26;
+  }
+  to {
+    opacity: 0.5;
+  }
+}
+
+/* ── aurora ─────────────────────────────────────────────────────────────────
+   Curtains, not a gradient, and the world that is ENTIRELY light: it has no
+   marks layer at all, which is why it can be the loudest thing on the shelf and
+   still be the cheapest thing in this file to justify. Two sets of broad bands
+   cut at 68° and 104° — angles that are not each other's complement, so where
+   they cross they make a shape rather than a lattice — travelling across the
+   window on 90s and 140s, periods that share no factor and therefore never
+   draw the same picture twice in a reading session.
+
+   THE BANDS ARE OVERSIZED AND THE BOX TRAVELS, rather than the gradient's stops
+   animating. Animating a `background-position` is a paint every frame; a
+   `translate3d` on a layer 160% of the window wide is a composite, and the
+   layer is wide enough that neither edge is ever in the window. */
+
+.s-dsg-sky--aurora .s-dsn-sky--hue::before,
+.s-dsg-sky--aurora .s-dsn-sky--hue::after,
+.s-dsg-sky--aurora .s-dsn-sky--ink::before {
+  content: "";
+  inset-inline: -30%;
+  background-repeat: no-repeat;
+}
+
+/* The curtain that carries light rather than colour — same angle, same period,
+   same travel, so the two are one curtain and not two. */
+.s-dsg-sky--aurora .s-dsn-sky--ink::before {
+  opacity: 0.5;
+  background-image: repeating-linear-gradient(
+    68deg,
+    transparent 0 4%,
+    var(--dsg-sky-glow) 8%,
+    color-mix(in srgb, var(--dsg-sky-glow) 45%, transparent) 13%,
+    transparent 18% 24%
+  );
+  animation: s-dsg-sky-curtain 90s ease-in-out infinite alternate;
+}
+
+.s-dsg-sky--aurora .s-dsn-sky--hue::before {
+  background-image: repeating-linear-gradient(
+    68deg,
+    transparent 0 4%,
+    var(--dsg-sky-hue) 8%,
+    color-mix(in srgb, var(--dsg-sky-hue) 45%, transparent) 13%,
+    transparent 18% 24%
+  );
+  animation: s-dsg-sky-curtain 90s ease-in-out infinite alternate;
+}
+
+.s-dsg-sky--aurora .s-dsn-sky--hue::after {
+  opacity: 0.72;
+  background-image: repeating-linear-gradient(
+    104deg,
+    transparent 0 8%,
+    color-mix(in srgb, var(--dsg-sky-hue) 75%, transparent) 13%,
+    transparent 20% 33%
+  );
+  animation: s-dsg-sky-curtain-slow 140s ease-in-out infinite alternate;
+}
+
+@keyframes s-dsg-sky-curtain {
+  from {
+    transform: translate3d(-6%, 0, 0);
+  }
+  to {
+    transform: translate3d(6%, 0, 0);
+  }
+}
+
+@keyframes s-dsg-sky-curtain-slow {
+  from {
+    transform: translate3d(5%, 0, 0);
+  }
+  to {
+    transform: translate3d(-7%, 0, 0);
+  }
+}
+
+/* ── horizon ────────────────────────────────────────────────────────────────
+   THE ONE WORLD THAT NAMES A DIRECTION, and the only one that does not move. A
+   vast glow standing off the bottom edge of the window and a fainter one
+   answering it at the top: dusk, or a planet just out of frame. It is pinned to
+   the WINDOW like every scenery, so the glow stays under the reader's feet
+   however far down the page they are — which is what a horizon is.
+
+   Nothing here is animated. A horizon that drifted would be a horizon seen from
+   a ship, and two worlds that move is already as much motion as a page of prose
+   wants; this is the one to pick when the answer to "should the page move" is
+   no and the answer to "should it be somewhere" is yes. */
+
+/* THE GLOW COMES UP THE SIDES, and that is the mask's doing rather than a
+   picture-book horizon. Every scenery is taken to nothing across the reading
+   column, so a world whose only structure is a band along the BOTTOM has its
+   whole subject deleted and leaves two lit corners. The first cut did exactly
+   that and read as a gradient somebody forgot. So the dusk is drawn as three
+   sources rather than one: a broad low band that is wide enough for its
+   shoulders to clear the column, and a tall soft glow standing at each margin
+   — the light a page has behind it when the sun is down and not yet gone. */
+.s-dsg-sky--horizon .s-dsn-sky--hue::before {
+  content: "";
+  background-repeat: no-repeat;
+  background-image: radial-gradient(
+    170% 78% at 50% 116%,
+    var(--dsg-sky-hue) 0%,
+    color-mix(in srgb, var(--dsg-sky-hue) 52%, transparent) 34%,
+    transparent 76%
+  );
+}
+
+.s-dsg-sky--horizon .s-dsn-sky--ink::before {
+  content: "";
+  opacity: 0.62;
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-image:
+    radial-gradient(170% 78% at 50% 116%, var(--dsg-sky-glow) 0%, transparent 74%),
+    radial-gradient(46% 86% at 0% 96%, var(--dsg-sky-glow) 0%, transparent 72%),
+    radial-gradient(46% 86% at 100% 96%, var(--dsg-sky-glow) 0%, transparent 72%);
+}
+
+.s-dsg-sky--horizon .s-dsn-sky--hue::after {
+  content: "";
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-image:
+    radial-gradient(46% 86% at 0% 96%, var(--dsg-sky-hue) 0%, transparent 72%),
+    radial-gradient(46% 86% at 100% 96%, var(--dsg-sky-hue) 0%, transparent 72%),
+    radial-gradient(
+      120% 42% at 50% -10%,
+      color-mix(in srgb, var(--dsg-sky-hue) 55%, transparent) 0%,
+      transparent 72%
+    );
+}
+
+/* ── topography ─────────────────────────────────────────────────────────────
+   Contour rings from two survey points at two pitches — a map of ground nobody
+   has walked. `repeating-radial-gradient` draws the whole sheet in one
+   declaration, which is the only reason a hundred rings cost what five dots
+   cost.
+
+   THIS ONE IS DRAWN IN INK, on the MARKS layer, and that is a decision rather
+   than an oversight: a contour line is a line somebody drew and a line has a
+   value. So it is bounded the way the surfaces are, and the two sets each carry
+   half the weight because they CROSS — alpha compounds as 1 − (1 − a)ⁿ, so two
+   2% rings meeting composite to 3.96%, which is the number the table above was
+   taken against and not the 2% either rule names. It gets a wash of the room's
+   own light underneath (the light layer, free), which is what keeps a page of
+   hairlines from reading as a fax. */
+
+.s-dsg-sky--topography .s-dsn-sky--ink::before {
+  content: "";
+  background-repeat: no-repeat;
+  background-image: repeating-radial-gradient(
+    circle at 22% 28%,
+    transparent 0 46px,
+    var(--dsg-sky-ink) 46px 48px
+  );
+}
+
+.s-dsg-sky--topography .s-dsn-sky--ink::after {
+  content: "";
+  background-repeat: no-repeat;
+  background-image: repeating-radial-gradient(
+    circle at 84% 76%,
+    transparent 0 62px,
+    var(--dsg-sky-ink) 62px 64px
+  );
+}
+
+/* THE SAME TWO SURVEYS AGAIN, IN CHROMA, over a wash of the room's own light.
+   This is the half that makes the world visible: at 1.4% the rings are barely
+   an edge, and a coloured copy of them at the identical geometry gives that
+   edge a body without touching a luminance. Three layers on one element,
+   because a `background-image` is a list. */
+.s-dsg-sky--topography .s-dsn-sky--hue::before {
+  content: "";
+  background-repeat: no-repeat;
+  background-image:
+    repeating-radial-gradient(
+      circle at 22% 28%,
+      transparent 0 46px,
+      var(--dsg-sky-hue) 46px 49px
+    ),
+    repeating-radial-gradient(
+      circle at 84% 76%,
+      transparent 0 62px,
+      var(--dsg-sky-hue) 62px 65px
+    ),
+    radial-gradient(120% 90% at 30% 20%, var(--dsg-sky-hue) 0%, transparent 82%);
+}
+
+/* ── halftone ───────────────────────────────────────────────────────────────
+   THE ONE WORLD MADE OF INK AND NOTHING ELSE — no light layer at all, because a
+   dot screen is a printing artefact and a printing artefact is the colour of
+   the ink rather than of the room.
+
+   THE LATTICE IS 45° WITHOUT A ROTATION. One dot grid at the tile's origin and
+   a second offset by half a tile in both axes IS a 45° lattice — the same
+   picture a `rotate(45deg)` would draw, without the four corners a rotated
+   layer leaves empty and without taking the layer off the compositor's simple
+   path. The second, coarser screen behind it is what keeps a flat pattern from
+   reading as graph paper: two pitches that are not multiples (18 and 29) beat
+   against each other slowly enough to look like a press.
+
+   ITS DOTS ARE THE SAME INK THE CONTOURS ARE, and they overlap far less — two
+   screens at co-prime pitches coincide rarely — so this is the quietest of the
+   five in the table and the loudest of them to the eye, which is what a
+   halftone is for. */
+
+.s-dsg-sky--halftone .s-dsn-sky--ink::before {
+  content: "";
+  background-size: 18px 18px;
+  background-image:
+    radial-gradient(2px 2px at 4px 4px, var(--dsg-sky-ink) 60%, transparent 64%),
+    radial-gradient(2px 2px at 13px 13px, var(--dsg-sky-ink) 60%, transparent 64%);
+}
+
+.s-dsg-sky--halftone .s-dsn-sky--ink::after {
+  content: "";
+  opacity: 0.7;
+  background-size: 29px 29px;
+  background-image: radial-gradient(
+    3px 3px at 10px 19px,
+    var(--dsg-sky-ink) 55%,
+    transparent 62%
+  );
+}
+
+/* THE SECOND PASS, which is what a riso print is: the same screen again, in
+   colour, slightly off the first. Here it is exactly on it — the offset is in
+   the pitch (23 against 18), so the two passes drift in and out of register
+   across the page the way two drums do. It costs no ratio, so it carries the
+   weight the ink cannot. */
+.s-dsg-sky--halftone .s-dsn-sky--hue::before {
+  content: "";
+  background-size: 23px 23px;
+  background-image:
+    radial-gradient(2.5px 2.5px at 5px 5px, var(--dsg-sky-hue) 58%, transparent 64%),
+    radial-gradient(2.5px 2.5px at 16px 17px, var(--dsg-sky-hue) 58%, transparent 64%);
+}
+
+/* The setting that stops the motion and does not take the sky away — the
+   argument is at the top of this section. `starfield` becomes a still sky,
+   `aurora` a still curtain, and the three that never moved are untouched. */
+@media (prefers-reduced-motion: reduce) {
+  .s-dsn-sky--ink::before,
+  .s-dsn-sky--ink::after,
+  .s-dsn-sky--hue::before,
+  .s-dsn-sky--hue::after {
+    animation: none;
+  }
 }
 
 /* ── Header ────────────────────────────────────────────────────────────── */
@@ -2941,4 +3597,18 @@
 /* Sticky chrome must never hide a jumped-to heading. */
 .s-dsn .s-rv-h {
   scroll-margin-top: 72px;
+}
+
+/* AND AN ESSAY BREAKS ITSELF WITH THE DESIGN'S MARK, not with the product's.
+   `***` in a note draws the reading view's ornament rule, which hard-codes `✦`
+   — Vellum's own wordmark — in `reading/reading.css`. Inside a composed site
+   that is the one place left where a page standing in a starfield still signs
+   itself with somebody else's monogram, and it is the place a reader spends
+   the most time. Same variable the two composed dividers read, same fallback,
+   so an article on the stock blog and an article in a design that never chose
+   a mark both draw exactly what they drew before. Scoped to `.s-dsn`, like the
+   three rules above it and for the same reason: this renderer is a second one,
+   and it says so itself rather than borrowing a selector. */
+.s-dsn .s-rv-hr--orn::after {
+  content: var(--dsg-orn, "✦");
 }

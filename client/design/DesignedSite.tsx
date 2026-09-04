@@ -277,7 +277,7 @@ export default function DesignedSite() {
       // writing and gives the header a seam. `flat` emits the class too and
       // draws nothing, so the five values are five rules and none of them is
       // "the absence of a rule".
-      className={`s-dsn s-dsg s-dsn--${site.density} s-dsg-surf--${chrome.surface}${sticky !== "none" ? " s-dsn--sticky" : ""}`}
+      className={`s-dsn s-dsg s-dsn--${site.density} s-dsg-surf--${chrome.surface} s-dsg-sky--${chrome.scenery} s-dsg-orn--${chrome.ornament}${sticky !== "none" ? " s-dsn--sticky" : ""}`}
       style={style}
       ref={scrollRef}
       // Chrome copy inside re-renders on a live language switch; keeping the
@@ -285,6 +285,29 @@ export default function DesignedSite() {
       // it.
       data-lang={language}
     >
+      {/* THE SKY IS THE FIRST CHILD, and that is load-bearing rather than
+          tidy: it is a zero-height `sticky` box, and a sticky box pins to the
+          top of the scrollport only from the position it occupies in flow.
+          Below the masthead it would pin one masthead down and the world would
+          begin under the site's own name. It is empty, `aria-hidden` and
+          `pointer-events: none` — decoration in the 1.4.3 sense, which is the
+          only footing on which a moving thing belongs near a page of prose —
+          and it is absent entirely when the design stands in no world, so the
+          designs that had no sky do not grow a node. */}
+      {chrome.scenery !== "none" && (
+        <>
+          {/* TWO LAYERS, AND THEY ARE SIBLINGS RATHER THAN NESTED. The marks
+              carry value and are bounded by a measured ratio; the light carries
+              hue and is not. They cannot be one element because they blend
+              differently, and they cannot be parent and child because a layer
+              with `z-index: -1` is a stacking context and therefore an isolated
+              group — a blend inside one sees no backdrop and paints raw. Both
+              are empty, `aria-hidden` and `pointer-events: none`. */}
+          <div className="s-dsn-sky s-dsn-sky--ink" aria-hidden="true" />
+          <div className="s-dsn-sky s-dsn-sky--hue" aria-hidden="true" />
+        </>
+      )}
+
       {owner && (failures.length > 0 || notice) && (
         <OwnerNotice
           failures={failures}
