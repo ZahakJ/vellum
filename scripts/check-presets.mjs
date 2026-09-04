@@ -369,6 +369,14 @@ const chromeShape = (chrome) =>
   [
     chrome?.header?.layout ?? "stacked",
     chrome?.surface ?? "flat",
+    // THE WORLD IS THE LOUDEST TERM IN THIS KEY, and it joined for the reason
+    // the ground did rather than as bookkeeping. A design standing in a
+    // starfield and one standing in nothing are not twins at ANY size — the
+    // scenery is the first thing a 200px card resolves, which is exactly the
+    // bar the other three terms are held to, and `DesignThumb` draws it beside
+    // them. `ornament` is deliberately out, for the reason `nav.style` is: a
+    // 7px divider is a 7px divider whichever glyph is centred on it.
+    chrome?.scenery ?? "none",
     chrome?.footer?.form ?? "columns",
   ].join(":");
 const shapes = new Map();

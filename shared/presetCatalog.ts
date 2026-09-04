@@ -1,4 +1,4 @@
-// THE SHIPPED CATALOG. Seventy-one finished designs, as data.
+// THE SHIPPED CATALOG. Seventy-six finished designs, as data.
 //
 // FOUR ARE HERE. The rest are written against the same three rules,
 // and the rules are the whole contract for adding one:
@@ -57,6 +57,7 @@ import { PORTFOLIO_PRESETS } from "./presetsPortfolio.ts";
 import { SIGNATURE_A_PRESETS } from "./presetsSignatureA.ts";
 import { SIGNATURE_B_PRESETS } from "./presetsSignatureB.ts";
 import { SIGNATURE_C_PRESETS } from "./presetsSignatureC.ts";
+import { SIGNATURE_D_PRESETS } from "./presetsSignatureD.ts";
 import {
   assertCatalog,
   presetChrome as chrome,
@@ -267,11 +268,18 @@ const dispatch: Preset = {
  *  gallery, then the letters — so a shelf of signature designs reads as
  *  arguments of four rather than as loose cards, and the studios themselves are
  *  ordered as a person would browse them: the ones made of TYPE, then the ones
- *  made of PICTURES, then the ones made of PAPER. */
+ *  made of PICTURES, then the ones made of PAPER — and then the OBSERVATORY,
+ *  the five houses that are each standing in a world. Studio D goes last of the
+ *  four and not first, though it is the loudest shelf in the building, because
+ *  the gallery's first row is what a reader takes the product to be: a page of
+ *  starfields and dot screens says this is a toy, and the same five cards four
+ *  rows down say the thing that is true, which is that the type came first and
+ *  the sky is also available. */
 export const PRESETS: readonly Preset[] = [
   ...SIGNATURE_A_PRESETS,
   ...SIGNATURE_B_PRESETS,
   ...SIGNATURE_C_PRESETS,
+  ...SIGNATURE_D_PRESETS,
   broadsheet,
   ...EDITORIAL_PRESETS,
   quietPage,
