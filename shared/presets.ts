@@ -151,8 +151,9 @@ export interface Preset {
   tags: string[];
   design: PresetDesign;
   /** Custom themes this preset needs, in the shape an export carries them.
-   *  Empty for every preset built on the built-ins — which is all fifty-nine shipped
-   *  ones. Present only so a preset file authored elsewhere arrives complete. */
+   *  Empty for every preset built on the built-ins — which is all seventy-six
+   *  shipped ones. Present only so a preset file authored elsewhere arrives
+   *  complete. */
   themes?: unknown[];
 }
 
@@ -172,9 +173,11 @@ export function presetChrome(patch: {
   header?: Partial<DesignChrome["header"]>;
   footer?: Partial<DesignChrome["footer"]>;
   nav?: Partial<DesignChrome["nav"]>;
-  /** A scalar, so it merges by REPLACEMENT rather than by spread — the one
-   *  chrome key that is not a group of its own. */
+  /** Scalars, so they merge by REPLACEMENT rather than by spread — the three
+   *  chrome keys that are not a group of their own. */
   surface?: DesignChrome["surface"];
+  scenery?: DesignChrome["scenery"];
+  ornament?: DesignChrome["ornament"];
 }): DesignChrome {
   const base = stockChrome();
   return {
@@ -183,6 +186,8 @@ export function presetChrome(patch: {
     header: { ...base.header, ...patch.header },
     footer: { ...base.footer, ...patch.footer },
     surface: patch.surface ?? base.surface,
+    scenery: patch.scenery ?? base.scenery,
+    ornament: patch.ornament ?? base.ornament,
   };
 }
 

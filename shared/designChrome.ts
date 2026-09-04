@@ -421,12 +421,129 @@ export const CHROME_SURFACES: readonly ChromeSurface[] = [
   "paper",
 ];
 
+/**
+ * THE WORLD BEHIND THE PAGE — the axis the shelf did not have.
+ *
+ * `surface` above answers "what is this printed ON", and it answers it in ink:
+ * five textures, every one of them a `color-mix` of `--text` into transparent,
+ * hue-free by construction so that one rule is right in twenty-one rooms. That
+ * was the correct shape for a sheet of paper and it is the reason sixty designs
+ * could differ in type, in arrangement and in ground and still read, side by
+ * side in the gallery, as sixty settings of the same page. A reader who asked
+ * for "a space design" was told they could have a narrower measure.
+ *
+ * So this is the other question: WHAT IS THE PAGE STANDING IN. A scenery is a
+ * field of LIGHT rather than a texture of ink — it is drawn from the room's own
+ * `--accent`, it is the size of the window rather than the size of a line box,
+ * and it is the one thing on a designed page that is allowed to move. Five
+ * worlds, and they are worlds rather than patterns:
+ *
+ *   none        nothing. The page stands in the room, as every design did.
+ *   starfield   deep sky: two dot fields at different scales drifting at
+ *               different rates, over one faint band of galaxy. The near field
+ *               is starlight (`--accent` mixed toward white); the far one is
+ *               the accent itself, so sidereal's sky is cold, murex's is
+ *               Tyrian and phosphor's is a green nobody else has.
+ *   aurora      three broad soft curtains crossing the window, shifting on
+ *               periods that never lock step.
+ *   horizon     one vast glow rising off the bottom edge — dusk, and the only
+ *               world that names a direction.
+ *   topography  contour rings from two survey points: a map of ground nobody
+ *               has walked.
+ *   halftone    a coarse dot screen at 45°, printed loud. The one world made of
+ *               ink rather than light, and the reason `--text` appears below.
+ *
+ * IT IS FIXED TO THE WINDOW, NOT TO THE PAPER, and that is the whole difference
+ * between a scenery and a surface. `background-attachment: local` is what makes
+ * ruled paper ruled — the lines travel with the words because they are ON the
+ * sheet. A sky does not travel with the words; the reader moves and the sky
+ * stays, which is what makes a page feel like it is somewhere. Mechanically
+ * that is one sticky, zero-height layer pinned to the top of the scrollport,
+ * with the field drawn on its two pseudo-elements (`design.css`).
+ *
+ * IT IS A WHISPER AND THAT IS A MEASUREMENT, exactly as the surfaces are. The
+ * numbers are composited readings taken off real pixels with the animations
+ * running, and they are recorded in `design.css` beside the rules that draw
+ * them — not argued from an alpha, because the first draft of `horizon` argued
+ * from an alpha and measured 3.9 on parchment.
+ *
+ * `prefers-reduced-motion` FREEZES IT RATHER THAN DELETING IT, and this is the
+ * one place this feature parts company with the ambient layer (`ambient.css`,
+ * rule 4). That layer is an atmosphere the OWNER switched on behind a masthead:
+ * with it gone the masthead is the masthead, and deleting it costs nothing. A
+ * scenery is what the AUTHOR chose their site to stand in — deleting it hands a
+ * reader who asked for less motion a different design instead. So the fields
+ * stay, the drift stops, and a reader with the setting on sees the same still
+ * sky in every screenshot.
+ *
+ * IT LIVES ON `chrome` FOR THE REASON `surface` DOES: `site` is a closed
+ * allowlist whose keys are a schema bump, `chrome` is leniently normalized, so
+ * a design written before this field renders with no sky and a design written
+ * after it renders on an older build as the page it always was.
+ */
+export type ChromeScenery =
+  | "none"
+  | "starfield"
+  | "aurora"
+  | "horizon"
+  | "topography"
+  | "halftone";
+
+export const CHROME_SCENERIES: readonly ChromeScenery[] = [
+  "none",
+  "starfield",
+  "aurora",
+  "horizon",
+  "topography",
+  "halftone",
+];
+
+/**
+ * THE MARK A DESIGN SIGNS ITS BREAKS WITH.
+ *
+ * The ornament divider and the dotted one both drew `✦` — Vellum's own
+ * wordmark, hard-coded in `design.css`, on every design on the shelf. That is
+ * the right default and it was the wrong CONSTANT: a page standing in a
+ * starfield that breaks its sections with the product's logo is wearing
+ * somebody else's monogram, and a herbal that breaks them with a fleuron is
+ * saying something the same page with a four-pointed star is not.
+ *
+ * Six marks, closed, and every one of them is a glyph rather than an image
+ * because a preset may not name a file and a divider must survive being printed
+ * (`print.css`), copied, and read by a screen reader that is told to ignore it.
+ * They are chosen from the ranges a text face actually covers — U+2020..U+27BF,
+ * which the serif, sans and mono stacks all have — so a design does not fall
+ * back to a box on somebody else's machine.
+ */
+export type ChromeOrnament =
+  | "asterism" // ✦ the wordmark, and the default every design had
+  | "star" // ✧ hollow — a night sky, a map's legend
+  | "burst" // ✶ six points, heavier: a compass rose at small size
+  | "moon" // ☾ the one mark that is an object rather than a rule
+  | "lozenge" // ◈ geometric, technical, no voice
+  | "fleuron"; // ❦ the printer's leaf, for a page that wants a century
+
+export const CHROME_ORNAMENTS: readonly ChromeOrnament[] = [
+  "asterism",
+  "star",
+  "burst",
+  "moon",
+  "lozenge",
+  "fleuron",
+];
+
 export interface DesignChrome {
   nav: NavDesign;
   typography: TypographyDesign;
   header: HeaderDesign;
   footer: FooterDesign;
   surface: ChromeSurface;
+  /** The paper's tooth, and then the world it is standing in. Two keys rather
+   *  than one enum of twenty because they answer different questions and a
+   *  design routinely wants both — laid paper under a starfield is a letter
+   *  written somewhere. */
+  scenery: ChromeScenery;
+  ornament: ChromeOrnament;
 }
 
 export const DEFAULT_CHROME: DesignChrome = {
@@ -470,6 +587,8 @@ export const DEFAULT_CHROME: DesignChrome = {
     align: "center",
   },
   surface: "flat",
+  scenery: "none",
+  ornament: "asterism",
 };
 
 /** A deep copy of the stock defaults — "reset to stock defaults", and the
@@ -753,6 +872,8 @@ export function normalizeChrome(raw: unknown): DesignChrome {
     header: normHeader(source.header),
     footer: normFooter(source.footer),
     surface: oneOf(source.surface, CHROME_SURFACES, DEFAULT_CHROME.surface),
+    scenery: oneOf(source.scenery, CHROME_SCENERIES, DEFAULT_CHROME.scenery),
+    ornament: oneOf(source.ornament, CHROME_ORNAMENTS, DEFAULT_CHROME.ornament),
   };
 }
 
@@ -1022,10 +1143,14 @@ export function validateChrome(raw: unknown): DesignChrome {
     align: enumKey("footer.align", footerRaw.align, ["start", "center"] as const) ?? "center",
   };
 
-  // ── the ground everything above is printed on
+  // ── the ground everything above is printed on, the world it stands in, and
+  // the mark it breaks itself with
   const surface = enumKey("surface", raw.surface, CHROME_SURFACES) ?? DEFAULT_CHROME.surface;
+  const scenery = enumKey("scenery", raw.scenery, CHROME_SCENERIES) ?? DEFAULT_CHROME.scenery;
+  const ornament =
+    enumKey("ornament", raw.ornament, CHROME_ORNAMENTS) ?? DEFAULT_CHROME.ornament;
 
-  return { nav, typography: typo, header, footer, surface };
+  return { nav, typography: typo, header, footer, surface, scenery, ornament };
 }
 
 // ── Derived values (one implementation, used by the site and the preview) ───

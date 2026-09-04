@@ -17,13 +17,17 @@
 //      `validateChrome` says no out loud. A value one of them accepts and the
 //      other refuses is a design that saves and never loads, or loads and never
 //      saves.
-//   4. `surface` IS A TOP-LEVEL CHROME KEY. It is the only scalar that is not
-//      inside `header` / `footer` / `nav`, which is exactly the shape a loop
-//      over those three groups walks past — it did once, in check-presets.
+//   4. `surface`, `scenery` AND `ornament` ARE TOP-LEVEL CHROME KEYS. They are
+//      the scalars that are not inside `header` / `footer` / `nav`, which is
+//      exactly the shape a loop over those three groups walks past — it did
+//      once, in check-presets, when `surface` was the only one. There are three
+//      now, so the same omission would be three times as quiet.
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  CHROME_ORNAMENTS,
+  CHROME_SCENERIES,
   CHROME_SURFACES,
   DesignError,
   FOOTER_FORMS,
@@ -77,12 +81,20 @@ describe("design chrome: the shape fields", () => {
       assert.equal(chrome.nav.style, "plain");
       assert.equal(chrome.footer.form, "columns");
       assert.equal(chrome.surface, "flat");
+      // THE WHOLE PROMISE OF THE SCENERY RELEASE, in two lines. Every design
+      // on every instance that upgrades was authored without these keys, and
+      // "no sky, and the wordmark on the dividers" is precisely the page each
+      // of them drew yesterday.
+      assert.equal(chrome.scenery, "none");
+      assert.equal(chrome.ornament, "asterism");
     }
   });
 
   it("the stock chrome is the old page, forever", () => {
     const stock = stockChrome();
     assert.equal(stock.surface, "flat");
+    assert.equal(stock.scenery, "none");
+    assert.equal(stock.ornament, "asterism");
     assert.equal(stock.nav.style, "plain");
     assert.equal(stock.footer.form, "columns");
     assert.equal(stock.header.layout, "stacked");
@@ -109,6 +121,27 @@ describe("design chrome: the shape fields", () => {
       assert.equal(normalizeChrome(raw).surface, surface);
       assert.equal(validateChrome(raw).surface, surface);
     }
+    for (const scenery of CHROME_SCENERIES) {
+      const raw = { scenery };
+      assert.equal(normalizeChrome(raw).scenery, scenery);
+      assert.equal(validateChrome(raw).scenery, scenery);
+    }
+    for (const ornament of CHROME_ORNAMENTS) {
+      const raw = { ornament };
+      assert.equal(normalizeChrome(raw).ornament, ornament);
+      assert.equal(validateChrome(raw).ornament, ornament);
+    }
+  });
+
+  it("the two grounds compose: a surface and a scenery are separate answers", () => {
+    // The reason this is a second key rather than five more values of the
+    // first. A texture of ink on the sheet and a field of light behind it are
+    // not alternatives, and a design that wants laid paper under a starfield
+    // must be able to say so in one document.
+    const both = validateChrome({ surface: "paper", scenery: "starfield" });
+    assert.equal(both.surface, "paper");
+    assert.equal(both.scenery, "starfield");
+    assert.deepEqual(normalizeChrome(structuredClone(both)), both);
   });
 
   it("the two masthead shapes this release adds are real values, not strings", () => {
@@ -134,12 +167,20 @@ describe("design chrome: the shape fields", () => {
     assert.equal(refusal({ surface: "linen" }), "surface");
     // A non-string is the same refusal: the vocabulary is the check.
     assert.equal(refusal({ surface: 3 }), "surface");
+    // The two new vocabularies answer the same way, and the names matter: a
+    // reader who hand-edits `scenery: "nebula"` after a changelog gets the
+    // field back, not a page that quietly stands in nothing.
+    assert.equal(refusal({ scenery: "nebula" }), "scenery");
+    assert.equal(refusal({ ornament: "logo" }), "ornament");
+    assert.equal(refusal({ scenery: 3 }), "scenery");
     assert.equal(refusal({ nav: { style: null } }), "nav.style");
   });
 
   it("the lenient half never throws and always lands on the default", () => {
     for (const junk of [undefined, null, 7, "linen", {}, []]) {
       assert.equal(normalizeChrome({ surface: junk }).surface, "flat");
+      assert.equal(normalizeChrome({ scenery: junk }).scenery, "none");
+      assert.equal(normalizeChrome({ ornament: junk }).ornament, "asterism");
       assert.equal(normalizeChrome({ nav: { style: junk } }).nav.style, "plain");
       assert.equal(normalizeChrome({ footer: { form: junk } }).footer.form, "columns");
       assert.equal(normalizeChrome({ header: { layout: junk } }).header.layout, "stacked");
@@ -164,6 +205,8 @@ describe("design chrome: the shape fields", () => {
     // validated, read back leniently, and identical both times.
     const written = validateChrome({
       surface: "ruled",
+      scenery: "topography",
+      ornament: "lozenge",
       header: { layout: "rule", density: "tall" },
       footer: { form: "colophon", align: "center" },
       nav: { style: "underline" },
