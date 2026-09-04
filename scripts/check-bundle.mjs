@@ -508,7 +508,26 @@ const AUDIENCES = [
 // forms) and ~1 kB in `client/styles/presets.css` (the miniature's version) are
 // both in `assets/design-*.css`, lazy on every surface; the four new
 // `<SegmentedControl>` rows are in the designer panel's own chunk.
-  { name: "entry (everyone)", keys: entry, budget: 559 * 1024 },
+// …and once more, for THE SCENERY (559.9 kB actual → 561, actual + ~0.2%), and
+// this one is the cheapest round the design engine has had: the entry's WHOLE
+// share is thirteen dictionary entries in two languages — six world names, six
+// mark names, two hints and a note about motion — and the measurement is exact
+// rather than argued. HEAD was built into a scratch tree and the two closures
+// compared file by file: `assets/index-*.js` 289.7 → 291.2 kB (+1.5), and
+// `assets/index-*.css` IDENTICAL at 129.0 kB, byte for byte, which is the
+// proof that none of the ~9 kB of new rules landed here. The reason a blog
+// reader pays for designer copy is the reason named three rounds up — `t()`
+// reads ONE object on every surface — and the by-language split remains the
+// ~32 kB that would give it back.
+//
+// WHAT DID NOT LAND HERE: ~7 kB in `client/styles/design.css` (five worlds, the
+// six ornament marks, the sticky layer and the measured table) and ~2 kB in
+// `client/styles/presets.css` (the miniature's five worlds and the canvas's one
+// override) are both in `assets/design-*.css`, lazy on every surface; the two
+// new `<SegmentedControl>` rows are in the designer panel's own chunk; and the
+// five new presets are ~9 kB of data in `presetCatalog-*.js`, which is fetched
+// the first time an admin opens the gallery and never by anybody else.
+  { name: "entry (everyone)", keys: entry, budget: 561 * 1024 },
   // RE-BASELINED for the DICTIONARY, and this one deserves naming as a debt
   // rather than a measurement. `client/i18n.ts` is a single object read by
   // `t()` on every surface, so it lands whole in every first paint — and this
@@ -652,7 +671,13 @@ const AUDIENCES = [
   // whole movement is the entry's twenty dictionary entries and sixteen bytes
   // of control CSS, both named above, arriving here because this closure
   // contains the entry.
-  { name: "anonymous blog reader", keys: blog, budget: 774 * 1024 },
+  // …and once more, for THE SCENERY (774.9 kB actual → 776, actual + ~0.14%).
+  // This closure's own share is ZERO again, and measurably so: built against
+  // HEAD in a scratch tree, the twenty-three files here differ by exactly the
+  // entry's +1.6 kB and nothing else. A visitor reading a post on the STOCK
+  // blog fetches no part of the designed shell, so five worlds cost them
+  // thirteen dictionary keys they will never see rendered.
+  { name: "anonymous blog reader", keys: blog, budget: 776 * 1024 },
   // RE-BASELINED for PER-FOLDER TREE ICONS (1089.4 kB actual → 1099.4 kB,
   // budget = actual + ~1.1%), and the growth here is almost all feature A's:
   // +3.4 kB FolderGlyph (now a shared chunk, since the sidebar and the blog
@@ -713,7 +738,15 @@ const AUDIENCES = [
   // draw the mastheads and the grounds are in `design-*.css`, and both are
   // behind the door an admin opens when they are looking at exactly those
   // controls. What moved on the FIRST paint is the entry, named above.
-  { name: "admin first paint", keys: app, budget: 1182 * 1024 },
+  // …and once more, for THE SCENERY (1182.1 kB actual → 1184, actual + ~0.16%),
+  // and the admin's own share is rounding for the third round running: the two
+  // new controls are in `DesignerPanel-*.js`, the rules that draw the five
+  // worlds are in `design-*.css`, the five new designs are in
+  // `presetCatalog-*.js`, and all three are behind the door an admin opens when
+  // they are looking at exactly those things. Measured against a HEAD build:
+  // 1180.6 → 1182.1, which is the entry's +1.5 kB carried here and nothing of
+  // this closure's own.
+  { name: "admin first paint", keys: app, budget: 1184 * 1024 },
 ];
 
 // ── things that must never be in a first paint ──────────────────────────────
