@@ -527,7 +527,13 @@ const AUDIENCES = [
 // new `<SegmentedControl>` rows are in the designer panel's own chunk; and the
 // five new presets are ~9 kB of data in `presetCatalog-*.js`, which is fetched
 // the first time an admin opens the gallery and never by anybody else.
-  { name: "entry (everyone)", keys: entry, budget: 561 * 1024 },
+// …and again for THE WAY BACK (561.5 kB actual → 563, actual + ~0.27%). Six
+// dictionary entries in two languages, and they are the ones that answer "I am
+// afraid to try a design because I like the one I have": what visitors are
+// seeing, the move in each direction, and the sentence saying nothing is lost
+// either way. The bar itself is markup in the designer panel's own chunk and
+// ~70 lines in designer.css, which is loaded with it.
+  { name: "entry (everyone)", keys: entry, budget: 563 * 1024 },
   // RE-BASELINED for the DICTIONARY, and this one deserves naming as a debt
   // rather than a measurement. `client/i18n.ts` is a single object read by
   // `t()` on every surface, so it lands whole in every first paint — and this
@@ -677,7 +683,9 @@ const AUDIENCES = [
   // entry's +1.6 kB and nothing else. A visitor reading a post on the STOCK
   // blog fetches no part of the designed shell, so five worlds cost them
   // thirteen dictionary keys they will never see rendered.
-  { name: "anonymous blog reader", keys: blog, budget: 776 * 1024 },
+  // …and again for THE WAY BACK (776.5 kB actual → 778): the entry's six
+  // dictionary keys, carried. A visitor never opens the designer.
+  { name: "anonymous blog reader", keys: blog, budget: 778 * 1024 },
   // RE-BASELINED for PER-FOLDER TREE ICONS (1089.4 kB actual → 1099.4 kB,
   // budget = actual + ~1.1%), and the growth here is almost all feature A's:
   // +3.4 kB FolderGlyph (now a shared chunk, since the sidebar and the blog
@@ -746,7 +754,9 @@ const AUDIENCES = [
   // they are looking at exactly those things. Measured against a HEAD build:
   // 1180.6 → 1182.1, which is the entry's +1.5 kB carried here and nothing of
   // this closure's own.
-  { name: "admin first paint", keys: app, budget: 1184 * 1024 },
+  // …and again for THE WAY BACK (1183.0 kB actual → 1185): the same six keys.
+  // The bar is in DesignerPanel-*.js, behind the door it is a control on.
+  { name: "admin first paint", keys: app, budget: 1185 * 1024 },
 ];
 
 // ── things that must never be in a first paint ──────────────────────────────

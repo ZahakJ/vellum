@@ -1037,6 +1037,13 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
   // a banner is missing — client/design/previewContent.tsx says why.
   const previewContent = usePreviewBuild({ posts, pages, noteMode: "fetch" });
 
+  /* THE BUTTON IS OFFERED ONLY WHEN THERE IS SOMETHING TO PUT LIVE. Pointing
+     `publicLayout` at "designed" on an instance with no renderable design
+     leaves the owner a notice and drops every visitor to stock — a correct
+     rescue, and a terrible thing to have volunteered. A quarantined document
+     does not count: this build cannot draw it. */
+  const hasDesign = (admin?.designs ?? []).some((d) => !d.quarantine);
+
   return (
     <div
       className="s-dsgr-overlay"
@@ -1076,9 +1083,62 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
           </button>
         </header>
 
-        {publicLayout !== "designed" && (
-          <p className="s-dsgr__offnote">{t("designNotLiveNote")}</p>
-        )}
+        {/* ── THE LIVE BAR ──────────────────────────────────────────────────
+            WHAT ARE VISITORS SEEING, AND HOW DO I PUT IT BACK. Both halves, on
+            screen, in every state, always.
+
+            What was here before was a note that appeared ONLY while the design
+            was off and read "switch it above when you are ready" — a sentence
+            pointing at the `Public site` control in the head, which a reader
+            who has not yet used it does not read as a switch. So it pointed at
+            nothing, and the state it never described at all was the one an
+            author is most likely to want out of: the design already live, with
+            no visible way back except the control they could not find.
+
+            The bar carries the ACTION rather than a description of where the
+            action is, it names the destination in the button ("Back to the
+            stock blog", not "Undo" — nothing was lost and nothing is being
+            repaired), and it prints the sentence that is the whole point in
+            both directions: nothing is lost either way. The segmented control
+            in the head keeps all three rooms including `app`; this is the one
+            move an author makes over and over, done in one press.
+
+            It is also the answer to "I am afraid to try a design because I
+            like the one I have" — which is the report that built it. */}
+        <div
+          className={`s-dsgr__live${publicLayout === "designed" ? " s-dsgr__live--on" : ""}`}
+        >
+          <p className="s-dsgr__livesay">
+            <span className="s-dsgr__livedot" aria-hidden="true" />
+            {publicLayout === "designed"
+              ? t("designLiveOnBody")
+              : publicLayout === "app"
+                ? t("designLiveOffApp")
+                : t("designLiveOffBlog")}
+          </p>
+          {publicLayout === "designed" ? (
+            <button
+              type="button"
+              className="s-btn s-dsgr__livebtn"
+              disabled={busy}
+              onClick={() => setLayout("blog")}
+            >
+              {t("designLiveRevert")}
+            </button>
+          ) : hasDesign ? (
+            <button
+              type="button"
+              className="s-btn s-btn--accent s-dsgr__livebtn"
+              disabled={busy}
+              onClick={() => setLayout("designed")}
+            >
+              {t("designLiveGo")}
+            </button>
+          ) : (
+            <span className="s-dsgr__livenone">{t("designLiveNoneYet")}</span>
+          )}
+          <p className="s-dsgr__livekeep">{t("designLiveKeep")}</p>
+        </div>
         {/* A design this build cannot render is QUARANTINED, not deleted —
             the bytes stay on disk and the notice names it. */}
         {admin?.designs.some((d) => d.quarantine) && (

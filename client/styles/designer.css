@@ -89,6 +89,91 @@
   font-size: 0.82rem;
 }
 
+/* ── The live bar ──────────────────────────────────────────────────────────
+   One band under the head that says what VISITORS are seeing and carries the
+   move back in the same breath. It is a grid rather than a flex row because it
+   has three parts and only two of them share a line: the sentence and the
+   button sit side by side, and the promise runs the full width underneath
+   them, where a reassurance belongs — under the thing it is reassuring about.
+
+   IT IS ALWAYS THERE, and that is the whole design. The note it replaced
+   appeared only while the design was OFF, so the state an author most wants
+   out of — live, and unsure how to go back — was the one state with nothing on
+   screen. A way back that is only in a toast is a way back with a timer on it.
+
+   The two states are told apart by TEXT AND A MARK, never by hue alone: the
+   dot is filled when the design is live and hollow when it is not, and the
+   sentence says which either way. */
+.s-dsgr__live {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 10px 18px;
+  background: var(--bg-raised);
+  border-block-end: 1px solid var(--border);
+}
+
+.s-dsgr__live--on {
+  background: var(--accent-soft);
+}
+
+.s-dsgr__livesay {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.86rem;
+}
+
+/* A 7px disc that is filled when the design is live and an outline when it is
+   not. It carries no information of its own — the sentence beside it says
+   everything — which is why it is `aria-hidden`; it is there so the state can
+   be re-read at a glance after the sentence has been read once. */
+.s-dsgr__livedot {
+  flex: none;
+  align-self: center;
+  inline-size: 7px;
+  block-size: 7px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+}
+
+.s-dsgr__live--on .s-dsgr__livedot {
+  background: var(--accent);
+}
+
+.s-dsgr__livebtn {
+  flex: none;
+  white-space: nowrap;
+}
+
+.s-dsgr__livenone {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.s-dsgr__livekeep {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+/* NARROW: the button drops under the sentence rather than squeezing it. A
+   destination in a button is only a promise if the whole destination is
+   readable, and "Back to the stock…" is not one. */
+@media (max-width: 700px) {
+  .s-dsgr__live {
+    grid-template-columns: 1fr;
+  }
+
+  .s-dsgr__livebtn {
+    justify-self: start;
+  }
+}
+
 /* ── The crumb ─────────────────────────────────────────────────────────────
    One line under the head that names the SUBJECT and the ROOM: "Front Page ›
    Sections". The rail already says which room, but nothing said which

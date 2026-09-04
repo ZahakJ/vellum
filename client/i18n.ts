@@ -2719,9 +2719,36 @@ const DICT = {
    *  stock blog are both still there — and the reader is choosing a room, not
    *  repairing a mistake. */
   designLayoutBack: { en: "Switch back", ar: "الرجوع" },
-  designNotLiveNote: {
-    en: "The public site is not on your design yet — switch it above when you are ready.",
-    ar: "الموقع العام ليس على تصميمك بعد — بدّله بالأعلى عندما تجهز.",
+  /* THE LIVE BAR — one line under the head that answers the question every
+   * author actually has open while they are in here: what are VISITORS seeing
+   * right now, and how do I change that back. It replaced a note that appeared
+   * only while the design was off and said "switch it above when you are
+   * ready", which pointed at a segmented control the reader had not yet learned
+   * to read as a switch — a sentence about a thing nobody could find. It is
+   * present in all three states, and it carries the action rather than
+   * describing where the action is. */
+  designLiveOnBody: { en: "Visitors are seeing your design.", ar: "الزوار يرون تصميمك." },
+  designLiveOffBlog: {
+    en: "Visitors are seeing the stock blog. Nothing you do in here reaches them until you put a design live.",
+    ar: "الزوار يرون المدونة الأصلية. لا شيء تفعله هنا يصلهم حتى تنشر تصميمًا.",
+  },
+  designLiveOffApp: {
+    en: "The public site is set to the app, so visitors get the sign-in page. Nothing you do in here reaches them until you put a design live.",
+    ar: "الموقع العام مضبوط على التطبيق، فيصل الزوار إلى صفحة الدخول. لا شيء تفعله هنا يصلهم حتى تنشر تصميمًا.",
+  },
+  designLiveGo: { en: "Put my design live", ar: "انشر تصميمي" },
+  designLiveRevert: { en: "Back to the stock blog", ar: "العودة إلى المدونة الأصلية" },
+  /** The sentence that is the whole point of the bar. It is printed in BOTH
+   *  states, because the reader who is afraid to start needs it before they
+   *  press anything and the reader who has started needs it to believe the way
+   *  back is real. */
+  designLiveKeep: {
+    en: "Either way nothing is lost: your designs stay exactly as you left them, and the stock blog is never edited.",
+    ar: "في الحالين لا يُفقد شيء: تبقى تصاميمك كما تركتها، والمدونة الأصلية لا تُحرَّر أبدًا.",
+  },
+  designLiveNoneYet: {
+    en: "Start a design below and this is where you will put it live.",
+    ar: "ابدأ تصميمًا بالأسفل، ومن هنا تنشره.",
   },
   designSections: { en: "Design sections", ar: "أقسام التصميم" },
   designLoading: { en: "Loading the design…", ar: "جارٍ تحميل التصميم…" },
@@ -3260,11 +3287,20 @@ const DICT = {
     en: "A preset ships the shape; the words stay yours. Fill in the opening panel and any button after you apply it.",
     ar: "القالب يقدّم الشكل، وتبقى الكلمات لك. املأ اللوحة الافتتاحية وأي زر بعد تطبيقه.",
   },
+  /** WHAT "USE THIS DESIGN" DOES AND, MORE TO THE POINT, WHAT IT DOES NOT DO.
+   *  The button used to promise a fork and say nothing about the public site,
+   *  so the honest reading of "Use this design" was "replace what my visitors
+   *  see" — and the reader who liked their current site simply did not press
+   *  it. Both halves are here now, and they are printed where the thumb is
+   *  rather than at the foot of a column. */
   presetForkNote: {
-    en: "Applying makes an editable copy. The preset never changes, and editing your copy never touches it.",
-    ar: "التطبيق ينشئ نسخة قابلة للتحرير. القالب لا يتغيّر، وتحرير نسختك لا يمسّه.",
+    en: "Applying makes an editable copy — the preset itself never changes. Your public site keeps showing exactly what it shows now until you put a design live, and going back to the stock blog is one click that loses nothing.",
+    ar: "التطبيق ينشئ نسخة قابلة للتحرير — والقالب نفسه لا يتغيّر. ويبقى موقعك العام كما هو تمامًا حتى تنشر تصميمًا، والعودة إلى المدونة الأصلية نقرة واحدة لا تُفقد شيئًا.",
   },
-  presetApplied: { en: "Preset applied — your copy is open", ar: "طُبِّق القالب — نسختك مفتوحة" },
+  presetApplied: {
+    en: "Your copy is open — the public site has not changed",
+    ar: "نسختك مفتوحة — لم يتغيّر الموقع العام",
+  },
   // The way back out of a preset, and the crumb that says where "back" goes.
   // Two strings rather than one: the button wears the short one and the
   // screen reader is given the whole sentence.

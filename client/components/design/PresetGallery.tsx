@@ -709,6 +709,14 @@ function PresetDetail({
             finished reading the manifest should not have to travel back up to
             act on it. The KEYSTROKES are printed here rather than in the bar:
             the bar is where the eye goes, the foot is where it lingers. */}
+        {/* THE PROMISE GOES ABOVE THE BUTTON, NOT UNDER IT. It used to be the
+            last line of the column, after the action pair and the keystrokes —
+            which is where a reader lands only if they have already decided.
+            The reader this sentence exists for is the one who has NOT decided:
+            they like the site they have, "Use this design" reads as "replace
+            it", and nothing on the sheet said otherwise. So it sits directly
+            over the thumb that is hovering the button. */}
+        <p className="s-dsgp-detail__fork">{t("presetForkNote")}</p>
         <div className="s-dsgp-detail__acts">
           <button type="button" className="s-btn s-btn--accent" disabled={busy} onClick={onApply}>
             {t("presetApply")}
@@ -718,7 +726,6 @@ function PresetDetail({
           </button>
         </div>
         <p className="s-dsgp-detail__keys">{t("presetKeysHint")}</p>
-        <p className="s-dsgp-detail__fork">{t("presetForkNote")}</p>
       </div>
     </div>
   );
