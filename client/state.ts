@@ -47,6 +47,7 @@ import {
 import { choiceLabel, counterpartChoice, isTheme, THEMES } from "./themes.ts";
 import type { ThemeChoice } from "./themes.ts";
 import { isCustomThemeId } from "../shared/customTheme.ts";
+import { boot } from "./boot.ts";
 import {
   applyThemeChoice,
   isKnownThemeChoice,
@@ -564,7 +565,18 @@ export interface State {
 function readTheme(): ThemeChoice {
   const stored = localStorage.getItem(THEME_KEY);
   if (isTheme(stored)) return stored;
-  return stored !== null && isCustomThemeId(stored) ? stored : THEMES[0];
+  if (stored !== null && isCustomThemeId(stored)) return stored;
+  // No choice of their own: the room the served shell was ALREADY painted in
+  // (client/boot.ts), so the first paint and the first frame agree. Falling
+  // to iron-gall here repainted a phosphor site iron-gall for the ~200ms
+  // until /api/me — the flash of the wrong colour under the flash of the
+  // wrong layout. /api/me still confirms it under the same stored-choice rule.
+  // The payload says it; the <html> tag the server painted says it too, and
+  // is read as the fallback so the theme survives even a shell whose JSON
+  // block is missing or foreign.
+  const served = boot.theme ?? document.documentElement.dataset.theme;
+  if (isTheme(served) || (served !== undefined && isCustomThemeId(served))) return served;
+  return THEMES[0];
 }
 
 // ── Mirroring the admin's theme to the server ──────────────────────────────
@@ -1255,7 +1267,9 @@ export const useStore = create<State>()((set, get) => {
     trashOpen: false,
     previewVisitor: false,
 
-    publicLayout: "app",
+    // The layout the served shell named, so a visitor's first frame is the
+    // shell they will keep rather than an app that turns into one (boot.ts).
+    publicLayout: boot.layout ?? "app",
     designNotice: null,
     tagline: null,
     shareButtons: false,

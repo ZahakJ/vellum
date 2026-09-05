@@ -99,20 +99,24 @@ function rootKey(m: Manifest, root: string): string | null {
 /**
  * `<link>` tags for the shell this request will actually mount.
  *
- * `blog` — the visitor shell of a PUBLIC_LAYOUT=blog instance.
- * `app`  — the vault shell (sidebar, tabs, status bar, backlinks panel).
+ * `blog`     — the visitor shell of a PUBLIC_LAYOUT=blog instance.
+ * `designed` — the composed site, which statically carries the blog shell as
+ *              its fallback, so hinting it hints both.
+ * `app`      — the vault shell (sidebar, tabs, status bar, backlinks panel).
  *
  * Only the SHELL is hinted. The editor, the graph engine, KaTeX and the
  * language grammars stay unhinted on purpose: they are loaded by an action,
  * not by a page, and preloading them here would quietly undo the split.
  */
-export function preloadTags(distDir: string, shell: "blog" | "app"): string {
+export function preloadTags(distDir: string, shell: "blog" | "designed" | "app"): string {
   const m = load(distDir);
   if (!m) return "";
   const roots =
     shell === "blog"
       ? ["blog/BlogShell.tsx"]
-      : [
+      : shell === "designed"
+        ? ["design/DesignedSite.tsx"]
+        : [
           "components/Sidebar.tsx",
           "components/Tabs.tsx",
           "components/StatusBar.tsx",

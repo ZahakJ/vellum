@@ -9,11 +9,12 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { api, contentTypeFor } from "./api.ts";
 import { staticAssets } from "./assets.ts";
-import { ConfigError, canRead, initAuth, isPublishLimited } from "./auth.ts";
+import { ConfigError, canRead, initAuth, isPublishLimited, servedLayout } from "./auth.ts";
 import { injectHead, renderFeed, renderRobots, renderSitemap, requestOrigin } from "./blog.ts";
 import { compressDynamic } from "./compress.ts";
 import { startGitSyncTimer } from "./gitSync.ts";
 import { languageScope } from "./language.ts";
+import { bootPayload, injectBoot } from "./boot.ts";
 import { injectPreloads, preloadTags } from "./preload.ts";
 import { faviconPath, migrateSettings } from "./settings.ts";
 import { initSite, publicLayout } from "./site.ts";
@@ -234,9 +235,17 @@ if (existsSync(distDir)) {
     // configuration and the session is a cookie already being read — so the
     // browser can fetch that shell's chunk in parallel with the entry instead
     // of discovering it a round trip later. Mirrors App.tsx's `blogVisitor`.
-    const shell = publicLayout() === "blog" && isPublishLimited(c) ? "blog" : "app";
+    // `servedLayout`, not `publicLayout`: a "designed" instance with nothing
+    // renderable serves the blog, and the hint should name the shell that
+    // will actually mount. The boot payload (server/boot.ts) goes in the same
+    // breath, for the same reason and to the same sessions.
+    const served = isPublishLimited(c) ? servedLayout() : "app";
+    const shell = served === "app" ? "app" : served;
     return c.html(
-      injectPreloads(injectHead(html, requestOrigin(c), pathname), preloadTags(distDir, shell)),
+      injectBoot(
+        injectPreloads(injectHead(html, requestOrigin(c), pathname), preloadTags(distDir, shell)),
+        bootPayload(c),
+      ),
     );
   };
   // "/" and "/index.html" would otherwise be served raw by serveStatic.

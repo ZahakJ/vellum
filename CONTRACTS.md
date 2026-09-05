@@ -1196,14 +1196,28 @@ overruled.
   itself, past the store, and the two disagreed for the life of the page — the next `loadMe()`
   (a visitor's EN/ع switch under `"follow"`) re-applied the store's theme over the design's, and
   the ☾/☀ button read the store and flipped from the wrong room.
-- **The ☾/☀ button on a designed site is a round trip.** `COUNTERPART` is not involutive (several
-  dark rooms share one lit partner), so a toggle that only asked for the counterpart of the current
-  room left the design in two presses (phosphor → porcelain → verdigris). `toggleChoice(current,
-  design.theme)` (`client/themes.ts`) moves inside the design's pair — its theme and that theme's
-  counterpart — and back to the design's theme exactly; a reader standing on a stored choice of
-  their own is outside the pair and keeps the stock rule. Every press is stored, as it always
-  was, so a reload keeps whichever side the reader left it on. `tests/themeToggle.test.ts`
-  states it for all twenty-one rooms.
+- **The ☾/☀ button on a designed site always lands in the design's pair.** `COUNTERPART` is not
+  involutive (several dark rooms share one lit partner), so a toggle that only asked for the
+  counterpart of the current room left the design in two presses (phosphor → porcelain →
+  verdigris). `toggleChoice(current, design.theme)` (`client/themes.ts`) goes to the design's
+  counterpart from anything dark and to the design's theme from anything lit — so from ANY room,
+  including one a broken earlier walk stored, two presses reach the design exactly. (The first cut
+  kept a reader's stored room out of the pair and stranded them on it: "it's no longer green, just
+  shows black".) A stored choice still wins on load; the button's promise is "this site, lit
+  differently". `tests/themeToggle.test.ts` states it for all twenty-one rooms, from all twenty-one.
+- **The first paint is the right paint.** A visitor's page booted as an app — `publicLayout` at
+  "app", the theme at the client's fallback — and became a designed site only after `/api/me`, then
+  got its document a fetch later. Measured on the owner's site: the stock masthead and menu at
+  ~204ms, replaced by the designed console at ~259ms, on every refresh. `server/boot.ts` inlines
+  `window.__vellum` into the served shell for sessions shown the public site — the served layout,
+  the theme (design's, else the instance's, same precedence as `/api/me`), and on a designed site
+  the document scrubbed by the same `visitorSafe` the API uses — and paints `data-theme` on `<html>`.
+  `client/boot.ts` reads it once; the store boots into that layout and `readTheme()` falls to that
+  theme instead of iron-gall; `DesignedSite` renders its first frame with the design in hand and
+  skips the redundant first fetch. A hint, re-verified: the shared validator still runs on it and
+  `/api/me` still rules. And **loading is not failure**: `DesignedSite` rendered `<BlogShell/>` while
+  its document was merely in flight, which was the visible half of the flash; until the first
+  answer it is now the page-shaped blank App's own Surface shows.
 - **MIGRATION IS A SEMANTIC, NOT A REWRITE.** An instance that already named a theme keeps it and
   its public site does not change appearance on upgrade; an instance that named none moves to
   following. Nothing is written to `settings.json` to make that true, so a downgrade is equally

@@ -27,11 +27,19 @@ describe("toggleChoice", () => {
     }
   });
 
-  it("does not drag a reader's own choice into the design's pair", () => {
-    // A reader who stored `void` on a phosphor design is shown void; the
-    // button lights THAT room differently and never lands them on phosphor.
-    assert.equal(toggleChoice("void", "phosphor"), counterpartChoice("void"));
-    assert.equal(toggleChoice("linen", "phosphor"), "void");
+  it("reaches the design's room from anywhere in two presses", () => {
+    // A reader stranded on a stored room the broken walk left behind —
+    // verdigris on a phosphor site, the owner's "just shows black" — is one
+    // press from the design's lit partner and two from the design itself.
+    // The first cut kept their stored room out of the pair and lit verdigris
+    // differently forever; phosphor was unreachable without clearing storage.
+    for (const stranded of THEMES) {
+      const one = toggleChoice(stranded, "phosphor");
+      const two = toggleChoice(one, "phosphor");
+      assert.ok(one === "porcelain" || one === "phosphor", `${stranded} → ${one}`);
+      assert.ok(two === "phosphor" || two === "porcelain", `${stranded} → ${one} → ${two}`);
+      assert.ok([one, two].includes("phosphor"), `${stranded}: phosphor reached`);
+    }
   });
 
   it("names the walk that used to happen", () => {

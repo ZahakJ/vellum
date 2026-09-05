@@ -34,6 +34,7 @@ import { t, tf } from "../i18n.ts";
 import { otherLang } from "../langPref.ts";
 import { notePathToUrl, urlToNoteGuess, urlToNotePath } from "../router.ts";
 import { useStore } from "../state.ts";
+import { boot } from "../boot.ts";
 import { choiceGroup, toggleChoice } from "../themes.ts";
 import { getPublicDesign, type DesignNotice } from "./api.ts";
 import { DesignBoundary, type SectionFailure } from "./DesignBoundary.tsx";
@@ -101,9 +102,27 @@ export default function DesignedSite() {
   const language = useStore((s) => s.language);
   const logo = useStore((s) => s.logo);
 
-  const [design, setDesign] = useState<DesignDoc | null>(null);
+  // THE FIRST FRAME HAS THE DESIGN IN HAND when the shell carried it
+  // (client/boot.ts). Validated with the same shared validator the fetch
+  // path uses, because a hint is a hint; a payload the validator refuses is
+  // the same failure a refused fetch is.
+  const booted = useMemo<{ design: DesignDoc | null; error: string | null }>(() => {
+    if (!boot.design) return { design: null, error: null };
+    try {
+      return { design: validateDesign(boot.design), error: null };
+    } catch (err) {
+      return { design: null, error: err instanceof Error ? err.message : String(err) };
+    }
+  }, []);
+  const [design, setDesign] = useState<DesignDoc | null>(booted.design);
+  // LOADING IS NOT FAILURE. `design === null` used to mean both, so a visitor
+  // was shown the stock blog — masthead, menu, hero — for the whole life of
+  // the fetch and then watched it replaced. The owner saw it on every
+  // refresh. Until the first answer lands (or arrived in the shell), the site
+  // is the page-shaped blank, the same one App's Surface shows for the chunk.
+  const [loaded, setLoaded] = useState(booted.design !== null || booted.error !== null);
   const [notice, setNotice] = useState<DesignNotice | null>(null);
-  const [configError, setConfigError] = useState<string | null>(null);
+  const [configError, setConfigError] = useState<string | null>(booted.error);
   const [posts, setPosts] = useState<PostMeta[] | null>(null);
   const [route, setRoute] = useState<Route>(() => parseRoute(location.pathname));
   /** Every section that has failed since the design last changed. */
@@ -136,9 +155,18 @@ export default function DesignedSite() {
   useEffect(() => {
     let disposed = false;
     setFailures([]);
+    // The shell's copy IS this fetch's answer for the language it was scoped
+    // to; asking again on the first render would be the round trip the
+    // payload exists to remove. Every later language is fetched.
+    if (booted.design && (boot.lang === undefined || boot.lang === language) && design === booted.design) {
+      return () => {
+        disposed = true;
+      };
+    }
     getPublicDesign()
       .then((payload) => {
         if (disposed) return;
+        setLoaded(true);
         setNotice(payload.notice);
         setPages(payload.pages ?? []);
         if (!payload.design) {
@@ -157,6 +185,7 @@ export default function DesignedSite() {
       })
       .catch((err: unknown) => {
         if (disposed) return;
+        setLoaded(true);
         console.error("vellum: loading the design failed", err);
         setDesign(null);
         setConfigError(err instanceof Error ? err.message : String(err));
@@ -247,6 +276,9 @@ export default function DesignedSite() {
 
   // ── The fallback decision ────────────────────────────────────────────────
   // One expression, evaluated the same way for every kind of failure.
+  if (!loaded && design === null && configError === null) {
+    return <div className="s-dsn" ref={scrollRef} />;
+  }
   const broken = configError !== null || design === null || failures.length > 0;
   if (broken && !owner) {
     // A VISITOR never learns any of this happened. The stock blog renders

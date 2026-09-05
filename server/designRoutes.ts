@@ -123,7 +123,7 @@ function navSafe(items: NavItem[], lang: FilterLang): NavItem[] {
   return out;
 }
 
-function visitorSafe(design: DesignDoc, lang: FilterLang): DesignDoc {
+export function visitorSafe(design: DesignDoc, lang: FilterLang): DesignDoc {
   const sections = design.sections.map((section) => {
     if (section.kind !== "note" || section.note === "") return section;
     let visible = false;

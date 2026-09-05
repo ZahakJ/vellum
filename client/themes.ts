@@ -89,18 +89,22 @@ export function counterpartChoice(choice: string): string {
  *  `counterpartChoice` alone is not a round trip. The map is not involutive
  *  and never promised to be (several dark rooms share one lit counterpart), so
  *  phosphor → porcelain → verdigris: a reader who pressed the button twice on
- *  a phosphor design was on a site nobody designed, with no way back but
- *  clearing storage — the owner met it as "switch to light then dark and the
- *  theme gets disturbed". A designed site's toggle therefore moves inside ONE
- *  PAIR, the design's: from the design's theme to its counterpart, and from
- *  that counterpart back to the design's theme exactly. A reader standing
- *  anywhere else — their own stored choice, which outranks the site and is
- *  meant to — is not in the design's pair and keeps the stock rule, so the
- *  button never quietly discards a room they picked in favour of the site's. */
+ *  a phosphor design was on a site nobody designed. The owner met it as
+ *  "switch to light then dark and the theme gets disturbed".
+ *
+ *  SO ON A DESIGNED SITE THE BUTTON ALWAYS LANDS IN THE DESIGN'S PAIR: from
+ *  the design's theme to its counterpart, from anything lit to the design's
+ *  theme, from anything dark to the counterpart. From anywhere, two presses
+ *  reach the design's room exactly. The first cut kept a reader's own stored
+ *  choice OUT of the pair — "never discard a room they picked" — and stranded
+ *  them: the walk above had already stored `verdigris` in the owner's browser,
+ *  so the button lit verdigris differently forever and phosphor was
+ *  unreachable ("it's no longer green, just shows black"). A stored choice
+ *  still wins on LOAD, which is the rule that matters; this button's promise
+ *  on a designed site is "this site, lit differently", and it keeps it. */
 export function toggleChoice(current: string, anchor: string | null): string {
   if (anchor !== null && anchor !== "") {
-    if (current === anchor) return counterpartChoice(anchor);
-    if (current === counterpartChoice(anchor)) return anchor;
+    return choiceGroup(current) === choiceGroup(anchor) ? counterpartChoice(anchor) : anchor;
   }
   return counterpartChoice(current);
 }
