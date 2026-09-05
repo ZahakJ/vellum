@@ -808,7 +808,29 @@ authRoutes.get("/me", (c) => {
       const { design } = activeDesign();
       // A signature, not the document: the design travels on its own route
       // (/api/design/public), which is where the visitor scrubbing lives.
-      if (design) me.design = `${design.id}.${design.updatedMs}`;
+      if (design) {
+        me.design = `${design.id}.${design.updatedMs}`;
+        // THE DESIGN'S THEME IS THE DEFAULT THEME OF A DESIGNED SITE, and it
+        // is said HERE, in the one field every client already obeys, rather
+        // than painted onto the document by the designed shell after the
+        // fact. That shell used to do exactly that — `applyThemeChoice(
+        // design.theme)` straight to <html>, with the store still holding the
+        // instance default — and the two disagreed for the life of the page:
+        // the next /api/me (a visitor's EN/ع switch under languageFilter
+        // "follow", a sign-in, a preview) re-applied the store's theme and the
+        // design fell back to the owner's editor colour until a reload, and
+        // the ☾/☀ button read the store and flipped from the wrong room. Same
+        // precedence as before: the design outranks settings.defaultTheme (a
+        // design is a look, and a look is a theme — shared/design.ts), and a
+        // reader's stored choice outranks both, which the client enforces.
+        // `hasThemeChoice` for the reason the guard above gives: a custom
+        // theme deleted from under the design must not reach a browser as a
+        // data-theme nothing answers. Only for the sessions that are SHOWN
+        // the design — visitors, and the owner previewing as one: the
+        // owner's editor is not the public site, and the designed shell
+        // only ever mounted for `!admin` (App.tsx, blogVisitor).
+        if (!admin && design.theme && hasThemeChoice(design.theme)) me.defaultTheme = design.theme;
+      }
     }
     // Why the designed site is NOT being served, for the owner only. A
     // visitor is given the stock blog and no explanation — that is the whole

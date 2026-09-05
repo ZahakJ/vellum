@@ -182,6 +182,29 @@
   color: var(--accent);
 }
 
+/* The EN/ع switch is a tool that carries two LETTERS rather than a word or a
+   glyph, and one of them is a naskh ain: at the tools' 0.8rem it is a speck,
+   and it sits on an overshooting baseline that lands it a couple of pixels
+   under where "EN" would. The stock blog sizes and nudges it the same way
+   (blog.css, `.s-blog-lang[lang="ar"]`); this is that rule in this shell's
+   own class, because the designed site loads none of the blog's CSS. The
+   size and the lift ride on the LABEL, not the button: a bigger font on the
+   button made it a 27px box beside 33px neighbours, three pixels low. */
+.s-dsn-nav__tool--lang {
+  min-width: 2.25em;
+  text-align: center;
+}
+
+.s-dsn-nav__lang {
+  display: inline-block;
+  line-height: 0;
+}
+
+.s-dsn-nav__tool--lang[lang="ar"] .s-dsn-nav__lang {
+  font-size: 1.25em;
+  transform: translateY(-1px);
+}
+
 /* ── hero ──────────────────────────────────────────────────────────────── */
 
 .s-dsn-hero {
@@ -3070,6 +3093,21 @@
   flex-wrap: wrap;
 }
 
+/* THREE TOOLS DO NOT FIT A RAIL'S COLUMN IN EITHER LANGUAGE — the search
+   word alone is 126px in Arabic, and the column has 179 to give — so the row
+   wrapped wherever it happened to, which left the moon alone on a second line
+   looking dropped. With the EN/ع switch in the bar (the live site did not
+   mount it until it did) the break is CHOSEN instead: the word takes a row of
+   its own and the two glyphs share the next, a pair of switches under a
+   search. Two tools still sit on one row exactly as every rail did before. */
+.s-dsg-rail .s-dsg-nav__tools:has(> :nth-child(3)) > :first-child {
+  flex-basis: 100%;
+  /* A button centres its label; stretched across the column that put the
+     word in the middle over a pair of glyphs at the start. The menu above is
+     a start-aligned list, and this row is the last of it. */
+  text-align: start;
+}
+
 /* The burger is a phone control and a rail is not a phone. */
 .s-dsg-rail .s-dsg-nav__burger {
   display: none;
@@ -3154,6 +3192,13 @@
 
   .s-dsg-rail .s-dsg-nav__burger {
     display: inline-flex;
+  }
+
+  /* No column, no chosen break: across a phone the three tools fit one row
+     at their 44px targets (222 of 230px in Arabic, measured), as they do in
+     every stack. */
+  .s-dsg-rail .s-dsg-nav__tools:has(> :nth-child(3)) > :first-child {
+    flex-basis: auto;
   }
 
   .s-dsg-shell--dock .s-dsn-main {

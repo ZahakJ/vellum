@@ -83,6 +83,28 @@ export function counterpartChoice(choice: string): string {
   return isTheme(choice) ? counterpartTheme(choice) : THEMES[0];
 }
 
+/** Where a ☾/☀ press lands on a site that has a theme of its OWN — a designed
+ *  site, whose document names one (`design.theme`).
+ *
+ *  `counterpartChoice` alone is not a round trip. The map is not involutive
+ *  and never promised to be (several dark rooms share one lit counterpart), so
+ *  phosphor → porcelain → verdigris: a reader who pressed the button twice on
+ *  a phosphor design was on a site nobody designed, with no way back but
+ *  clearing storage — the owner met it as "switch to light then dark and the
+ *  theme gets disturbed". A designed site's toggle therefore moves inside ONE
+ *  PAIR, the design's: from the design's theme to its counterpart, and from
+ *  that counterpart back to the design's theme exactly. A reader standing
+ *  anywhere else — their own stored choice, which outranks the site and is
+ *  meant to — is not in the design's pair and keeps the stock rule, so the
+ *  button never quietly discards a room they picked in favour of the site's. */
+export function toggleChoice(current: string, anchor: string | null): string {
+  if (anchor !== null && anchor !== "") {
+    if (current === anchor) return counterpartChoice(anchor);
+    if (current === counterpartChoice(anchor)) return anchor;
+  }
+  return counterpartChoice(current);
+}
+
 /** What a reader is SHOWN for a theme choice: a custom theme's own name, or
  *  the localized label of one of the twenty-one. Every surface that names the
  *  theme in force (the settings trigger, the picker's rows, the status-bar

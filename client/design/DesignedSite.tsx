@@ -31,11 +31,11 @@ import { go, setNavHandler, topicUrl } from "../blog/nav.ts";
 import { NavLink } from "../blog/util.tsx";
 import LoginModal from "../components/LoginModal.tsx";
 import { t, tf } from "../i18n.ts";
+import { otherLang } from "../langPref.ts";
 import { notePathToUrl, urlToNoteGuess, urlToNotePath } from "../router.ts";
 import { useStore } from "../state.ts";
-import { choiceGroup, counterpartChoice } from "../themes.ts";
+import { choiceGroup, toggleChoice } from "../themes.ts";
 import { getPublicDesign, type DesignNotice } from "./api.ts";
-import { applyThemeChoice } from "./customThemes.ts";
 import { DesignBoundary, type SectionFailure } from "./DesignBoundary.tsx";
 // The CHROME — header, nav, footer — and the page layout for a static page.
 // These are the design's frame; the sections below are what it frames.
@@ -125,8 +125,17 @@ export default function DesignedSite() {
   // past the API (a documented way to configure this product) and against a
   // server one build ahead of this bundle. A refusal is a failure like any
   // other: visitors get the stock blog.
+  //
+  // KEYED ON THE LANGUAGE, because the payload is scoped by it: the server
+  // blanks the note sections and drops the nav items a reader of THIS
+  // language may not see (designRoutes.ts, visitorSafe), and the page list
+  // rides on the same answer. Fetched once, the site a visitor switched INTO
+  // kept the menu and the pages of the language they left; and the failures
+  // are the previous language's too — a section a boundary gave up on there
+  // may be fine here, so the list starts empty and the boundaries re-key.
   useEffect(() => {
     let disposed = false;
+    setFailures([]);
     getPublicDesign()
       .then((payload) => {
         if (disposed) return;
@@ -155,16 +164,14 @@ export default function DesignedSite() {
     return () => {
       disposed = true;
     };
-  }, []);
+  }, [language]);
 
-  // A design may force a theme on readers who have not chosen one — the same
-  // rule DEFAULT_THEME follows, and for the same reason: a stored preference
-  // is a person's choice and outranks the site's.
-  useEffect(() => {
-    if (!design?.theme) return;
-    if (localStorage.getItem("vellum.theme")) return;
-    applyThemeChoice(design.theme);
-  }, [design?.theme]);
+  // The design's theme is NOT applied here. It reaches the document as
+  // `/api/me`'s defaultTheme (server/auth.ts says why), through the same
+  // loadMe that applies settings.defaultTheme, under the same rule — a stored
+  // preference is a person's choice and outranks the site's. This component
+  // used to write it onto <html> itself, past the store, and every later
+  // loadMe painted the store's theme back over it.
 
   // Posts feed every list section and the topics nav.
   useEffect(() => {
@@ -340,7 +347,7 @@ export default function DesignedSite() {
           not the page — and the owner is told which of the three it was. */}
       <div className={`s-dsg-top${sticky === "header" ? " s-dsg-top--sticky" : sticky === "nav" ? " s-dsg-top--stickynav" : ""}`}>
         <DesignBoundary
-          key={`${design.updatedMs}:header`}
+          key={`${design.updatedMs}:${language}:header`}
           id="header"
           kind="header"
           onFail={onFail}
@@ -369,7 +376,8 @@ export default function DesignedSite() {
                     {t("scSearch")}
                   </button>
                 )}
-                {chrome.nav.showThemeToggle && <DesignThemeButton />}
+                {chrome.nav.showLangSwitch && <DesignLangButton />}
+                {chrome.nav.showThemeToggle && <DesignThemeButton anchor={design.theme} />}
               </>
             }
           />
@@ -392,9 +400,11 @@ export default function DesignedSite() {
           <div className="s-dsn-page">
             {sections.map((section) => (
               <DesignBoundary
-                // Keyed on the design's own stamp as well as the section id:
-                // a fixed design clears every failure card without a reload.
-                key={`${design.updatedMs}:${section.id}`}
+                // Keyed on the design's own stamp and the reader's language
+                // as well as the section id: a fixed design clears every
+                // failure card without a reload, and so does a language the
+                // section is visible in (the effect above says why).
+                key={`${design.updatedMs}:${language}:${section.id}`}
                 id={section.id}
                 kind={section.kind}
                 onFail={onFail}
@@ -411,7 +421,7 @@ export default function DesignedSite() {
         ) : route.kind === "article" ? (
           <div className="s-dsn-page">
             <DesignBoundary
-              key={`${design.updatedMs}:article:${route.path}`}
+              key={`${design.updatedMs}:${language}:article:${route.path}`}
               id={route.path}
               kind="page"
               onFail={onFail}
@@ -442,7 +452,7 @@ export default function DesignedSite() {
       </main>
 
       <DesignBoundary
-        key={`${design.updatedMs}:footer`}
+        key={`${design.updatedMs}:${language}:footer`}
         id="footer"
         kind="footer"
         onFail={onFail}
@@ -470,9 +480,51 @@ export default function DesignedSite() {
   );
 }
 
-/** The ☾/☀ button, in the designed shell's own markup. Same behaviour as the
- *  stock one and none of its CSS. */
-function DesignThemeButton() {
+/** The EN/ع switch, in the designed shell's own markup — the stock blog's
+ *  LangSwitch with `.s-dsn-nav__tool` for a class, and the same two gates: the
+ *  DESIGN offers it (`chrome.nav.showLangSwitch`, which the designer's canvas
+ *  has drawn as an inert ع since the flag existed) and the INSTANCE offers it
+ *  (`settings.languageToggle`, without which there is nothing to switch to).
+ *  Both flags were on and the live site drew nothing: the tools block
+ *  mounted search and the moon and never this, so an Arabic instance's
+ *  visitor who reached English — through the stock shell's own switch, which
+ *  still rendered whenever the designed site fell back — had no way home. It
+ *  shows the language it would switch TO, in that script, as the stock one
+ *  does; the button's own `lang`/`dir` keep the glyph facing its own way in
+ *  a shell that faces the other. */
+function DesignLangButton() {
+  const enabled = useStore((s) => s.languageToggle);
+  const language = useStore((s) => s.language);
+  if (!enabled) return null;
+  const target = otherLang(language);
+  return (
+    <button
+      type="button"
+      className="s-dsn-nav__tool s-dsn-nav__tool--lang"
+      lang={target}
+      dir={target === "ar" ? "rtl" : "ltr"}
+      title={t("blogSwitchLanguage")}
+      aria-label={t("blogSwitchLanguage")}
+      onClick={() => useStore.getState().setVisitorLang(target)}
+    >
+      {/* The label is its own box, as the stock one's is, so the ain can be
+          drawn larger and lifted off its overshooting baseline without the
+          button growing or shrinking out of line with the tools beside it. */}
+      <span className="s-dsn-nav__lang" aria-hidden="true">
+        {target === "ar" ? "ع" : "EN"}
+      </span>
+    </button>
+  );
+}
+
+/** The ☾/☀ button, in the designed shell's own markup and none of the stock
+ *  one's CSS. It differs from the stock one in where it LANDS: the design's
+ *  theme is the anchor, and the press moves between that room and its lit
+ *  counterpart rather than walking the counterpart map (`toggleChoice` says
+ *  what went wrong when it walked). The choice is stored, as every press of
+ *  this button has always been, so a reload keeps whichever side the reader
+ *  left it on. */
+function DesignThemeButton({ anchor }: { anchor: string | null }) {
   const theme = useStore((s) => s.theme);
   useStore((s) => s.language);
   return (
@@ -480,7 +532,7 @@ function DesignThemeButton() {
       type="button"
       className="s-dsn-nav__tool"
       aria-label={t("blogSwitchTheme")}
-      onClick={() => useStore.getState().setTheme(counterpartChoice(theme))}
+      onClick={() => useStore.getState().setTheme(toggleChoice(theme, anchor))}
     >
       {choiceGroup(theme) === "light" ? "☀" : "☾"}
     </button>

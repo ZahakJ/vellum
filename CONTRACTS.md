@@ -1189,7 +1189,21 @@ overruled.
 
 - **Resolution lives on the server** (`server/site.ts`): `themePref()` settles the preference
   (unset → `follow`), `adminTheme()` is the mirror, and `visitorTheme()` is the answer that rides
-  `/api/me` as `defaultTheme`. No client re-implements the rule.
+  `/api/me` as `defaultTheme`. Tier 1 is layered over it in `/api/me` itself (`server/auth.ts`),
+  for the sessions that are shown the design — visitors and a previewing owner — so the design's
+  theme reaches the store by the same field and under the same stored-choice rule. No client
+  re-implements the rule. **It used to**: `DesignedSite` painted `design.theme` onto `<html>`
+  itself, past the store, and the two disagreed for the life of the page — the next `loadMe()`
+  (a visitor's EN/ع switch under `"follow"`) re-applied the store's theme over the design's, and
+  the ☾/☀ button read the store and flipped from the wrong room.
+- **The ☾/☀ button on a designed site is a round trip.** `COUNTERPART` is not involutive (several
+  dark rooms share one lit partner), so a toggle that only asked for the counterpart of the current
+  room left the design in two presses (phosphor → porcelain → verdigris). `toggleChoice(current,
+  design.theme)` (`client/themes.ts`) moves inside the design's pair — its theme and that theme's
+  counterpart — and back to the design's theme exactly; a reader standing on a stored choice of
+  their own is outside the pair and keeps the stock rule. Every press is stored, as it always
+  was, so a reload keeps whichever side the reader left it on. `tests/themeToggle.test.ts`
+  states it for all twenty-one rooms.
 - **MIGRATION IS A SEMANTIC, NOT A REWRITE.** An instance that already named a theme keeps it and
   its public site does not change appearance on upgrade; an instance that named none moves to
   following. Nothing is written to `settings.json` to make that true, so a downgrade is equally
@@ -3204,8 +3218,8 @@ resolve alike and the three-state control has to tell them apart.
 **Before this, `loadMe()` applied the visitor's stored choice over `me.language` for EVERY
 session.** One tap on the public site's ع rewrote the owner's editor, sidebar, tabs, status bar
 and palette — and on an instance whose `publicLayout` is `"app"` the blog shell never renders,
-so `LangSwitch` (its only home outside the design canvas) does not exist anywhere in the
-product: there was no way back short of clearing `localStorage` by hand. The escape hatch is now
+so `LangSwitch` (its only home outside the design canvas and the designed site's own
+`DesignLangButton`) does not exist anywhere in the product: there was no way back short of clearing `localStorage` by hand. The escape hatch is now
 structural rather than a promise — the three `editor-lang-*` palette commands name each language
 in its **own script**, so "English" is findable from an Arabic interface and «العربية» from an
 English one. `tests/langPref.test.ts` holds the whole rule as a table plus the two invariants
