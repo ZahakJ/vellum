@@ -1721,3 +1721,17 @@
   border-block-start: 1px solid var(--text);
   box-shadow: 0 -2cqw 6cqw -2cqw var(--accent);
 }
+
+/* Art direction remains legible even before a gallery card loads its canvas. */
+.s-dsgt:is([data-signature="late-edition"], [data-signature="cover-story"]) .s-dsgt-card { border-inline-end: 1px solid var(--border); padding: 1.5cqw; }
+.s-dsgt[data-signature="teletype"] .s-dsgt-body { border-inline: 2px dotted var(--border); }
+.s-dsgt:is([data-signature="fascicle"], [data-signature="longhand"], [data-signature="nightwatch"]) .s-dsgt-body { border-inline-start: 1px solid var(--accent); padding-inline-start: 5cqw; }
+.s-dsgt:is([data-signature="klaxon"], [data-signature="flypost"]) .s-dsgt-card { border: 1px solid var(--text); padding: 2cqw; box-shadow: 1cqw 1cqw 0 var(--accent); }
+.s-dsgt:is([data-signature="vernissage"], [data-signature="gravure"]) .s-dsgt-card { border: 2cqw solid var(--bg-raised); outline: 1px solid var(--border); }
+.s-dsgt[data-signature="mimeo"] .s-dsgt-card:nth-child(3n+2) { transform: translateY(2cqw); border-block-start: 1cqw solid var(--accent); }
+.s-dsgt[data-signature="salon"] .s-dsgt-card { padding: 2cqw; border-block-start: 1px solid var(--accent); }
+.s-dsgt:is([data-signature="ephemeris"], [data-signature="illumination"], [data-signature="ordnance"]) .s-dsgt-card { padding: 1.5cqw; border: 1px solid var(--accent); }
+.s-dsgt[data-signature="orrery"] .s-dsgt-card__art { aspect-ratio: 1; border-radius: 50%; border: 1px solid var(--accent); }
+.s-dsgt[data-signature="vesper"] .s-dsgt-card { border-radius: 50% 50% 0 0 / 3cqw 3cqw 0 0; padding-block-start: 4cqw; border-block-start: 1px solid var(--accent); }
+.s-dsgt[data-signature="front-door"] .s-dsgt-card { border-radius: 2cqw; overflow: hidden; }
+.s-dsgt[data-signature="revenant"] .s-dsgt-head { border-start-start-radius: 40%; border-start-end-radius: 40%; }

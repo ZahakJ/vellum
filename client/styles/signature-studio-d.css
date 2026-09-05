@@ -1,0 +1,612 @@
+/* Studio D's openings: see the studio's preset file for the houses.
+
+   Six houses that are each standing in a world, and each one opens on a
+   drawing of the place it stands in: an orrery, the first page of a night
+   log, a sunset, the head of a survey sheet, a wall of bills, a memorial
+   plate. Every drawing is gradients, borders and shadows in the room's own
+   tokens; nothing here is an image and nothing here is a hex colour. The
+   opening is a `band` hero with a blank heading (it prints the site's name
+   and tagline), and the words always stand on opaque ground beside or under
+   the drawing, never on it. */
+
+/* ── THE MASTHEAD STEPS ASIDE ─────────────────────────────────────────────
+   On the home page the hero prints the name, so the masthead's identity link
+   is empty (`showName` off, `namedElsewhere` on). An empty link is hidden, and
+   a masthead that holds nothing but that link collapses to its menu so the
+   opening is the first thing on the page. On an article there is no hero, the
+   name is back in the masthead, and none of this applies. The inline row
+   (flypost) is a bar that already holds its menu, so it only hides the link. */
+.s-dsg[data-signature="orrery"] .s-dsg-head__id:empty,
+.s-dsg[data-signature="nightwatch"] .s-dsg-head__id:empty,
+.s-dsg[data-signature="vesper"] .s-dsg-head__id:empty,
+.s-dsg[data-signature="ordnance"] .s-dsg-head__id:empty,
+.s-dsg[data-signature="flypost"] .s-dsg-head__id:empty,
+.s-dsg[data-signature="revenant"] .s-dsg-head__id:empty {
+  display: none;
+}
+.s-dsg[data-signature="orrery"] .s-dsg-head:has(> .s-dsg-head__id:empty),
+.s-dsg[data-signature="nightwatch"] .s-dsg-head:has(> .s-dsg-head__id:empty),
+.s-dsg[data-signature="vesper"] .s-dsg-head:has(> .s-dsg-head__id:empty),
+.s-dsg[data-signature="ordnance"] .s-dsg-head:has(> .s-dsg-head__id:empty),
+.s-dsg[data-signature="revenant"] .s-dsg-head:has(> .s-dsg-head__id:empty) {
+  padding-block: 0;
+  margin-block-start: 0;
+  gap: 0;
+  border: 0;
+}
+.s-dsg[data-signature="vesper"] .s-dsg-head:has(> .s-dsg-head__id:empty)::before {
+  display: none;
+}
+
+/* ── ORRERY: the instrument beside the name ──────────────────────────────── */
+.s-dsg[data-signature="orrery"] .s-dsn-hero--band {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 38%);
+  align-items: center;
+  gap: clamp(24px, 5vw, 72px);
+  min-block-size: 0;
+  padding: clamp(12px, 2vw, 28px) 0 clamp(28px, 4vw, 48px);
+  border: 0;
+  border-block-end: 1px solid var(--sig-rule);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+.s-dsg[data-signature="orrery"] .s-dsn-hero--band .s-dsn-hero__inner {
+  padding: 0;
+  min-inline-size: 0;
+}
+.s-dsg[data-signature="orrery"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(30px, 4.4vw, 60px);
+  line-height: 1.06;
+  overflow-wrap: anywhere;
+}
+.s-dsg[data-signature="orrery"] .s-dsn-hero--band .s-dsn-hero__sub {
+  max-inline-size: 40ch;
+  font-style: italic;
+}
+/* A declination scale under the words: fine ticks every twentieth, a heavy
+   tick every quarter, a baseline. */
+.s-dsg[data-signature="orrery"] .s-dsn-hero--band .s-dsn-hero__inner::after {
+  content: "";
+  display: block;
+  inline-size: min(100%, 380px);
+  block-size: 16px;
+  margin-block-start: 30px;
+  background:
+    repeating-linear-gradient(90deg, var(--text-muted) 0 1px, transparent 1px 5%) 0 100% / 100% 6px no-repeat,
+    repeating-linear-gradient(90deg, var(--text) 0 1px, transparent 1px 25%) 0 100% / 100% 14px no-repeat,
+    linear-gradient(var(--text), var(--text)) 100% 100% / 1px 14px no-repeat,
+    linear-gradient(var(--sig-rule), var(--sig-rule)) 0 100% / 100% 1px no-repeat;
+}
+/* The orrery: four orbits inside a rim, a sun, four planets on their rings
+   (each centre is its ring's radius out from the middle), the ecliptic, and
+   a few stars behind. Decorative only. */
+.s-dsg[data-signature="orrery"] .s-dsn-hero--band::after {
+  content: "";
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  inline-size: min(100%, 360px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  background:
+    radial-gradient(circle at 57.7% 40.8%, var(--accent) 0 2.5px, transparent 3.5px),
+    radial-gradient(circle at 30.9% 61%, var(--text) 0 3px, transparent 4px),
+    radial-gradient(circle at 74.5% 70.6%, var(--bg) 0 1.5px, var(--accent) 2px 4.5px, transparent 5.5px),
+    radial-gradient(circle at 25.9% 15.6%, var(--text-muted) 0 2px, transparent 3px),
+    radial-gradient(circle at 50% 50%, var(--text) 0 3.5px, color-mix(in srgb, var(--accent) 60%, transparent) 4.5px 6.5px, color-mix(in srgb, var(--accent) 16%, transparent) 7.5px 22px, transparent 26px),
+    radial-gradient(circle closest-side, transparent calc(24% - 1px), var(--sig-rule) 24%, transparent calc(24% + 1px)),
+    radial-gradient(circle closest-side, transparent calc(44% - 1px), var(--sig-rule) 44%, transparent calc(44% + 1px)),
+    radial-gradient(circle closest-side, transparent calc(64% - 1px), var(--sig-rule) 64%, transparent calc(64% + 1px)),
+    radial-gradient(circle closest-side, transparent calc(84% - 1px), var(--sig-rule) 84%, transparent calc(84% + 1px)),
+    linear-gradient(transparent calc(50% - 0.5px), color-mix(in srgb, var(--border) 70%, transparent) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    radial-gradient(circle at 12% 78%, color-mix(in srgb, var(--text) 55%, transparent) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 86% 24%, color-mix(in srgb, var(--text) 45%, transparent) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 66% 12%, color-mix(in srgb, var(--text) 40%, transparent) 0 0.8px, transparent 1.4px),
+    radial-gradient(circle at 40% 88%, color-mix(in srgb, var(--text) 45%, transparent) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 8% 40%, color-mix(in srgb, var(--text) 35%, transparent) 0 0.8px, transparent 1.4px),
+    radial-gradient(circle at 92% 58%, color-mix(in srgb, var(--text) 35%, transparent) 0 0.8px, transparent 1.4px);
+  box-shadow:
+    0 0 60px color-mix(in srgb, var(--accent) 12%, transparent),
+    inset 0 0 40px color-mix(in srgb, var(--accent) 6%, transparent);
+  animation: s-dsg-orrery-turn 360s linear infinite;
+  pointer-events: none;
+}
+@keyframes s-dsg-orrery-turn {
+  to { transform: rotate(1turn); }
+}
+
+/* ── NIGHTWATCH: the first page of the log ───────────────────────────────── */
+.s-dsg[data-signature="nightwatch"] .s-dsn-hero--band {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  min-block-size: 460px;
+  padding: 0;
+  border: 1px solid var(--sig-rule);
+  border-radius: 0;
+  overflow: hidden;
+  /* Stars over a fade to ground over two curtains of the accent. The fade is
+     an opaque layer above the curtains, so the sky darkens toward the horizon. */
+  background:
+    radial-gradient(circle at 18% 22%, color-mix(in srgb, var(--text) 75%, transparent) 0 1px, transparent 1.8px),
+    radial-gradient(circle at 34% 9%, color-mix(in srgb, var(--text) 55%, transparent) 0 0.8px, transparent 1.5px),
+    radial-gradient(circle at 47% 30%, color-mix(in srgb, var(--text) 65%, transparent) 0 1px, transparent 1.7px),
+    radial-gradient(circle at 63% 14%, color-mix(in srgb, var(--text) 50%, transparent) 0 0.8px, transparent 1.5px),
+    radial-gradient(circle at 78% 26%, color-mix(in srgb, var(--text) 70%, transparent) 0 1.2px, transparent 2px),
+    radial-gradient(circle at 88% 8%, color-mix(in srgb, var(--text) 45%, transparent) 0 0.8px, transparent 1.5px),
+    radial-gradient(circle at 9% 46%, color-mix(in srgb, var(--text) 45%, transparent) 0 0.8px, transparent 1.5px),
+    radial-gradient(circle at 55% 44%, color-mix(in srgb, var(--text) 40%, transparent) 0 0.8px, transparent 1.5px),
+    radial-gradient(circle at 93% 40%, color-mix(in srgb, var(--text) 55%, transparent) 0 1px, transparent 1.7px),
+    radial-gradient(circle at 26% 36%, color-mix(in srgb, var(--text) 35%, transparent) 0 0.8px, transparent 1.4px),
+    linear-gradient(to bottom, transparent 30%, color-mix(in srgb, var(--bg) 70%, transparent) 60%, var(--bg) 82%),
+    linear-gradient(104deg, transparent 12%, color-mix(in srgb, var(--accent) 30%, transparent) 24%, transparent 36%, transparent 46%, color-mix(in srgb, var(--accent) 22%, transparent) 58%, transparent 70%, color-mix(in srgb, var(--accent) 12%, transparent) 84%, transparent 94%),
+    radial-gradient(ellipse 80% 60% at 50% -10%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%),
+    var(--bg);
+}
+/* The ground band: opaque, the horizon line on its top edge, the glow of the
+   curtains coming down onto it. The name stands low at the start; the end is
+   left for the watch. */
+.s-dsg[data-signature="nightwatch"] .s-dsn-hero--band .s-dsn-hero__inner {
+  position: relative;
+  z-index: 1;
+  margin-block-start: auto;
+  inline-size: 100%;
+  padding: 28px clamp(20px, 4vw, 40px) 54px;
+  padding-inline-end: clamp(150px, 24%, 210px);
+  background: var(--bg);
+  border-block-start: 1px solid var(--accent);
+  box-shadow: 0 -30px 60px -24px color-mix(in srgb, var(--accent) 55%, transparent);
+  text-align: start;
+}
+.s-dsg[data-signature="nightwatch"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(30px, 4.4vw, 54px);
+  line-height: 1.06;
+  overflow-wrap: anywhere;
+}
+/* The watch, stopped at midnight: twelve ticks on the rim, a ground disc
+   over their inner ends, both hands straight up, the pivot. */
+.s-dsg[data-signature="nightwatch"] .s-dsn-hero--band::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset-inline-end: clamp(20px, 4vw, 44px);
+  inset-block-end: 50px;
+  inline-size: 96px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid var(--sig-rule);
+  background:
+    radial-gradient(circle at 50% 50%, var(--accent) 0 2px, transparent 3px),
+    linear-gradient(var(--text), var(--text)) 50% 28.6% / 2px 30% no-repeat,
+    linear-gradient(var(--text), var(--text)) 50% 37.5% / 3px 20% no-repeat,
+    radial-gradient(circle closest-side, var(--bg) 0 84%, transparent 85%),
+    repeating-conic-gradient(from -1deg, var(--text) 0 2deg, transparent 2deg 30deg),
+    var(--bg);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--accent) 22%, transparent);
+  pointer-events: none;
+}
+/* The hours along the bottom edge: a tick for each of twenty four, a heavier
+   one every four, the rule they hang from. */
+.s-dsg[data-signature="nightwatch"] .s-dsn-hero--band::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset-inline: clamp(20px, 4vw, 40px);
+  inset-block-end: 16px;
+  block-size: 14px;
+  background:
+    repeating-linear-gradient(90deg, var(--text-muted) 0 1px, transparent 1px calc(100% / 24)) 0 100% / 100% 5px no-repeat,
+    repeating-linear-gradient(90deg, var(--text) 0 1px, transparent 1px calc(100% / 6)) 0 100% / 100% 10px no-repeat,
+    linear-gradient(var(--text), var(--text)) 100% 100% / 1px 10px no-repeat,
+    linear-gradient(var(--sig-rule), var(--sig-rule)) 0 100% / 100% 1px no-repeat;
+  pointer-events: none;
+}
+
+/* ── VESPER: the sun on the horizon ──────────────────────────────────────── */
+.s-dsg[data-signature="vesper"] .s-dsn-hero--band {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-block-size: clamp(440px, 46vw, 600px);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: hidden;
+  background: linear-gradient(to bottom, var(--bg) 0%, color-mix(in srgb, var(--accent) 10%, var(--bg)) 45%, color-mix(in srgb, var(--accent) 36%, var(--bg)) 100%);
+  box-shadow: none;
+}
+/* The ground band: opaque, the horizon on its top edge, a glow on the ground
+   directly under the sun, the name centred inside the arch. */
+.s-dsg[data-signature="vesper"] .s-dsn-hero--band .s-dsn-hero__inner {
+  position: relative;
+  z-index: 1;
+  inline-size: 100%;
+  margin-block-start: auto;
+  padding: 36px clamp(20px, 4vw, 48px) 48px;
+  background:
+    radial-gradient(ellipse 36% 90% at 50% 0, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
+    var(--bg);
+  border-block-start: 1px solid color-mix(in srgb, var(--accent) 70%, var(--text));
+  text-align: center;
+}
+.s-dsg[data-signature="vesper"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(34px, 5vw, 66px);
+  line-height: 1.04;
+  overflow-wrap: anywhere;
+}
+.s-dsg[data-signature="vesper"] .s-dsn-hero--band .s-dsn-hero__sub {
+  margin-inline: auto;
+}
+/* The sun: a half disc sitting on the horizon, lit from its base, three dark
+   bands of haze through its lower half, a wide glow behind it. */
+.s-dsg[data-signature="vesper"] .s-dsn-hero--band .s-dsn-hero__inner::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset-inline: 0;
+  inset-block-end: 100%;
+  margin-inline: auto;
+  inline-size: min(540px, 84%);
+  aspect-ratio: 2 / 1;
+  border-radius: 999px 999px 0 0;
+  background:
+    linear-gradient(to top, transparent 8%, color-mix(in srgb, var(--bg) 72%, transparent) 8% 9.6%, transparent 9.6% 20%, color-mix(in srgb, var(--bg) 62%, transparent) 20% 21.2%, transparent 21.2% 34%, color-mix(in srgb, var(--bg) 50%, transparent) 34% 34.8%, transparent 34.8%),
+    radial-gradient(circle at 50% 100%, color-mix(in srgb, var(--accent) 80%, var(--text)) 0 26%, color-mix(in srgb, var(--accent) 72%, var(--bg-raised)) 60%, color-mix(in srgb, var(--accent) 42%, var(--bg)) 100%);
+  box-shadow: 0 -20px 120px 10px color-mix(in srgb, var(--accent) 28%, transparent);
+  pointer-events: none;
+}
+/* Layered light above the horizon: four hairlines fading upward. */
+.s-dsg[data-signature="vesper"] .s-dsn-hero--band .s-dsn-hero__inner::after {
+  content: "";
+  position: absolute;
+  z-index: -2;
+  inset-inline: 0;
+  inset-block-end: 100%;
+  block-size: 64px;
+  background: linear-gradient(to top,
+    transparent 7px, color-mix(in srgb, var(--accent) 60%, transparent) 7px 8px,
+    transparent 8px 19px, color-mix(in srgb, var(--accent) 44%, transparent) 19px 20px,
+    transparent 20px 35px, color-mix(in srgb, var(--accent) 28%, transparent) 35px 36px,
+    transparent 36px 58px, color-mix(in srgb, var(--accent) 14%, transparent) 58px 59px,
+    transparent 59px);
+  pointer-events: none;
+}
+
+/* ── ORDNANCE: the head of the sheet ─────────────────────────────────────── */
+.s-dsg[data-signature="ordnance"] .s-dsn-hero--band {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 36%);
+  align-items: stretch;
+  gap: clamp(20px, 3vw, 36px);
+  min-block-size: 0;
+  padding: clamp(16px, 3vw, 28px) 0 clamp(12px, 2vw, 20px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+/* The title box: the ledger's own frame (accent hairline, double outline). */
+.s-dsg[data-signature="ordnance"] .s-dsn-hero--band .s-dsn-hero__inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-inline-size: 0;
+  padding: 26px 28px 30px;
+  border: 1px solid var(--accent);
+  outline: 4px double var(--border);
+  outline-offset: 6px;
+  background: var(--bg);
+}
+.s-dsg[data-signature="ordnance"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(28px, 3.8vw, 46px);
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+/* The scale bar: four dark and four light divisions in a frame, ticks under
+   each division. */
+.s-dsg[data-signature="ordnance"] .s-dsn-hero--band .s-dsn-hero__inner::after {
+  content: "";
+  display: block;
+  inline-size: min(100%, 220px);
+  block-size: 14px;
+  margin-block-start: 24px;
+  background:
+    repeating-linear-gradient(90deg, var(--text) 0 12.5%, transparent 12.5% 25%) 1px 1px / calc(100% - 2px) 6px no-repeat,
+    linear-gradient(var(--bg), var(--bg)) 1px 1px / calc(100% - 2px) 6px no-repeat,
+    linear-gradient(var(--text), var(--text)) 0 0 / 100% 8px no-repeat,
+    repeating-linear-gradient(90deg, var(--text) 0 1px, transparent 1px 25%) 0 8px / 100% 6px no-repeat,
+    linear-gradient(var(--text), var(--text)) 100% 8px / 1px 6px no-repeat;
+}
+/* The reference square: a fine grid, a graticule through the middle, three
+   contour rings about a station point, a north arrow through a compass ring
+   in the corner. */
+.s-dsg[data-signature="ordnance"] .s-dsn-hero--band::after {
+  content: "";
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  inline-size: 100%;
+  aspect-ratio: 1;
+  border: 1px solid color-mix(in srgb, var(--text) 60%, var(--border));
+  outline: 1px solid var(--border);
+  outline-offset: 5px;
+  background:
+    conic-gradient(from 160deg at 50% 0, var(--text) 0 40deg, transparent 40deg) calc(100% - 18px) 12px / 14px 18px no-repeat,
+    linear-gradient(var(--text), var(--text)) calc(100% - 24px) 28px / 2px 32px no-repeat,
+    radial-gradient(circle closest-side, transparent 0 calc(100% - 1.5px), var(--text-muted) calc(100% - 1px)) calc(100% - 12px) 46px / 26px 26px no-repeat,
+    radial-gradient(circle at 38% 62%, var(--accent) 0 2.5px, transparent 3.5px),
+    radial-gradient(circle at 38% 62%, transparent 0 8%, color-mix(in srgb, var(--accent) 75%, var(--text)) 8% 8.5%, transparent 8.5% 14%, color-mix(in srgb, var(--accent) 75%, var(--text)) 14% 14.5%, transparent 14.5% 20%, color-mix(in srgb, var(--accent) 75%, var(--text)) 20% 20.5%, transparent 20.5%),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--text) 35%, transparent) 0 1px, transparent 1px 50%),
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--text) 35%, transparent) 0 1px, transparent 1px 50%),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--accent) 24%, transparent) 0 1px, transparent 1px 10%),
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--accent) 24%, transparent) 0 1px, transparent 1px 10%),
+    var(--bg);
+  pointer-events: none;
+}
+
+/* ── FLYPOST: the wall ───────────────────────────────────────────────────── */
+.s-dsg[data-signature="flypost"] .s-dsn-hero--band {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  min-block-size: clamp(380px, 42vw, 480px);
+  padding: clamp(36px, 5vw, 56px) clamp(16px, 4vw, 40px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+/* An older bill underneath: a striped head, rows of text drawn as bars, two
+   torn corners. */
+.s-dsg[data-signature="flypost"] .s-dsn-hero--band::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset-inline-start: 4%;
+  inset-block-start: 3%;
+  inline-size: 58%;
+  block-size: 78%;
+  rotate: -5deg;
+  border: 2px solid var(--text);
+  background:
+    repeating-linear-gradient(135deg, var(--accent) 0 10px, transparent 10px 22px) 0 0 / 100% 26% no-repeat,
+    linear-gradient(var(--text), var(--text)) 0 26% / 100% 2px no-repeat,
+    repeating-linear-gradient(to bottom, color-mix(in srgb, var(--text) 78%, transparent) 0 9px, transparent 9px 22px) center 62% / 76% 46% no-repeat,
+    var(--bg-raised);
+  clip-path: polygon(0 0, 100% 0, 100% 74%, 96% 79%, 100% 85%, 100% 100%, 14% 100%, 10% 95%, 4% 100%, 0 100%);
+  pointer-events: none;
+}
+/* Another: a dot screen on the accent, a white band across it with a rule
+   on each edge, a torn top corner. */
+.s-dsg[data-signature="flypost"] .s-dsn-hero--band::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset-inline-end: 3%;
+  inset-block-start: 10%;
+  inline-size: 52%;
+  block-size: 72%;
+  rotate: 4deg;
+  border: 2px solid var(--text);
+  background:
+    linear-gradient(var(--text) 0 3px, var(--bg) 3px calc(100% - 3px), var(--text) calc(100% - 3px)) 0 58% / 100% 22% no-repeat,
+    radial-gradient(circle, var(--text) 0 2.2px, transparent 2.8px) 0 0 / 13px 13px,
+    var(--accent);
+  clip-path: polygon(0 0, 84% 0, 88% 5%, 94% 1%, 100% 6%, 100% 100%, 0 100%);
+  pointer-events: none;
+}
+/* The newest bill, the name across it: the run's own heavy border and hard
+   accent shadow, set a little off square, taped at two corners. */
+.s-dsg[data-signature="flypost"] .s-dsn-hero--band .s-dsn-hero__inner {
+  position: relative;
+  z-index: 1;
+  inline-size: min(100%, 640px);
+  padding: clamp(28px, 4vw, 44px) clamp(20px, 4vw, 40px) clamp(24px, 3vw, 36px);
+  background: var(--bg);
+  border: 3px solid var(--text);
+  box-shadow: 9px 9px 0 var(--accent);
+  rotate: -1.5deg;
+  text-align: center;
+}
+.s-dsg[data-signature="flypost"] .s-dsn-hero--band .s-dsn-hero__inner::before,
+.s-dsg[data-signature="flypost"] .s-dsn-hero--band .s-dsn-hero__inner::after {
+  content: "";
+  position: absolute;
+  inset-block-start: -12px;
+  inline-size: 68px;
+  block-size: 22px;
+  background: color-mix(in srgb, var(--accent) 30%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  opacity: 0.9;
+  pointer-events: none;
+}
+.s-dsg[data-signature="flypost"] .s-dsn-hero--band .s-dsn-hero__inner::before {
+  inset-inline-start: 10%;
+  rotate: -14deg;
+}
+.s-dsg[data-signature="flypost"] .s-dsn-hero--band .s-dsn-hero__inner::after {
+  inset-inline-end: 8%;
+  rotate: 11deg;
+}
+.s-dsg[data-signature="flypost"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(34px, 6vw, 76px);
+  line-height: 0.98;
+  overflow-wrap: anywhere;
+}
+.s-dsg[data-signature="flypost"] .s-dsn-hero--band .s-dsn-hero__sub {
+  margin: 18px auto 0;
+  padding-block-start: 12px;
+  max-inline-size: 34ch;
+  border-block-start: 3px solid var(--text);
+  color: var(--text);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+}
+
+/* ── REVENANT: the plate on the moving page ──────────────────────────────── */
+.s-dsg[data-signature="revenant"] .s-dsn-hero--band {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-block-start: clamp(8px, 2vw, 24px);
+  padding: clamp(40px, 5vw, 64px) clamp(20px, 5vw, 56px) clamp(36px, 5vw, 56px);
+  border: 1px solid var(--sig-rule);
+  border-radius: 50% 50% 0 0 / 16% 16% 0 0;
+  background: var(--bg);
+  box-shadow:
+    inset 0 0 0 6px var(--bg),
+    inset 0 0 0 7px var(--sig-rule),
+    inset 0 0 120px color-mix(in srgb, var(--accent) 16%, transparent),
+    0 40px 80px -50px color-mix(in srgb, var(--accent) 60%, transparent);
+  overflow: visible;
+}
+.s-dsg[data-signature="revenant"] .s-dsn-hero--band::before {
+  content: var(--dsg-orn, "☾");
+  display: block;
+  margin-block-end: 22px;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.s-dsg[data-signature="revenant"] .s-dsn-hero--band::after {
+  content: "";
+  display: block;
+  inline-size: 120px;
+  block-size: 1px;
+  margin-block-start: 30px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+.s-dsg[data-signature="revenant"] .s-dsn-hero--band .s-dsn-hero__inner {
+  padding: 0;
+  max-inline-size: 100%;
+}
+.s-dsg[data-signature="revenant"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(26px, 3.6vw, 44px);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.s-dsg[data-signature="revenant"] .s-dsn-hero--band .s-dsn-hero__sub {
+  margin: 18px auto 0;
+  padding-block-start: 18px;
+  max-inline-size: 38ch;
+  border-block-start: 1px solid var(--sig-rule);
+  font-style: italic;
+}
+/* The moon hangs in the panel's arch. */
+.s-dsg[data-signature="revenant"] .s-dsg-top::after {
+  content: var(--dsg-orn, "☾");
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 15%;
+  text-align: center;
+  font-size: 22px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+  text-shadow: 0 0 24px var(--accent);
+  pointer-events: none;
+}
+/* The river as inscriptions: centred, a short rule cut under each. */
+.s-dsg[data-signature="revenant"] .s-dsn-list--river {
+  gap: 0;
+}
+.s-dsg[data-signature="revenant"] .s-dsn-list--river .s-dsn-list__item {
+  padding-block: 36px 0;
+  border-block-end: 0;
+  text-align: center;
+}
+.s-dsg[data-signature="revenant"] .s-dsn-list--river .s-dsn-list__item::after {
+  content: "";
+  display: block;
+  inline-size: 56px;
+  block-size: 1px;
+  margin: 34px auto 0;
+  background: var(--sig-rule);
+}
+.s-dsg[data-signature="revenant"] .s-dsn-list--river .s-dsn-meta {
+  justify-content: center;
+}
+.s-dsg[data-signature="revenant"] .s-dsn-list--river .s-dsn-list__excerpt {
+  margin-inline: auto;
+  max-inline-size: 52ch;
+}
+
+/* ── phones ──────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .s-dsg[data-signature="revenant"] .s-dsg-top::after {
+    display: none;
+  }
+}
+@media (max-width: 600px) {
+  .s-dsg[data-signature="orrery"] .s-dsn-hero--band,
+  .s-dsg[data-signature="ordnance"] .s-dsn-hero--band {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+  .s-dsg[data-signature="orrery"] .s-dsn-hero--band::after,
+  .s-dsg[data-signature="ordnance"] .s-dsn-hero--band::after {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: center;
+    inline-size: min(240px, 72%);
+  }
+  .s-dsg[data-signature="ordnance"] .s-dsn-hero--band .s-dsn-hero__inner {
+    padding: 20px 18px 24px;
+  }
+  .s-dsg[data-signature="nightwatch"] .s-dsn-hero--band {
+    min-block-size: 400px;
+  }
+  .s-dsg[data-signature="nightwatch"] .s-dsn-hero--band .s-dsn-hero__inner {
+    padding-inline-end: 104px;
+  }
+  .s-dsg[data-signature="nightwatch"] .s-dsn-hero--band::before {
+    inline-size: 64px;
+    inset-block-end: 46px;
+  }
+  .s-dsg[data-signature="vesper"] .s-dsn-hero--band {
+    min-block-size: 380px;
+  }
+  .s-dsg[data-signature="flypost"] .s-dsn-hero--band {
+    min-block-size: 360px;
+    padding-inline: 12px;
+  }
+  .s-dsg[data-signature="flypost"] .s-dsn-hero--band .s-dsn-hero__inner {
+    inline-size: calc(100% - 12px);
+  }
+  .s-dsg[data-signature="revenant"] .s-dsn-hero--band {
+    border-radius: 50% 50% 0 0 / 10% 10% 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .s-dsg[data-signature="orrery"] .s-dsn-hero--band::after {
+    animation: none;
+  }
+}

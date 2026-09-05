@@ -32,6 +32,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { useDialog } from "../../a11y.ts";
 import {
   type ChromeFrame,
+  type ChromeSignature,
   type ChromeOrnament,
   type ChromeScenery,
   type ChromeShell,
@@ -63,7 +64,8 @@ import { FontPicker, SYSTEM_FONT } from "../FontPicker.tsx";
 import { catalogList } from "../../../shared/fontCatalog.ts";
 import { designFontRefs } from "../../../shared/designChrome.ts";
 import { setDesignFonts } from "../../design/designFonts.ts";
-import { isSelectOpen } from "../controls/Select.tsx";
+import { PRESETS } from "../../../shared/presetCatalog.ts";
+import { Select, isSelectOpen } from "../controls/Select.tsx";
 import {
   createDesignDoc,
   deleteDesignDoc,
@@ -1658,6 +1660,17 @@ function DesignerPanel({ onClose }: { onClose: () => void }) {
                     over a footer, which is why they read as one page in
                     different clothes. */}
                 <h2 className="s-dsgr__section">{t("designShellSection")}</h2>
+                <Row label={t("designSignature")} hint={t("designSignatureHint")} stack>
+                  <Select
+                    label={t("designSignature")}
+                    value={chrome.signature}
+                    onChange={(value) => set({ signature: value as ChromeSignature })}
+                    options={[
+                      { value: "none", label: t("designSignatureNone") },
+                      ...PRESETS.filter((p) => p.family === "signature").map((p) => ({ value: p.id, label: p.name[language] })),
+                    ]}
+                  />
+                </Row>
                 <Row label={t("designShell")} hint={t("designShellHint")} stack>
                   <SegmentedControl
                     value={chrome.shell}

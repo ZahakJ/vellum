@@ -1,0 +1,420 @@
+/* Studio B's openings: see the studio's preset file for the houses.
+
+   Four openings, four objects a picture is looked at on: a gallery wall, a
+   plate book's title page, a photocopied zine cover and a magazine cover.
+   Everything here is drawn from theme tokens (gradients, borders, shadows,
+   pseudo elements), every offset is logical so the Arabic page mirrors on its
+   own, and copy always sits on opaque ground: the drawings are around the
+   words, never under them. The one exception is the magazine's scrim, which
+   follows the engine's own rule for a photograph (design.css, "the scrim is
+   not optional and it is not a colour"). */
+
+/* ── VERNISSAGE: the entrance wall ─────────────────────────────────────────
+   The split hero becomes a wall. It leaves the column the way the cover
+   treatment does (the same `50% - 50cqw` idiom, against the page's own box),
+   and is painted a tone above the room so a shadow in `--bg` can fall on it;
+   on `sumi` the raised ground is a couple of values off the page and a
+   shadow on it would be invisible. A picture rail runs across the top, two
+   wires drop from it to the piece, and the piece is the newest post's
+   photograph in a deep mat with the wall's shadow under it. The words are
+   the label beside it, on their own plate. */
+.s-dsg[data-signature="vernissage"] .s-dsn-hero--split {
+  --vn-wall: color-mix(in srgb, var(--text) 8%, var(--bg));
+  --vn-mat: color-mix(in srgb, var(--text) 17%, var(--bg));
+  --vn-line: color-mix(in srgb, var(--text) 32%, transparent);
+  --vn-top: clamp(84px, 9vw, 132px);
+  --vn-matw: clamp(16px, 2.6vw, 34px);
+  position: relative;
+  margin-inline: calc(50% - 50cqw);
+  inline-size: 100cqw;
+  max-inline-size: none;
+  /* The page pads 40px above its first section; a wall starts at the bar. */
+  margin-block-start: -40px;
+  padding-block: var(--vn-top) clamp(48px, 6vw, 88px);
+  padding-inline: max(var(--dsn-pad), calc((100cqw - var(--dsn-width, 720px)) / 2 + var(--dsn-pad)));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 46%);
+  align-items: end;
+  gap: clamp(28px, 6vw, 96px);
+  background: var(--vn-wall);
+  border-block-end: 1px solid var(--border);
+  min-height: 0;
+}
+/* The rail: a bar with a lit top edge, the width of the wall. */
+.s-dsg[data-signature="vernissage"] .s-dsn-hero--split::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 26px;
+  block-size: 4px;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--text) 45%, transparent), var(--vn-line));
+  pointer-events: none;
+}
+.s-dsg[data-signature="vernissage"] .s-dsn-hero--split .s-dsn-hero__plate {
+  position: relative;
+  overflow: visible;
+  align-self: start;
+  aspect-ratio: 5 / 4;
+  min-height: 0;
+  border: var(--vn-matw) solid var(--vn-mat);
+  border-radius: 0;
+  background: var(--vn-mat);
+  outline: 1px solid var(--vn-line);
+  box-shadow:
+    0 28px 44px -10px var(--bg),
+    0 6px 12px -2px var(--bg);
+}
+/* Two wires from the rail to the top of the mat. */
+.s-dsg[data-signature="vernissage"] .s-dsn-hero--split .s-dsn-hero__plate::before {
+  content: "";
+  position: absolute;
+  inset-inline: 20%;
+  inset-block-end: calc(100% + var(--vn-matw));
+  block-size: calc(var(--vn-top) - 30px);
+  background:
+    linear-gradient(var(--vn-line), var(--vn-line)) 0 0 / 1px 100% no-repeat,
+    linear-gradient(var(--vn-line), var(--vn-line)) 100% 0 / 1px 100% no-repeat;
+  pointer-events: none;
+}
+.s-dsg[data-signature="vernissage"] .s-dsn-hero--split .s-dsn-hero__img {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg) 70%, transparent);
+}
+/* The wall label, on its own plate beside the piece. */
+.s-dsg[data-signature="vernissage"] .s-dsn-hero--split .s-dsn-hero__inner {
+  justify-self: start;
+  inline-size: fit-content;
+  max-inline-size: min(100%, 38ch);
+  padding: clamp(20px, 2.5vw, 30px) clamp(22px, 3vw, 36px);
+  background: color-mix(in srgb, var(--text) 12%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--text) 24%, transparent);
+  box-shadow: 0 16px 30px -22px var(--bg);
+}
+.s-dsg[data-signature="vernissage"] .s-dsn-hero--split .s-dsn-hero__title {
+  font-size: clamp(1.5rem, 3vw, calc(var(--dsg-h1, 2.6rem) * 1.05));
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+.s-dsg[data-signature="vernissage"] .s-dsn-hero--split .s-dsn-hero__sub {
+  margin-block-start: 14px;
+  padding-block-start: 12px;
+  border-block-start: 1px solid color-mix(in srgb, var(--text) 24%, transparent);
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1.5;
+}
+/* The masthead is one thin row on the front page; the name lives on the label. */
+.s-dsg[data-signature="vernissage"] .s-dsg-head--inline:has(.s-dsg-head__id:empty) {
+  padding-block: 10px;
+}
+
+/* ── GRAVURE: the title page ───────────────────────────────────────────────
+   The split is restacked into one centred column: the plate first, printed
+   inside its plate mark (an embossed rectangle drawn with inset shadows on
+   the page's own white), a short rule, then the name engraved under it at
+   the design's own 22px h1. Every plate below is numbered in its caption. */
+.s-dsg[data-signature="gravure"] .s-dsn-hero--split {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 0;
+  padding-block: clamp(20px, 3vw, 44px) clamp(28px, 4vw, 60px);
+  border-block: 4px double var(--border);
+  text-align: center;
+  min-height: 0;
+}
+.s-dsg[data-signature="gravure"] .s-dsn-hero--split .s-dsn-hero__plate {
+  order: -1;
+  align-self: auto;
+  inline-size: min(100%, 560px);
+  aspect-ratio: 5 / 4;
+  min-height: 0;
+  padding: clamp(14px, 2.4vw, 28px);
+  border-radius: 0;
+  background: var(--bg);
+  box-shadow:
+    inset 0 0 0 1px var(--border),
+    inset 0 2px 5px -1px color-mix(in srgb, var(--text) 28%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--text) 8%, transparent),
+    0 1px 0 color-mix(in srgb, var(--text) 10%, transparent);
+}
+.s-dsg[data-signature="gravure"] .s-dsn-hero--split .s-dsn-hero__img {
+  border-radius: 0;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 18%, transparent);
+}
+.s-dsg[data-signature="gravure"] .s-dsn-hero--split .s-dsn-hero__inner {
+  padding: clamp(24px, 3vw, 40px) 0 0;
+  max-inline-size: min(100%, 48ch);
+}
+/* The rule between plate and caption, engraved short. */
+.s-dsg[data-signature="gravure"] .s-dsn-hero--split .s-dsn-hero__inner::before {
+  content: "";
+  display: block;
+  inline-size: 56px;
+  block-size: 1px;
+  margin: 0 auto 20px;
+  background: var(--text);
+}
+.s-dsg[data-signature="gravure"] .s-dsn-hero--split .s-dsn-hero__title {
+  font-size: var(--dsg-h1, 1.4rem);
+  letter-spacing: 0.22em;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.s-dsg[data-signature="gravure"] .s-dsn-hero--split .s-dsn-hero__sub {
+  margin-block-start: 8px;
+  margin-inline: auto;
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  max-inline-size: 42ch;
+}
+/* The numbered plates: a counter in the caption strip, no words. */
+.s-dsg[data-signature="gravure"] .s-dsn-grid--masonry {
+  counter-reset: plate;
+}
+.s-dsg[data-signature="gravure"] .s-dsn-card--masonry {
+  counter-increment: plate;
+}
+.s-dsg[data-signature="gravure"] .s-dsn-card--masonry .s-dsn-card__body::before {
+  content: counter(plate, upper-roman);
+  display: block;
+  margin-block-end: 6px;
+  font-family: var(--dsg-head-font, var(--font-ui));
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+[dir="rtl"] .s-dsg[data-signature="gravure"] .s-dsn-card--masonry .s-dsn-card__body::before {
+  content: counter(plate, arabic-indic);
+}
+/* No running head on the front page; the masthead is only the menu there. */
+.s-dsg[data-signature="gravure"] .s-dsg-head--stackedStart:has(.s-dsg-head__id:empty) {
+  padding-block: 8px 0;
+  gap: 0;
+}
+
+/* ── MIMEO: the photocopied cover ──────────────────────────────────────────
+   The band is the sheet. Halftone toner on a pseudo element behind
+   everything, fading towards the middle; the name in a crooked box with its
+   second pass printed off register in the accent; a staple through the
+   corner. The copy is inside the box on opaque paper. */
+.s-dsg[data-signature="mimeo"] .s-dsn-hero--band {
+  --mm-ink: var(--text);
+  --mm-dot: color-mix(in srgb, var(--accent) 55%, transparent);
+  --mm-dot2: color-mix(in srgb, var(--text) 32%, transparent);
+  position: relative;
+  overflow: visible;
+  isolation: isolate;
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--text) 30%, transparent);
+  padding: clamp(44px, 6vw, 72px) clamp(16px, 4vw, 48px) clamp(40px, 5vw, 64px);
+  margin-block-start: 10px;
+  /* The sheets under this one, photocopied and stacked. */
+  box-shadow:
+    5px 5px 0 -1px var(--bg),
+    5px 5px 0 0 color-mix(in srgb, var(--text) 30%, transparent),
+    10px 10px 0 -1px var(--bg),
+    10px 10px 0 0 color-mix(in srgb, var(--text) 18%, transparent);
+}
+.s-dsg[data-signature="mimeo"] .s-dsn-hero--band::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  /* One screen: two dot layers on the SAME pitch, offset by half a cell, is
+     a halftone screen turned 45 degrees. The mask is the toner: heavy in
+     one corner, thin everywhere else, the way a copier lays it down. */
+  background:
+    radial-gradient(circle, var(--mm-dot) 0 1.25px, transparent 1.8px) 0 0 / 8px 8px,
+    radial-gradient(circle, var(--mm-dot2) 0 0.9px, transparent 1.4px) 4px 4px / 8px 8px;
+  mask-image:
+    linear-gradient(rgb(0 0 0 / 0.3), rgb(0 0 0 / 0.3)),
+    radial-gradient(farthest-side at 88% 12%, black 0 22%, transparent 78%);
+  -webkit-mask-image:
+    linear-gradient(rgb(0 0 0 / 0.3), rgb(0 0 0 / 0.3)),
+    radial-gradient(farthest-side at 88% 12%, black 0 22%, transparent 78%);
+  pointer-events: none;
+}
+/* The staple, through the top corner at the reading start. */
+.s-dsg[data-signature="mimeo"] .s-dsn-hero--band::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 10px;
+  inset-inline-start: 6px;
+  inline-size: 30px;
+  block-size: 4px;
+  border-radius: 1px;
+  background: var(--mm-ink);
+  /* The crown of the staple catches the light along its top edge. */
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--bg) 45%, transparent),
+    0 2px 2px -1px color-mix(in srgb, var(--text) 55%, transparent);
+  rotate: -45deg;
+  pointer-events: none;
+}
+[dir="rtl"] .s-dsg[data-signature="mimeo"] .s-dsn-hero--band::before {
+  rotate: 45deg;
+}
+.s-dsg[data-signature="mimeo"] .s-dsn-hero--band .s-dsn-hero__inner {
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  margin-inline: auto;
+  padding: clamp(16px, 2.5vw, 26px) clamp(20px, 3.5vw, 40px);
+  background: var(--bg);
+  border: 3px solid var(--mm-ink);
+  border-radius: 3px 7px 2px 9px / 6px 3px 8px 2px;
+  rotate: -1.6deg;
+  box-shadow: 6px 6px 0 var(--accent);
+}
+[dir="rtl"] .s-dsg[data-signature="mimeo"] .s-dsn-hero--band .s-dsn-hero__inner {
+  rotate: 1.6deg;
+  box-shadow: -6px 6px 0 var(--accent);
+}
+.s-dsg[data-signature="mimeo"] .s-dsn-hero--band .s-dsn-hero__title {
+  line-height: 1;
+  text-shadow: 2px 1px 0 color-mix(in srgb, var(--accent) 65%, transparent);
+  overflow-wrap: anywhere;
+}
+.s-dsg[data-signature="mimeo"] .s-dsn-hero--band .s-dsn-hero__sub {
+  margin-block-start: 10px;
+  font-size: 0.95rem;
+  font-style: italic;
+}
+.s-dsg[data-signature="mimeo"] .s-dsg-head--stacked:has(.s-dsg-head__id:empty) {
+  padding-block: 8px 0;
+  gap: 0;
+}
+
+/* ── COVER STORY: the cover ────────────────────────────────────────────────
+   The cover hero at nearly the height of the window, the name across the
+   top of it at masthead size with the issue rule under it, and the
+   coverlines pulled up over the foot of the photograph in an opaque box at
+   the inline end. The scrim is the engine's own idiom for type on a
+   photograph, extended to the top edge where the name now sits. */
+.s-dsg[data-signature="cover-story"] .s-dsn-hero--cover {
+  min-height: clamp(560px, 86vh, 820px);
+  align-items: flex-start;
+}
+.s-dsg[data-signature="cover-story"] .s-dsn-hero--cover::after {
+  background:
+    linear-gradient(to bottom, rgb(0 0 0 / 0.66), rgb(0 0 0 / 0.22) 40%, rgb(0 0 0 / 0) 62%),
+    linear-gradient(to top, rgb(0 0 0 / 0.5), rgb(0 0 0 / 0) 42%);
+}
+.s-dsg[data-signature="cover-story"] .s-dsn-hero--cover .s-dsn-hero__inner {
+  padding-block: clamp(26px, 4vw, 44px) 0;
+}
+.s-dsg[data-signature="cover-story"] .s-dsn-hero--cover .s-dsn-hero__title {
+  font-size: clamp(2.8rem, 11.5vw, calc(var(--dsg-h1, 2.6rem) * 3.2));
+  line-height: 0.92;
+  letter-spacing: -0.035em;
+  text-transform: uppercase;
+  padding-block-end: 14px;
+  border-block-end: 2px solid currentColor;
+  overflow-wrap: anywhere;
+}
+.s-dsg[data-signature="cover-story"] .s-dsn-hero--cover .s-dsn-hero__sub {
+  margin-block-start: 10px;
+  font-family: var(--dsg-head-font, var(--font-ui));
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+/* The coverlines box, over the foot of the cover. It climbs onto the
+   photograph only when it follows the cover directly: the engine seats the
+   collections gallery between a leading hero and the next section on a site
+   that has collections, and a box pulled up over that gallery would be a box
+   over the wrong thing. There it stays a boxed contents block under it, at
+   the full measure rather than a narrow box stranded at the end edge. */
+.s-dsg[data-signature="cover-story"] .s-dsn-list--index {
+  position: relative;
+  z-index: 1;
+  padding: 20px 26px 14px;
+  background: var(--bg);
+  border-block-start: 6px solid var(--accent);
+  box-shadow: 0 28px 50px -26px color-mix(in srgb, var(--text) 50%, transparent);
+}
+.s-dsg[data-signature="cover-story"] .s-dsn-hero--cover + .s-dsn-block .s-dsn-list--index {
+  inline-size: min(100%, 400px);
+  margin-inline-start: auto;
+  margin-block-start: calc(-1 * (var(--dsn-gap, 40px) + 220px));
+}
+.s-dsg[data-signature="cover-story"] .s-dsn-list--index .s-dsn-list__toc {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding-block: 12px;
+  border-block-end: 1px solid var(--border);
+}
+.s-dsg[data-signature="cover-story"] .s-dsn-list--index .s-dsn-list__item:last-child .s-dsn-list__toc {
+  border-block-end: 0;
+}
+.s-dsg[data-signature="cover-story"] .s-dsn-list--index .s-dsn-list__leader {
+  display: none;
+}
+.s-dsg[data-signature="cover-story"] .s-dsn-list--index .s-dsn-list__title {
+  white-space: normal;
+  font-family: var(--dsg-head-font, var(--font-ui));
+  font-size: var(--dsg-h3, 1.25rem);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: var(--dsg-head-tracking, 0);
+}
+.s-dsg[data-signature="cover-story"] .s-dsn-list--index .s-dsn-list__item:first-child .s-dsn-list__title {
+  font-size: var(--dsg-h2, 1.6rem);
+}
+.s-dsg[data-signature="cover-story"] .s-dsn-list--index .s-dsn-list__stamp {
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.s-dsg[data-signature="cover-story"] .s-dsg-head--inline:has(.s-dsg-head__id:empty) {
+  padding-block: 8px;
+}
+
+/* ── phones ─────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .s-dsg[data-signature="cover-story"] .s-dsn-hero--cover + .s-dsn-block .s-dsn-list--index {
+    inline-size: min(100%, 360px);
+    margin-block-start: calc(-1 * (var(--dsn-gap, 40px) + 140px));
+  }
+}
+@media (max-width: 700px) {
+  /* The wall stacks: the piece hangs first under the rail, the label under it. */
+  .s-dsg[data-signature="vernissage"] .s-dsn-hero--split {
+    --vn-top: 72px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+  .s-dsg[data-signature="vernissage"] .s-dsn-hero--split .s-dsn-hero__plate {
+    order: -1;
+    inline-size: 100%;
+    min-height: 0;
+  }
+  .s-dsg[data-signature="vernissage"] .s-dsn-hero--split .s-dsn-hero__inner {
+    max-inline-size: 100%;
+  }
+  .s-dsg[data-signature="gravure"] .s-dsn-hero--split .s-dsn-hero__plate {
+    min-height: 0;
+  }
+}
+@media (max-width: 600px) {
+  .s-dsg[data-signature="cover-story"] .s-dsn-hero--cover {
+    min-height: clamp(420px, 72vh, 560px);
+  }
+  .s-dsg[data-signature="cover-story"] .s-dsn-list--index {
+    padding-inline: 18px;
+  }
+  .s-dsg[data-signature="cover-story"] .s-dsn-hero--cover + .s-dsn-block .s-dsn-list--index {
+    inline-size: 100%;
+    margin-block-start: calc(-1 * (var(--dsn-gap, 40px) + 72px));
+  }
+  .s-dsg[data-signature="mimeo"] .s-dsn-hero--band {
+    padding-inline: 12px;
+  }
+  .s-dsg[data-signature="mimeo"] .s-dsn-hero--band .s-dsn-hero__inner {
+    max-inline-size: 100%;
+    box-shadow: 4px 4px 0 var(--accent);
+  }
+  [dir="rtl"] .s-dsg[data-signature="mimeo"] .s-dsn-hero--band .s-dsn-hero__inner {
+    box-shadow: -4px 4px 0 var(--accent);
+  }
+}

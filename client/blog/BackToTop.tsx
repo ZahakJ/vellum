@@ -15,7 +15,7 @@ import { t } from "../i18n.ts";
 import { useStore } from "../state.ts";
 
 /** Furniture the button must never sit on top of, nearest-first. */
-const OBSTACLES = ".s-blog-footer, .s-marginalia__form";
+const OBSTACLES = ".s-blog-footer, .s-dsg-foot, .s-marginalia__form";
 /** Resting distance from the bottom edge (mirrors --btt-inset in blog.css). */
 const REST = 24;
 const GAP = 12;

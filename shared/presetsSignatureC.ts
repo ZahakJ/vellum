@@ -23,7 +23,8 @@
 //   · MENU       plain · underline · pills · NONE AT ALL
 //   · RUN        index · ledger · index · numbered
 //   · CARD       bare, no art · overlay+art · bare+art · —
-//   · OPENING    — · panel · — · —
+//   · OPENING    card · register · first leaf · letterhead (four bands, each
+//                drawn by the studio sheet into the object its house is)
 //   · MEASURE    900 · 1280 · 880 · 640 px
 //   · FACE       eb-garamond/crimson-pro · ibm-plex-sans/jetbrains-mono ·
 //                lora/source-serif-4 · literata (one face)
@@ -135,13 +136,29 @@ import { presetChrome as chrome, presetDesignPart as design, type Preset } from 
  * heading face on a paragraph with nothing above it but its own title is the
  * oldest gesture in this whole collection, and it turns itself off in an Arabic
  * paragraph for the reason written beside it in design.css.
+ *
+ * THE OPENING IS AN INVITATION CARD. A salon is something you are asked to,
+ * and the thing you are asked with is a card: a small stiff sheet, the name
+ * centred inside a fine double rule, one ornament above it, the line of the
+ * evening under it. So the page now opens on a `band` hero with a blank
+ * heading (the site's own name and tagline, printed once), and the studio
+ * sheet sets that band as the card: an embossed sheet on `--bg-raised`, a
+ * hairline with a second hairline five pixels outside it, the design's own
+ * mark between two short rules above the name, and a short accent rule under
+ * the tagline where a card puts the address. Every line of it is a border or
+ * a gradient in the theme's tokens, which is why the same card is celadon on
+ * porcelain and ink on linen. The forme above it keeps its menu and gives up
+ * its name (`showName: false`, `showTagline: false`), because a title page
+ * that prints the title twice is a proof, and the empty forme collapses to
+ * its menu on the front page and comes back whole on an article, where the
+ * card is not.
  */
 const salon: Preset = {
   id: "salon",
   name: { en: "Salon", ar: "المجلس" },
   blurb: {
-    en: "For a few things read closely, on the best paper in the house.",
-    ar: "لأشياء قليلة تُقرأ بتمهّل، على أجود ورقٍ في البيت.",
+    en: "For a few things read closely: an invitation card at the head, then the best paper in the house.",
+    ar: "لأشياء قليلة تُقرأ بتمهّل: بطاقة دعوة في الصدر، ثم أجود ورقٍ في البيت.",
   },
   family: "signature",
   tags: [
@@ -158,6 +175,7 @@ const salon: Preset = {
     // it was.
     site: { width: 900, density: "roomy" },
     chrome: chrome({
+      signature: "salon",
       typography: {
         baseSize: 19,
         // NEARLY NO STEP AT ALL, and for the opposite of the plate book's
@@ -195,12 +213,21 @@ const salon: Preset = {
       // rules were 320px apart with a name and a line in the middle and the
       // reading began below the fold. The forme is still the biggest thing on
       // the page at `regular`; it is no longer the only thing on the screen.
-      header: { layout: "rule", density: "regular", sticky: "none", showTagline: true, divider: false },
+      // NAMELESS ON THE FRONT PAGE, because the card below prints the name and
+      // the tagline at size (the hero's blank heading and blank sub do that),
+      // and the header brings the wordmark back by itself on every route that
+      // has no hero, which is the article.
+      header: { layout: "rule", density: "regular", sticky: "none", showName: false, showTagline: false, divider: false },
       nav: { style: "plain", fallback: "topics", showSearch: true, showThemeToggle: true },
       footer: { form: "colophon", align: "center", showRss: true, showSearchHint: false },
       surface: "paper",
     }),
     sections: [
+      // THE CARD. A band, because a band refuses to invent artwork and paints
+      // only ground and type, which is what a printed card is; centred, short,
+      // and dressed by the studio sheet (signature-studio-c.css) into the
+      // double rule, the ornament and the embossed edge.
+      { id: "card", kind: "hero", heading: "", sub: "", image: null, align: "center", height: "short", treatment: "band" },
       // SIX, IN TWO COLUMNS, WITH THEIR OPENING LINES AND NO PICTURES. The
       // sheet. `showBanner: false` is the setting that makes it a broadside
       // rather than a portfolio: a hand press sets type and prints it, and a
@@ -263,19 +290,33 @@ const salon: Preset = {
  *
  * The masthead is `inline` and STICKY AT THE WHOLE BLOCK, which nothing else in
  * the collection does: a station's bar stays across the top while the sky
- * scrolls under it. Its tagline is off, so the tagline appears exactly once —
- * in the opening, at size — and the name is small at the reading start, which
- * the eye files as chrome. The opening is the `panel`, the treatment both other
- * studios passed over: the rounded plate with the generated artwork behind it,
- * which on `sidereal` is a field of the theme's own accent hues and reads as a
- * survey exposure rather than as a missing photograph.
+ * scrolls under it. Its tagline is off and its name is off, so both appear
+ * exactly once, in the opening, at size; the bar keeps the menu, the search
+ * and the switch, and the studio sheet puts the design's own mark at its
+ * start where the wordmark was, so the home link is still a thing you can
+ * see.
+ *
+ * THE OPENING IS THE TABLE ITSELF. The first cut was a `panel`, the rounded
+ * plate with the generated field behind it, and the field was the problem: a
+ * violet wash with hatching over it is an exposure of nothing in particular,
+ * and an ephemeris is not a picture of the sky, it is a table of it. So the
+ * opening is now a `band` (ground and type, no invented artwork) that the
+ * studio sheet draws into a register: a strip of seven moons across the top,
+ * crescent to full to crescent, each one a lit disc with a dark disc or a
+ * half rect laid over it; the name and the tagline ruled above and below like
+ * a row of the table, with a tick column hanging at the reading edge; and at
+ * the end a square star chart, dots of `--text` and one accent planet with a
+ * halo, declination arcs from a corner and a graduated edge, all gradients in
+ * the theme's tokens. The accent frame with the hairline outside it that the
+ * collection sheet already gives this hero is the register's own border. On
+ * the phone the three parts stack: moons, row, chart.
  */
 const ephemeris: Preset = {
   id: "ephemeris",
   name: { en: "Ephemeris", ar: "الزيج" },
   blurb: {
-    en: "For a log kept at night: plates in the dark, and the ambient sky behind them.",
-    ar: "لسجلٍّ يُكتب ليلًا: صورٌ في العتمة، وسماءٌ متحرّكة خلفها.",
+    en: "For a log kept at night: the name in a ruled register under a strip of moons, plates in the dark below it.",
+    ar: "لسجلٍّ يُكتب ليلًا: الاسم في جدولٍ مسطّر تحت شريطٍ من الأقمار، وصورٌ في العتمة تحته.",
   },
   family: "signature",
   tags: [
@@ -286,6 +327,7 @@ const ephemeris: Preset = {
     theme: "sidereal",
     site: { width: 1280, density: "regular" },
     chrome: chrome({
+      signature: "ephemeris",
       typography: {
         baseSize: 15.5,
         scale: 1.212,
@@ -317,6 +359,10 @@ const ephemeris: Preset = {
         layout: "inline",
         density: "regular",
         sticky: "header",
+        // ONCE. The register below prints the name at size; the bar keeps
+        // its menu and its tools, and the wordmark comes back into it on the
+        // article route by the header's own rule.
+        showName: false,
         showTagline: false,
         divider: true,
       },
@@ -329,12 +375,13 @@ const ephemeris: Preset = {
       surface: "grid",
     }),
     sections: [
-      // THE PANEL, which is the one opening neither other studio took. A band
-      // refuses to invent artwork and a split sets it beside the words; a panel
-      // puts the generated field BEHIND them, and on a night-sky room a field
-      // of the theme's own hues is an exposure rather than an apology for a
-      // missing photograph.
-      { id: "plate", kind: "hero", heading: "", sub: "", image: null, align: "center", height: "tall", treatment: "panel" },
+      // THE REGISTER. A band rather than the panel the first cut had: a band
+      // paints ground and type and nothing else, which leaves the studio
+      // sheet a dark, opaque table to draw the moons, the ruled row and the
+      // star chart on (see the note above). `start`, because a table is read
+      // from its edge and the chart takes the other end; `tall`, because a
+      // station's opening is the biggest instrument on the page.
+      { id: "plate", kind: "hero", heading: "", sub: "", image: null, align: "start", height: "tall", treatment: "band" },
       { id: "survey", kind: "postGrid", heading: "", limit: 6, columns: 3, tag: "", showExcerpt: false, showBanner: true, showDate: true, card: "overlay" },
       { id: "rule", kind: "divider", style: "rule", space: 26 },
       // THE LOG, and it is twenty rows against the survey's six for the
@@ -406,13 +453,34 @@ const ephemeris: Preset = {
  * font slot dresses this page's other script, and an owner who wants Amiri or
  * Aref Ruqaa under these rules sets it once, for their whole site, where that
  * decision belongs.
+ *
+ * THE OPENING IS THE FIRST PAGE OF THE BOOK, and it took the headpiece with
+ * it. A deluxe manuscript does not put its title in the ʿunwān: the headpiece
+ * is decoration, gold on a lattice, and the title is written on the page
+ * under it, beginning with a versal, the one letter the illuminator was paid
+ * for. So the banner masthead keeps its field and gives up its words
+ * (`showName: false`, `showTagline: false`, `regular` rather than `tall`,
+ * because a headpiece with no title in it needs less height than one with),
+ * and the studio sheet draws the headpiece into it: a strip of gilded double
+ * rules with a diamond lattice between them and the design's own mark on a
+ * disc at the centre. Under the pills, the `band` hero is the first leaf:
+ * framed in the same accent rule with the hairline outside it that the
+ * openings' cards wear, the site's name set with its FIRST LETTER AS A
+ * VERSAL (a `::first-letter` floated at the reading edge, boxed in accent
+ * with a second rule inside the box, the way a Lombardic initial sits in its
+ * own square), the tagline as the RUBRIC in the heading face and small caps
+ * in accent, and a double gilded rule under the pair. An Arabic name does not
+ * take the versal, because pulling the first letter out of a connected word
+ * breaks the word; it takes the square with the mark in it, which is what an
+ * Arabic opening puts there. On the article route the name goes back into
+ * the headpiece and the page reads as it did.
  */
 const illumination: Preset = {
   id: "illumination",
   name: { en: "Illumination", ar: "التذهيب" },
   blurb: {
-    en: "For work made to be kept: ruled pages, a mark between the parts, a gilded end.",
-    ar: "لعملٍ يُصنع ليبقى: صفحاتٌ مسطّرة، وعلامةٌ بين الأقسام، وخِتامٌ مُذهَّب.",
+    en: "For work made to be kept: a gilded headpiece, a versal on the first page, ruled leaves and a mark between the parts.",
+    ar: "لعملٍ يُصنع ليبقى: عنوانٌ مُذهَّب، وحرفٌ مزخرف في أول صفحة، وأوراقٌ مسطّرة، وعلامةٌ بين الأقسام.",
   },
   family: "signature",
   tags: [
@@ -423,6 +491,7 @@ const illumination: Preset = {
     theme: "iron-gall",
     site: { width: 880, density: "roomy" },
     chrome: chrome({
+      signature: "illumination",
       typography: {
         baseSize: 17.5,
         // THE WIDEST STEP IN THIS STUDIO, against the salon's flattest. A
@@ -441,12 +510,21 @@ const illumination: Preset = {
         bodyFont: "source-serif-4",
         rhythm: 1.2,
       },
-      header: { layout: "banner", density: "tall", sticky: "none", showTagline: true, divider: false },
+      // THE HEADPIECE WITHOUT ITS TITLE (see the note above): the field stays,
+      // the words move to the first page under it, and the studio sheet gilds
+      // the strip. `regular` rather than `tall` because the height was for
+      // the title, and the title is on the leaf now.
+      header: { layout: "banner", density: "regular", sticky: "none", showName: false, showTagline: false, divider: false },
       nav: { style: "pills", fallback: "topics", showSearch: true, showThemeToggle: true },
       footer: { form: "grand", align: "center", showRss: true, showSearchHint: false },
       surface: "ruled",
     }),
     sections: [
+      // THE FIRST LEAF. A band with a blank heading prints the name and the
+      // tagline once; the sheet frames it, sets the versal on the first letter
+      // and rubricates the line under it. `start`, because a versal hangs at
+      // the reading edge and the text runs away from it.
+      { id: "leaf", kind: "hero", heading: "", sub: "", image: null, align: "start", height: "short", treatment: "band" },
       // FOUR MINIATURES, UNBOXED. `bare` deletes the border, the radius and the
       // raised ground, so the picture and the words stand on the ruled page —
       // which is where an illumination stands. Two across an 880px column, with
@@ -521,13 +599,30 @@ const illumination: Preset = {
  * same design in daylight — and it is in the tags. The end is a COLOPHON with
  * everything switched off but the line the instance already writes: a person's
  * site signs itself once, quietly, and stops.
+ *
+ * THE OPENING IS THE HEAD OF A LETTER, which is the one opening a page this
+ * plain can have without stopping being plain. A letter begins at the end
+ * edge, where the date goes, and then at the start edge, where the writer
+ * puts their name over a line: so the masthead gives up its name and its
+ * tagline and keeps only its furniture (the search and the switch), which the
+ * studio sheet sets at the end edge with two short ruled lines under them,
+ * the dateline of printed stationery; and the `band` hero below it prints the
+ * name once, in italic, as a signature over a rule that runs part way across,
+ * with the tagline under it as the salutation. The band's ground and its
+ * hairlines are taken off, because a letter is one sheet and not a box on a
+ * sheet. Down the whole page runs a MARGIN: a faint accent rule with a
+ * hairline beside it at the reading edge, from the head to the foot, the way
+ * a ruled sheet carries its margin line past every paragraph, and the
+ * numbered run is set as the PAGES of the letter, each essay a raised sheet
+ * with its number small in the top end corner where a page number goes,
+ * rather than an ordinal in a ring beside it. The measure does not move.
  */
 const longhand: Preset = {
   id: "longhand",
   name: { en: "Longhand", ar: "بخطّ اليد" },
   blurb: {
-    en: "For one person writing at length, with nothing on the page to interrupt it.",
-    ar: "لشخصٍ واحد يكتب مطوّلًا، ولا شيء على الصفحة يقاطعه.",
+    en: "For one person writing at length: the head of a letter, then the letter, with nothing to interrupt it.",
+    ar: "لشخصٍ واحد يكتب مطوّلًا: رأس رسالة، ثم الرسالة، ولا شيء يقاطعها.",
   },
   family: "signature",
   tags: [
@@ -545,6 +640,7 @@ const longhand: Preset = {
     theme: "tallow",
     site: { width: 640, density: "roomy" },
     chrome: chrome({
+      signature: "longhand",
       typography: {
         baseSize: 19,
         // Nearly flat, at 400, in one face: an h1 of 30px over a 19px body.
@@ -567,7 +663,11 @@ const longhand: Preset = {
         layout: "stackedStart",
         density: "compact",
         sticky: "none",
-        showTagline: true,
+        // THE NAME IS THE SIGNATURE LINE BELOW, printed once by the hero; the
+        // masthead keeps only the tools, which the sheet sets at the end edge
+        // as the dateline. The wordmark returns here on the article route.
+        showName: false,
+        showTagline: false,
         divider: false,
       },
       // NO MENU. `fallback: "none"` and no items means there is no bar at all —
@@ -584,11 +684,15 @@ const longhand: Preset = {
       surface: "flat",
     }),
     sections: [
-      // ONE SECTION. Not one post section — ONE SECTION, which no other design
-      // in the signature collection is, and which five of the quiet older
-      // shelves are. There is no divider because there is nothing to divide, and
-      // no topics run because a chip is a filter and this page does not have
-      // enough on it to need filtering.
+      // THE HEAD OF THE LETTER, then the letter. The first cut was ONE SECTION
+      // and the argument for it holds: there is still no divider because there
+      // is nothing to divide, and no topics run because a chip is a filter and
+      // this page does not have enough on it to need filtering. The head is
+      // not a second thing on the page; it is where the one thing begins. A
+      // band with a blank heading prints the name and the tagline once, and
+      // the studio sheet takes the band's box away and sets them as a
+      // signature line and a salutation.
+      { id: "head", kind: "hero", heading: "", sub: "", image: null, align: "start", height: "short", treatment: "band" },
       { id: "essays", kind: "postList", heading: "", limit: 14, tag: "", showExcerpt: true, showDate: true, layout: "numbered" },
     ] as Section[],
     // NO BANNER AND NO RELATED RUN. An essay opens on its title and ends when it

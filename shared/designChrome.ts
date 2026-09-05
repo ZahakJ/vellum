@@ -631,7 +631,36 @@ export const CHROME_ORNAMENTS: readonly ChromeOrnament[] = [
   "fleuron",
 ];
 
+/** A portable art direction, independent of the palette and editable shell.
+ * Missing on older designs means no additional styling. */
+export const CHROME_SIGNATURES = [
+  "none",
+  "late-edition",
+  "teletype",
+  "fascicle",
+  "klaxon",
+  "vernissage",
+  "gravure",
+  "mimeo",
+  "cover-story",
+  "salon",
+  "ephemeris",
+  "illumination",
+  "longhand",
+  "orrery",
+  "nightwatch",
+  "vesper",
+  "ordnance",
+  "flypost",
+  "front-door",
+  "mission-control",
+  "deep-field",
+  "revenant",
+] as const;
+export type ChromeSignature = (typeof CHROME_SIGNATURES)[number];
+
 export interface DesignChrome {
+  signature: ChromeSignature;
   nav: NavDesign;
   typography: TypographyDesign;
   header: HeaderDesign;
@@ -650,6 +679,7 @@ export interface DesignChrome {
 }
 
 export const DEFAULT_CHROME: DesignChrome = {
+  signature: "none",
   nav: {
     items: [],
     fallback: "topics",
@@ -981,6 +1011,7 @@ export function normalizeChrome(raw: unknown): DesignChrome {
     ornament: oneOf(source.ornament, CHROME_ORNAMENTS, DEFAULT_CHROME.ornament),
     shell: oneOf(source.shell, CHROME_SHELLS, DEFAULT_CHROME.shell),
     frame: oneOf(source.frame, CHROME_FRAMES, DEFAULT_CHROME.frame),
+    signature: oneOf(source.signature, CHROME_SIGNATURES, DEFAULT_CHROME.signature),
   };
 }
 
@@ -1259,7 +1290,8 @@ export function validateChrome(raw: unknown): DesignChrome {
   const shell = enumKey("shell", raw.shell, CHROME_SHELLS) ?? DEFAULT_CHROME.shell;
   const frame = enumKey("frame", raw.frame, CHROME_FRAMES) ?? DEFAULT_CHROME.frame;
 
-  return { nav, typography: typo, header, footer, surface, scenery, ornament, shell, frame };
+  const signature = enumKey("signature", raw.signature, CHROME_SIGNATURES) ?? DEFAULT_CHROME.signature;
+  return { nav, typography: typo, header, footer, surface, scenery, ornament, shell, frame, signature };
 }
 
 // ── Derived values (one implementation, used by the site and the preview) ───

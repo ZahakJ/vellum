@@ -75,8 +75,8 @@ const missionControl: Preset = {
   id: "mission-control",
   name: { en: "Mission Control", ar: "غرفة التحكم" },
   blurb: {
-    en: "An instrument: a ruled gutter down the side, and every block in its own window.",
-    ar: "آلة قياس: مزراب مسطَّر على الجانب، وكل كتلة في نافذتها.",
+    en: "An orbital display, instrument panels and a ruled transmission log in phosphor green.",
+    ar: "عرض مداري ولوحات أجهزة وسجل إرسال مسطّر بالأخضر الفوسفوري.",
   },
   family: "signature",
   tags: [
@@ -87,6 +87,7 @@ const missionControl: Preset = {
     theme: "phosphor",
     site: { width: 1040, density: "compact" },
     chrome: chrome({
+      signature: "mission-control",
       typography: {
         baseSize: 15,
         scale: 1.2,
@@ -102,7 +103,8 @@ const missionControl: Preset = {
         monoFont: "jetbrains-mono",
         rhythm: 0.85,
       },
-      header: { layout: "stackedStart", density: "compact", sticky: "none", showTagline: true, divider: false },
+      // The orbital display prints the name; the rail keeps only the tagline.
+      header: { layout: "stackedStart", density: "compact", sticky: "none", showName: false, showTagline: true, divider: false },
       nav: { style: "plain", fallback: "topics", showSearch: true, showThemeToggle: true },
       footer: { form: "colophon", align: "start", showRss: true, showSearchHint: false },
       surface: "grid",
@@ -112,6 +114,7 @@ const missionControl: Preset = {
       frame: "window",
     }),
     sections: [
+      { id: "orbit", kind: "hero", heading: "", sub: "", image: null, align: "start", height: "tall", treatment: "band" },
       { id: "board", kind: "postGrid", heading: "", limit: 4, columns: 2, tag: "", showExcerpt: true, showBanner: false, showDate: true, card: "boxed" },
       { id: "mark", kind: "divider", style: "rule", space: 26 },
       // ENTRIES, NOT ARTICLES. A console's list is a log: every row ruled, the
@@ -150,8 +153,8 @@ const deepField: Preset = {
   id: "deep-field",
   name: { en: "Deep Field", ar: "الحقل العميق" },
   blurb: {
-    en: "A narrow column of writing floating in a very large, very slow sky.",
-    ar: "عمود ضيّق من الكتابة يطفو في سماء واسعة بطيئة جدًّا.",
+    en: "An eclipse above the fold, a floating dock and stories suspended in a deep stellar field.",
+    ar: "كسوف في افتتاح الصفحة، وشريط عائم، ومقالات معلّقة في حقل نجمي عميق.",
   },
   family: "signature",
   tags: [
@@ -162,6 +165,7 @@ const deepField: Preset = {
     theme: "void",
     site: { width: 780, density: "roomy" },
     chrome: chrome({
+      signature: "deep-field",
       typography: {
         baseSize: 18,
         scale: 1.3,
@@ -176,7 +180,8 @@ const deepField: Preset = {
         bodyFont: "crimson-pro",
         rhythm: 1.4,
       },
-      header: { layout: "inline", density: "compact", sticky: "none", showTagline: false, divider: false },
+      // The name stands under the eclipse; the dock is navigation only.
+      header: { layout: "inline", density: "compact", sticky: "none", showName: false, showTagline: false, divider: false },
       nav: { style: "brackets", fallback: "topics", showSearch: true, showThemeToggle: true },
       footer: { form: "colophon", align: "center", showRss: true, showSearchHint: false },
       surface: "flat",
@@ -186,11 +191,8 @@ const deepField: Preset = {
       frame: "float",
     }),
     sections: [
-      // NOTHING BUT THE WRITING, floating. No hero: the dock already carries
-      // the name, and a band under a floating bar is a second announcement in a
-      // house whose whole argument is that there is nothing between the reader
-      // and the sky. (Studio B's rule, in a room it had never seen.)
-      { id: "air", kind: "divider", style: "blank", space: 40 },
+      // The site name and tagline open against a CSS eclipse; no stock image or copy.
+      { id: "horizon", kind: "hero", heading: "", sub: "", image: null, align: "center", height: "tall", treatment: "band" },
       { id: "field", kind: "postList", heading: "", limit: 18, tag: "", showExcerpt: true, showDate: true, layout: "river" },
       { id: "mark", kind: "divider", style: "ornament", space: 44 },
       { id: "regions", kind: "topics", heading: "", limit: 12 },
@@ -218,13 +220,26 @@ const deepField: Preset = {
  * unoccupied. The mark is ☾. The run is the plain `river`, deliberately — a
  * numbered or ruled list would be somebody keeping records, and there is
  * nobody here keeping records.
+ *
+ * AND THE PAGE OPENS ON A PLATE. The first section is a `band` hero with a
+ * blank heading, and the studio sheet sets it as a memorial plate: a shallow
+ * arched top that answers the Gothic arch on the panel, a double hairline
+ * inside the edge, a deep ground with the room's porphyry closing in from the
+ * corners, the moon at the head of it, the name in spaced capitals and the
+ * tagline in italic under a hairline. The panel keeps its arch and its menu
+ * (the studio sheet hangs the moon in the arch too), and gives the name up
+ * on the home page (`showName` and `showTagline` off), so the name is cut
+ * once, on the page that moves, and stands still on the panel again when the
+ * reader is inside an article. The river under the plate is set as
+ * inscriptions: each entry centred, a short rule cut under it rather than a
+ * line drawn across the page.
  */
 const revenant: Preset = {
   id: "revenant",
   name: { en: "Revenant", ar: "العائد" },
   blurb: {
-    en: "A still panel, a moving page, and fog closing the corners of both.",
-    ar: "لوحة ساكنة، وصفحة متحركة، وضباب يُطبق على زوايا كليهما.",
+    en: "A memorial plate for the name on the moving page, a still panel beside it, and fog closing the corners of both.",
+    ar: "لوحة تذكارية للاسم على الصفحة المتحرّكة، ولوحة ساكنة بجانبها، وضباب يُطبق على زوايا كليهما.",
   },
   family: "signature",
   tags: [
@@ -235,6 +250,7 @@ const revenant: Preset = {
     theme: "porphyry",
     site: { width: 720, density: "roomy" },
     chrome: chrome({
+      signature: "revenant",
       typography: {
         baseSize: 18,
         scale: 1.24,
@@ -249,7 +265,10 @@ const revenant: Preset = {
         bodyFont: "lora",
         rhythm: 1.3,
       },
-      header: { layout: "stacked", density: "regular", sticky: "none", showTagline: true, divider: false },
+      // The name is cut on the plate in the opening below; the panel keeps
+      // its arch and its menu on the home page and prints the name again on
+      // an article.
+      header: { layout: "stacked", density: "regular", sticky: "none", showName: false, showTagline: false, divider: false },
       nav: { style: "plain", fallback: "topics", showSearch: true, showThemeToggle: true },
       footer: { form: "colophon", align: "center", showRss: false, showSearchHint: false },
       surface: "paper",
@@ -259,6 +278,8 @@ const revenant: Preset = {
       frame: "plain",
     }),
     sections: [
+      // THE PLATE: name and tagline on a memorial plate, the studio sheet cuts it.
+      { id: "epitaph", kind: "hero", heading: "", sub: "", image: null, align: "center", height: "short", treatment: "band" },
       { id: "river", kind: "postList", heading: "", limit: 16, tag: "", showExcerpt: true, showDate: true, layout: "river" },
       { id: "mark", kind: "divider", style: "ornament", space: 40 },
       { id: "rooms", kind: "topics", heading: "", limit: 10 },
@@ -389,6 +410,7 @@ const frontDoor: Preset = {
     theme: "iron-gall",
     site: { width: 1120, density: "regular" },
     chrome: chrome({
+      signature: "front-door",
       typography: {
         baseSize: 17,
         scale: 1.25,

@@ -280,6 +280,7 @@ export default function DesignThumb({ design, seed, className }: DesignThumbProp
   return (
     <div
       className={`s-dsgt s-dsgt--${design.site.density} s-dsgt--surf-${surface} s-dsgt--sky-${scenery} s-dsgt--shell-${shell}${className ? ` ${className}` : ""}`}
+      data-signature={design.chrome.signature ?? "none"}
       style={style}
       aria-hidden="true"
     >

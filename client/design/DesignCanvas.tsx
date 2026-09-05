@@ -30,6 +30,7 @@
 //     instead of unmounting the designer.
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -39,18 +40,22 @@ import {
   type CSSProperties,
   type MouseEvent,
 } from "react";
-import type { DesignDoc, Section } from "../../shared/design.ts";
+import { printsSiteName, type DesignDoc, type Section } from "../../shared/design.ts";
 import { typographyVars } from "../../shared/designChrome.ts";
 import { isTheme } from "../../shared/themes.ts";
 import { t } from "../i18n.ts";
 import { useStore } from "../state.ts";
 import DesignedArticle from "./DesignedArticle.tsx";
+import AuthorSites from "../blog/AuthorSites.tsx";
+import PublicFolders from "../blog/PublicFolders.tsx";
 import DesignFooter from "./DesignFooter.tsx";
+import { publicNavigation } from "./publicNavigation.ts";
 import DesignHeader from "./DesignHeader.tsx";
 import { DesignBoundary, type SectionFailure } from "./DesignBoundary.tsx";
 import { PreviewContentProvider, type PreviewContent } from "./previewContent.tsx";
 import { RenderSection, sectionKindLabel } from "./Sections.tsx";
 import "../styles/design.css";
+import "../styles/signatures.css";
 import "../styles/presets.css";
 
 export interface DesignCanvasProps {
@@ -141,6 +146,8 @@ export default function DesignCanvas({
   const tagline = useStore((s) => s.tagline);
   const footerLine = useStore((s) => s.footerLine);
   const logo = useStore((s) => s.logo);
+  const folders = useStore((s) => s.publicFolders);
+  const foldersInNav = useStore((s) => s.publicFoldersNav);
   const locale = useStore((s) => s.blogLocale);
   const language = useStore((s) => s.language);
 
@@ -247,7 +254,7 @@ export default function DesignCanvas({
   /* The same rule the live site applies, for the same reason: a card that
      printed the name twice would be selling a design with a bug in it. */
   const namedElsewhere = design.sections.some(
-    (s) => !s.hidden && s.kind === "hero" && s.treatment === "cover",
+    (s) => !s.hidden && s.kind === "hero" && printsSiteName(s),
   );
   const themeAttr = ownTheme && design.theme && isTheme(design.theme) ? design.theme : undefined;
   /** The header's own stickiness, in a frame that can honour it. */
@@ -287,7 +294,8 @@ export default function DesignCanvas({
           chrome.frame ?? "plain"
         }${sticky !== "none" ? " s-dsn--sticky" : ""}`}
         style={style}
-        data-lang={language}
+        data-signature={chrome.signature ?? "none"}
+      data-lang={language}
         aria-hidden="true"
       >
         {/* A card that sells a design standing in a starfield has to be
@@ -319,7 +327,7 @@ export default function DesignCanvas({
             >
               <DesignHeader
                 header={chrome.header}
-                items={chrome.nav.items}
+                items={publicNavigation(chrome.nav, topics, folders, foldersInNav)}
                 navStyle={chrome.nav.style ?? "plain"}
                 namedElsewhere={namedElsewhere}
                 topics={topics}
@@ -365,17 +373,25 @@ export default function DesignCanvas({
                   )}
                 </DesignBoundary>
               ) : (
-                sections.map((section) => (
-                  <DesignBoundary
-                    key={`${design.updatedMs}:${section.id}`}
-                    id={section.id}
-                    kind={section.kind}
-                    onFail={noop}
-                    fallback={(failure) => <CanvasFailure failure={failure} />}
-                  >
-                    <RenderSection section={section as Section} posts={content.posts} locale={locale} />
-                  </DesignBoundary>
-                ))
+                <>
+                  {sections.length === 0 && <PublicFolders />}
+                  {sections.map((section, index) => (
+                    <Fragment key={section.id}>
+                      {index === (sections[0]?.kind === "hero" ? 1 : 0) && <PublicFolders />}
+                      <DesignBoundary
+                        key={`${design.updatedMs}:${section.id}`}
+                        id={section.id}
+                        kind={section.kind}
+                        onFail={noop}
+                        fallback={(failure) => <CanvasFailure failure={failure} />}
+                      >
+                        <RenderSection section={section as Section} posts={content.posts} locale={locale} />
+                      </DesignBoundary>
+                    </Fragment>
+                  ))}
+                  {sections.length === 1 && sections[0].kind === "hero" && <PublicFolders />}
+                  <AuthorSites />
+                </>
               )}
             </div>
           </main>

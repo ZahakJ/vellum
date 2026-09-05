@@ -63,6 +63,8 @@ the URL stays the canonical slug.
 
 ## Custom public folders
 
+Collections and author-site gallery cards are also available in [designed mode](designer.md), with the same visibility and placement settings.
+
 Topics are what your notes say about *themselves*. **Public folders** are what *you* say about a
 group of them: your own collections — Games, Reading, Field notes — declared once in Settings and
 joined by the notes that belong in them.

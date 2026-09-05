@@ -88,8 +88,8 @@ Beyond the sections, a design carries the frame:
 
 ## Presets
 
-The designer ships **fifty-nine finished designs** across eight families — `editorial`, `minimal`,
-`journal`, `portfolio`, `reference`, `landing`, `gallery`, `letter` — as a starting fork rather
+The designer ships **81 finished designs** across nine families — `editorial`, `minimal`,
+`journal`, `portfolio`, `reference`, `landing`, `gallery`, `letter`, `signature` — as a starting fork rather
 than a template you fill in. Three rules govern every one of them, and they are the whole contract
 for adding another:
 
@@ -109,6 +109,42 @@ for adding another:
 
 `npm run check-presets` holds the catalog to those rules: unique ids, a bilingual name and blurb
 with real Arabic, a known family, at least one preset per family, and no preset naming a note.
+
+### Signature houses have an opening, and it travels with the design
+
+The 21 `signature` presets carry a portable **Signature styling** choice in the **Chrome** tab.
+It is what makes a house a house rather than a palette: the broadsheet nameplate with its ears and
+dateline strip, the tractor feed paper and punched tape, the console's radar, the eclipse above
+Deep Field, the museum wall with a piece hung on wires, the moon phases and star chart of the
+register. It survives renaming, duplication and JSON export and import, so a fork of Mission
+Control that you recolour and reorder is still in the console. Choose **No extra styling** to
+remove it without touching your sections or typography. Older saved designs carry no signature
+until you apply a preset that does.
+
+Every opening is drawn in the theme's own tokens (gradients, rules and shadows, never an image or
+a fixed colour), so it follows your palette and your light and dark themes. The drawing is a hero
+section with a blank heading, which is the section that already prints your site's name and
+tagline, so the masthead above it stays quiet on the front page and returns on every article.
+
+`npm run check-signatures` runs an isolated browser fixture over the signature collection:
+desktop and phone layouts, Arabic direction and collection navigation, plus galleries and hover
+summaries across all 81 templates, keyboard previews, article rendering and designer parity.
+`SIGNATURES=late-edition,klaxon`, `--houses-only` and `SHOTS=full` narrow it to the houses you are
+drawing and write screenshots to `shots/signatures/`. It never touches a vault or a saved design.
+
+### Blog features in every template
+
+Configured **author-site gallery cards** now appear at the end of designed homepages,
+and **published collections** appear near the opening when their home placement is
+on. The navigation placement adds filled collections alongside your authored menu;
+collection URLs keep the active design around their contents. These additions use
+the same settings and visitor-filtered data as the stock blog and appear in the
+live designer preview too.
+
+Post links offer the stock blog's rendered summary on mouse hover or keyboard
+focus, including links in cards, lists, search and related posts. Touch navigation
+stays direct. Long pages also have the shared back-to-top control. Article and
+static-page bodies use the shared note-format renderer and honor note alignment.
 
 ## Designs are named, versioned, and portable
 

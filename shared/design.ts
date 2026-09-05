@@ -118,6 +118,15 @@ export interface HeroSection extends SectionBase {
   treatment: "panel" | "band" | "split" | "cover";
 }
 
+/** Whether a hero is the place the site's name gets printed. A blank heading
+ *  falls back to the site name (see `heading` above), and `cover` sets the
+ *  name across the photograph whatever the heading says; either way the
+ *  masthead directly above must not print it a second time, forty pixels up.
+ *  Both renderers ask this one question so they cannot disagree about it. */
+export function printsSiteName(hero: HeroSection): boolean {
+  return hero.treatment === "cover" || hero.heading.trim() === "";
+}
+
 export interface RichTextSection extends SectionBase {
   kind: "richText";
   /** Rendered through the reading renderer — the same sanitizer, the same

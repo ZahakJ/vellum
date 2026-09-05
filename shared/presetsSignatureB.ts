@@ -14,13 +14,13 @@
 // the four below take the four other answers, one each, and they take them all
 // the way:
 //
-//   · CARD       overlay×2 · masonry×3 · overlay×3 · overlay×1 + bare×2
-//   · MASTHEAD   banner · stackedStart · stacked · rule
+//   · CARD       overlay×2 · masonry×3 · overlay×3 · bare×2
+//   · MASTHEAD   inline · stackedStart · stacked · inline
 //   · GROUND     flat · tinted · paper · ruled
 //   · END        columns · grand · colophon · columns
 //   · MENU       plain · underline · brackets · pills
-//   · OPENING    — · band · — · —
-//   · RUN        index · — · numbered · —
+//   · OPENING    split (a wall) · split (a title page) · band (a cover) · cover
+//   · RUN        index · — · numbered · index (the coverlines)
 //   · MEASURE    1180 · 1360 · 940 · 1120 px
 //   · FACE       eb-garamond/source-sans-3 · inter (one face) ·
 //                fira-code/lora · work-sans/literata
@@ -42,8 +42,15 @@
 // arrangements AND, after two rounds of screenshots, two rules in the engine. A
 // preset may not name an image — a shipped design cannot know what is in a
 // stranger's vault — so every photograph on these pages is the author's own
-// post banner. That is why NONE of these four opens on a hero at all: all four
-// open on the work itself.
+// post banner. For two rounds that meant NONE of these four opened on a hero
+// at all. All four open on one now, and the reason is the same sentence read
+// the other way: the two treatments that BORROW (a split takes the newest
+// post's banner for its plate, a cover takes it for its photograph) put the
+// author's own picture in the opening, so the wall, the title page and the
+// cover all open on the work after all. The zine's cover is the one opening
+// with no picture in it (a band), because a photocopied cover is ink on paper.
+// The four openings are drawn in client/styles/signature-studio-b.css, and
+// every one of them is gradients, borders and shadows in the theme's tokens.
 //
 // WHERE A POST HAS NO BANNER, THE TWO PICTURE-SHAPED CARDS NOW PRINT TYPE
 // RATHER THAN INVENTING A PICTURE. The generated field is a good answer for a
@@ -71,16 +78,17 @@
 // preset is allowed to put there.
 //
 // The rule the two reshoots produced, and it is stronger than the one they
-// started with: A PRESET'S HERO SAYS THE NAME OR IT SAYS NOTHING, so a design
-// that wants its front page to say something ELSE does not open on a hero.
-// Three of these four open on the work; the fourth opens on a half-title,
-// because a half-title IS the name and a plate book is the one house where
-// printing it large is the whole gesture (Gravure, `band`, 33px, its masthead
-// deliberately reduced to a running head). The two with loud mastheads
-// (Vernissage's banner field, Mimeo's centred nameplate) and the one with a
-// nameplate between rules (Cover Story) have no hero at all, and all three are
-// better for it: a gallery, a zine and a magazine open on the work, not on an
-// introduction.
+// started with: A PRESET'S HERO SAYS THE NAME OR IT SAYS NOTHING. The first
+// answer to that rule was to have no hero on three of the four. The answer
+// that stands is the other one: every hero on this shelf says the name, and
+// says it the way its object does. A gallery prints its name on a wall label
+// beside the piece. A plate book engraves it under the frontispiece. A zine
+// bangs it into a crooked box on the cover. A magazine sets it across the top
+// of the photograph and calls it the masthead. In all four the hero prints the
+// name and the tagline, so all four mastheads set `showName` and `showTagline`
+// off; DesignHeader keeps the masthead honest anyway (it forces the name back
+// unless a hero on the same route prints it, and the article route has no
+// hero, so the name returns there by itself).
 //
 // THE HOUSE RULES OF THE OTHER SHELVES HOLD, all of them. Every word on these
 // pages is the owner's; nothing here names a note, a tag or an image; each
@@ -120,16 +128,23 @@ import { presetChrome as chrome, presetDesignPart as design, type Preset } from 
  * manuscript uses it as a fihrist. Here it is a wall list, and the three do not
  * read as cousins for a moment.
  *
- * The masthead is a BANNER: a field of `--bg-raised` running the full width of
- * the window behind the name and the tagline, which is the entrance wall a
- * gallery paints its name on and the only masthead in the engine that is a
- * ground rather than type on the page. It is `tall`, its own `divider` is off,
- * and NOTHING follows it but the work: no hero, no heading, no introduction.
- * You walk in and it is there. (The field draws its own closing hairline now,
- * in `--border`, and that is the engine's decision rather than this design's:
- * "the field's own edge is the rule" was true on `porcelain` and false in this
- * room — `--bg-raised` and `--bg` are a couple of values apart on `sumi`, so
- * the one masthead that is a ground was, in the dark, no masthead at all.)
+ * THE ENTRANCE WALL IS THE OPENING, and it used to be the masthead. For two
+ * rounds the masthead was a `banner`, a field of `--bg-raised` the width of
+ * the window with the name painted on it, and nothing followed it but the
+ * work. It was an entrance wall with a name on it and no piece, which is a
+ * gallery between shows. The wall is a split hero now: it takes the full
+ * width of the window the way the cover treatment does, it is painted a tone
+ * above the room (a real tone, mixed from `--text`, because `--bg-raised` and
+ * `--bg` are a couple of values apart on `sumi` and nothing can cast a shadow
+ * on a wall that is the colour of the floor), a picture rail runs along the
+ * top of it, and the newest post's photograph hangs from two wires in a deep
+ * mat with the wall's shadow under it. Beside the piece, at its foot, the
+ * WALL LABEL: the site's name at catalogue size and the tagline as the small
+ * tracked line under a hairline, on a plate of its own. That is the one place
+ * the name is printed on the front page. The masthead above it is one thin
+ * `inline` row of menu and tools with no name and no tagline on the home
+ * route, and the name comes back into that row on the article page, where
+ * there is no label to carry it. You walk in and the piece is there.
  *
  * WHERE THERE IS NO PHOTOGRAPH THERE IS A LABEL. An overlay used to insist on
  * artwork and invent it where a post had none, which on this page printed two
@@ -156,8 +171,8 @@ const vernissage: Preset = {
   id: "vernissage",
   name: { en: "Vernissage", ar: "الافتتاح" },
   blurb: {
-    en: "For work that is looked at before it is read: the pictures take the whole wall.",
-    ar: "لعملٍ يُنظر إليه قبل أن يُقرأ: الصور تأخذ الجدار كلّه.",
+    en: "For work that is looked at before it is read: one piece hung on the entrance wall, then the pictures take the rest of it.",
+    ar: "لعملٍ يُنظر إليه قبل أن يُقرأ: قطعة واحدة معلّقة على جدار المدخل، ثم تأخذ الصور ما بقي منه.",
   },
   family: "signature",
   tags: [
@@ -168,6 +183,7 @@ const vernissage: Preset = {
     theme: "sumi",
     site: { width: 1180, density: "roomy" },
     chrome: chrome({
+      signature: "vernissage",
       typography: {
         baseSize: 17,
         scale: 1.3,
@@ -185,7 +201,15 @@ const vernissage: Preset = {
         bodyFont: "source-sans-3",
         rhythm: 1.35,
       },
-      header: { layout: "banner", density: "tall", sticky: "none", showTagline: true, divider: false },
+      // THE ENTRANCE WALL MOVED. It was the masthead (a banner field, the name
+      // painted on it) and it is now the opening below, because a wall with a
+      // piece hung on it is a better entrance than a wall with a name on it.
+      // The masthead shrinks to one thin row of menu and tools, and it prints
+      // no name and no tagline on the front page: the wall label prints both,
+      // and a gallery does not write its name twice in the same room. (The
+      // article route brings the name back on its own, because there is no
+      // label there to carry it.)
+      header: { layout: "inline", density: "compact", sticky: "none", showName: false, showTagline: false, divider: false },
       nav: { style: "plain", fallback: "topics", showSearch: true, showThemeToggle: true },
       // CENTRED, AND THAT WAS A SCREENSHOT'S DECISION. `align: "start"` reads
       // right for an address block and renders wrong here: `.s-dsg-foot` takes
@@ -197,6 +221,17 @@ const vernissage: Preset = {
       surface: "flat",
     }),
     sections: [
+      // THE ENTRANCE WALL, and the one hero on this shelf that is allowed to
+      // say the name, because it says it the way a gallery does: on a small
+      // label beside the work. A split borrows the newest post's own
+      // photograph (Sections.tsx says why only a split may), and the studio
+      // sheet turns that borrowed plate into a hung piece, matted deep, on a
+      // wall painted a tone above the room, under a picture rail with two
+      // wires dropping to it. The words are the wall label: the name at
+      // catalogue size, the tagline as the small tracked line under a rule.
+      // Nothing about it is an introduction; it is the first thing on the
+      // wall, with its label, and the hang starts under it.
+      { id: "wall", kind: "hero", heading: "", sub: "", image: null, align: "start", height: "tall", treatment: "split" },
       { id: "hang", kind: "postGrid", heading: "", limit: 6, columns: 2, tag: "", showExcerpt: false, showBanner: true, showDate: true, card: "overlay" },
       { id: "mark", kind: "divider", style: "ornament", space: 36 },
       // THE CHECKLIST BY THE DOOR. Eighteen against the hang's six, which is
@@ -252,27 +287,30 @@ const vernissage: Preset = {
  * weight, one case, everywhere.
  *
  * NEAR-ZERO CHROME, and it is subtraction rather than restraint. The masthead
- * is `stackedStart` at `compact` with no tagline and no hairline: the name
- * flushed to the reading edge in the same 400-weight tracked caps as everything
- * else, which is a running head rather than a nameplate. The opening is a
- * `band`, the one hero treatment that refuses to invent artwork it was not
- * given, so the page begins with a field of toned ground and the photographer's
- * own name centred in it and no picture competing with the plates below — a
- * half-title, then the plates. The end is `grand`: that name a third time, at
- * display size across the foot, which is how a monograph is signed and the only
- * loud thing on the site.
+ * is `stackedStart` at `compact` with no tagline and no hairline, and on the
+ * front page no name either: just the underline menu flushed to the reading
+ * edge. The name is printed once on the front page, on the title page under
+ * the frontispiece, and it returns to the masthead as a running head on the
+ * article route. The end is `grand`: that name again at display size across
+ * the foot, which is how a monograph is signed and the only loud thing on the
+ * site.
  *
- * THE HALF-TITLE IS AS TALL AS ITS OWN TYPE, and getting there took the band
- * away from the panel's rules. A band inherited the 360px floor a hero takes
- * because a PHOTOGRAPH needs room to be one, and set its title at a floor of
- * 29px whatever the design's scale said — so this design, whose whole argument
- * is a 22px h1, opened on a 360px field of grey with a small caption adrift in
- * the middle of it, which reads as a placeholder somebody forgot to style. A
- * band has no photograph in it: its height is its padding and its type
- * (design.css), it draws a hairline above and below itself because a
- * compositor locks a band in with brass, and its title is the design's OWN h1
- * multiplied by 1.5. Here that is a 33px line between two rules on toned
- * ground, which is a half-title.
+ * THE TITLE PAGE, which the half title was two rounds of work towards and
+ * did not reach. The half title was a `band`: the name at 33px between two
+ * rules on toned ground, honest about having no picture and, on the page,
+ * a grey field with a line of type in it. A plate book does not open on
+ * that. It opens on a FRONTISPIECE: a single plate printed inside its plate
+ * mark (the rectangle an intaglio plate presses into damp paper, drawn here
+ * as inset shadows on the page's own white), a short engraved rule under it,
+ * and the title in small tracked capitals under the rule. The hero is a
+ * `split` because a split is the one treatment that borrows the newest post's
+ * photograph for a plate beside the words rather than under them, and the
+ * studio sheet restacks the two cells into one centred column so the plate
+ * sits above its caption the way a frontispiece faces a title. The title is
+ * the design's OWN h1, which here is 22px: on this page the name is a
+ * caption, and the frontispiece is the display type. The band's two double
+ * rules stay, above and below the whole title page, because a compositor
+ * still locks a title page in with brass.
  *
  * `tinted` moves the page to `--bg-raised` and the raised blocks on it to
  * `--bg`, so the plates are mounted on toned board rather than lying on white —
@@ -294,8 +332,8 @@ const gravure: Preset = {
   id: "gravure",
   name: { en: "Gravure", ar: "الطبعة الغائرة" },
   blurb: {
-    en: "For a book of plates: nothing on the page but the photographs and their names.",
-    ar: "لكتاب لوحات: لا شيء على الصفحة سوى الصور وأسمائها.",
+    en: "For a book of plates: a frontispiece in its plate mark, the name engraved under it, then the numbered plates.",
+    ar: "لكتاب لوحات: لوحة صدر في إطارها المطبوع، والاسم منقوش تحتها، ثم اللوحات مرقّمة.",
   },
   family: "signature",
   tags: [
@@ -306,6 +344,7 @@ const gravure: Preset = {
     theme: "porcelain",
     site: { width: 1360, density: "roomy" },
     chrome: chrome({
+      signature: "gravure",
       typography: {
         baseSize: 15.5,
         // NEARLY FLAT ON PURPOSE. 1.132 puts an h1 at 22px over a 15.5px body,
@@ -328,21 +367,33 @@ const gravure: Preset = {
         bodyFont: "inter",
         rhythm: 1.25,
       },
-      header: { layout: "stackedStart", density: "compact", sticky: "nav", showTagline: false, divider: false },
+      // NO RUNNING HEAD ON THE FRONT PAGE. The title page below prints the
+      // name once, engraved under the frontispiece, and a screenshot showed
+      // the running head printing it a second time 150px above that. The
+      // masthead keeps its shape (the underline menu, flushed to the reading
+      // edge) and gives up the name on the home route only; the article route
+      // is a leaf of the book and brings the running head back.
+      header: { layout: "stackedStart", density: "compact", sticky: "nav", showName: false, showTagline: false, divider: false },
       nav: { style: "underline", fallback: "topics", showSearch: true, showThemeToggle: false },
       footer: { form: "grand", align: "center", showRss: false, showSearchHint: false, showPoweredBy: false },
       surface: "tinted",
     }),
     sections: [
-      // CENTRED IN THE BAND, because this one is a TITLE PAGE. Flushed to the
-      // start it read as an empty panel with a caption in the corner; centred
-      // between the band's two rules it is the half-title a plate book opens
-      // on, and the only display type in the building. (`height` is inert on a
-      // band — the treatment takes its height from its own type, which is the
-      // whole reason it stopped being a grey rectangle — and it is left at
-      // `tall` because it is what this opening would be if it ever carried a
-      // photograph.)
-      { id: "plate", kind: "hero", heading: "", sub: "", image: null, align: "center", height: "tall", treatment: "band" },
+      // THE TITLE PAGE HAS A FRONTISPIECE NOW. The half title (a band, the
+      // name at 33px between two rules) was honest and it was also a grey
+      // field with one line in it, which is not what a plate book opens on. A
+      // plate book opens on a frontispiece: one plate, printed inside its
+      // plate mark (the embossed rectangle an intaglio plate leaves in the
+      // paper), a short rule under it, and the title engraved in small
+      // tracked capitals under the rule. A split borrows the newest post's
+      // photograph for exactly that plate, and the studio sheet restacks the
+      // split into one centred column so the plate sits above the caption
+      // rather than beside it. The name is set at the design's own h1, which
+      // here is 22px: an engraved caption, not a headline, and the only place
+      // on the front page the name is printed. Every plate below carries its
+      // number in the caption strip (Roman on the Latin page, Arabic Indic on
+      // the Arabic one), because a plate book counts its plates.
+      { id: "frontispiece", kind: "hero", heading: "", sub: "", image: null, align: "center", height: "tall", treatment: "split" },
       { id: "plates", kind: "postGrid", heading: "", limit: 18, columns: 3, tag: "", showExcerpt: false, showBanner: true, showDate: true, card: "masonry" },
       { id: "air", kind: "divider", style: "blank", space: 40 },
       { id: "subjects", kind: "topics", heading: "", limit: 12 },
@@ -402,9 +453,21 @@ const gravure: Preset = {
  * one.) Two ORNAMENTS break the run, which is a mark rather than a rule and the
  * right way for a page this busy to take a breath.
  *
- * The masthead is `stacked` at `tall` — the nameplate CENTRED and large, which
- * on a zine is not a masthead at all but a COVER, and the reason this design has
- * no hero: the cover is already there.
+ * THE COVER IS PHOTOCOPIED, and for two rounds it was typeset. The masthead
+ * was `stacked` at `tall`, the nameplate centred and large, and the argument
+ * was that on a zine a big centred name IS the cover. It is not: it is a
+ * nameplate, set straight, on clean paper. A zine's cover is a sheet that
+ * went through a copier, and the opening is that sheet now: a `band` hero
+ * (ground and type, no photograph, which is what a photocopy is) with a
+ * hairline edge and two more sheets stacked behind it, a halftone screen of
+ * toner in the corner drawn as two dot gradients on the same pitch offset by
+ * half a cell (a screen turned 45 degrees), the name in a box that is tilted
+ * and not quite square with its second pass printed in the accent a few
+ * pixels off register, the title's ink doubled the same way, and a staple
+ * through the corner. Every word is inside the box on opaque paper; the
+ * toner never runs under a letter. The masthead above it is `compact` and
+ * carries nothing on the front page but the brackets and the tools; the
+ * name comes back into it on the article route.
  *
  * `paper` is the ground: laid tooth drawn as three hatchings at co-prime
  * periods, which is the closest this engine gets to a sheet that has been
@@ -423,8 +486,8 @@ const mimeo: Preset = {
   id: "mimeo",
   name: { en: "Mimeo", ar: "الرونيو" },
   blurb: {
-    en: "For a page that was stapled, not published: loud, crowded, and entirely yours.",
-    ar: "لصفحةٍ دُبّست ولم تُنشر: صاخبة، مزدحمة، ولك وحدك.",
+    en: "For a page that was stapled, not published: a photocopied cover with the name in a crooked box, then everything crammed under it.",
+    ar: "لصفحةٍ دُبّست ولم تُنشر: غلاف مصوَّر بالناسخة والاسم في صندوق مائل، ثم كلّ شيء محشور تحته.",
   },
   family: "signature",
   tags: [
@@ -435,6 +498,7 @@ const mimeo: Preset = {
     theme: "mauveine",
     site: { width: 940, density: "compact" },
     chrome: chrome({
+      signature: "mimeo",
       typography: {
         baseSize: 15.5,
         scale: 1.38,
@@ -449,7 +513,14 @@ const mimeo: Preset = {
         bodyFont: "lora",
         rhythm: 0.9,
       },
-      header: { layout: "stacked", density: "tall", sticky: "none", showTagline: true, divider: true },
+      // THE COVER IS A SECTION NOW, NOT THE MASTHEAD. The centred nameplate
+      // used to be the cover, and it was a nameplate: type on lilac, set
+      // straight, at the size a masthead is. A zine's cover is not set
+      // straight. So the masthead drops to a compact row of brackets and
+      // tools with no name and no tagline on the front page, and the cover
+      // (the band hero under it) prints both, crooked. The article route
+      // brings the name back by itself.
+      header: { layout: "stacked", density: "compact", sticky: "none", showName: false, showTagline: false, divider: true },
       nav: { style: "brackets", fallback: "topics", showSearch: true, showThemeToggle: true },
       // THE BACK PAGE OF A ZINE IS A COLOPHON. Who made it, where to write, who
       // to thank — one centred small-caps block rather than a grid of titled
@@ -458,6 +529,17 @@ const mimeo: Preset = {
       surface: "paper",
     }),
     sections: [
+      // THE PHOTOCOPIED COVER. A band is ground and type and nothing else,
+      // which is exactly the sheet a zine's cover is made of, and the studio
+      // sheet does to it what a photocopier does: halftone dots drawn as two
+      // radial gradients on slightly different pitches (the toner falls off
+      // towards the middle of the sheet), the name in a box that is tilted
+      // and not quite square, the box's second pass printed in the accent a
+      // few pixels off register, the title's ink doubled the same way, and a
+      // staple through the corner. The copy sits inside the box on opaque
+      // paper; the dots never run under a word. `short`, because a cover is
+      // as tall as what is on it and the strip of pictures is the next thing.
+      { id: "cover", kind: "hero", heading: "", sub: "", image: null, align: "center", height: "short", treatment: "band" },
       // EIGHT ACROSS THE TOP AND NO EXCERPTS ON THEM, and the second half of
       // that is the one setting on this page a screenshot decided rather than
       // an argument. With excerpts on, the strip and the first entries of the
@@ -497,34 +579,44 @@ const mimeo: Preset = {
  * fresh readers said the same thing about it: a third of the fold was empty, and
  * what filled the rest was a line of chrome beside a photograph.
  *
- * So the hero is gone and the first block on the page is THE COVER STORY
- * ITSELF: one post, the full width of the page, its own photograph, and its own
- * headline set across it at display size. An overlay card alone in its grid is
- * not a card and the engine now knows it (design.css: 16:7 rather than 5:4, the
- * headline at the design's h1 rather than at body size, the scrim given room to
- * climb). Nothing is announced above it, because a cover announces itself, and
- * the newest post is the cover story for exactly as long as it is the newest —
- * which is what an issue is.
+ * The third cut answered that with no hero at all: an overlay card alone in
+ * its grid, drawn by the engine as a cover plate (16:7, the headline at the
+ * design's h1, the scrim given room to climb), under a `rule` masthead with
+ * the name at 68px between two hairlines. It was a good plate and it was not
+ * a cover, because the name was above the photograph and not on it, and a
+ * magazine's name is on its cover or it is a catalogue.
  *
- * THE MASTHEAD IS THE NAMEPLATE NOW, and it had to be. The old one was `inline`
- * — the name small at the reading start with the menu beside it — which put a
- * two-line wordmark and a row of section pills in the same 60px and let the
- * pills wrap under it. Two lines of name against two rows of menu is not a
- * masthead, it is a collision. `rule` gives the name a line of its own between
- * two hairlines at 1.7× the h1 (68px here), and hands the menu its own centred
- * band underneath. The vocabulary files this masthead under the newspaper and
- * Late Edition wears it that way; nothing about two rules is a newspaper's
- * property. What is a newspaper is what Late Edition puts between them — a
- * serif in 700-weight caps on sandstone over a day file in two ruled columns —
- * and what is a magazine is what goes between them here.
+ * THE FOURTH CUT IS A COVER. The `cover` treatment is the one section that
+ * leaves the column, and it borrows the newest post's photograph for the
+ * same reason the split does (Sections.tsx: a cover shows the cover story).
+ * The studio sheet runs it to nearly the height of the window and sets the
+ * name across the TOP of it at masthead size, uppercase, pulled tight, with
+ * the issue rule under it in the same light ink, because the top of the
+ * cover is where a magazine's name has been since magazines had names. The
+ * scrim is the engine's own idiom for type on a photograph, extended to the
+ * top edge where the name now sits. The words on the photograph are the name
+ * and the tagline and nothing else.
  *
- * THE PILLS FIT ON ONE ROW, and that is arithmetic rather than luck. Ten of the
- * fixture's topic chips measure about 850px; the rule masthead's menu is
- * centred in a three-track grid whose outer tracks are the width of the TOOLS,
- * so a search box costs the run 280px of the 1120 and the theme switch alone
- * costs 80. `showSearch: false` is what buys the tenth chip its place on the
- * line — and the search is not lost: `showSearchHint` prints the Ctrl-K line at
- * the foot, which is where a magazine keeps the small print anyway.
+ * THE COVERLINES ARE BOXED. Under the cover, four titles in an `index` run
+ * (the one list that prints a title and a date and nothing else), which the
+ * sheet stacks, strips of its leader and sets in the heading face inside an
+ * opaque box with the accent rule across its top, pulled up over the foot of
+ * the photograph at the inline end. The first coverline is set a step
+ * larger, because the first coverline IS the cover story and the photograph
+ * above it is that story's own. The box climbs onto the cover only when it
+ * follows the cover directly; on a site with public collections the engine
+ * seats the collections gallery between a leading hero and the next section,
+ * and there the box is a boxed contents block under the gallery instead.
+ *
+ * THE MASTHEAD IS A BAR AGAIN, and this time for the right reason. The cover
+ * prints the name at masthead size, so a second nameplate 200px above it is
+ * the exact bug the two reshoots removed, arriving from the other direction.
+ * `inline` at `compact` with no name and no tagline on the front page is one
+ * thin row of pills and the theme switch over the cover, and the name comes
+ * back into the row on the article route where there is no cover to carry
+ * it. The ten pills fit the row because `showSearch` is still off: the foot
+ * carries the Ctrl-K hint instead, which is where a magazine keeps the small
+ * print anyway.
  *
  * UNDER THE FOLD, THE WELL — eight features, two across, and NOT ONE PICTURE
  * among them. `card: "bare"` with `showBanner: false` is the plateless bare
@@ -567,8 +659,8 @@ const coverStory: Preset = {
   id: "cover-story",
   name: { en: "Cover Story", ar: "قصّة الغلاف" },
   blurb: {
-    en: "For writing that comes out in issues, with one piece on the front each time.",
-    ar: "لكتابةٍ تصدر في أعداد، ولكلّ عددٍ قصّةٌ على غلافه.",
+    en: "For writing that comes out in issues: a full height cover, the name as the masthead across it, the coverlines boxed down one side.",
+    ar: "لكتابةٍ تصدر في أعداد: غلاف بكامل الارتفاع، الاسم ترويسةً عبره، وعناوين الغلاف في صندوق على جانبه.",
   },
   family: "signature",
   tags: [
@@ -579,6 +671,7 @@ const coverStory: Preset = {
     theme: "lapis",
     site: { width: 1120, density: "regular" },
     chrome: chrome({
+      signature: "cover-story",
       typography: {
         baseSize: 17.5,
         // THREE SIZES, FAR APART. 1.32 puts the cover line at 40px, the well's
@@ -602,23 +695,48 @@ const coverStory: Preset = {
         bodyFont: "literata",
         rhythm: 1.05,
       },
-      header: { layout: "rule", density: "regular", sticky: "nav", showTagline: true, divider: false },
-      // NO SEARCH BOX IN THE BAR — see the arithmetic above; the foot carries
-      // the Ctrl-K hint instead.
+      // THE NAMEPLATE IS ON THE COVER NOW, so the masthead above it is a bar.
+      // The rule masthead (two hairlines round a 68px name) was the answer
+      // while the front page had no hero; with the name set across the cover
+      // photograph at masthead size, a second nameplate 200px above it is the
+      // exact bug the two reshoots removed. `inline` at `compact` is one thin
+      // row of pills and the theme switch, no name and no tagline on the
+      // front page (the cover prints both), and the name comes back in the
+      // bar on the article route where there is no cover to carry it.
+      header: { layout: "inline", density: "compact", sticky: "none", showName: false, showTagline: false, divider: true },
+      // NO SEARCH BOX IN THE BAR, for the same arithmetic as before (ten
+      // chips and a search box do not share 1120px); the foot carries the
+      // Ctrl-K hint instead.
       nav: { style: "pills", fallback: "topics", showSearch: false, showThemeToggle: true },
       footer: { form: "columns", align: "center", showRss: true, showSearchHint: true },
       surface: "ruled",
     }),
     sections: [
-      // THE COVER. One post, one column, the whole width of the page: the
-      // engine draws an overlay with nobody beside it as a cover plate rather
-      // than as a card (design.css). No excerpt — a standfirst under a headline
-      // that is lying on a photograph is a third thing competing with two.
-      { id: "cover", kind: "postGrid", heading: "", limit: 1, columns: 1, tag: "", showExcerpt: false, showBanner: true, showDate: true, card: "overlay" },
+      // THE COVER, and this time it is a cover: the one treatment that leaves
+      // the column, the newest post's photograph running the full width of
+      // the window at nearly the full height of it, and the site's name set
+      // across the TOP of it at masthead size with the issue rule under it,
+      // which is where a magazine puts its name. The earlier cut (an overlay
+      // card alone in its grid) was a cover plate with the name above it in a
+      // separate masthead; this is a cover. The rule from the two reshoots
+      // still holds (a hero says the name or it says nothing) and this hero
+      // says the name, because a magazine's cover does exactly that.
+      { id: "cover", kind: "hero", heading: "", sub: "", image: null, align: "start", height: "tall", treatment: "cover" },
+      // THE COVERLINES. Four titles in an opaque box that the studio sheet
+      // pulls up over the foot of the photograph at the inline end, the first
+      // of them larger, because the first coverline IS the cover story and the
+      // photograph above it is that story's own. Nothing is typed onto the
+      // picture except the name: the coverlines sit on their own ground, which
+      // is how a magazine boxes them when the photograph is busy. `index`
+      // because it is the one list that prints a title and a date and nothing
+      // else; the sheet stacks the two and drops the leader.
+      { id: "coverlines", kind: "postList", heading: "", limit: 4, tag: "", showExcerpt: false, showDate: true, layout: "index" },
       { id: "fold", kind: "divider", style: "rule", space: 26 },
       { id: "sections", kind: "topics", heading: "", limit: 16 },
-      // THE WELL. Eight against the cover's one clears the anti-stutter rule
-      // with room to spare, and the pictures stay off it on purpose.
+      // THE WELL. Eight against the coverlines' four is the anti-stutter rule
+      // exactly at its bar, and the repeat is a headline in two sizes rather
+      // than a picture in two places: the pictures stay off the well on
+      // purpose, because the cover has the only photograph on the front.
       { id: "well", kind: "postGrid", heading: "", limit: 8, columns: 2, tag: "", showExcerpt: true, showBanner: false, showDate: true, card: "bare" },
     ] as Section[],
     article: { showBanner: true, showMeta: true, showTags: true, showRelated: true, showBackLink: true, dropCap: true },

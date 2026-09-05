@@ -1,0 +1,580 @@
+/* Studio C, the letters: four openings, one per surface. Each house opens on
+   a `band` hero with a blank heading (the site's name and tagline, printed
+   once) and this sheet draws the band into the object the house is: an
+   invitation card, an astronomical register, the first leaf of a codex, the
+   head of a letter. Colour only through the theme's tokens; every drawing is
+   a border, a gradient or a shadow; every offset is logical. The preset file
+   (shared/presetsSignatureC.ts) says why each house is what it is. */
+
+/* ── SALON: the invitation card ──────────────────────────────────────────
+   An embossed sheet on the raised ground, a hairline with a second hairline
+   five pixels outside it, the design's mark between two short rules above
+   the name, and a short accent rule under the line of the evening. */
+.s-dsg[data-signature="salon"] .s-dsn-hero--band {
+  position: relative;
+  isolation: isolate;
+  inline-size: min(100%, 700px);
+  margin-inline: auto;
+  padding: clamp(14px, 3vw, 22px);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  box-shadow:
+    inset 0 0 0 1px var(--bg),
+    0 1px 2px color-mix(in srgb, var(--text) 10%, transparent),
+    0 28px 48px -40px color-mix(in srgb, var(--text) 55%, transparent);
+  overflow: visible;
+}
+.s-dsg[data-signature="salon"] .s-dsn-hero--band .s-dsn-hero__inner {
+  position: relative;
+  padding: clamp(30px, 5vw, 52px) clamp(20px, 5vw, 56px) clamp(30px, 5vw, 48px);
+  border: 1px solid var(--border);
+  outline: 1px solid var(--border);
+  outline-offset: 5px;
+  background:
+    linear-gradient(var(--accent), var(--accent)) top left / 14px 1px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) top left / 1px 14px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) top right / 14px 1px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) top right / 1px 14px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) bottom left / 14px 1px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) bottom left / 1px 14px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) bottom right / 14px 1px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) bottom right / 1px 14px no-repeat,
+    var(--bg-raised);
+}
+/* The mark between two rules: the glyph is the design's own ornament and the
+   rules are two gradients that stop short of it, symmetric, so they need no
+   mirror. */
+.s-dsg[data-signature="salon"] .s-dsn-hero--band .s-dsn-hero__inner::before {
+  content: var(--dsg-orn, "✦");
+  display: block;
+  margin-block-end: 22px;
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 0.9rem;
+  line-height: 1;
+  text-align: center;
+  background:
+    linear-gradient(var(--border), var(--border)) left center / calc(50% - 1.6em) 1px no-repeat,
+    linear-gradient(var(--border), var(--border)) right center / calc(50% - 1.6em) 1px no-repeat;
+}
+.s-dsg[data-signature="salon"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(2rem, 5.4vw, 3.4rem);
+  line-height: 1.08;
+  letter-spacing: 0.02em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.s-dsg[data-signature="salon"] .s-dsn-hero--band .s-dsn-hero__sub {
+  margin-block-start: 16px;
+  margin-inline: auto;
+  font-style: italic;
+  font-size: 1.05rem;
+  max-inline-size: 40ch;
+}
+.s-dsg[data-signature="salon"] .s-dsn-hero--band .s-dsn-hero__inner::after {
+  content: "";
+  display: block;
+  inline-size: 3em;
+  margin: 24px auto 0;
+  border-block-end: 1px solid var(--accent);
+}
+/* The forme with no name in it collapses to its menu on the front page (the
+   card prints the name) and is left whole on an article, where it prints it. */
+.s-dsg[data-signature="salon"] .s-dsg-head--rule:not(:has(.s-dsg-head__name)) {
+  margin: 0 auto;
+  padding: 0;
+  gap: 0;
+  border: 0;
+}
+.s-dsg[data-signature="salon"] .s-dsg-top:not(:has(.s-dsg-head__name)) .s-dsg-nav--rule {
+  margin-block-start: 18px;
+  border-block-start: 1px solid var(--border);
+}
+/* The sheet under the card: the raised even cards are the answers in the
+   conversation, and the air between the columns is a broadside's gutter. */
+.s-dsg[data-signature="salon"] .s-dsn-grid {
+  row-gap: 32px;
+}
+.s-dsgt[data-signature="salon"] .s-dsgt-hero--band {
+  align-items: center;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 1.4cqw var(--bg-raised), inset 0 0 0 calc(1.4cqw + 1px) var(--border);
+}
+
+/* ── EPHEMERIS: the register ──────────────────────────────────────────────
+   A strip of seven moons across the top, the name and the tagline ruled
+   like a row of the table with a tick column at the reading edge, and a
+   square star chart at the end. The accent frame and the hairline outside it
+   come from the collection sheet and are the register's border. */
+.s-dsg[data-signature="ephemeris"] .s-dsn-hero--band {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 32%);
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 26px clamp(24px, 4vw, 64px);
+  min-block-size: 360px;
+  padding: clamp(18px, 3vw, 30px) clamp(20px, 4vw, 48px) clamp(24px, 4vw, 44px);
+  background: var(--bg);
+  box-shadow: inset 0 0 80px color-mix(in srgb, var(--accent) 6%, transparent);
+}
+/* THE MOONS. Each phase is a ring, a lit disc of `--text-muted`, and either
+   a dark disc of `--bg` laid over it (crescent, gibbous) or a half rect
+   (quarter). Every layer is placed from the centre of the strip, so the run
+   is symmetric and reads the same in both directions. */
+.s-dsg[data-signature="ephemeris"] .s-dsn-hero--band::before {
+  content: "";
+  grid-column: 1 / -1;
+  grid-row: 1;
+  block-size: 30px;
+  padding-block-end: 10px;
+  border-block-end: 1px solid var(--sig-rule);
+  background:
+    radial-gradient(circle, transparent 8px, var(--sig-rule) 8.5px 9.5px, transparent 10px) calc(50% - 132px) 38% / 20px 20px no-repeat,
+    radial-gradient(circle, transparent 8px, var(--sig-rule) 8.5px 9.5px, transparent 10px) calc(50% - 88px) 38% / 20px 20px no-repeat,
+    radial-gradient(circle, transparent 8px, var(--sig-rule) 8.5px 9.5px, transparent 10px) calc(50% - 44px) 38% / 20px 20px no-repeat,
+    radial-gradient(circle, transparent 8px, var(--sig-rule) 8.5px 9.5px, transparent 10px) 50% 38% / 20px 20px no-repeat,
+    radial-gradient(circle, transparent 8px, var(--sig-rule) 8.5px 9.5px, transparent 10px) calc(50% + 44px) 38% / 20px 20px no-repeat,
+    radial-gradient(circle, transparent 8px, var(--sig-rule) 8.5px 9.5px, transparent 10px) calc(50% + 88px) 38% / 20px 20px no-repeat,
+    radial-gradient(circle, transparent 8px, var(--sig-rule) 8.5px 9.5px, transparent 10px) calc(50% + 132px) 38% / 20px 20px no-repeat,
+    radial-gradient(circle, var(--bg) 7.5px, transparent 8px) calc(50% - 137px) 38% / 16px 16px no-repeat,
+    linear-gradient(var(--bg), var(--bg)) calc(50% - 92px) 38% / 8px 16px no-repeat,
+    radial-gradient(circle, var(--bg) 7.5px, transparent 8px) calc(50% - 55px) 38% / 16px 16px no-repeat,
+    radial-gradient(circle, var(--bg) 7.5px, transparent 8px) calc(50% + 55px) 38% / 16px 16px no-repeat,
+    linear-gradient(var(--bg), var(--bg)) calc(50% + 92px) 38% / 8px 16px no-repeat,
+    radial-gradient(circle, var(--bg) 7.5px, transparent 8px) calc(50% + 137px) 38% / 16px 16px no-repeat,
+    radial-gradient(circle, var(--text-muted) 7.5px, transparent 8px) calc(50% - 132px) 38% / 16px 16px no-repeat,
+    radial-gradient(circle, var(--text-muted) 7.5px, transparent 8px) calc(50% - 88px) 38% / 16px 16px no-repeat,
+    radial-gradient(circle, var(--text-muted) 7.5px, transparent 8px) calc(50% - 44px) 38% / 16px 16px no-repeat,
+    radial-gradient(circle, var(--text) 7.5px, transparent 8px) 50% 38% / 16px 16px no-repeat,
+    radial-gradient(circle, var(--text-muted) 7.5px, transparent 8px) calc(50% + 44px) 38% / 16px 16px no-repeat,
+    radial-gradient(circle, var(--text-muted) 7.5px, transparent 8px) calc(50% + 88px) 38% / 16px 16px no-repeat,
+    radial-gradient(circle, var(--text-muted) 7.5px, transparent 8px) calc(50% + 132px) 38% / 16px 16px no-repeat;
+  pointer-events: none;
+}
+/* THE CHART. Dots of `--text`, one accent planet with a halo, declination
+   arcs from the far corner, a graduated edge on all four sides. The arcs
+   come from the end corner and are mirrored below for Arabic. */
+.s-dsg[data-signature="ephemeris"] .s-dsn-hero--band::after {
+  content: "";
+  grid-column: 2;
+  grid-row: 2;
+  inline-size: 100%;
+  max-inline-size: 300px;
+  aspect-ratio: 1;
+  justify-self: end;
+  border: 1px solid var(--sig-rule);
+  background:
+    repeating-linear-gradient(90deg, var(--sig-rule) 0 1px, transparent 1px 10%) 0 0 / 100% 5px no-repeat,
+    repeating-linear-gradient(90deg, var(--sig-rule) 0 1px, transparent 1px 10%) 0 100% / 100% 5px no-repeat,
+    repeating-linear-gradient(180deg, var(--sig-rule) 0 1px, transparent 1px 10%) 0 0 / 5px 100% no-repeat,
+    repeating-linear-gradient(180deg, var(--sig-rule) 0 1px, transparent 1px 10%) 100% 0 / 5px 100% no-repeat,
+    radial-gradient(circle at 26% 30%, var(--text) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 44% 18%, var(--text) 0 1px, transparent 2px),
+    radial-gradient(circle at 71% 22%, var(--text) 0 1.2px, transparent 2.2px),
+    radial-gradient(circle at 84% 46%, var(--text) 0 1px, transparent 2px),
+    radial-gradient(circle at 58% 54%, var(--text) 0 1.6px, transparent 2.6px),
+    radial-gradient(circle at 38% 66%, var(--text) 0 1px, transparent 2px),
+    radial-gradient(circle at 18% 80%, var(--text) 0 1.3px, transparent 2.3px),
+    radial-gradient(circle at 66% 84%, var(--text) 0 1px, transparent 2px),
+    radial-gradient(circle at 90% 74%, var(--text) 0 1.1px, transparent 2.1px),
+    radial-gradient(circle at 12% 48%, var(--text) 0 1px, transparent 2px),
+    radial-gradient(circle at 62% 36%, var(--accent) 0 2.5px, color-mix(in srgb, var(--accent) 35%, transparent) 3.5px, transparent 11px),
+    linear-gradient(-32deg, transparent calc(50% - 0.5px), var(--sig-rule) 50%, transparent calc(50% + 0.5px)),
+    repeating-radial-gradient(circle at 118% 112%, transparent 0 18%, var(--sig-rule) 18.2% 18.6%, transparent 18.8% 30%),
+    var(--bg);
+  box-shadow: inset 0 0 40px color-mix(in srgb, var(--accent) 8%, transparent);
+  pointer-events: none;
+}
+[dir="rtl"] .s-dsg[data-signature="ephemeris"] .s-dsn-hero--band::after {
+  background:
+    repeating-linear-gradient(90deg, var(--sig-rule) 0 1px, transparent 1px 10%) 0 0 / 100% 5px no-repeat,
+    repeating-linear-gradient(90deg, var(--sig-rule) 0 1px, transparent 1px 10%) 0 100% / 100% 5px no-repeat,
+    repeating-linear-gradient(180deg, var(--sig-rule) 0 1px, transparent 1px 10%) 0 0 / 5px 100% no-repeat,
+    repeating-linear-gradient(180deg, var(--sig-rule) 0 1px, transparent 1px 10%) 100% 0 / 5px 100% no-repeat,
+    radial-gradient(circle at 74% 30%, var(--text) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 56% 18%, var(--text) 0 1px, transparent 2px),
+    radial-gradient(circle at 29% 22%, var(--text) 0 1.2px, transparent 2.2px),
+    radial-gradient(circle at 16% 46%, var(--text) 0 1px, transparent 2px),
+    radial-gradient(circle at 42% 54%, var(--text) 0 1.6px, transparent 2.6px),
+    radial-gradient(circle at 62% 66%, var(--text) 0 1px, transparent 2px),
+    radial-gradient(circle at 82% 80%, var(--text) 0 1.3px, transparent 2.3px),
+    radial-gradient(circle at 34% 84%, var(--text) 0 1px, transparent 2px),
+    radial-gradient(circle at 10% 74%, var(--text) 0 1.1px, transparent 2.1px),
+    radial-gradient(circle at 88% 48%, var(--text) 0 1px, transparent 2px),
+    radial-gradient(circle at 38% 36%, var(--accent) 0 2.5px, color-mix(in srgb, var(--accent) 35%, transparent) 3.5px, transparent 11px),
+    linear-gradient(32deg, transparent calc(50% - 0.5px), var(--sig-rule) 50%, transparent calc(50% + 0.5px)),
+    repeating-radial-gradient(circle at -18% 112%, transparent 0 18%, var(--sig-rule) 18.2% 18.6%, transparent 18.8% 30%),
+    var(--bg);
+}
+/* THE ROW. Ruled above and below like an entry in the table, with a column
+   of ticks hanging outside the reading edge. */
+.s-dsg[data-signature="ephemeris"] .s-dsn-hero--band .s-dsn-hero__inner {
+  position: relative;
+  grid-column: 1;
+  grid-row: 2;
+  padding-block: 22px;
+  padding-inline: clamp(18px, 2.5vw, 28px) 0;
+  border-block: 1px solid var(--sig-rule);
+  min-inline-size: 0;
+}
+.s-dsg[data-signature="ephemeris"] .s-dsn-hero--band .s-dsn-hero__inner::before {
+  content: "";
+  position: absolute;
+  inset-block: 8px;
+  inset-inline-start: 0;
+  inline-size: 10px;
+  background:
+    repeating-linear-gradient(180deg, var(--sig-rule) 0 1px, transparent 1px 8px) 0 0 / 4px 100% no-repeat,
+    repeating-linear-gradient(180deg, var(--sig-rule) 0 1px, transparent 1px 40px) 0 0 / 10px 100% no-repeat;
+  pointer-events: none;
+}
+[dir="rtl"] .s-dsg[data-signature="ephemeris"] .s-dsn-hero--band .s-dsn-hero__inner::before {
+  background-position: 100% 0, 100% 0;
+}
+.s-dsg[data-signature="ephemeris"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(1.8rem, 4vw, 2.9rem);
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+.s-dsg[data-signature="ephemeris"] .s-dsn-hero--band .s-dsn-hero__sub {
+  margin-block-start: 14px;
+  font-family: var(--dsg-mono-font, var(--font-mono));
+  font-size: 0.92rem;
+  max-inline-size: 44ch;
+}
+/* The bar's empty identity takes the design's mark, so the home link is a
+   thing you can see where the wordmark stood. */
+.s-dsg[data-signature="ephemeris"] .s-dsg-head__id:empty::before {
+  content: var(--dsg-orn, "✦");
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.s-dsgt[data-signature="ephemeris"] .s-dsgt-hero--band {
+  position: relative;
+  padding-inline-end: 36%;
+  border: 1px solid var(--accent);
+  background: var(--bg);
+}
+.s-dsgt[data-signature="ephemeris"] .s-dsgt-hero--band::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: 5%;
+  inset-block: 16%;
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(circle at 30% 30%, var(--text) 0 4%, transparent 6%),
+    radial-gradient(circle at 70% 60%, var(--accent) 0 5%, transparent 8%),
+    radial-gradient(circle at 20% 76%, var(--text) 0 3%, transparent 5%),
+    repeating-radial-gradient(circle at 115% 110%, transparent 0 20%, var(--border) 21% 22%, transparent 23% 32%);
+}
+
+/* ── ILLUMINATION: the headpiece and the first leaf ───────────────────────
+   The banner masthead keeps its field and gets a gilded strip: double accent
+   rules with a diamond lattice between them and the design's mark on a disc
+   at the centre. Under the pills, the band is the first leaf: framed like the
+   openings' cards, the first letter of the name a versal in its own square,
+   the tagline a rubric, and a double gilded rule under the pair. */
+.s-dsg[data-signature="illumination"] .s-dsg-head--banner:not(:has(.s-dsg-head__name)) {
+  gap: 0;
+  padding-block: 34px 30px;
+}
+.s-dsg[data-signature="illumination"] .s-dsg-head--banner::after {
+  content: var(--dsg-orn, "✦");
+  display: grid;
+  place-items: center;
+  inline-size: min(560px, 100%);
+  block-size: 44px;
+  margin-block-start: 6px;
+  border-block: 1px solid var(--accent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 4px;
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: 1rem;
+  line-height: 1;
+  background:
+    radial-gradient(circle, var(--bg-raised) 0 15px, color-mix(in srgb, var(--accent) 70%, transparent) 15.5px 16.5px, var(--bg-raised) 17px 20px, transparent 20.5px),
+    repeating-linear-gradient(45deg, transparent 0 9px, color-mix(in srgb, var(--accent) 24%, transparent) 9px 10px),
+    repeating-linear-gradient(-45deg, transparent 0 9px, color-mix(in srgb, var(--accent) 24%, transparent) 9px 10px);
+}
+.s-dsg[data-signature="illumination"] .s-dsg-head--banner:has(.s-dsg-head__name)::after {
+  block-size: 18px;
+  font-size: 0;
+  outline: 0;
+  margin-block-start: 16px;
+}
+.s-dsg[data-signature="illumination"] .s-dsn-hero--band {
+  position: relative;
+  isolation: isolate;
+  padding: 6px;
+  border: 1px solid var(--accent);
+  outline: 1px solid var(--border);
+  outline-offset: 5px;
+  background: var(--bg);
+  overflow: visible;
+}
+.s-dsg[data-signature="illumination"] .s-dsn-hero--band .s-dsn-hero__inner {
+  padding: clamp(24px, 4vw, 40px) clamp(20px, 4vw, 40px) clamp(22px, 4vw, 34px);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: var(--bg);
+}
+.s-dsg[data-signature="illumination"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(2rem, 5.2vw, 3.5rem);
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+/* THE VERSAL. The first letter is floated at the reading edge in its own
+   square: accent on a wash of accent, a second rule inside the box, and the
+   page's own hairline outside it. It hangs past the title into the rubric,
+   which is where a Lombardic initial ends. Not on an Arabic name: pulling
+   the first letter out of a connected word breaks the word. */
+.s-dsg[data-signature="illumination"] .s-dsn-hero--band .s-dsn-hero__title:not(:lang(ar))::first-letter {
+  float: inline-start;
+  margin-block-start: 0.08em;
+  margin-inline-end: 0.2em;
+  padding: 0.14em 0.2em 0.1em;
+  font-size: 2.4em;
+  line-height: 0.82;
+  font-variant-caps: normal;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  box-shadow:
+    inset 0 0 0 3px var(--bg),
+    inset 0 0 0 4px color-mix(in srgb, var(--accent) 60%, transparent),
+    0 0 0 4px var(--bg),
+    0 0 0 5px var(--border);
+}
+.s-dsg[data-signature="illumination"] .s-dsn-hero--band .s-dsn-hero__title:lang(ar)::before {
+  content: var(--dsg-orn, "✦");
+  float: inline-start;
+  display: grid;
+  place-items: center;
+  inline-size: 1.7em;
+  block-size: 1.7em;
+  margin-block-start: 0.05em;
+  margin-inline-end: 0.35em;
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+  line-height: 1;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  box-shadow:
+    inset 0 0 0 3px var(--bg),
+    inset 0 0 0 4px color-mix(in srgb, var(--accent) 60%, transparent),
+    0 0 0 4px var(--bg),
+    0 0 0 5px var(--border);
+}
+/* THE RUBRIC: the line under the title in the heading face, small caps, in
+   the accent, which is the ink the rubricator had. */
+.s-dsg[data-signature="illumination"] .s-dsn-hero--band .s-dsn-hero__sub {
+  margin-block-start: 14px;
+  font-family: var(--dsg-head-font, var(--font-serif));
+  font-variant-caps: small-caps;
+  letter-spacing: 0.06em;
+  font-size: 1.05rem;
+  color: var(--accent);
+  max-inline-size: none;
+}
+/* The double gilded rule clears the versal: the air above it is padding
+   rather than margin, because clearance sets the box's top at the foot of
+   the float and a margin would be swallowed there. */
+.s-dsg[data-signature="illumination"] .s-dsn-hero--band .s-dsn-hero__inner::after {
+  content: "";
+  display: block;
+  clear: both;
+  block-size: 5px;
+  padding-block-start: 22px;
+  background:
+    linear-gradient(var(--accent), var(--accent)) 0 100% / 100% 1px no-repeat,
+    linear-gradient(var(--accent), var(--accent)) 0 calc(100% - 4px) / 100% 1px no-repeat;
+}
+.s-dsgt[data-signature="illumination"] .s-dsgt-hero--band {
+  position: relative;
+  padding-inline-start: 17cqw;
+  border: 1px solid var(--accent);
+  background: var(--bg);
+}
+.s-dsgt[data-signature="illumination"] .s-dsgt-hero--band::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 4cqw;
+  inset-block-start: 50%;
+  inline-size: 9cqw;
+  aspect-ratio: 1;
+  transform: translateY(-50%);
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+}
+
+/* ── LONGHAND: the head of a letter ───────────────────────────────────────
+   The masthead keeps only its furniture and sets it at the end edge over two
+   short ruled lines (the dateline of printed stationery); the band loses its
+   box and prints the name as a signature over a rule with the salutation
+   under it; a margin runs down the whole page at the reading edge; and each
+   essay is a raised sheet with its number small in the top end corner. */
+.s-dsg[data-signature="longhand"] .s-dsg-head--stackedStart:not(:has(.s-dsg-head__name)) {
+  align-items: flex-end;
+  gap: 0;
+  padding-block: 26px 0;
+}
+.s-dsg[data-signature="longhand"] .s-dsg-head--stackedStart:not(:has(.s-dsg-head__name)) .s-dsg-head__tools {
+  margin-inline-start: auto;
+  padding-block-end: 6px;
+  border-block-end: 1px solid var(--sig-rule);
+  box-shadow: 0 9px 0 -1px var(--border);
+}
+.s-dsg[data-signature="longhand"] .s-dsn-page {
+  position: relative;
+  padding-inline-start: calc(var(--dsn-pad) + clamp(22px, 5vw, 44px));
+}
+.s-dsg[data-signature="longhand"] .s-dsn-page::before,
+.s-dsg[data-signature="longhand"] .s-dsn-page::after {
+  content: "";
+  position: absolute;
+  inset-block: 0 48px;
+  inset-inline-start: calc(var(--dsn-pad) + clamp(8px, 2vw, 18px));
+  border-inline-start: 1px solid var(--sig-rule);
+  pointer-events: none;
+}
+.s-dsg[data-signature="longhand"] .s-dsn-page::after {
+  inset-inline-start: calc(var(--dsn-pad) + clamp(8px, 2vw, 18px) + 5px);
+  border-inline-start-color: var(--border);
+}
+.s-dsg[data-signature="longhand"] .s-dsn-hero--band {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+.s-dsg[data-signature="longhand"] .s-dsn-hero--band .s-dsn-hero__inner {
+  padding: 8px 0 0;
+}
+/* THE DATELINE: two short ruled lines at the end edge above the name, the
+   place a letter puts its date and printed stationery leaves for it. Drawn
+   on the head of the letter itself, so it is there whether or not the
+   instance has a menu bar above. */
+.s-dsg[data-signature="longhand"] .s-dsn-hero--band .s-dsn-hero__inner::before {
+  content: "";
+  display: block;
+  inline-size: min(40%, 16ch);
+  margin-inline-start: auto;
+  margin-block-end: 34px;
+  border-block-end: 1px solid var(--sig-rule);
+  box-shadow: 0 9px 0 -0.5px var(--border);
+}
+.s-dsg[data-signature="longhand"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-style: italic;
+  font-size: clamp(2rem, 5vw, 2.9rem);
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+.s-dsg[data-signature="longhand"] .s-dsn-hero--band .s-dsn-hero__title::after {
+  content: "";
+  display: block;
+  inline-size: min(62%, 22ch);
+  margin-block-start: 10px;
+  border-block-end: 1px solid var(--text-faint);
+}
+.s-dsg[data-signature="longhand"] .s-dsn-hero--band .s-dsn-hero__sub {
+  margin-block-start: 20px;
+  font-style: italic;
+  font-size: 1.08rem;
+  max-inline-size: var(--dsg-measure-px, 46ch);
+}
+/* The pages of the letter. The extra `.s-dsn-page` in the selector outranks
+   the collection sheet's ring around the ordinal and the list's own margin
+   rule, both of which the page now carries itself. */
+.s-dsg[data-signature="longhand"] .s-dsn-page .s-dsn-list--numbered {
+  gap: 26px;
+  padding-inline-start: 0;
+  border-inline-start: 0;
+}
+.s-dsg[data-signature="longhand"] .s-dsn-page .s-dsn-list--numbered .s-dsn-list__item {
+  position: relative;
+  display: block;
+  padding: 30px clamp(20px, 4vw, 36px) 30px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text) 5%, transparent),
+    0 16px 32px -30px var(--text);
+}
+.s-dsg[data-signature="longhand"] .s-dsn-page .s-dsn-list--numbered .s-dsn-list__ord {
+  position: absolute;
+  inset-inline-end: 18px;
+  inset-block-start: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  font-size: 0.82rem;
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--text-faint);
+}
+.s-dsg[data-signature="longhand"] .s-dsn-page .s-dsn-list--numbered .s-dsn-list__title {
+  font-size: 1.55em;
+}
+.s-dsgt[data-signature="longhand"] .s-dsgt-hero--band {
+  border-radius: 0;
+  border-inline-start: 1px solid var(--border);
+  background: transparent;
+  padding-inline-start: 5cqw;
+}
+
+/* ── the shelf below 900, the phone below 600 ─────────────────────────── */
+@media (max-width: 900px) {
+  .s-dsg[data-signature="ephemeris"] .s-dsn-hero--band {
+    grid-template-columns: minmax(0, 1fr) minmax(160px, 30%);
+  }
+}
+@media (max-width: 600px) {
+  .s-dsg[data-signature="salon"] .s-dsn-hero--band {
+    padding: 12px;
+  }
+  .s-dsg[data-signature="salon"] .s-dsn-hero--band .s-dsn-hero__inner {
+    padding: 26px 16px 24px;
+    outline-offset: 3px;
+  }
+  .s-dsg[data-signature="ephemeris"] .s-dsn-hero--band {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    min-block-size: 0;
+    gap: 22px;
+    padding: 16px 16px 22px;
+  }
+  .s-dsg[data-signature="ephemeris"] .s-dsn-hero--band .s-dsn-hero__inner {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .s-dsg[data-signature="ephemeris"] .s-dsn-hero--band::after {
+    grid-column: 1;
+    grid-row: 3;
+    inline-size: min(220px, 72%);
+    justify-self: center;
+  }
+  .s-dsg[data-signature="illumination"] .s-dsn-hero--band .s-dsn-hero__title:not(:lang(ar))::first-letter {
+    font-size: 2.1em;
+    margin-inline-end: 0.22em;
+  }
+  .s-dsg[data-signature="illumination"] .s-dsg-head--banner::after {
+    inline-size: calc(100% - 8px);
+  }
+  .s-dsg[data-signature="longhand"] .s-dsn-page .s-dsn-list--numbered .s-dsn-list__item {
+    padding: 26px 16px 24px;
+  }
+}

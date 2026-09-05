@@ -9,15 +9,13 @@ import { stripBidiControls } from "../../shared/bidi.ts";
 import type { PostMeta, PublicFolderCard } from "../../shared/types.ts";
 import { getNote, getPosts } from "../api.ts";
 import { useBannerSrc } from "../components/BannerImg.tsx";
-import { installHoverCards } from "../hovercard.ts";
 import { t, tf } from "../i18n.ts";
 import LoginModal from "../components/LoginModal.tsx";
-import { renderNoteContent } from "../reading/renderNote.ts";
-import { texPreviewSource } from "../reading/texRender.ts";
-import { isTexPath, noteTitleOf } from "../../shared/noteFormat.ts";
+import { noteTitleOf } from "../../shared/noteFormat.ts";
 import { notePathToUrl, urlToNoteGuess, urlToNotePath } from "../router.ts";
 import { useStore } from "../state.ts";
 import { choiceGroup, counterpartChoice } from "../themes.ts";
+import { usePostPreviews } from "./usePostPreviews.ts";
 import BackToTop from "./BackToTop.tsx";
 import BlogArticle from "./BlogArticle.tsx";
 import BlogDashboard from "./BlogDashboard.tsx";
@@ -29,16 +27,9 @@ import BlogTopic from "./BlogTopic.tsx";
 import LangSwitch from "./LangSwitch.tsx";
 import NavTopics from "./NavTopics.tsx";
 import { go, setNavHandler, topicUrl } from "./nav.ts";
-import { previewExcerpt, previewPath } from "./postPreview.ts";
 import { NavLink } from "./util.tsx";
 import "../styles/blog.css";
 import Ambient from "../ambient.tsx";
-
-/** Basename of a note path, bidi controls stripped — the card header and the
- *  duplicate-H1 trim both key off it. */
-function noteTitle(path: string): string {
-  return stripBidiControls(noteTitleOf(path));
-}
 
 /** What the nav gets when the "show in navigation" sub-option is off. A shared
  *  frozen array, not a fresh `[]`: NavTopics measures its row in a layout
@@ -347,55 +338,7 @@ export default function BlogShell() {
     return filled.length === folders.length ? folders : filled;
   }, [folders, foldersInNav]);
 
-  // Hover previews for every post link the shell renders — one delegated
-  // install on the scroll container covers dashboard cards, post lists, topic
-  // pages, related, prev/next and search results, so no component below has
-  // to know the feature exists. Reinstalled (and thus re-cached) when the
-  // language changes, because the rendered note chrome carries t() strings.
-  //
-  // Read through a ref rather than a dependency: `posts` and `tree` refresh on
-  // every SSE event, and re-installing on those would tear down a card the
-  // reader is in the middle of reading.
-  const postTags = useRef(new Map<string, string[]>());
-  postTags.current = useMemo(
-    () => new Map((posts ?? []).map((p) => [p.path, p.tags])),
-    [posts],
-  );
-  useEffect(() => {
-    if (!scrollEl || locked) return;
-    return installHoverCards({
-      root: scrollEl,
-      scroller: scrollEl,
-      resolve: previewPath,
-      title: noteTitle,
-      render: async (path) => {
-        let content: string;
-        try {
-          // The ordinary visitor-scoped fetch: a note this session may not
-          // read 401/404s here, and no card is ever built for it.
-          content = (await getNote(path)).content;
-        } catch {
-          return null;
-        }
-        const md = isTexPath(path)
-          ? texPreviewSource(content, null)
-          : previewExcerpt(content, noteTitle(path));
-        if (!md) return null;
-        const tags = postTags.current.get(path);
-        return renderNoteContent(md, {
-          notePath: path,
-          tree: useStore.getState().tree,
-          embedded: true,
-          // Same reading-renderer settings the article page uses: no
-          // broken-link furniture, no ⌀ chips, and only the post's
-          // server-filtered tags may render as pills.
-          brokenLinks: "plain",
-          missingImages: "card",
-          ...(tags ? { visibleTags: new Set(tags.map((x) => x.toLowerCase())) } : {}),
-        });
-      },
-    });
-  }, [scrollEl, locked, language]);
+  usePostPreviews(scrollEl, posts, locked, language);
 
   // Dashboard home carries the site identity inside its own hero — rendering
   // the masthead above it would say the site name twice. Every other page

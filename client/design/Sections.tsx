@@ -436,6 +436,7 @@ function PostGrid({ section, posts, locale }: { section: PostGridSection } & Sec
       ) : (
         <div
           className={`s-dsn-grid s-dsn-grid--${card}`}
+          data-columns={section.columns}
           style={{ "--dsn-cols": section.columns } as React.CSSProperties}
         >
           {chosen.map((post) => {

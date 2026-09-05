@@ -21,7 +21,10 @@ import { bannerSrc, bannerFromContent, generatedBannerCss } from "../banner.ts";
 import { formatDate, isRtlText, NavLink } from "../blog/util.tsx";
 import { topicUrl } from "../blog/nav.ts";
 import { countPhrase, t } from "../i18n.ts";
+import { renderNoteContent } from "../reading/renderNote.ts";
 import { renderMarkdown } from "../reading/render.ts";
+import { applyNoteLayoutTo } from "../textLayout.ts";
+import { noteTitleOf } from "../../shared/noteFormat.ts";
 import { notePathToUrl } from "../router.ts";
 import { useStore } from "../state.ts";
 import { SectionError } from "./DesignBoundary.tsx";
@@ -83,7 +86,7 @@ export default function DesignedArticle({
 
   // Bidi controls out of the headline — the H1 is a filename, and an RLO in
   // one reorders every word after it.
-  const fileTitle = stripBidiControls(path.split("/").pop()!.replace(/\.md$/i, ""));
+  const fileTitle = stripBidiControls(noteTitleOf(path));
   const meta = posts?.find((post) => post.path === path) ?? null;
   // On the live site the H1 is the FILENAME, which is what a permalink names.
   // A preview may be drawing a sample row, whose path is a slot number, so
@@ -134,7 +137,9 @@ export default function DesignedArticle({
     const el = host.current;
     if (!el || content === null) return;
     el.textContent = "";
-    const body = renderMarkdown(content, {
+    // The designer specimen is Markdown even when the selected real note is TeX.
+    const render = preview ? renderMarkdown : renderNoteContent;
+    const body = render(content, {
       notePath: path,
       tree,
       brokenLinks: "plain",
@@ -148,8 +153,9 @@ export default function DesignedArticle({
     if (h1 && (h1.textContent ?? "").trim().toLowerCase() === title.trim().toLowerCase()) {
       h1.remove();
     }
+    applyNoteLayoutTo(body, content);
     el.appendChild(body);
-  }, [content, path, tree, visibleTags, language, title]);
+  }, [content, path, tree, visibleTags, language, title, preview]);
 
   const banner = meta?.banner ?? (content ? bannerFromContent(content) : null);
   const related = useMemo(() => {

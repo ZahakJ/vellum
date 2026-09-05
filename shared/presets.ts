@@ -180,6 +180,7 @@ export function presetChrome(patch: {
   ornament?: DesignChrome["ornament"];
   shell?: DesignChrome["shell"];
   frame?: DesignChrome["frame"];
+  signature?: DesignChrome["signature"];
 }): DesignChrome {
   const base = stockChrome();
   return {
@@ -192,6 +193,7 @@ export function presetChrome(patch: {
     ornament: patch.ornament ?? base.ornament,
     shell: patch.shell ?? base.shell,
     frame: patch.frame ?? base.frame,
+    signature: patch.signature ?? base.signature,
   };
 }
 

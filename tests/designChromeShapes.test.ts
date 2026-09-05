@@ -29,6 +29,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   CHROME_FRAMES,
+  CHROME_SIGNATURES,
   CHROME_ORNAMENTS,
   CHROME_SCENERIES,
   CHROME_SHELLS,
@@ -241,5 +242,23 @@ describe("design chrome: the shape fields", () => {
       nav: { style: "underline" },
     });
     assert.deepEqual(normalizeChrome(structuredClone(written)), written);
+  });
+});
+
+
+describe("portable signature art direction", () => {
+  it("leaves older and custom designs unstyled by default", () => {
+    assert.equal(validateChrome({}).signature, "none");
+    assert.equal(normalizeChrome({ signature: "unrecognized" }).signature, "none");
+    assert.equal(refusal({ signature: "unrecognized" }), "signature");
+  });
+  it("preserves every art direction across export, rename and import", () => {
+    for (const signature of CHROME_SIGNATURES) {
+      const original = validateDesign(doc({ signature }));
+      const renamed = { ...original, id: "my-personal-copy", name: "My own name" };
+      const imported = validateDesign(JSON.parse(JSON.stringify(renamed)));
+      assert.equal(imported.chrome.signature, signature);
+      assert.equal(normalizeChrome(imported.chrome).signature, signature);
+    }
   });
 });

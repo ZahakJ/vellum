@@ -31,7 +31,8 @@
 //   · MENU       underline · brackets · plain · pills    (all four)
 //   · RUN        dateline · index · numbered+ledger · —  (four of the five)
 //   · CARD       bare+art · — · — · bare
-//   · OPENING    — · band · — · —
+//   · OPENING    nameplate · printout · title page · bill (all four bands,
+//                each drawn into something else by signature-studio-a.css)
 //   · MEASURE    1240 · 780 · 860 · 1400 px
 //   · FACE       merriweather/source-serif · ibm-plex-mono (everything) ·
 //                crimson-pro/literata · work-sans/ibm-plex-sans
@@ -107,8 +108,8 @@ const lateEdition: Preset = {
   id: "late-edition",
   name: { en: "Late Edition", ar: "الطبعة الأخيرة" },
   blurb: {
-    en: "For writing that is dated: the day it went out is the headline above it.",
-    ar: "للكتابة المؤرّخة: يومُ نشرها هو العنوان الذي يعلوها.",
+    en: "For writing that is dated: a nameplate between rules, one lead across two columns, then the day file.",
+    ar: "للكتابة المؤرّخة: اسمٌ بين مسطرتين، خبرٌ رئيسي على عمودين، ثم أرشيف الأيام.",
   },
   family: "signature",
   tags: [
@@ -119,6 +120,7 @@ const lateEdition: Preset = {
     theme: "sandstone",
     site: { width: 1240, density: "regular" },
     chrome: chrome({
+      signature: "late-edition",
       typography: {
         baseSize: 17,
         scale: 1.34,
@@ -137,7 +139,15 @@ const lateEdition: Preset = {
         layout: "rule",
         density: "regular",
         sticky: "none",
-        showTagline: true,
+        // THE NAMEPLATE MOVED INTO THE PAGE. The opening below prints the
+        // site's name and tagline as a broadsheet nameplate, so the masthead
+        // gives both up on the front page (it takes them back on an article,
+        // where there is no opening; see printsSiteName). What is left of the
+        // rule masthead on the front page is its centred menu, which the
+        // studio sheet keeps as the thin sections strip a paper runs ABOVE
+        // its nameplate.
+        showName: false,
+        showTagline: false,
         divider: false,
       },
       nav: { style: "underline", fallback: "topics", showSearch: true, showThemeToggle: true },
@@ -145,6 +155,22 @@ const lateEdition: Preset = {
       surface: "flat",
     }),
     sections: [
+      // THE NAMEPLATE, and it is a section rather than a masthead because a
+      // masthead is type and a nameplate is a PLATE: a heavy rule across the
+      // top, two ruled ears either side of the name (the boxes a front page
+      // keeps its weather and its price in), the name at a size no h1 field
+      // allows, and the tagline set as the dateline strip underneath, tracked
+      // caps between two leaders, closed by an Oxford rule. All of it is drawn
+      // in the studio sheet on a band with a blank heading, which is the one
+      // opening that prints the site's own name and tagline and invents no
+      // picture (see design.css, "A BAND IS GROUND AND TYPE").
+      { id: "nameplate", kind: "hero", heading: "", sub: "", image: null, align: "center", height: "short", treatment: "band" },
+      // THE LEAD SPANS TWO COLUMNS. Three equal leads across the top are three
+      // thumbnails; a front page has ONE lead, with the picture, and two
+      // secondaries stacked beside it under a rule, and the studio sheet lays
+      // the same three cards out that way above 900px. The section is still
+      // three bare cards with pictures on, so the phone gets three leads in a
+      // stack and the engine keeps one grid.
       { id: "leads", kind: "postGrid", heading: "", limit: 3, columns: 3, tag: "", showExcerpt: true, showBanner: true, showDate: true, card: "bare" },
       // A hairline with no air around it, hard against the leads: the rule that
       // ENDS the front page.
@@ -205,8 +231,8 @@ const teletype: Preset = {
   id: "teletype",
   name: { en: "Teletype", ar: "التلكس" },
   blurb: {
-    en: "For a site that would rather be read in a terminal than in a magazine.",
-    ar: "لموقعٍ يُقرأ في طرفيةٍ لا في مجلة.",
+    en: "For a site that opens like a printout: paper tape, a typed name, a cursor, then the index.",
+    ar: "لموقعٍ يُفتح كورقة طابعة: شريطٌ مثقّب، اسمٌ مرقون، مؤشّر، ثم الفهرس.",
   },
   family: "signature",
   tags: [
@@ -217,6 +243,7 @@ const teletype: Preset = {
     theme: "phosphor",
     site: { width: 780, density: "compact" },
     chrome: chrome({
+      signature: "teletype",
       typography: {
         baseSize: 15.5,
         scale: 1.18,
@@ -233,12 +260,28 @@ const teletype: Preset = {
         monoFont: "ibm-plex-mono",
         rhythm: 0.85,
       },
-      header: { layout: "inline", density: "compact", sticky: "nav", showTagline: false, divider: true },
+      // `showName: false`: the transmission header below prints the name, and
+      // for one release the inline bar printed it too, forty pixels above. The
+      // bar keeps the brackets menu and the search box, which is all a console
+      // wants at the top of the window. The article route brings the name
+      // back into the bar itself.
+      header: { layout: "inline", density: "compact", sticky: "nav", showName: false, showTagline: false, divider: true },
       nav: { style: "brackets", fallback: "topics", showSearch: true, showThemeToggle: true },
       footer: { form: "columns", align: "start", showRss: true, showSearchHint: true, showPoweredBy: false },
       surface: "ruled",
     }),
     sections: [
+      // THE TRANSMISSION HEADER. A band with a blank heading is the login
+      // banner the comment above describes, and for one release it was a blank
+      // one: two double rules with the name between them. The studio sheet
+      // makes it a printout. A strip of punched paper tape runs across the top
+      // of the band (feed holes and five channels of data holes, drawn in
+      // radial gradients from the theme's own tokens), the name is typed after
+      // a prompt with a cursor block after it, and the tagline follows as a
+      // comment line. The page itself gets tractor feed strips down both
+      // edges, sprocket holes and a perforation, in place of the dotted
+      // borders it had. The run underneath gets line numbers, because a
+      // listing on a console is numbered.
       { id: "banner", kind: "hero", heading: "", sub: "", image: null, align: "start", height: "short", treatment: "band" },
       { id: "rule", kind: "divider", style: "rule", space: 14 },
       { id: "ls", kind: "postList", heading: "", limit: 40, tag: "", showExcerpt: false, showDate: true, layout: "index" },
@@ -281,8 +324,8 @@ const fascicle: Preset = {
   id: "fascicle",
   name: { en: "Fascicle", ar: "الكرّاسة" },
   blurb: {
-    en: "For work published in instalments: what is new, then everything filed.",
-    ar: "لعملٍ يصدر على أجزاء: الجديد أوّلًا، ثم الأرشيف كلّه مرتّبًا.",
+    en: "For work published in instalments: a title page, then the new number set apart from everything filed.",
+    ar: "لعملٍ يصدر على أجزاء: صفحة عنوان، ثم العدد الجديد منفصلًا عن الأرشيف كلّه.",
   },
   family: "signature",
   tags: [
@@ -293,6 +336,7 @@ const fascicle: Preset = {
     theme: "palimpsest",
     site: { width: 860, density: "regular" },
     chrome: chrome({
+      signature: "fascicle",
       typography: {
         baseSize: 17.5,
         scale: 1.148,
@@ -307,12 +351,30 @@ const fascicle: Preset = {
         bodyFont: "literata",
         rhythm: 0.95,
       },
-      header: { layout: "stackedStart", density: "regular", sticky: "none", showTagline: true, divider: true },
+      // The title page below prints the name and the tagline, so the masthead
+      // prints neither on the front page and the studio sheet folds the empty
+      // block away, leaving the plain menu as the only chrome above the frame.
+      // No divider: the menu bar carries its own hairline, and a second one
+      // above an empty masthead is a rule with nothing under it.
+      header: { layout: "stackedStart", density: "regular", sticky: "none", showName: false, showTagline: false, divider: false },
       nav: { style: "plain", fallback: "topics", showSearch: true, showThemeToggle: true },
       footer: { form: "colophon", align: "center", showRss: true, showSearchHint: false },
       surface: "tinted",
     }),
     sections: [
+      // THE TITLE PAGE. An issue of a journal opens on a page that is all
+      // frame: a double ruled border, a head rule and a tail rule, the
+      // ornament, the title set large in small caps, a short rule, and the
+      // subtitle in italic. The band prints the name and the tagline and the
+      // studio sheet draws the rest of the page around them, in `--border`
+      // and `--text` and nothing else, so the frame is the same frame on
+      // `porcelain` and `linen`.
+      { id: "title-page", kind: "hero", heading: "", sub: "", image: null, align: "center", height: "short", treatment: "band" },
+      // THE NEW NUMBER IS SET APART. The first entry of the issue is the
+      // instalment that has just come out, and the studio sheet gives it a
+      // raised panel of its own, its ordinal in the accent and its title a
+      // step larger, so the issue reads as ONE new number followed by the five
+      // before it, and then the file.
       { id: "issue", kind: "postList", heading: "", limit: 6, tag: "", showExcerpt: true, showDate: true, layout: "numbered" },
       { id: "rule", kind: "divider", style: "rule", space: 0 },
       { id: "file", kind: "postList", heading: "", limit: 24, tag: "", showExcerpt: false, showDate: true, layout: "ledger" },
@@ -370,8 +432,8 @@ const klaxon: Preset = {
   id: "klaxon",
   name: { en: "Klaxon", ar: "البوق" },
   blurb: {
-    en: "For one voice that has no interest in being agreeable about it.",
-    ar: "لصوتٍ واحد لا يعنيه أن يكون لطيفًا.",
+    en: "For one voice pasted on a wall at the size of a bill, with no interest in being agreeable about it.",
+    ar: "لصوتٍ واحد مُلصق على الجدار بحجم إعلان، لا يعنيه أن يكون لطيفًا.",
   },
   family: "signature",
   tags: [
@@ -382,6 +444,7 @@ const klaxon: Preset = {
     theme: "murex",
     site: { width: 1400, density: "compact" },
     chrome: chrome({
+      signature: "klaxon",
       typography: {
         baseSize: 19,
         scale: 1.412,
@@ -396,19 +459,32 @@ const klaxon: Preset = {
         bodyFont: "ibm-plex-sans",
         rhythm: 0.8,
       },
-      header: { layout: "banner", density: "tall", sticky: "none", showTagline: true, divider: false },
+      // THE BANNER GIVES THE NAME TO THE BILL. The opening below prints the
+      // site's name at bill size, so the banner masthead prints neither name
+      // nor tagline on the front page and the studio sheet folds its field
+      // away to nothing, leaving the pills as a bar across the top of the
+      // wall. `tall` still matters: an article has no bill, the banner takes
+      // the name back there, and it should be the wall it always was.
+      header: { layout: "banner", density: "tall", sticky: "none", showName: false, showTagline: false, divider: false },
       nav: { style: "pills", fallback: "topics", showSearch: false, showThemeToggle: true },
       footer: { form: "grand", align: "center", showRss: false, showSearchHint: false, showPoweredBy: false },
       surface: "grid",
     }),
     sections: [
-      // NO OPENING SECTION, and that is the poster's whole point rather than a
-      // gap in it. A band hero with an empty heading falls back to the site's
-      // NAME — which the banner masthead 200px above has just set at display
-      // size, and which the grand footer will set again at the end. Shot at
-      // 1440 the page read "THE COMPOSITOR" three times before it read a single
-      // headline. A poster says its name once, loudly, at the top; it signs
-      // itself at the bottom; and everything between is the work.
+      // THE BILL. For one release this page had NO opening section, on the
+      // argument that a band with a blank heading prints the site's name and
+      // the banner masthead 200px above had just printed it at display size:
+      // shot at 1440 the page read "THE COMPOSITOR" three times before it read
+      // a headline. The argument was right and the answer was wrong. The name
+      // is printed once at the top, still, but by the bill and not by the
+      // masthead (`showName: false` above), and the bill is the thing a
+      // banner masthead could never be: the name at the size of a wall, in an
+      // opaque block pasted a degree off true, a hard offset shadow behind it
+      // in the accent, the tagline reversed out in a strip, and diagonal
+      // bands of the accent running behind the whole thing. The studio sheet
+      // draws it. The grand footer still signs the page at the end, which is
+      // what a poster does, and everything between is the work.
+      { id: "bill", kind: "hero", heading: "", sub: "", image: null, align: "start", height: "tall", treatment: "band" },
       { id: "rule", kind: "divider", style: "rule", space: 0 },
       { id: "wall", kind: "postGrid", heading: "", limit: 12, columns: 3, tag: "", showExcerpt: false, showBanner: false, showDate: true, card: "bare" },
       { id: "air", kind: "divider", style: "blank", space: 32 },

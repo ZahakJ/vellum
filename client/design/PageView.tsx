@@ -16,7 +16,9 @@ import { useEffect, useRef, useState } from "react";
 import { stripBidiControls } from "../../shared/bidi.ts";
 import { getNote, isNotPublishedError } from "../api.ts";
 import { t } from "../i18n.ts";
-import { renderMarkdown } from "../reading/render.ts";
+import { renderNoteContent } from "../reading/renderNote.ts";
+import { applyNoteLayoutTo } from "../textLayout.ts";
+import { noteTitleOf } from "../../shared/noteFormat.ts";
 import { useStore } from "../state.ts";
 import { NavLink } from "../blog/util.tsx";
 import "../reading/reading.css";
@@ -35,7 +37,7 @@ export default function PageView({ path }: { path: string }) {
   const tree = useStore((s) => s.tree);
   const language = useStore((s) => s.language);
   const [failed, setFailed] = useState(false);
-  const title = stripBidiControls(path.split("/").pop()!.replace(/\.md$/i, ""));
+  const title = stripBidiControls(noteTitleOf(path));
 
   // Keep the store's notion of "the open note" in step — same-note heading
   // links and the hover cards read it.
@@ -51,7 +53,7 @@ export default function PageView({ path }: { path: string }) {
     getNote(path)
       .then((note) => {
         if (disposed || !bodyRef.current) return;
-        const el = renderMarkdown(note.content, {
+        const el = renderNoteContent(note.content, {
           notePath: path,
           tree: useStore.getState().tree,
           // A public page gets no broken-link furniture, exactly like an
@@ -64,6 +66,7 @@ export default function PageView({ path }: { path: string }) {
           visibleTags: new Set<string>(),
         });
         el.classList.add("s-reading__content");
+        applyNoteLayoutTo(el, note.content);
         dropDuplicateTitle(el, title);
         bodyRef.current.replaceChildren(el);
       })

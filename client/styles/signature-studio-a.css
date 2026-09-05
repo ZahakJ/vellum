@@ -1,0 +1,563 @@
+/* STUDIO A: THE PRESS. Four openings, one per house, keyed on the saved
+   signature and never on a document or a colour theme. Every colour below is
+   a theme token or a color-mix of two; every drawing is a border, a gradient
+   or a pseudo element; every offset is logical so the Arabic instance mirrors
+   for free. The band hero with a blank heading is the raw material in all
+   four: it prints the site's name and tagline on a raised ground and invents
+   nothing, and each house turns that into the thing it was printed on.
+
+   The masthead of each house has handed the name to its opening on the front
+   page (`showName: false` in presetsSignatureA.ts), and DesignHeader forces
+   the name back only where nothing else prints it, so on the article route
+   `.s-dsg-head__name` is present again. `:has(.s-dsg-head__name)` is
+   therefore the one test that tells the two routes apart from a stylesheet,
+   and it is the test used wherever an emptied masthead has to fold away. */
+
+/* ══ LATE EDITION: the nameplate ═══════════════════════════════════════════
+   A broadsheet does not set its name in a masthead; it sets it on a PLATE.
+   A heavy rule across the top, the name at nameplate size, two ruled ears
+   either side of it, and the dateline strip under it: the tagline in tracked
+   caps between two dotted leaders, closed by an Oxford rule (a hairline, a
+   gap, a hairline). Above the plate the rule masthead's own menu stays as
+   the thin sections strip a paper runs across the top of the window. */
+.s-dsg[data-signature="late-edition"] .s-dsg-head--rule:not(:has(.s-dsg-head__name)) {
+  display: none;
+}
+
+.s-dsg[data-signature="late-edition"] .s-dsn-hero--band {
+  position: relative;
+  min-block-size: 0;
+  border: 0;
+  border-block-start: 5px solid var(--text);
+  border-block-end: 1px solid var(--text);
+  background: var(--bg);
+  text-align: center;
+}
+
+.s-dsg[data-signature="late-edition"] .s-dsn-hero--band .s-dsn-hero__inner {
+  padding: clamp(18px, 3vw, 34px) clamp(16px, 10vw, 160px) 3px;
+}
+
+.s-dsg[data-signature="late-edition"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(2.4rem, 9.5vw, 6.6rem);
+  line-height: 0.95;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+/* THE EARS: the two boxes a front page keeps its weather and its price in,
+   drawn as ruled boxes of fine print (a header bar and hairlines) so they
+   read as ears and not as buttons. Off below 900px, where the name needs the
+   whole plate. */
+.s-dsg[data-signature="late-edition"] .s-dsn-hero--band::before,
+.s-dsg[data-signature="late-edition"] .s-dsn-hero--band::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 16px;
+  inline-size: clamp(76px, 9vw, 118px);
+  block-size: clamp(50px, 5.5vw, 72px);
+  border: 1px solid var(--text-muted);
+  background:
+    linear-gradient(var(--text), var(--text)) top / 100% 3px no-repeat,
+    repeating-linear-gradient(to bottom, transparent 0 7px, var(--text-faint) 7px 8px) 50% 11px / 64% calc(100% - 20px) no-repeat,
+    var(--bg-raised);
+  pointer-events: none;
+}
+
+.s-dsg[data-signature="late-edition"] .s-dsn-hero--band::before {
+  inset-inline-start: 14px;
+}
+
+.s-dsg[data-signature="late-edition"] .s-dsn-hero--band::after {
+  inset-inline-end: 14px;
+}
+
+/* THE DATELINE STRIP. The tagline is the only line of copy the engine gives a
+   band beside the name, and a paper's second line is its dateline: small
+   tracked caps between two leaders, ruled above and below. The strip's bottom
+   hairline and the band's own, 3px apart, are the Oxford rule that ends a
+   nameplate. */
+.s-dsg[data-signature="late-edition"] .s-dsn-hero--band .s-dsn-hero__sub {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  max-width: none;
+  margin: clamp(14px, 2.5vw, 26px) 0 0;
+  padding-block: 8px;
+  border-block: 1px solid var(--text);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.s-dsg[data-signature="late-edition"] .s-dsn-hero--band .s-dsn-hero__sub:dir(rtl) {
+  letter-spacing: normal;
+}
+
+.s-dsg[data-signature="late-edition"] .s-dsn-hero--band .s-dsn-hero__sub::before,
+.s-dsg[data-signature="late-edition"] .s-dsn-hero--band .s-dsn-hero__sub::after {
+  content: "";
+  flex: 1 1 0;
+  min-inline-size: 16px;
+  block-size: 0;
+  border-block-start: 1px dotted var(--text-muted);
+}
+
+/* THE LEAD SPANS TWO COLUMNS. Above 900px the three leads become one lead
+   with its picture, spanning both rows of a two track grid, and two
+   secondaries stacked in the second track with a hairline between them and
+   no picture: a front page has one photograph above the fold. The selector
+   carries `.s-dsn-page` so it outweighs the shared sheet's three track rule
+   for the same grid, which is imported later than this one. */
+@media (min-width: 900px) {
+  .s-dsg[data-signature="late-edition"] .s-dsn-page .s-dsn-grid--bare[data-columns="3"] {
+    grid-template-columns: 1.7fr 1fr;
+    /* `auto 1fr`, not `auto auto`: a lead spanning two auto rows has its spare
+       height shared between them equally, which opened a hole between the
+       rule and the third story. A flexible second row takes all of it. */
+    grid-template-rows: auto 1fr;
+  }
+
+  .s-dsg[data-signature="late-edition"] .s-dsn-page .s-dsn-grid--bare[data-columns="3"] > .s-dsn-card:first-child {
+    grid-row: 1 / span 2;
+    padding-inline-start: 0;
+  }
+
+  .s-dsg[data-signature="late-edition"] .s-dsn-page .s-dsn-grid--bare[data-columns="3"] > .s-dsn-card:first-child .s-dsn-card__banner {
+    height: auto;
+    aspect-ratio: 16 / 9;
+    border-radius: 0;
+  }
+
+  .s-dsg[data-signature="late-edition"] .s-dsn-page .s-dsn-grid--bare[data-columns="3"] > .s-dsn-card:first-child .s-dsn-card__title {
+    font-size: 2.35em;
+    line-height: 1.02;
+  }
+
+  .s-dsg[data-signature="late-edition"] .s-dsn-page .s-dsn-grid--bare[data-columns="3"] > .s-dsn-card:first-child .s-dsn-card__excerpt {
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  /* The secondaries sit at the top of their tracks rather than stretching to
+     the lead's height: stretched, the hairline between them floated halfway
+     down a column with a hole under each story. Stacked, the two stories
+     close up under the rule and the column's spare air falls at its foot,
+     which is where a page keeps it. */
+  .s-dsg[data-signature="late-edition"] .s-dsn-page .s-dsn-grid--bare[data-columns="3"] > .s-dsn-card:not(:first-child) {
+    align-self: start;
+    border-inline-end: 0;
+    padding-inline-end: 0;
+  }
+
+  .s-dsg[data-signature="late-edition"] .s-dsn-page .s-dsn-grid--bare[data-columns="3"] > .s-dsn-card:nth-child(2) {
+    border-block-end: 1px solid var(--border);
+  }
+
+  .s-dsg[data-signature="late-edition"] .s-dsn-page .s-dsn-grid--bare[data-columns="3"] > .s-dsn-card:nth-child(2) .s-dsn-card__body {
+    padding-block-end: 12px;
+  }
+
+  .s-dsg[data-signature="late-edition"] .s-dsn-page .s-dsn-grid--bare[data-columns="3"] > .s-dsn-card:not(:first-child) .s-dsn-card__banner {
+    display: none;
+  }
+
+  .s-dsg[data-signature="late-edition"] .s-dsn-page .s-dsn-grid--bare[data-columns="3"] > .s-dsn-card:not(:first-child) .s-dsn-card__body {
+    padding-block-start: 0;
+  }
+}
+
+/* A jump mark after every excerpt: the story is continued inside. It is a
+   glyph and not a word, and it turns round with the reading direction. */
+.s-dsg[data-signature="late-edition"] .s-dsn-card__excerpt::after {
+  content: " \25B8";
+  color: var(--accent);
+}
+
+.s-dsg[data-signature="late-edition"] .s-dsn-card__excerpt:dir(rtl)::after {
+  content: " \25C2";
+}
+
+/* ══ TELETYPE: the printout ═════════════════════════════════════════════════
+   The page is a sheet of tractor feed paper: a strip of sprocket holes down
+   each edge with a perforation inside it, in place of the dotted borders the
+   shared sheet gave it. The strips are the only raised ground on the page,
+   so the ruled surface (the scan lines) still shows through the sheet. */
+.s-dsg[data-signature="teletype"] .s-dsn-main .s-dsn-page {
+  position: relative;
+  border-inline: 0;
+  padding-inline: clamp(44px, 7vw, 76px);
+}
+
+.s-dsg[data-signature="teletype"] .s-dsn-main .s-dsn-page::before,
+.s-dsg[data-signature="teletype"] .s-dsn-main .s-dsn-page::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inline-size: 30px;
+  background:
+    radial-gradient(circle at 50% 50%, var(--bg) 0 3.5px, color-mix(in srgb, var(--accent) 45%, var(--border)) 4px, transparent 5.5px) 0 0 / 30px 26px repeat-y,
+    var(--bg-raised);
+  pointer-events: none;
+}
+
+.s-dsg[data-signature="teletype"] .s-dsn-main .s-dsn-page::before {
+  inset-inline-start: 0;
+  border-inline-end: 1px dashed color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+.s-dsg[data-signature="teletype"] .s-dsn-main .s-dsn-page::after {
+  inset-inline-end: 0;
+  border-inline-start: 1px dashed color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+/* THE TRANSMISSION HEADER. The band stacks: a strip of punched paper tape
+   across its top, then the name typed after a prompt with a cursor block
+   after it, then the tagline as a comment line, then the double rule the
+   shared sheet already closes the band with. */
+.s-dsg[data-signature="teletype"] .s-dsn-hero--band {
+  flex-direction: column;
+  align-items: stretch;
+  min-block-size: 0;
+  padding: 0;
+  border-inline: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+/* PAPER TAPE. Feed holes in a row down the middle at one pitch, and five
+   channels of data holes at five different pitches so the pattern never
+   repeats inside the width of the band. Every hole is the page's own ground
+   with a ring of the accent round it, which is what a hole in a lit sheet
+   looks like on a phosphor screen. */
+.s-dsg[data-signature="teletype"] .s-dsn-hero--band::before {
+  content: "";
+  display: block;
+  block-size: 38px;
+  border-block-end: 1px dashed color-mix(in srgb, var(--accent) 35%, var(--border));
+  background-color: var(--bg-raised);
+  background-image:
+    radial-gradient(circle, var(--bg) 0 1.3px, color-mix(in srgb, var(--accent) 55%, var(--border)) 1.7px, transparent 2.2px),
+    radial-gradient(circle, var(--bg) 0 2.8px, var(--accent) 3.2px, transparent 3.9px),
+    radial-gradient(circle, var(--bg) 0 2.8px, var(--accent) 3.2px, transparent 3.9px),
+    radial-gradient(circle, var(--bg) 0 2.8px, var(--accent) 3.2px, transparent 3.9px),
+    radial-gradient(circle, var(--bg) 0 2.8px, var(--accent) 3.2px, transparent 3.9px),
+    radial-gradient(circle, var(--bg) 0 2.8px, var(--accent) 3.2px, transparent 3.9px);
+  background-size: 11px 38px, 33px 38px, 55px 38px, 77px 38px, 99px 38px, 121px 38px;
+  background-position: 0 0, 0 -12px, 11px -6px, 22px 6px, 33px 12px, 44px -12px;
+  background-repeat: repeat-x;
+}
+
+.s-dsg[data-signature="teletype"] .s-dsn-hero--band .s-dsn-hero__inner {
+  padding: clamp(22px, 4vw, 36px) clamp(18px, 4vw, 32px) clamp(20px, 3vw, 30px);
+}
+
+.s-dsg[data-signature="teletype"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(1.8rem, 6vw, 3.4rem);
+  line-height: 1.12;
+  letter-spacing: 0.12em;
+  overflow-wrap: anywhere;
+}
+
+/* The prompt is a mirrored character (Bidi_Mirrored), so an Arabic name
+   gets its prompt pointing the right way at the reading start. */
+.s-dsg[data-signature="teletype"] .s-dsn-hero--band .s-dsn-hero__title::before {
+  content: "> ";
+  color: var(--accent);
+}
+
+.s-dsg[data-signature="teletype"] .s-dsn-hero--band .s-dsn-hero__title::after {
+  content: "";
+  display: inline-block;
+  inline-size: 0.55em;
+  block-size: 0.95em;
+  margin-inline-start: 0.2em;
+  vertical-align: -0.1em;
+  background: var(--accent);
+  animation: sig-a-cursor 1.1s steps(1) infinite;
+}
+
+@keyframes sig-a-cursor {
+  50% {
+    opacity: 0;
+  }
+}
+
+.s-dsg[data-signature="teletype"] .s-dsn-hero--band .s-dsn-hero__sub {
+  margin: 16px 0 0;
+  max-width: none;
+  color: var(--text-muted);
+}
+
+.s-dsg[data-signature="teletype"] .s-dsn-hero--band .s-dsn-hero__sub::before {
+  content: "// ";
+  color: var(--text-faint);
+}
+
+/* LINE NUMBERS on the index: a listing on a console is numbered, and a
+   counter is not a string, so the Arabic instance gets its own digits. */
+.s-dsg[data-signature="teletype"] .s-dsn-list--index {
+  counter-reset: sig-a-line;
+}
+
+.s-dsg[data-signature="teletype"] .s-dsn-list--index .s-dsn-list__item {
+  counter-increment: sig-a-line;
+}
+
+.s-dsg[data-signature="teletype"] .s-dsn-list--index .s-dsn-list__toc::before {
+  content: counter(sig-a-line, decimal-leading-zero);
+  flex: none;
+  min-inline-size: 2.2em;
+  color: var(--text-faint);
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+}
+
+.s-dsg[data-signature="teletype"] .s-dsn-list--index .s-dsn-list__toc:dir(rtl)::before {
+  content: counter(sig-a-line, arabic-indic);
+}
+
+/* ══ FASCICLE: the title page ═══════════════════════════════════════════════
+   An issue opens on a page that is all frame: a double ruled border (a
+   hairline in the text colour with a fainter one outside it), a head rule
+   and a tail rule inside the frame, the ornament, the title in small caps,
+   a short rule, and the subtitle in italic. The emptied masthead above it
+   folds to nothing so the plain menu is the only chrome over the frame. */
+.s-dsg[data-signature="fascicle"] .s-dsg-head--stackedStart:not(:has(.s-dsg-head__name)) {
+  padding-block: 0;
+  gap: 0;
+}
+
+.s-dsg[data-signature="fascicle"] .s-dsn-hero--band {
+  flex-direction: column;
+  align-items: stretch;
+  min-block-size: 0;
+  margin-block-start: 6px;
+  padding: 10px;
+  border: 1px solid var(--text-muted);
+  outline: 1px solid color-mix(in srgb, var(--text-faint) 70%, var(--border));
+  outline-offset: 5px;
+  background: var(--bg-raised);
+  text-align: center;
+}
+
+.s-dsg[data-signature="fascicle"] .s-dsn-hero--band::before,
+.s-dsg[data-signature="fascicle"] .s-dsn-hero--band::after {
+  content: "";
+  display: block;
+  block-size: 5px;
+  border-block: 1px solid var(--text-muted);
+}
+
+.s-dsg[data-signature="fascicle"] .s-dsn-hero--band .s-dsn-hero__inner {
+  padding: clamp(28px, 5vw, 60px) clamp(16px, 4vw, 40px) clamp(30px, 5vw, 56px);
+}
+
+.s-dsg[data-signature="fascicle"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(2.2rem, 7.5vw, 4.8rem);
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+/* The ornament above the title is the design's own mark, the same variable
+   the composed dividers and the essay rule read. */
+.s-dsg[data-signature="fascicle"] .s-dsn-hero--band .s-dsn-hero__title::before {
+  content: var(--dsg-orn, "\2726");
+  display: block;
+  margin-block-end: 0.55em;
+  color: var(--accent);
+  font-size: 0.42em;
+  font-variant-caps: normal;
+  letter-spacing: 0;
+}
+
+.s-dsg[data-signature="fascicle"] .s-dsn-hero--band .s-dsn-hero__title::after {
+  content: "";
+  display: block;
+  inline-size: 4em;
+  margin: 0.45em auto 0;
+  border-block-start: 2px solid var(--text);
+}
+
+.s-dsg[data-signature="fascicle"] .s-dsn-hero--band .s-dsn-hero__sub {
+  margin: 18px auto 0;
+  max-width: 40ch;
+  font-style: italic;
+  font-size: 1.08rem;
+  color: var(--text-muted);
+}
+
+/* THE NEW NUMBER IS SET APART: the first entry of the issue on a raised
+   panel of its own, its ordinal in the accent and its title a step larger,
+   so the issue reads as one new instalment and the five before it. */
+.s-dsg[data-signature="fascicle"] .s-dsn-list--numbered .s-dsn-list__item:first-child {
+  padding: clamp(16px, 3vw, 28px) clamp(16px, 3vw, 28px) clamp(16px, 3vw, 28px) clamp(12px, 2.5vw, 22px);
+  margin-block-end: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.s-dsg[data-signature="fascicle"] .s-dsn-list--numbered .s-dsn-list__item:first-child .s-dsn-list__ord {
+  color: var(--accent);
+}
+
+.s-dsg[data-signature="fascicle"] .s-dsn-list--numbered .s-dsn-list__item:first-child .s-dsn-list__title {
+  font-size: 1.4em;
+}
+
+/* ══ KLAXON: the bill ═══════════════════════════════════════════════════════
+   A bill pasted on a wall. The wall is diagonal bands of the accent on the
+   raised ground; the bill is an opaque block in the page colour with a heavy
+   border, the name inside it at wall size, a hard offset shadow in the
+   accent behind it, and the tagline reversed out in a strip. The block is
+   pasted a degree off true, and the shadow and the lean both turn round
+   with the reading direction. Nothing is set over the bands: the words are
+   on the bill and the bill is opaque. */
+.s-dsg[data-signature="klaxon"] .s-dsg-head--banner:not(:has(.s-dsg-head__name)) {
+  padding-block: 0;
+  gap: 0;
+  border-block-end: 0;
+}
+
+.s-dsg[data-signature="klaxon"] .s-dsn-hero--band {
+  min-block-size: 0;
+  padding: clamp(28px, 5vw, 64px) clamp(20px, 4vw, 56px) calc(clamp(28px, 5vw, 64px) + 12px);
+  border: 0;
+  background:
+    repeating-linear-gradient(-14deg, color-mix(in srgb, var(--accent) 72%, var(--bg)) 0 18px, transparent 18px 46px),
+    var(--bg-raised);
+}
+
+.s-dsg[data-signature="klaxon"] .s-dsn-hero--band .s-dsn-hero__inner {
+  inline-size: fit-content;
+  max-inline-size: calc(100% - 20px);
+  padding: clamp(20px, 3.5vw, 44px) clamp(20px, 4vw, 52px);
+  border: 4px solid var(--text);
+  background: var(--bg);
+  box-shadow: 18px 18px 0 var(--accent);
+  transform: rotate(-1.4deg);
+}
+
+.s-dsg[data-signature="klaxon"] .s-dsn-hero--band .s-dsn-hero__inner:dir(rtl) {
+  box-shadow: -18px 18px 0 var(--accent);
+  transform: rotate(1.4deg);
+}
+
+.s-dsg[data-signature="klaxon"] .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(2.8rem, 11.5vw, 10rem);
+  line-height: 0.9;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+.s-dsg[data-signature="klaxon"] .s-dsn-hero--band .s-dsn-hero__sub {
+  display: inline-block;
+  margin: 20px 0 0;
+  max-width: none;
+  padding: 7px 12px;
+  background: var(--text);
+  color: var(--bg);
+  font-family: var(--dsg-body-font, var(--font-ui));
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.s-dsg[data-signature="klaxon"] .s-dsn-hero--band .s-dsn-hero__sub:dir(rtl) {
+  letter-spacing: normal;
+}
+
+/* ══ Gallery miniatures ═══════════════════════════════════════════════════ */
+.s-dsgt[data-signature="late-edition"] .s-dsgt-hero--band {
+  border-block-start: 3px solid var(--text);
+  border-block-end: 1px solid var(--text);
+  background: var(--bg);
+}
+
+.s-dsgt[data-signature="teletype"] .s-dsgt-hero--band {
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-block: 2px double var(--accent);
+}
+
+.s-dsgt[data-signature="fascicle"] .s-dsgt-hero--band {
+  border: 1px solid var(--text-muted);
+  outline: 1px solid var(--border);
+  outline-offset: 2px;
+}
+
+.s-dsgt[data-signature="klaxon"] .s-dsgt-hero--band {
+  background:
+    repeating-linear-gradient(-14deg, color-mix(in srgb, var(--accent) 72%, var(--bg)) 0 4px, transparent 4px 11px),
+    var(--bg-raised);
+}
+
+/* ══ Narrow windows ═══════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .s-dsg[data-signature="late-edition"] .s-dsn-hero--band::before,
+  .s-dsg[data-signature="late-edition"] .s-dsn-hero--band::after {
+    display: none;
+  }
+
+  /* Stacked leads have nothing beside them for a column rule to divide. */
+  .s-dsg[data-signature="late-edition"] .s-dsn-page .s-dsn-grid--bare .s-dsn-card--bare {
+    border-inline-end: 0;
+  }
+
+  .s-dsg[data-signature="late-edition"] .s-dsn-hero--band .s-dsn-hero__inner {
+    padding-inline: 12px;
+  }
+}
+
+@media (max-width: 600px) {
+  .s-dsg[data-signature="late-edition"] .s-dsn-hero--band .s-dsn-hero__sub {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    font-size: 0.68rem;
+  }
+
+  .s-dsg[data-signature="teletype"] .s-dsn-main .s-dsn-page {
+    padding-inline: 38px;
+  }
+
+  .s-dsg[data-signature="teletype"] .s-dsn-main .s-dsn-page::before,
+  .s-dsg[data-signature="teletype"] .s-dsn-main .s-dsn-page::after {
+    inline-size: 22px;
+    background-size: 22px 24px, auto;
+  }
+
+  .s-dsg[data-signature="teletype"] .s-dsn-list--index .s-dsn-list__toc::before {
+    display: none;
+  }
+
+  .s-dsg[data-signature="fascicle"] .s-dsn-hero--band {
+    padding: 6px;
+    outline-offset: 3px;
+  }
+
+  .s-dsg[data-signature="klaxon"] .s-dsn-hero--band {
+    padding: 22px 14px 34px;
+  }
+
+  .s-dsg[data-signature="klaxon"] .s-dsn-hero--band .s-dsn-hero__inner {
+    max-inline-size: calc(100% - 12px);
+    padding: 18px 16px;
+    box-shadow: 10px 10px 0 var(--accent);
+  }
+
+  .s-dsg[data-signature="klaxon"] .s-dsn-hero--band .s-dsn-hero__inner:dir(rtl) {
+    box-shadow: -10px 10px 0 var(--accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-dsg[data-signature="teletype"] .s-dsn-hero--band .s-dsn-hero__title::after {
+    animation: none;
+  }
+}

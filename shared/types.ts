@@ -631,11 +631,11 @@ export interface SettingsData {
    *  /favicon.ico. Absent → the built-in glyph. */
   favicon?: string;
   home?: HomeSettings;
-  /** The owner's own navigation collections on the stock blog: a master switch,
+  /** The owner's own navigation collections on public blogs: a master switch,
    *  two placement sub-options and the folder list. Membership is declared by
    *  each note's `folders:` frontmatter, so nothing here duplicates the vault.
-   *  Designed mode ignores this key entirely — that shell composes its own
-   *  navigation from NavItems (see docs/blog-mode.md). */
+   *  Designed mode carries the same home and navigation placements alongside
+   *  its authored sections and NavItems (see docs/blog-mode.md). */
   publicFolders?: PublicFoldersSettings;
   /** Site logo image (https URL or vault path) shown in place of the
    *  site-name text where a logo fits (masthead, sidebar, dashboard hero). */

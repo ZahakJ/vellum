@@ -4187,6 +4187,29 @@ author to discover it on their phone.
 reader has read a word of one — it is the loudest term the miniature carries. `frame` is in neither,
 for the reason `nav.style` is not: at 200px a title bar on a card is a card.
 
+**A HOUSE HAS A SIGNATURE, AND IT TRAVELS WITH THE DESIGN.** Every axis above is a dial an author
+can turn, and a dial cannot say "this is the newspaper" — it can only say `stack`, `ruled`,
+`bare`, `asterism`, which is what any of eighty designs might also say. `chrome.signature` is the
+one key that names the house: a portable art direction (`CHROME_SIGNATURES`, `none` by default and
+the id of each signature preset otherwise) that a fork, a rename, an export and an import all carry
+unchanged, and that `normalizeChrome` folds back to `none` when it does not recognise. Both
+renderers and the thumb print it as `data-signature` on their root, and `client/styles/signatures.css`
+(shared details) with `signature-studio-{a,b,c,d}.css` (each studio's openings) key on THAT and never
+on a document id or a theme — so an author who applies Mission Control and then recolours it, reorders
+it and renames it "mine" still lives in the console, and one who chooses "No extra styling" in the
+panel keeps every section and face and loses only the house. A signature may draw (a radar, an
+eclipse, an orbit) but only in the theme's tokens, only in gradients, borders and pseudo-elements,
+and never under copy; and the opening it draws is a `hero` with a blank heading, which is the section
+that already prints the site's name and tagline. **That is why `printsSiteName()` exists**
+(`shared/design.ts`): a blank-heading hero and a `cover` hero both print the name, so the masthead
+above them must not — both renderers ask that one function, on the home route only, and a preset
+that opens this way sets `header.showName: false` so the header is not forced to print it a second
+time. `scripts/check-signatures.mjs` is the browser gate for all of it: an isolated fixture (no
+vault, no saved design) rendering every house at 1440, 390 and 390 RTL, asserting no horizontal
+overflow, the galleries, the hover summary and the collection route, with `SIGNATURES=a,b`,
+`--houses-only` and `SHOTS=full` for the designer's loop. `tests/designChromeShapes.test.ts` states
+the portability.
+
 **A BOOK DROPPED ON A FOLDER IS FILED THERE.** `/api/upload` lets the attachment-location setting
 have the last word over the folder a drop happened in — right for an image, which belongs to a
 note and is embedded from wherever it lives, and wrong for a PDF, which the tree treats as a

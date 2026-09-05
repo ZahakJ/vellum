@@ -49,7 +49,7 @@ export function previewPath(el: Element): string | null {
   if (!href.startsWith("/") || href.startsWith("//")) return null;
   const pathname = href.split(/[?#]/)[0];
   if (pathname === "/" || pathname === "/graph") return null;
-  if (pathname.startsWith("/topic/") || pathname.startsWith("/api/")) return null;
+  if (pathname.startsWith("/topic/") || pathname.startsWith("/folder/") || pathname.startsWith("/api/")) return null;
   if (pathname.startsWith("/feed")) return null;
   return urlToNoteGuess(pathname);
 }

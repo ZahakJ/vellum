@@ -1,0 +1,148 @@
+/* Portable art directions. Scoped to the saved signature choice, never a
+   document id or colour theme. Content, order and typography stay editable.
+   The per-studio sheets carry each house's opening composition; this file
+   keeps the details shared by the whole collection. */
+@import "./signature-studio-a.css";
+@import "./signature-studio-b.css";
+@import "./signature-studio-c.css";
+@import "./signature-studio-d.css";
+.s-dsg[data-signature]:not([data-signature="none"]) {
+  --sig-rule: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.s-dsg[data-signature]:not([data-signature="none"]) :is(.s-dsn-card, .s-blog-sites__card, .s-blog-folders__card) {
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+.s-dsg[data-signature]:not([data-signature="none"]) :is(.s-dsn-card, .s-blog-sites__card, .s-blog-folders__card):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 5px;
+}
+.s-dsg .s-blog-sites { margin-block: 48px 12px; }
+.s-dsg :is(.s-blog-sites__title, .s-blog-folders__title, .s-blog-folderhead__title) {
+  font-family: var(--dsg-head-font, var(--font-serif));
+}
+.s-dsg .s-blog-heading { font-family: var(--dsg-head-font, var(--font-serif)); }
+.s-dsg .s-blog-page { max-inline-size: 100%; padding-inline: 0; }
+.s-dsg .s-blog-folders { margin-block: 20px 36px; }
+
+/* The press: newspaper columns, perforated terminal paper, bound issue,
+   oversized poster. Each gives the same title a different physical place. */
+.s-dsg[data-signature="late-edition"] .s-dsn-grid--bare { gap: 0; border-block-end: 3px double var(--text); }
+.s-dsg[data-signature="late-edition"] .s-dsn-card--bare { padding: 24px; border-inline-end: 1px solid var(--border); }
+.s-dsg[data-signature="late-edition"] .s-dsn-card__title { font-size: 1.65em; line-height: 1.06; }
+.s-dsg[data-signature="late-edition"] .s-dsg-head__name { letter-spacing: -.045em; }
+.s-dsg[data-signature="teletype"] .s-dsn-page {
+  border-inline: 8px dotted var(--border);
+  padding-inline: clamp(20px, 4vw, 48px);
+}
+.s-dsg[data-signature="teletype"] .s-dsn-hero--band { border-block: 3px double var(--accent); background: var(--bg); }
+.s-dsg[data-signature="teletype"] .s-dsn-list__item { padding-block: 12px; border-block-end: 1px dashed var(--border); }
+.s-dsg[data-signature="fascicle"] .s-dsn-list--numbered {
+  border-inline-start: 4px solid var(--accent);
+  padding-inline-start: clamp(20px, 4vw, 48px);
+}
+.s-dsg[data-signature="fascicle"] .s-dsn-list__ord { font-size: 3.5rem; font-style: italic; line-height: 1; }
+.s-dsg[data-signature="fascicle"] .s-dsn-list--ledger { border-block: 3px double var(--border); padding-block: 16px; }
+.s-dsg[data-signature="klaxon"] .s-dsn-card--bare {
+  min-block-size: 220px;
+  padding: 24px;
+  border: 2px solid var(--text);
+  box-shadow: 5px 5px 0 var(--accent);
+}
+.s-dsg[data-signature="klaxon"] .s-dsn-card__title { font-size: clamp(24px, 3vw, 40px); line-height: 1; }
+.s-dsg[data-signature="klaxon"] .s-dsn-card:nth-child(3n+2) { border-block-start: 12px solid var(--accent); }
+
+/* Image cultures: museum mats, engraved plates, a zine's offbeat rhythm,
+   and a magazine cover with an oversized first feature. */
+.s-dsg[data-signature="vernissage"] .s-dsn-grid { gap: clamp(24px, 5vw, 64px); }
+.s-dsg[data-signature="vernissage"] .s-dsn-card {
+  border: 12px solid var(--bg-raised);
+  outline: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: 0 20px 40px -28px var(--text);
+}
+.s-dsg[data-signature="vernissage"] .s-dsn-card--overlay { aspect-ratio: 4 / 5; }
+.s-dsg[data-signature="gravure"] .s-dsn-card--masonry { padding: 12px; border: 1px solid var(--border); background: var(--bg-raised); }
+.s-dsg[data-signature="gravure"] .s-dsn-card__body { border-block-start: 1px solid var(--border); margin-block-start: 12px; padding-block-start: 12px; }
+.s-dsg[data-signature="gravure"] .s-dsn-hero--band { background: transparent; border-block: 4px double var(--border); }
+.s-dsg[data-signature="mimeo"] .s-dsn-card { border-radius: 0; outline: 2px solid var(--text); outline-offset: 4px; }
+.s-dsg[data-signature="mimeo"] .s-dsn-card:nth-child(3n+2) { border-block-start: 8px solid var(--accent); }
+.s-dsg[data-signature="mimeo"] .s-dsn-list__ord { font-size: 3em; font-weight: 800; }
+.s-dsg[data-signature="cover-story"] .s-dsn-grid--overlay .s-dsn-card { min-block-size: clamp(300px, 48vw, 580px); aspect-ratio: auto; inline-size: 100%; min-inline-size: 0; border-radius: 0; }
+.s-dsg[data-signature="cover-story"] .s-dsn-grid--overlay .s-dsn-card__title { font-size: clamp(32px, 5vw, 64px); max-inline-size: 18ch; line-height: 1.02; }
+.s-dsg[data-signature="cover-story"] .s-dsn-grid--bare { border-block-start: 4px solid var(--accent); padding-block-start: 24px; }
+
+/* The personal page: conversational salon, astronomical register,
+   illuminated leaves and the handwritten letter's generous margin. */
+.s-dsg[data-signature="salon"] .s-dsn-card--bare { padding: 32px; border-block-start: 1px solid var(--accent); }
+.s-dsg[data-signature="salon"] .s-dsn-card__title { font-style: italic; font-size: 1.7em; }
+.s-dsg[data-signature="salon"] .s-dsn-card:nth-child(even) { background: var(--bg-raised); border-radius: 50% 50% 0 0 / 14px 14px 0 0; }
+.s-dsg[data-signature="ephemeris"] .s-dsn-hero { border: 1px solid var(--accent); outline: 1px solid var(--border); outline-offset: 8px; border-radius: 0; }
+.s-dsg[data-signature="ephemeris"] .s-dsn-card { border: 1px solid var(--sig-rule); border-radius: 0; }
+.s-dsg[data-signature="ephemeris"] .s-dsn-list--ledger { padding: 20px; background: var(--bg); border: 1px solid var(--sig-rule); }
+.s-dsg[data-signature="illumination"] .s-dsn-card--bare {
+  padding: 24px;
+  border: 1px solid var(--accent);
+  outline: 1px solid var(--border);
+  outline-offset: 5px;
+  background: var(--bg);
+}
+.s-dsg[data-signature="illumination"] .s-dsn-card__title { font-size: 1.8em; line-height: 1.12; }
+.s-dsg[data-signature="illumination"] .s-dsn-card__banner { border-radius: 50% 50% 0 0; }
+.s-dsg[data-signature="longhand"] .s-dsn-list--numbered { border-inline-start: 1px solid var(--sig-rule); padding-inline-start: clamp(24px, 5vw, 64px); }
+.s-dsg[data-signature="longhand"] .s-dsn-list__item { padding-block: 28px; }
+.s-dsg[data-signature="longhand"] .s-dsn-list__title { font-style: italic; font-size: 1.7em; }
+.s-dsg[data-signature="longhand"] .s-dsn-list__ord { font-size: 1rem; border: 1px solid var(--border); border-radius: 50%; padding: 8px; }
+
+/* The landscape collection: circular observation plates, an auroral
+   timeline, sunset arches, a cartographic ledger and pasted street posters. */
+.s-dsg[data-signature="orrery"] .s-dsn-card__banner { height: auto; aspect-ratio: 1; border-radius: 50%; border: 1px solid var(--accent); outline: 1px solid var(--border); outline-offset: 8px; margin: 12px; }
+.s-dsg[data-signature="orrery"] .s-dsn-card__body { text-align: center; padding-block: 20px; }
+.s-dsg[data-signature="orrery"] .s-dsn-list--index { padding: 24px; border-block: 1px solid var(--sig-rule); background: var(--bg); }
+.s-dsg[data-signature="nightwatch"] .s-dsn-list--dateline { border-inline-start: 1px solid var(--accent); padding-inline-start: clamp(24px, 4vw, 48px); }
+.s-dsg[data-signature="nightwatch"] .s-dsn-list__item { position: relative; padding: 24px; margin-block-end: 24px; background: var(--bg); border: 1px solid var(--sig-rule); border-radius: 0 20px 20px 0; }
+.s-dsg[data-signature="nightwatch"] .s-dsn-list__item::before { content: ""; position: absolute; inset-inline-start: -5px; inset-block-start: 28px; inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 16px var(--accent); }
+.s-dsg[data-signature="vesper"] .s-dsn-card--boxed { border-radius: 45% 45% 8px 8px / 38px 38px 8px 8px; border-block-start: 2px solid var(--accent); padding: 48px 24px 32px; text-align: center; }
+.s-dsg[data-signature="vesper"] .s-dsn-card__title { font-size: 1.7em; font-style: italic; }
+.s-dsg[data-signature="vesper"] .s-dsn-cta { border: 0; border-block: 1px solid var(--sig-rule); border-radius: 0; background: transparent; }
+.s-dsg[data-signature="ordnance"] .s-dsn-list--ledger { padding: 24px; border: 1px solid var(--accent); outline: 4px double var(--border); outline-offset: 6px; background: var(--bg); }
+.s-dsg[data-signature="ordnance"] .s-dsn-list__stamp { border-inline-end: 1px solid var(--border); padding-inline-end: 12px; }
+.s-dsg[data-signature="ordnance"] .s-dsn-topics { padding: 20px; border: 1px dashed var(--accent); background: var(--bg); }
+.s-dsg[data-signature="flypost"] .s-dsn-list__item { padding: 28px; border: 2px solid var(--text); margin-block-end: 24px; box-shadow: 7px 7px 0 var(--accent); background: var(--bg); }
+.s-dsg[data-signature="flypost"] .s-dsn-list__ord { font-size: 3em; font-weight: 800; }
+.s-dsg[data-signature="flypost"] .s-dsn-list__title { font-size: 1.6em; line-height: 1.1; }
+
+/* The rooms: calibrated console edges, restrained orbital framing, a Gothic
+   arch on the still panel, and a welcoming, image-led front page. */
+.s-dsg[data-signature="mission-control"] .s-dsn-card--boxed::before {
+  background: repeating-linear-gradient(90deg, var(--accent) 0 3px, transparent 3px 8px) 12px center / 36px 3px no-repeat, var(--bg-raised);
+}
+.s-dsg[data-signature="mission-control"] .s-dsg-top { border-inline-end: 1px solid var(--sig-rule); }
+.s-dsg[data-signature="deep-field"] .s-dsn-list__item { position: relative; }
+.s-dsg[data-signature="deep-field"] .s-dsn-list__item::after { content: ""; position: absolute; inset-inline-end: 18px; inset-block-start: 18px; inline-size: 4px; block-size: 4px; background: var(--accent); border-radius: 50%; box-shadow: 0 0 12px var(--accent); pointer-events: none; }
+.s-dsg[data-signature="revenant"] .s-dsg-top::before { content: ""; inline-size: calc(100% - 24px); block-size: 76%; border: 1px solid var(--sig-rule); border-radius: 50% 50% 0 0; position: absolute; inset-block-start: 12%; inset-inline: 12px; pointer-events: none; }
+.s-dsg[data-signature="revenant"] .s-dsn-list__item { padding-block: 40px; border-block-end: 1px solid var(--sig-rule); }
+.s-dsg[data-signature="revenant"] .s-dsn-list__title { font-size: 1.75em; font-style: italic; }
+.s-dsg[data-signature="front-door"] .s-dsn-card--boxed { border-radius: 16px; overflow: hidden; border-color: var(--sig-rule); }
+.s-dsg[data-signature="front-door"] .s-dsn-card__banner { height: auto; aspect-ratio: 16 / 10; }
+.s-dsg[data-signature="front-door"] .s-dsn-card__body { padding: 24px; }
+
+@media (min-width: 900px) {
+  .s-dsg[data-signature="late-edition"] .s-dsn-grid--bare[data-columns="3"] { grid-template-columns: 1.6fr 1fr 1fr; }
+  .s-dsg[data-signature="mimeo"] .s-dsn-card:nth-child(3n+2) { transform: translateY(24px); }
+  .s-dsg[data-signature="salon"] .s-dsn-grid { column-gap: 56px; }
+}
+@media (hover: hover) {
+  .s-dsg[data-signature]:not([data-signature="none"]) .s-dsn-card:hover { border-color: var(--accent); box-shadow: 0 8px 24px -12px var(--accent); }
+}
+@media (max-width: 600px) {
+
+  .s-dsg[data-signature="klaxon"] .s-dsn-card--bare { min-block-size: 160px; }
+  .s-dsg[data-signature="ordnance"] .s-dsn-list--ledger { padding: 12px; outline-offset: 2px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .s-dsg[data-signature]:not([data-signature="none"]) :is(.s-dsn-card, .s-blog-sites__card, .s-blog-folders__card) { transition: none; }
+}
+
+@media (max-width: 900px) {
+  .s-dsg[data-signature="revenant"] .s-dsg-top::before { display: none; }
+}

@@ -102,13 +102,26 @@ import {
  * the wordmark. The masthead is `stackedStart`, flush to the leading edge like
  * the heading of an observing log; the end is a `colophon`, one line, because
  * an instrument is signed and not advertised.
+ *
+ * AND IT OPENS ON THE INSTRUMENT IT IS NAMED FOR. The first section is a
+ * `band` hero with a blank heading, which prints the site's name and tagline
+ * at the leading edge, and the studio sheet draws an orrery beside them: four
+ * hairline orbits and an outer rim, a sun at the centre, four planets standing
+ * on their rings, a faint ecliptic through the middle, all of it from
+ * `sidereal`'s own tokens and none of it a picture. Under the words runs a
+ * declination scale, the ticked rule an observing log keeps at the head of
+ * every page. The masthead gives the name up on the home page (`showName` and
+ * `showTagline` off; the article route prints it again itself), so the name
+ * is set once, next to the thing that measures the sky it stands in. The
+ * orrery is also the one part of the world a phone keeps: the starfield is
+ * masked away under a narrow window, and the instrument stays.
  */
 const orrery: Preset = {
   id: "orrery",
   name: { en: "Orrery", ar: "المرصد" },
   blurb: {
-    en: "A catalogue of objects, kept under a drifting sky.",
-    ar: "فهرس أجرام، محفوظ تحت سماء تنساب.",
+    en: "An orrery turning beside the name, then a catalogue of objects kept under a drifting sky.",
+    ar: "مرصد صغير يدور بجانب الاسم، ثم فهرس أجرام محفوظ تحت سماء تنساب.",
   },
   family: "signature",
   tags: [
@@ -119,6 +132,7 @@ const orrery: Preset = {
     theme: "sidereal",
     site: { width: 980, density: "roomy" },
     chrome: chrome({
+      signature: "orrery",
       typography: {
         baseSize: 17,
         scale: 1.26,
@@ -137,7 +151,10 @@ const orrery: Preset = {
         monoFont: "ibm-plex-mono",
         rhythm: 1.3,
       },
-      header: { layout: "stackedStart", density: "regular", sticky: "nav", showTagline: true, divider: false },
+      // The name stands beside the orrery in the opening below; the masthead
+      // is the menu alone on the home page and prints the name again on an
+      // article, where there is no hero to carry it.
+      header: { layout: "stackedStart", density: "regular", sticky: "nav", showName: false, showTagline: false, divider: false },
       nav: { style: "brackets", fallback: "topics", showSearch: true, showThemeToggle: true },
       footer: { form: "colophon", align: "start", showRss: true, showSearchHint: false },
       surface: "flat",
@@ -145,6 +162,9 @@ const orrery: Preset = {
       ornament: "moon",
     }),
     sections: [
+      // THE INSTRUMENT. A blank heading prints the site's name and tagline;
+      // the studio sheet draws the orrery in the band's second column.
+      { id: "instrument", kind: "hero", heading: "", sub: "", image: null, align: "start", height: "tall", treatment: "band" },
       // TONIGHT'S THREE, unboxed. `bare` is the card that deletes the tile and
       // lets the picture and the title stand on the ground — which is the only
       // card shape that does not put a rectangle of furniture into a sky.
@@ -175,12 +195,19 @@ const orrery: Preset = {
  * for nine days, four in one night. No other list layout in the engine can
  * show that, and no other design on the shelf needs it.
  *
- * AND IT OPENS ON THE WATCH ITSELF. The first cut put a `band` hero above the
- * run, and the screenshot printed "Hollow Green" in the masthead and again,
- * 250px lower, in the band — which is the trap Studio B named and paid two
+ * AND IT OPENS ON THE FIRST PAGE OF THE LOG. The first cut put a `band` hero
+ * above the run and printed the name twice, once in the masthead and again
+ * 250px lower in the band, which is the trap Studio B named and paid two
  * reshoots for: a hero with an empty heading falls back to the site's NAME, and
- * so does every masthead. The rule that came out of it holds here. A watch has
- * no front page; it has a stack of nights, and the newest one is the top of it.
+ * so does every masthead. The rule that came out of it is that the two never
+ * both print, and that is how the hero came back. The masthead gives the name
+ * up on the home page (`showName` and `showTagline` off), and the band is the
+ * first page a night log has: a sky the studio sheet draws itself (two
+ * curtains of the room's accent and a scatter of stars, so the world survives
+ * on a phone where the window's own aurora is masked away), a horizon line, a
+ * band of opaque ground under it with the name set low against the glow, a
+ * watch face stopped at midnight at the end of the band, and a strip of
+ * twenty four hours along the bottom edge. Then the stack of nights.
  *
  * Work Sans over Literata at a NARROW measure (980 / 64ch) and `compact`
  * density — a log is written close together, and the air on this page is in the
@@ -192,8 +219,8 @@ const nightwatch: Preset = {
   id: "nightwatch",
   name: { en: "Nightwatch", ar: "السهر" },
   blurb: {
-    en: "Dated entries under a slow curtain of light, grouped by the night they were written.",
-    ar: "مُدوَّنات مؤرَّخة تحت ستارٍ بطيء من الضوء، مجموعة بحسب ليلة كتابتها.",
+    en: "The first page of a night log: a horizon, a strip of hours, the name set low under a curtain of light, then dated entries grouped by night.",
+    ar: "الصفحة الأولى من سجلّ الليل: أفق، وشريط ساعات، والاسم منخفضًا تحت ستار من الضوء، ثم مدوّنات مؤرَّخة مجموعة بحسب الليلة.",
   },
   family: "signature",
   tags: [
@@ -204,6 +231,7 @@ const nightwatch: Preset = {
     theme: "nocturne",
     site: { width: 860, density: "compact" },
     chrome: chrome({
+      signature: "nightwatch",
       typography: {
         baseSize: 17,
         scale: 1.2,
@@ -218,7 +246,9 @@ const nightwatch: Preset = {
         bodyFont: "literata",
         rhythm: 0.95,
       },
-      header: { layout: "stacked", density: "compact", sticky: "header", showTagline: true, divider: true },
+      // The name is set low in the first page below; the masthead is the
+      // menu alone on the home page and prints the name again on an article.
+      header: { layout: "stacked", density: "compact", sticky: "header", showName: false, showTagline: false, divider: true },
       nav: { style: "underline", fallback: "topics", showSearch: true, showThemeToggle: true },
       footer: { form: "grand", align: "start", showRss: true, showSearchHint: true },
       surface: "flat",
@@ -226,9 +256,11 @@ const nightwatch: Preset = {
       ornament: "star",
     }),
     sections: [
-      { id: "air", kind: "divider", style: "blank", space: 28 },
-      // ONE RUN AND NOTHING ELSE. A watch has no front page: it has a stack of
-      // nights, and the newest one is the top of it.
+      // THE FIRST PAGE: sky, horizon, the name low on the ground, the hours.
+      { id: "firstpage", kind: "hero", heading: "", sub: "", image: null, align: "start", height: "tall", treatment: "band" },
+      { id: "air", kind: "divider", style: "blank", space: 20 },
+      // THEN ONE RUN AND NOTHING ELSE: a stack of nights, and the newest one
+      // is the top of it.
       { id: "watch", kind: "postList", heading: "", limit: 22, tag: "", showExcerpt: true, showDate: true, layout: "dateline" },
       { id: "mark", kind: "divider", style: "ornament", space: 34 },
       { id: "subjects", kind: "topics", heading: "", limit: 12 },
@@ -260,13 +292,18 @@ const nightwatch: Preset = {
  * the one section here that WANTS words, and it ships with none: the panel says
  * so after it is applied.
  *
- * THE ANNOUNCEMENT IS THE MASTHEAD AND THERE IS NO HERO, which is the same
- * lesson Nightwatch above learned from the same screenshot. A `banner` is a
- * field of `--bg-raised` running the full width of the window with the name and
- * the tagline standing in it — it IS the fold a landing page opens on, and a
- * band hero underneath printed the identical two lines a second time at a
- * second size, 350px lower. One announcement, made once, in the one piece of
- * chrome that exists to make it.
+ * THE ANNOUNCEMENT IS THE SUNSET, AND IT IS MADE ONCE. The first cut made it
+ * in the `banner` masthead and had no hero, because a band hero under a banner
+ * printed the identical two lines a second time at a second size, 350px lower
+ * (the lesson Nightwatch above learned from the same screenshot). The hero is
+ * back and the masthead has stepped aside: `showName` and `showTagline` are
+ * off, so on the home page the banner is nothing but the bar the pills sit
+ * in, and the fold is the band under it. The studio sheet draws the hour the
+ * house is named for: a sky that deepens toward the accent, a half disc of
+ * sun sitting on the horizon line with three dark bands of haze through its
+ * lower half, layered hairlines of light above the horizon, and a band of
+ * opaque ground under it with the name centred inside the arch of the sun.
+ * On an article the banner prints the name again itself.
  *
  * `murex` because Tyrian is the colour of the hour this design is named for.
  * The
@@ -277,8 +314,8 @@ const vesper: Preset = {
   id: "vesper",
   name: { en: "Vesper", ar: "الغسق" },
   blurb: {
-    en: "One argument and one button, standing in the last of the light.",
-    ar: "حجّة واحدة وزرّ واحد، في آخر الضوء.",
+    en: "A sun going down into a horizon band with the name under its arch, then one argument and one button.",
+    ar: "شمس تغيب في شريط الأفق والاسم تحت قوسها، ثم حجّة واحدة وزرّ واحد.",
   },
   family: "signature",
   tags: [
@@ -289,6 +326,7 @@ const vesper: Preset = {
     theme: "murex",
     site: { width: 1040, density: "roomy" },
     chrome: chrome({
+      signature: "vesper",
       typography: {
         baseSize: 18,
         scale: 1.34,
@@ -303,7 +341,10 @@ const vesper: Preset = {
         bodyFont: "inter",
         rhythm: 1.4,
       },
-      header: { layout: "banner", density: "tall", sticky: "none", showTagline: true, divider: false },
+      // The name stands under the sun in the opening below; on the home page
+      // the banner is the bar the pills sit in, and on an article it prints
+      // the name again itself.
+      header: { layout: "banner", density: "tall", sticky: "none", showName: false, showTagline: false, divider: false },
       nav: { style: "pills", fallback: "topics", showSearch: false, showThemeToggle: true },
       footer: { form: "columns", align: "center", showRss: false, showSearchHint: false },
       surface: "tinted",
@@ -311,6 +352,8 @@ const vesper: Preset = {
       ornament: "burst",
     }),
     sections: [
+      // THE SUNSET: the name centred in the ground band under the half disc.
+      { id: "dusk", kind: "hero", heading: "", sub: "", image: null, align: "center", height: "tall", treatment: "band" },
       { id: "three", kind: "postGrid", heading: "", limit: 3, columns: 3, tag: "", showExcerpt: true, showBanner: false, showDate: false, card: "boxed" },
       { id: "mark", kind: "divider", style: "ornament", space: 40 },
       // THE ONE SECTION THAT WANTS WORDS, shipped without any. A preset that
@@ -348,13 +391,24 @@ const vesper: Preset = {
  *
  * The mark is ◈: geometric, no voice, the one ornament of the six that is not
  * saying anything about the page it sits in.
+ *
+ * AND THE SHEET HAS A HEAD. A survey sheet opens on its title box and its
+ * reference square, so the first section is a `band` hero with a blank
+ * heading: the name and tagline set in a ruled title box (the same accent
+ * hairline and double outline the ledger below wears, so the two read as one
+ * form), a scale bar under the tagline, and beside the box a gridded
+ * reference square with a graticule through its middle, three contour rings
+ * around a station point, and a north arrow through a compass ring in its
+ * corner. Everything in it is a gradient in the room's tokens. The `rule`
+ * masthead gives the name up on the home page (`showName` and `showTagline`
+ * off) so the title box is the only plate, and prints it again on an article.
  */
 const ordnance: Preset = {
   id: "ordnance",
   name: { en: "Ordnance", ar: "المساحة" },
   blurb: {
-    en: "A field notebook: ruled rows, dated in their own column, over contoured ground.",
-    ar: "دفتر ميداني: صفوف مسطَّرة بتواريخ في عمودها، فوق أرضٍ بخطوط تضاريس.",
+    en: "A survey sheet: the name in a ruled title box beside a gridded reference square, then ruled rows dated in their own column.",
+    ar: "ورقة مساحة: الاسم في صندوق عنوان مسطَّر بجانب مربّع مرجعي مشبَّك، ثم صفوف مسطَّرة بتواريخ في عمودها.",
   },
   family: "signature",
   tags: [
@@ -365,6 +419,7 @@ const ordnance: Preset = {
     theme: "moss",
     site: { width: 820, density: "compact" },
     chrome: chrome({
+      signature: "ordnance",
       typography: {
         baseSize: 16,
         scale: 1.18,
@@ -380,7 +435,9 @@ const ordnance: Preset = {
         monoFont: "ibm-plex-mono",
         rhythm: 0.85,
       },
-      header: { layout: "rule", density: "compact", sticky: "nav", showTagline: true, divider: false },
+      // The name is the sheet title in the opening below; the rule masthead
+      // is the menu alone on the home page and prints the name on an article.
+      header: { layout: "rule", density: "compact", sticky: "nav", showName: false, showTagline: false, divider: false },
       nav: { style: "plain", fallback: "topics", showSearch: true, showThemeToggle: true },
       footer: { form: "columns", align: "start", showRss: true, showSearchHint: true },
       surface: "ruled",
@@ -388,6 +445,9 @@ const ordnance: Preset = {
       ornament: "lozenge",
     }),
     sections: [
+      // THE HEAD OF THE SHEET: title box at the start, reference square at
+      // the end, the studio sheet draws both.
+      { id: "plate", kind: "hero", heading: "", sub: "", image: null, align: "start", height: "short", treatment: "band" },
       { id: "sheet", kind: "postList", heading: "", limit: 26, tag: "", showExcerpt: false, showDate: true, layout: "ledger" },
       { id: "mark", kind: "divider", style: "ornament", space: 30 },
       { id: "sectors", kind: "topics", heading: "", limit: 18 },
@@ -417,13 +477,23 @@ const ordnance: Preset = {
  * tracking: a poster face set tight. The mark is ❦, the printer's leaf, which
  * is four hundred years older than everything else on this page and is exactly
  * why it belongs on it.
+ *
+ * AND IT OPENS ON THE WALL. The first section is a `band` hero with a blank
+ * heading, and the studio sheet pastes it up as bills: two older sheets
+ * underneath at slight angles with torn corners (a striped one and a
+ * dot screened one, both cut with `clip-path`), and on top of them the newest
+ * bill, the name across it in the poster face with a thick rule under it and
+ * two strips of tape at its corners. The bill wears the same heavy border and
+ * hard accent shadow the numbered run wears below, so the wall and the run
+ * are one printing. The inline masthead keeps its utility row and gives the
+ * name up on the home page (`showName` off); an article prints it again.
  */
 const flypost: Preset = {
   id: "flypost",
   name: { en: "Flypost", ar: "المنشور" },
   blurb: {
-    en: "A numbered run set loud on laid paper, under a printer’s dot screen.",
-    ar: "سلسلة مرقّمة بخطٍّ عالٍ على ورق مضلّع، تحت شبكة نقاط الطابع.",
+    en: "Bills pasted over bills with the name across the top one, then a numbered run set loud on laid paper.",
+    ar: "منشورات ملصقة فوق منشورات والاسم على أعلاها، ثم سلسلة مرقّمة بخطٍّ عالٍ على ورق مضلّع.",
   },
   family: "signature",
   tags: [
@@ -434,6 +504,7 @@ const flypost: Preset = {
     theme: "mauveine",
     site: { width: 920, density: "regular" },
     chrome: chrome({
+      signature: "flypost",
       typography: {
         baseSize: 17,
         scale: 1.38,
@@ -448,7 +519,9 @@ const flypost: Preset = {
         bodyFont: "source-sans-3",
         rhythm: 1.15,
       },
-      header: { layout: "inline", density: "compact", sticky: "none", showTagline: false, divider: true },
+      // The name is across the top bill in the opening below; the utility row
+      // keeps the menu and prints the name again on an article.
+      header: { layout: "inline", density: "compact", sticky: "none", showName: false, showTagline: false, divider: true },
       nav: { style: "brackets", fallback: "topics", showSearch: true, showThemeToggle: true },
       footer: { form: "colophon", align: "center", showRss: true, showSearchHint: false },
       surface: "paper",
@@ -456,10 +529,11 @@ const flypost: Preset = {
       ornament: "fleuron",
     }),
     sections: [
-      // THE RUN OPENS ON A MARK RATHER THAN ON A HEADING, which is what a
-      // broadside does: the masthead here is a thin utility row with the name
-      // set small, so the first thing at full width is the fleuron rule — the
-      // printer signing the sheet before the first line of it.
+      // THE WALL: bills under bills, the name across the top one.
+      { id: "wall", kind: "hero", heading: "", sub: "", image: null, align: "center", height: "tall", treatment: "band" },
+      // THE RUN STILL OPENS ON A MARK RATHER THAN ON A HEADING, which is what
+      // a broadside does: between the wall and the first line of the issue is
+      // the fleuron rule, the printer signing the sheet.
       { id: "mark-a", kind: "divider", style: "ornament", space: 34 },
       // THE WHOLE ISSUE, NUMBERED. Oversized faint ordinals down the side are
       // the only list layout that is itself a piece of printing, which is the

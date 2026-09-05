@@ -3280,6 +3280,9 @@ const DICT = {
     ar: "حرف استهلالي كبير في أول فقرة. للنصوص اللاتينية فقط — الحروف العربية موصولة، وانتزاع أولها من كلمته يقطع الوصل.",
   },
 
+  designSignature: { en: "Signature styling", ar: "الطابع المميّز" },
+  designSignatureHint: { en: "Art direction for cards, headings and ornaments. Your content and palette stay editable.", ar: "إخراج بصري للبطاقات والعناوين والزخارف. يبقى المحتوى والألوان قابلين للتعديل." },
+  designSignatureNone: { en: "No extra styling", ar: "بلا طابع إضافي" },
   // ── Presets: the gallery chrome ──────────────────────────────────────────
   // A preset's own NAME and BLURB are not here and must not be: they travel
   // inside the preset as { en, ar } data (shared/presets.ts). Fifty of them

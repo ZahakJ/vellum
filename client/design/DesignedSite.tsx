@@ -14,7 +14,7 @@
 //     the designed page stays up with the failing section replaced by a named
 //     card, under a strip offering one click back to stock.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { stripBidiControls } from "../../shared/bidi.ts";
 import {
   DesignError,
@@ -26,6 +26,11 @@ import {
 import type { PageMeta, PostMeta } from "../../shared/types.ts";
 import { getPosts } from "../api.ts";
 import BlogSearchOverlay from "../blog/BlogSearchOverlay.tsx";
+import AuthorSites from "../blog/AuthorSites.tsx";
+import PublicFolders from "../blog/PublicFolders.tsx";
+import BlogFolder from "../blog/BlogFolder.tsx";
+import BackToTop from "../blog/BackToTop.tsx";
+import { usePostPreviews } from "../blog/usePostPreviews.ts";
 import BlogShell from "../blog/BlogShell.tsx";
 import { go, setNavHandler, topicUrl } from "../blog/nav.ts";
 import { NavLink } from "../blog/util.tsx";
@@ -41,16 +46,20 @@ import { DesignBoundary, type SectionFailure } from "./DesignBoundary.tsx";
 // The CHROME — header, nav, footer — and the page layout for a static page.
 // These are the design's frame; the sections below are what it frames.
 import DesignFooter from "./DesignFooter.tsx";
+import { publicNavigation } from "./publicNavigation.ts";
 import DesignHeader from "./DesignHeader.tsx";
 import PageView from "./PageView.tsx";
+import { printsSiteName } from "../../shared/design.ts";
 import { typographyVars } from "../../shared/designChrome.ts";
 import DesignedArticle from "./DesignedArticle.tsx";
 import { RenderSection, sectionKindLabel } from "./Sections.tsx";
 import "../styles/design.css";
+import "../styles/signatures.css";
 
 type Route =
   | { kind: "home" }
   | { kind: "topic"; tag: string }
+  | { kind: "folder"; slug: string }
   | { kind: "article"; path: string }
   | { kind: "missing" };
 
@@ -67,6 +76,13 @@ function parseRoute(pathname: string): Route {
     } catch {
       // malformed percent-encoding — nothing to show
     }
+  }
+  if (pathname.startsWith("/folder/")) {
+    try {
+      const slug = decodeURIComponent(pathname.slice("/folder/".length)).replace(/\/+$/, "");
+      if (slug) return { kind: "folder", slug };
+    } catch { /* Malformed collection URLs are missing pages. */ }
+    return { kind: "missing" };
   }
   // The tree is a DISCOVERY surface and is filtered; "not in the tree" is not
   // "not there". Hand the URL to /api/note rather than 404ing on a list that
@@ -101,6 +117,8 @@ export default function DesignedSite() {
   const owner = useStore((s) => s.previewVisitor);
   const language = useStore((s) => s.language);
   const logo = useStore((s) => s.logo);
+  const folders = useStore((s) => s.publicFolders);
+  const foldersInNav = useStore((s) => s.publicFoldersNav);
 
   // THE FIRST FRAME HAS THE DESIGN IN HAND when the shell carried it
   // (client/boot.ts). Validated with the same shared validator the fetch
@@ -134,6 +152,12 @@ export default function DesignedSite() {
    *  are pages rather than articles. */
   const [pages, setPages] = useState<PageMeta[]>([]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const attachScroll = useCallback((el: HTMLDivElement | null) => {
+    scrollRef.current = el;
+    setScrollEl(el);
+  }, []);
+  usePostPreviews(scrollEl, posts, locked, language);
 
   const onFail = useCallback((failure: SectionFailure) => {
     setFailures((list) => (list.some((f) => f.id === failure.id) ? list : [...list, failure]));
@@ -214,7 +238,7 @@ export default function DesignedSite() {
     return () => {
       disposed = true;
     };
-  }, [tree, locked]);
+  }, [tree, locked, language]);
 
   // Routing: the nav singleton, popstate, and store-driven navigation
   // (a wikilink click inside a rendered note calls openNote).
@@ -256,12 +280,15 @@ export default function DesignedSite() {
     if (route.kind === "article") {
       const title = stripBidiControls(route.path.split("/").pop()!.replace(/\.md$/i, ""));
       document.title = `${title} · ${siteName}`;
+    } else if (route.kind === "folder") {
+      const folder = folders.find((f) => f.slug === route.slug);
+      document.title = `${folder?.title ?? t("blogNoPage")} · ${siteName}`;
     } else if (route.kind === "topic") {
       document.title = `${route.tag} · ${siteName}`;
     } else {
       document.title = tagline ? `${siteName} — ${tagline}` : siteName;
     }
-  }, [route, siteName, tagline]);
+  }, [route, siteName, tagline, folders]);
 
   const topics = useMemo(() => {
     const counts = new Map<string, number>();
@@ -323,7 +350,7 @@ export default function DesignedSite() {
      would be a site that forgets what it is called two clicks in. */
   const namedElsewhere =
     route.kind === "home" &&
-    sections.some((s) => s.kind === "hero" && (s as HeroSection).treatment === "cover");
+    sections.some((s) => s.kind === "hero" && printsSiteName(s as HeroSection));
   const pageSet = new Set(pages.map((page) => page.path));
 
   return (
@@ -336,10 +363,11 @@ export default function DesignedSite() {
       // "the absence of a rule".
       className={`s-dsn s-dsg s-dsn--${site.density} s-dsg-surf--${chrome.surface} s-dsg-sky--${chrome.scenery} s-dsg-orn--${chrome.ornament} s-dsg-shell--${chrome.shell}${RAILED.has(chrome.shell) ? " s-dsg-rail" : ""} s-dsg-frame--${chrome.frame}${sticky !== "none" ? " s-dsn--sticky" : ""}`}
       style={style}
-      ref={scrollRef}
+      ref={attachScroll}
       // Chrome copy inside re-renders on a live language switch; keeping the
       // subscription on the root is enough because every child re-renders with
       // it.
+      data-signature={chrome.signature ?? "none"}
       data-lang={language}
     >
       {/* THE SKY IS THE FIRST CHILD, and that is load-bearing rather than
@@ -387,7 +415,7 @@ export default function DesignedSite() {
         >
           <DesignHeader
             header={chrome.header}
-            items={chrome.nav.items}
+            items={publicNavigation(chrome.nav, navTopics, folders, foldersInNav)}
             navStyle={chrome.nav.style}
             namedElsewhere={namedElsewhere}
             topics={navTopics}
@@ -416,6 +444,7 @@ export default function DesignedSite() {
         </DesignBoundary>
       </div>
 
+      <BackToTop scroller={scrollEl} />
       <main className="s-dsn-main">
         {locked ? (
           <div className="s-dsn-page s-dsn-locked">
@@ -430,22 +459,30 @@ export default function DesignedSite() {
           </div>
         ) : route.kind === "home" ? (
           <div className="s-dsn-page">
-            {sections.map((section) => (
-              <DesignBoundary
-                // Keyed on the design's own stamp and the reader's language
-                // as well as the section id: a fixed design clears every
-                // failure card without a reload, and so does a language the
-                // section is visible in (the effect above says why).
-                key={`${design.updatedMs}:${language}:${section.id}`}
-                id={section.id}
-                kind={section.kind}
-                onFail={onFail}
-                fallback={(failure) => <FailedSection failure={failure} />}
-              >
-                <RenderSection section={section as Section} posts={posts} locale={locale} />
-              </DesignBoundary>
+            {sections.length === 0 && <PublicFolders />}
+            {sections.map((section, index) => (
+              <Fragment key={section.id}>
+                {index === (sections[0]?.kind === "hero" ? 1 : 0) && <PublicFolders />}
+                <DesignBoundary
+                  // Keyed on the design's own stamp and the reader's language
+                  // as well as the section id: a fixed design clears every
+                  // failure card without a reload, and so does a language the
+                  // section is visible in (the effect above says why).
+                  key={`${design.updatedMs}:${language}:${section.id}`}
+                  id={section.id}
+                  kind={section.kind}
+                  onFail={onFail}
+                  fallback={(failure) => <FailedSection failure={failure} />}
+                >
+                  <RenderSection section={section as Section} posts={posts} locale={locale} />
+                </DesignBoundary>
+              </Fragment>
             ))}
+            {sections.length === 1 && sections[0].kind === "hero" && <PublicFolders />}
+            <AuthorSites />
           </div>
+        ) : route.kind === "folder" ? (
+          <div className="s-dsn-page"><BlogFolder slug={route.slug} posts={posts} locale={locale} /></div>
         ) : route.kind === "topic" ? (
           <div className="s-dsn-page">
             <TopicPage tag={route.tag} posts={posts} locale={locale} />

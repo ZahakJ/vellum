@@ -886,8 +886,8 @@ authRoutes.get("/me", (c) => {
       if (Object.keys(shaped).length > 0) me.home = shaped;
     }
     // THE OWNER'S OWN COLLECTIONS, as ready-made cards. Inside this block on
-    // purpose: public folders are a STOCK BLOG feature (designed mode composes
-    // its own navigation from NavItems, and app mode has the vault tree), so
+    // purpose: public folders belong to both publishing shells (app mode has
+    // the vault tree), so
     // the app-layout payload must not grow a field describing a shell it is
     // not serving.
     //
