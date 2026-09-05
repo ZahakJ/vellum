@@ -24,6 +24,3 @@ desktop/release/
 # it is a whole seeded vault — which is how a scratch directory ends up in a
 # release commit the one time somebody runs `git add -A`.
 scratchpad/
-
-# Per-machine Claude Code permission rules; the project settings stay shared.
-.claude/settings.local.json
