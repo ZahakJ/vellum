@@ -660,12 +660,18 @@ export function uploadAttachment(
   file: File,
   asAdmin = false,
   dir?: string,
+  /** The drop was a FILING — a tree drop onto a folder — rather than a paste
+   *  into a note. The server files a book where it was dropped on the
+   *  strength of this and keeps the attachment setting for everything else
+   *  (shared/attachments.ts, uploadDestination). */
+  filed = false,
 ): Promise<UploadResult> {
   const form = new FormData();
   form.append("file", file, file.name);
   // Empty context and absent context mean the same thing (the vault root), so
   // the falsy test is right here in a way it would not be for a destination.
   if (dir) form.append("dir", dir);
+  if (filed) form.append("place", "here");
   // No Content-Type header: the browser sets the multipart boundary itself.
   // The long deadline, because this one is measured in megabytes.
   return request<UploadResult>(

@@ -12,7 +12,7 @@ import {
   ATTACHMENT_TYPES,
   extensionOf,
   normalizeFolder,
-} from "../shared/attachments.ts";
+ uploadDestination } from "../shared/attachments.ts";
 import { stripBidiControls } from "../shared/bidi.ts";
 import { isNotePath, isTexPath, stripNoteExt } from "../shared/noteFormat.ts";
 import { UPLOAD_MAX_BYTES } from "../shared/limits.ts";
@@ -171,8 +171,7 @@ import {
   themePinnedByEnv,
   themePref,
   uploadDirFor,
-  visitorTheme,
-} from "./site.ts";
+  visitorTheme, attachmentLocation } from "./site.ts";
 import { FOLLOW_THEME } from "../shared/themes.ts";
 import { SEED_GUIDE, seedAvailable, seedVault } from "./seed.ts";
 import {
@@ -1892,7 +1891,10 @@ api.post("/upload", async (c) => {
   // vault. There is deliberately no "must already exist" check — "subfolder"
   // mode creates its folder on first upload, which is the whole point of it.
   const context = typeof form.dir === "string" ? normalizeFolder(form.dir) : "";
-  const dir = uploadDirFor(context);
+  // A BOOK DROPPED ON A FOLDER IS FILED THERE (shared/attachments.ts,
+  // uploadDestination). `place=here` is the client saying the drop was a
+  // filing; the sniffed `ext` is what keeps that promise to books only.
+  const dir = uploadDestination(attachmentLocation(), context, ext, form.place === "here");
   const base = sanitizeBaseName(file.name ?? "");
   // First free filename: name.ext, name-2.ext, name-3.ext, …
   let rel = "";

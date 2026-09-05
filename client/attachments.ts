@@ -180,11 +180,18 @@ export interface UploadOutcome {
  *  ignore it entirely). Sequential on purpose: a dropped folder of 30 images
  *  should not open 30 sockets, and the order of the resulting embeds is the
  *  order they were dropped in. */
-export async function uploadFiles(files: File[], dir: string): Promise<UploadOutcome> {
+export async function uploadFiles(
+  files: File[],
+  dir: string,
+  /** True for a tree drop: the reader aimed at a folder, and a book goes
+   *  where it was aimed. False for a paste into a note, where the
+   *  attachment-location setting is the whole answer. */
+  filed = false,
+): Promise<UploadOutcome> {
   const outcome: UploadOutcome = { paths: [], renamed: [], failed: 0 };
   for (const file of files) {
     try {
-      const result = await uploadAttachment(file, true, dir);
+      const result = await uploadAttachment(file, true, dir, filed);
       outcome.paths.push(result.path);
       const landed = result.path.split("/").pop() ?? result.path;
       if (landed !== file.name) outcome.renamed.push({ from: file.name, to: landed });
@@ -203,7 +210,8 @@ export async function uploadDroppedFiles(files: File[], dir: string): Promise<st
   const sorted = sortFiles(files);
   if (!(await reportRefusals(sorted))) return [];
   if (sorted.ok.length === 0) return [];
-  const outcome = await uploadFiles(sorted.ok, dir);
+  // A tree drop is a FILING: a book lands in the folder it was dropped on.
+  const outcome = await uploadFiles(sorted.ok, dir, true);
   if (outcome.paths.length === 0) return [];
   // Where they LANDED, not where they were dropped: the attachment-location
   // setting may have sent them somewhere else entirely, and the toast is the
