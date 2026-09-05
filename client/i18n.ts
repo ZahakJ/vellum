@@ -3199,12 +3199,13 @@ const DICT = {
   dsoHeightTall: { en: "Tall", ar: "مرتفع" },
   dsoTreatment: { en: "Treatment", ar: "المعالجة" },
   dsoTreatmentHint: {
-    en: "A band needs no picture; a split sets the words beside one",
-    ar: "الشريط لا يحتاج صورة، والمنقسم يضع الكلمات بجانبها",
+    en: "A band needs no picture; a split sets the words beside one; a cover runs a photograph the full width of the window",
+    ar: "الشريط لا يحتاج صورة، والمنقسم يضع الكلمات بجانبها، والغلاف يمدّ الصورة بعرض النافذة كلها",
   },
   dsoTreatmentPanel: { en: "Panel", ar: "لوحة" },
   dsoTreatmentBand: { en: "Band", ar: "شريط" },
   dsoTreatmentSplit: { en: "Split", ar: "منقسم" },
+  dsoTreatmentCover: { en: "Cover", ar: "غلاف" },
   dsoMarkdown: { en: "Markdown", ar: "ماركداون" },
   dsoMarkdownHint: {
     en: "Rendered by the same renderer a note is — wikilinks, callouts and all.",

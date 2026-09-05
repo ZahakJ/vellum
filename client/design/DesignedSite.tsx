@@ -20,6 +20,7 @@ import {
   DesignError,
   validateDesign,
   type DesignDoc,
+  type HeroSection,
   type Section,
 } from "../../shared/design.ts";
 import type { PageMeta, PostMeta } from "../../shared/types.ts";
@@ -276,6 +277,14 @@ export default function DesignedSite() {
   // The topics list is a FALLBACK: it fills the nav only while the author has
   // built no menu of their own, and `fallback: "none"` declines even that.
   const navTopics = chrome.nav.items.length === 0 && chrome.nav.fallback === "topics" ? topics : [];
+  /* A `cover` hero prints the site's name across a full-width photograph, so
+     the masthead above it may be nameless without being empty. Computed from
+     the VISIBLE sections and only on the home route: the same design on an
+     article page has no hero, and a masthead that dropped its wordmark there
+     would be a site that forgets what it is called two clicks in. */
+  const namedElsewhere =
+    route.kind === "home" &&
+    sections.some((s) => s.kind === "hero" && (s as HeroSection).treatment === "cover");
   const pageSet = new Set(pages.map((page) => page.path));
 
   return (
@@ -341,6 +350,7 @@ export default function DesignedSite() {
             header={chrome.header}
             items={chrome.nav.items}
             navStyle={chrome.nav.style}
+            namedElsewhere={namedElsewhere}
             topics={navTopics}
             pathname={route.kind === "article" ? notePathToUrl(route.path) : location.pathname}
             siteName={siteName}

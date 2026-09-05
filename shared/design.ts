@@ -104,8 +104,18 @@ export interface HeroSection extends SectionBase {
    *  of ground and type running the full column with square corners — the
    *  opening for a site that has no photograph and does not want a generated
    *  one. `split` sets the words against the picture instead of on top of it,
-   *  which is the arrangement a scrim cannot produce. */
-  treatment: "panel" | "band" | "split";
+   *  which is the arrangement a scrim cannot produce.
+   *
+   *  `cover` IS THE ONE THAT BREAKS THE COLUMN, and it is here because the
+   *  stock blog's own dashboard has had it since before this engine existed: a
+   *  photograph running the FULL WIDTH OF THE WINDOW with the site's name over
+   *  it. Every other treatment lives inside `--dsn-width`, which meant the one
+   *  opening a Vellum site most often already has was the one thing a design
+   *  could not reproduce — an author who liked their front page could not start
+   *  from it. It is the only section in the engine that leaves the column, it
+   *  says so in its name, and `design.css` carries the full-bleed idiom (a
+   *  negative logical margin against the page's own padding) in one place. */
+  treatment: "panel" | "band" | "split" | "cover";
 }
 
 export interface RichTextSection extends SectionBase {
@@ -546,7 +556,7 @@ export function validateSection(input: unknown, path: string, index: number): Se
         treatment: oneOf(
           raw.treatment,
           `${at}.treatment`,
-          ["panel", "band", "split"] as const,
+          ["panel", "band", "split", "cover"] as const,
           "panel",
         ),
       };

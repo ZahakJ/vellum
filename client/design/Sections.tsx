@@ -180,6 +180,17 @@ function Hero({ section, posts }: { section: HeroSection } & SectionProps) {
     );
   }
 
+  // A COVER BORROWS THE WAY A SPLIT DOES, and for the identical reason. It is
+  // the one opening whose entire subject is a photograph running the full width
+  // of the window, so a fresh install that had none would print a generated
+  // abstract at 420px tall — the loudest placeholder the engine can make. The
+  // newest post's banner is the author's own picture, it changes when they
+  // publish, and it is what "the cover story" has always meant. An image they
+  // named still wins; a vault with no photograph anywhere still gets the
+  // generated field, because half a cover is a hole in the page.
+  const cover =
+    treatment === "cover" ? (section.image ?? posts?.find((p) => p.banner)?.banner ?? null) : null;
+
   // A BAND IS GROUND AND TYPE, and that is the whole point of it: the opening
   // for a site with no photograph, which today got a generated abstract it did
   // not ask for. So a band NEVER generates artwork — it paints `--bg-raised`
@@ -190,13 +201,18 @@ function Hero({ section, posts }: { section: HeroSection } & SectionProps) {
     <header
       className={shell}
       style={
-        section.image || treatment === "band"
+        section.image || cover || treatment === "band"
           ? undefined
           : { background: generatedBannerCss(heading, "hero") }
       }
     >
-      {section.image && (
-        <img className="s-dsn-hero__img" src={bannerSrc(section.image)} alt="" aria-hidden="true" />
+      {(section.image ?? cover) && (
+        <img
+          className="s-dsn-hero__img"
+          src={bannerSrc((section.image ?? cover) as string)}
+          alt=""
+          aria-hidden="true"
+        />
       )}
       {words}
     </header>

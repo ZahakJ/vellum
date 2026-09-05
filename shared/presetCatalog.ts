@@ -1,4 +1,4 @@
-// THE SHIPPED CATALOG. Eighty finished designs, as data.
+// THE SHIPPED CATALOG. Eighty-one finished designs, as data.
 //
 // FOUR ARE HERE. The rest are written against the same three rules,
 // and the rules are the whole contract for adding one:

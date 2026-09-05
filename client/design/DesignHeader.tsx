@@ -50,6 +50,7 @@ export default function DesignHeader({
   tools,
   menuOpen,
   onToggleMenu,
+  namedElsewhere = false,
 }: {
   header: HeaderDesign;
   items: NavItem[];
@@ -57,6 +58,11 @@ export default function DesignHeader({
    *  rather than being read off a config this component does not take, because
    *  the header is the only thing that mounts the nav. */
   navStyle: NavStyle;
+  /** THE PAGE ALREADY SAYS THE NAME, somewhere this header cannot see — today
+   *  that means a `cover` hero, the one section that prints the site's name
+   *  across a full-width photograph. It only ever RELAXES the "never an empty
+   *  identity" rule; it can never blank a masthead the author asked to see. */
+  namedElsewhere?: boolean;
   topics: string[];
   pathname: string;
   siteName: string;
@@ -70,7 +76,16 @@ export default function DesignHeader({
 }) {
   const inline = header.layout === "inline";
   const showLogo = header.showLogo && !!logo;
-  const showName = header.showName || !showLogo; // never an empty identity
+  // NEVER AN EMPTY IDENTITY — unless the page is about to say it louder. A
+  // masthead with `showName: false` and no logo is a bar with nothing in it, so
+  // the name is forced back; that rule is right and it shipped for a reason.
+  // But a `cover` hero prints the site's name across a full-width photograph
+  // directly underneath, and forcing the wordmark back above it prints the name
+  // twice, forty pixels apart — which is the trap Studio B named and paid two
+  // reshoots for, arriving from the other direction. `namedElsewhere` is the
+  // page telling the header that the identity is handled; the header still
+  // refuses to be empty on its own account.
+  const showName = header.showName || (!showLogo && !namedElsewhere);
   const identity = (
     <NavLink url="/" className="s-dsg-head__id" dir="auto">
       {showLogo && <img className="s-dsg-head__logo" src={bannerSrc(logo!)} alt={siteName} />}

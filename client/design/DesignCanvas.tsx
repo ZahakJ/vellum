@@ -244,6 +244,11 @@ export default function DesignCanvas({
     ...typographyVars(chrome.typography),
   } as CSSProperties;
 
+  /* The same rule the live site applies, for the same reason: a card that
+     printed the name twice would be selling a design with a bug in it. */
+  const namedElsewhere = design.sections.some(
+    (s) => !s.hidden && s.kind === "hero" && s.treatment === "cover",
+  );
   const themeAttr = ownTheme && design.theme && isTheme(design.theme) ? design.theme : undefined;
   /** The header's own stickiness, in a frame that can honour it. */
   const sticky = live ? chrome.header.sticky : "none";
@@ -316,6 +321,7 @@ export default function DesignCanvas({
                 header={chrome.header}
                 items={chrome.nav.items}
                 navStyle={chrome.nav.style ?? "plain"}
+                namedElsewhere={namedElsewhere}
                 topics={topics}
                 pathname="/"
                 siteName={siteName}

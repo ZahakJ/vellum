@@ -15,18 +15,18 @@
 //
 // So each house here takes one ROOM and takes it all the way:
 //
-//   · SHELL      console · dock · split · rail
-//   · FRAME      window · float · plain · plain
-//   · WORLD      starfield · nebula · fog · none
-//   · ROOM       phosphor · void · porphyry · porcelain
-//   · MENU       plain · brackets · plain · underline
-//   · RUN        ledger · — · river · index
-//   · MEASURE    1040 · 780 · 720 · 900 px
+//   · SHELL      stack · console · dock · split · rail
+//   · FRAME      plain · window · float · plain · plain
+//   · WORLD      none · starfield · nebula · fog · none
+//   · ROOM       iron-gall · phosphor · void · porphyry · porcelain
+//   · MENU       plain · plain · brackets · plain · underline
+//   · RUN        — · ledger · — · river · index
+//   · MEASURE    1120 · 1040 · 780 · 720 · 900 px
 //
-// EVERY SHELL ONCE, EVERY NEW FRAME ONCE, BOTH NEW WORLDS ONCE. `stack` is the
-// one room not on this shelf, because it is the room the other seventy-six are
-// already in — a fifth house standing in it would be selling the axis by
-// showing the thing that was already there.
+// EVERY SHELL ONCE, EVERY NEW FRAME ONCE, BOTH NEW WORLDS ONCE. `stack` IS on
+// the shelf exactly once and only because Front Door needs it: that house's
+// whole job is to look like the page the reader already has, and the page they
+// already have is stacked. It is the one design here that is not arguing.
 //
 // A NOTE ON MEASURE, because it moved in the opposite direction from Studio D's
 // and for the same reason. A scenery lives in the MARGINS, so an observatory
@@ -336,7 +336,96 @@ const stacks: Preset = {
   }),
 };
 
+
+/**
+ * FRONT DOOR — the design that starts from the site you already have.
+ *
+ * IT EXISTS BECAUSE OF A QUESTION, and the question was better than the
+ * feature it produced: "is the original design a template, or is there a way to
+ * move back to it?" The answer to the second half is yes and always was — the
+ * stock blog is a separate renderer the design engine never touches, and the
+ * live bar switches back to it in one press without changing a byte. The answer
+ * to the FIRST half was no, and that was the real gap: an author who liked
+ * their front page could look at eighty designs that were not it, and "start
+ * from blank" gave them the engine's defaults rather than their own site.
+ *
+ * So this is the stock blog's DASHBOARD, rebuilt out of design sections: a
+ * full-bleed photograph with the site's name over it, a plain menu bar above,
+ * and a grid of banner cards under it. It is the only preset in the catalogue
+ * whose job is to look like something the reader has already seen.
+ *
+ * IT IS NOT A COPY AND IT MUST NOT PRETEND TO BE. The stock dashboard is a
+ * hand-built page with its own components; this is four sections and a chrome,
+ * and the differences are real — the type is the design engine's, the cards are
+ * `postGrid` cards, and the topic band underneath is a `topics` section rather
+ * than the dashboard's own. What it gets exactly right is the SHAPE, which is
+ * the thing somebody who likes their front page is attached to, and everything
+ * in it is now editable, which is the thing they came here for.
+ *
+ * `hero.treatment: "cover"` is the piece that did not exist until this preset
+ * needed it, and it is the only section in the engine that leaves the reading
+ * column. The picture is borrowed from the newest post exactly as a split's is
+ * — a preset may not name an image — so a fresh install opens on its own
+ * newest banner and a vault with no photographs still gets a field rather than
+ * a hole.
+ *
+ * The theme is `follow`-shaped in spirit and `iron-gall` in fact: the product
+ * default, so the fork looks like the instance it was forked on rather than
+ * announcing a room the author did not pick.
+ */
+const frontDoor: Preset = {
+  id: "front-door",
+  name: { en: "Front Door", ar: "الباب" },
+  blurb: {
+    en: "The shape your site already has, as a design you can edit.",
+    ar: "الشكل الذي عليه موقعك الآن، بوصفه تصميمًا يمكنك تحريره.",
+  },
+  family: "signature",
+  tags: [
+    "default", "stock", "dashboard", "cover", "banner", "familiar", "start",
+    "iron-gall", "grid", "hero", "photographs", "home",
+  ],
+  design: design({
+    theme: "iron-gall",
+    site: { width: 1120, density: "regular" },
+    chrome: chrome({
+      typography: {
+        baseSize: 17,
+        scale: 1.25,
+        measure: 68,
+        lineHeight: 1.65,
+        headingWeight: 600,
+        headingCase: "normal",
+        tracking: 0,
+        headingFamily: "serif",
+        bodyFamily: "sans",
+        rhythm: 1,
+      },
+      // The stock blog wears one thin bar with the menu in it and no masthead
+      // at all — the name is on the photograph, which is the whole arrangement.
+      header: { layout: "inline", density: "compact", sticky: "nav", showName: false, showTagline: false, divider: true },
+      nav: { style: "plain", fallback: "topics", showSearch: true, showThemeToggle: true },
+      footer: { form: "columns", align: "center", showRss: true, showSearchHint: true },
+      surface: "flat",
+      scenery: "none",
+      ornament: "asterism",
+      shell: "stack",
+      frame: "plain",
+    }),
+    sections: [
+      // THE PHOTOGRAPH, FULL WIDTH, WITH THE NAME ON IT. `showName` is off in
+      // the header above precisely so this is the only place the site says what
+      // it is called — the trap Studio B named and paid two reshoots for.
+      { id: "cover", kind: "hero", heading: "", sub: "", image: null, align: "center", height: "tall", treatment: "cover" },
+      { id: "latest", kind: "postGrid", heading: "", limit: 9, columns: 3, tag: "", showExcerpt: true, showBanner: true, showDate: true, card: "boxed" },
+      { id: "air", kind: "divider", style: "blank", space: 28 },
+      { id: "topics", kind: "topics", heading: "", limit: 14 },
+    ] as Section[],
+  }),
+};
+
 export const SIGNATURE_E_PRESETS: Preset[] = [
+  frontDoor,
   missionControl,
   deepField,
   revenant,

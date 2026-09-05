@@ -37,9 +37,26 @@
   --dsn-gap: 64px;
 }
 
+/* THE CONTENT AREA IS A QUERY CONTAINER, which is what lets exactly one section
+   leave the column. `hero.treatment: "cover"` bleeds to the edge with
+   `calc(50% - 50cqw)`, and `cqw` has to resolve against the box the PAGE is
+   centred in rather than against the window — otherwise a cover counts the
+   scrollbar and ignores the rail a shell put beside it. Declared here, on the
+   one element that is always exactly the content's width.
+
+   `inline-size` and not `size`: inline-size containment contains layout in one
+   axis and leaves block size alone, so a page of unknown height is unaffected.
+   It does make this element a containing block for absolutely positioned
+   descendants — which is why the sky layers and the chrome are its SIBLINGS
+   rather than its children, and were before this line existed. */
+.s-dsn-main {
+  container-type: inline-size;
+}
+
 /* One column per page, exactly one — the rule the stock blog states and the
    reason its marginalia block had to be un-nested. Everything inside a page
-   lives in this measure and nothing sets a second one. */
+   lives in this measure and nothing sets a second one, except the one section
+   that says in its name that it leaves (`--cover`, below). */
 .s-dsn-page {
   max-width: var(--dsn-width, 720px);
   margin: 0 auto;
@@ -323,6 +340,90 @@
 .s-dsn-hero--split .s-dsn-hero__img {
   position: static;
   z-index: auto;
+}
+
+/* ── COVER: the one section that leaves the column ─────────────────────────
+   The stock blog's dashboard has opened on a full-bleed photograph with the
+   site's name over it since before this engine existed, and until this
+   treatment a design could not reproduce it: every other opening lives inside
+   `--dsn-width`. So the one front page a Vellum author is most likely to
+   already HAVE was the one they could not start a design from — which is the
+   report this treatment came out of ("is the original design a template, or is
+   there a way to move back to it?").
+
+   FULL BLEED IS DONE AGAINST THE PAGE'S OWN BOX, not against the viewport.
+   `100vw` is the usual trick and it is wrong here twice: it ignores the
+   scrollbar (so a page that scrolls gets a horizontal scrollbar too) and it
+   ignores the shells, where the page is inset by a rail. A negative logical
+   margin of the page's own padding plus half its leftover width is exactly the
+   distance back to the edge of whatever box the page is in, in every shell and
+   in both directions.
+
+   THE SCRIM IS NOT OPTIONAL AND IT IS NOT A COLOUR. A headline over an
+   unpredictable photograph is the one contrast argument this engine cannot win
+   by choosing tokens, so a cover paints a fixed dark gradient under its words
+   and sets them in literal light values — the same idiom, and the same reason,
+   as the overlay card and the stock dashboard's own hero. It is the one place
+   in this file that does not read a theme token, and it is deliberate: the
+   ground here is a photograph, and a photograph is not in the palette. */
+.s-dsn-hero--cover {
+  /* `50% - 50cqw` IS THE DISTANCE BACK TO THE EDGE, and every other spelling of
+     it is wrong here. `50%` is half the hero's own box (half the reading
+     column); `cqw` is 1% of `.s-dsn-main`, which is the query container
+     declared below. The difference is exactly the auto margin plus the page's
+     padding, whatever they happen to be.
+
+     `100vw` is the usual trick and it is wrong twice: it counts the scrollbar,
+     so a page that scrolls vertically gains a horizontal scrollbar too, and it
+     ignores the shells, where the page is inset by a rail and the window's edge
+     is not the content's edge. The container is the content's edge by
+     definition, in all five rooms and in both directions. */
+  margin-inline: calc(50% - 50cqw);
+  inline-size: 100cqw;
+  max-inline-size: none;
+  border-radius: 0;
+  min-height: 300px;
+  align-items: flex-end;
+}
+
+.s-dsn-hero--cover.s-dsn-hero--tall {
+  min-height: 460px;
+}
+
+.s-dsn-hero--cover.s-dsn-hero--center {
+  align-items: center;
+}
+
+/* The words come back to the reading column even though the picture did not —
+   a name set against the far edge of a 1440px window is a name nobody reads as
+   the site's. */
+.s-dsn-hero--cover .s-dsn-hero__inner {
+  inline-size: 100%;
+  max-inline-size: var(--dsn-width, 720px);
+  margin-inline: auto;
+  padding: 48px var(--dsn-pad);
+}
+
+.s-dsn-hero--cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(to top, rgb(0 0 0 / 78%), rgb(0 0 0 / 32%) 55%, rgb(0 0 0 / 12%));
+}
+
+/* LITERAL LIGHT VALUES, not `--text`. On a light room `--text` is near-black
+   and would vanish into the scrim it is standing on — the bug the author-site
+   cards were rebuilt to fix, in the one other place the product sets type on a
+   photograph. */
+.s-dsn-hero--cover .s-dsn-hero__title {
+  color: #f7f5f2;
+  text-shadow: 0 1px 18px rgb(0 0 0 / 45%);
+}
+
+.s-dsn-hero--cover .s-dsn-hero__sub {
+  color: rgb(247 245 242 / 82%);
+  text-shadow: 0 1px 14px rgb(0 0 0 / 45%);
 }
 
 /* ── headings, blocks ──────────────────────────────────────────────────── */

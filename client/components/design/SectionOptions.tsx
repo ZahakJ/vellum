@@ -266,6 +266,7 @@ export function SectionOptions({
                 { value: "panel", label: t("dsoTreatmentPanel") },
                 { value: "band", label: t("dsoTreatmentBand") },
                 { value: "split", label: t("dsoTreatmentSplit") },
+                { value: "cover", label: t("dsoTreatmentCover") },
               ]}
             />
           </Row>

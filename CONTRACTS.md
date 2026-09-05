@@ -4070,6 +4070,30 @@ punched out of the paper on every other surface. Both are transparent now — by
 `flat` — and `--dsg-ground` (which follows the surface) comes back on the one state that cannot do
 without it: a bar pinned over scrolling content.
 
+**ONE SECTION LEAVES THE COLUMN, AND IT SAYS SO IN ITS NAME.** `hero.treatment:
+"cover"` runs a photograph the full width of the CONTENT AREA with the site's name over it — the
+opening the stock blog's dashboard has had since before this engine existed, and until it landed the
+one front page a Vellum author is most likely to already have was the one a design could not
+reproduce. It arrived from a question rather than a feature request ("is the original design a
+template, or is there a way to move back to it?"): the way back always existed, but there was no way
+to start from what you had.
+
+Full bleed is `calc(50% - 50cqw)` against a container declared on `.s-dsn-main`, not `100vw`. The
+usual spelling fails twice — it counts the scrollbar, so a page that scrolls vertically gains a
+horizontal scrollbar, and it ignores the shells, where the page is inset by a rail and the window's
+edge is not the content's edge. Measured across five shells × three widths: the cover lands on the
+content edge with a 0px gap on both sides and 0px of horizontal overflow, fifteen times out of
+fifteen. (`container-type: inline-size` makes `.s-dsn-main` a containing block for absolutely
+positioned descendants — which is safe only because the sky layers and the chrome are its SIBLINGS,
+and were before the line existed.)
+
+**A COVER ALSO SUSPENDS "NEVER AN EMPTY IDENTITY".** `DesignHeader` forces the wordmark back on
+whenever there is no logo, which is right and shipped for a reason — but a cover prints the site's
+name across a photograph forty pixels below it, so the rule printed the name twice. `namedElsewhere`
+is the page telling the header the identity is handled; it only ever RELAXES the rule, never blanks
+a masthead the author asked to see, and it is false on an article route, because a site that forgets
+its own name two clicks in is worse than one that says it twice.
+
 **AND A THIRD AXIS, WHICH IS THE ONE THAT MOVES WALLS.** `surface`, `scenery`, the faces, the runs
 and the card shapes are all decisions about what is ON the page — and every one of them was made
 inside the same room: a masthead over one centred column over a footer, which was the shape of every
