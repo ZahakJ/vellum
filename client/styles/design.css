@@ -4312,3 +4312,171 @@
 .s-dsn .s-rv-hr--orn::after {
   content: var(--dsg-orn, "✦");
 }
+
+/* Signature rooms: the geometry belongs to the shell, so forks and live
+   previews keep it even when the owner changes palette or section order. */
+.s-dsg-shell--console .s-dsn-hero--band {
+  position: relative;
+  isolation: isolate;
+  min-block-size: 320px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 36%);
+  align-items: center;
+  gap: 24px;
+  padding: clamp(24px, 4vw, 48px);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-block-start: 3px solid var(--accent);
+  background: var(--bg);
+  box-shadow: inset 0 0 60px color-mix(in srgb, var(--accent) 5%, transparent);
+}
+.s-dsg-shell--console .s-dsn-hero--band .s-dsn-hero__inner {
+  min-inline-size: 0;
+  padding: 0;
+}
+.s-dsg-shell--console .s-dsn-hero--band .s-dsn-hero__title {
+  font-size: clamp(28px, 3.7vw, 52px);
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+/* Concentric range rings, crosshairs and a static sweep. No simulated live
+   telemetry: these are purely decorative instrument markings. */
+.s-dsg-shell--console .s-dsn-hero--band::after {
+  content: "";
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  inline-size: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  opacity: .75;
+  background:
+    radial-gradient(circle at 68% 31%, var(--text) 0 2px, transparent 3px),
+    radial-gradient(circle at 28% 62%, var(--accent) 0 3px, transparent 4px),
+    linear-gradient(transparent calc(50% - .5px), var(--border) 50%, transparent calc(50% + .5px)),
+    linear-gradient(90deg, transparent calc(50% - .5px), var(--border) 50%, transparent calc(50% + .5px)),
+    repeating-radial-gradient(circle, transparent 0 23%, color-mix(in srgb, var(--accent) 35%, transparent) 24% 24.5%, transparent 25%),
+    conic-gradient(from 30deg, transparent 65%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 99%);
+  box-shadow: 0 0 36px color-mix(in srgb, var(--accent) 10%, transparent);
+  pointer-events: none;
+}
+.s-dsg-shell--console .s-dsn-card--boxed {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: var(--bg);
+  box-shadow: 4px 4px 0 var(--bg-raised);
+}
+.s-dsg-shell--console .s-dsn-list--ledger {
+  border: 1px solid var(--border);
+  padding-inline: 16px;
+  background: var(--bg);
+}
+.s-dsg-shell--console .s-dsn-list--ledger .s-dsn-list__item:nth-child(odd) {
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg));
+}
+.s-dsg-shell--console .s-dsn-topics {
+  padding: 20px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: var(--bg);
+}
+
+/* Deep Field: a dark celestial body above the title leaves the actual text
+   on opaque ground. All colour comes from the selected theme's tokens. */
+.s-dsg-shell--dock.s-dsg-sky--nebula .s-dsn-hero--band {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-block-size: 540px;
+  padding: 48px 24px 56px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+.s-dsg-shell--dock.s-dsg-sky--nebula .s-dsn-hero--band::before {
+  content: "";
+  position: relative;
+  flex: none;
+  inline-size: min(270px, 62%);
+  aspect-ratio: 1;
+  margin-block-end: 42px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--text) 65%, var(--accent));
+  background: radial-gradient(circle at 65% 80%, var(--bg-raised), var(--bg) 65%);
+  box-shadow: -12px -8px 25px -16px var(--text),
+    0 -18px 64px -24px var(--accent),
+    0 0 120px 14px color-mix(in srgb, var(--accent) 14%, transparent);
+  pointer-events: none;
+}
+.s-dsg-shell--dock.s-dsg-sky--nebula .s-dsn-hero__inner {
+  position: relative;
+  padding: 0;
+  max-inline-size: 100%;
+}
+.s-dsg-shell--dock.s-dsg-sky--nebula .s-dsn-hero__title {
+  font-size: clamp(42px, 6vw, 78px);
+  font-weight: 400;
+  line-height: 1.05;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.s-dsg-shell--dock.s-dsg-sky--nebula .s-dsn-hero__sub {
+  max-inline-size: 42ch;
+  margin-inline: auto;
+}
+.s-dsg-shell--dock.s-dsg-sky--nebula .s-dsn-list--river {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.s-dsg-shell--dock.s-dsg-sky--nebula .s-dsn-list--river .s-dsn-list__item {
+  padding: clamp(24px, 4vw, 40px);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 18px;
+  background: var(--bg);
+  box-shadow: 0 20px 60px -30px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.s-dsg-shell--dock.s-dsg-sky--nebula .s-dsn-list--river .s-dsn-list__title {
+  font-size: 1.65em;
+  line-height: 1.2;
+}
+@media (min-width: 900px) {
+  .s-dsg-shell--dock.s-dsg-sky--nebula .s-dsn-list--river .s-dsn-list__item:nth-child(odd) {
+    margin-inline-end: 64px;
+  }
+  .s-dsg-shell--dock.s-dsg-sky--nebula .s-dsn-list--river .s-dsn-list__item:nth-child(even) {
+    margin-inline-start: 64px;
+  }
+}
+@media (max-width: 600px) {
+  .s-dsg-shell--console .s-dsn-hero--band {
+    grid-template-columns: minmax(0, 1fr);
+    min-block-size: 0;
+  }
+  .s-dsg-shell--console .s-dsn-hero--band::after {
+    grid-column: 1;
+    grid-row: 2;
+    inline-size: min(200px, 70%);
+    justify-self: center;
+  }
+  .s-dsg-shell--dock.s-dsg-sky--nebula .s-dsn-hero--band {
+    min-block-size: 0;
+    padding-inline: 8px;
+  }
+}
+
+/* A wrapped phone dock takes its real height in flow so it cannot cover the
+   eclipse or a long site name. Desktop keeps the floating navigation. */
+@media (max-width: 600px) {
+  .s-dsg-shell--dock.s-dsg-sky--nebula .s-dsg-top {
+    position: relative;
+    inset: auto;
+    margin-block: 14px;
+    border-radius: 24px;
+  }
+  .s-dsg-shell--dock.s-dsg-sky--nebula .s-dsn-main {
+    padding-block-start: 0;
+  }
+}

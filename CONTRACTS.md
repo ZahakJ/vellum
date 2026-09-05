@@ -1196,6 +1196,20 @@ overruled.
   itself, past the store, and the two disagreed for the life of the page — the next `loadMe()`
   (a visitor's EN/ع switch under `"follow"`) re-applied the store's theme over the design's, and
   the ☾/☀ button read the store and flipped from the wrong room.
+- **The editor's theme and a reader's choice are two keys.** `setTheme` stored the admin's editor
+  pick in `vellum.theme`, the same key a visitor's public-site choice uses, and that key survives
+  signing out — so in any browser the owner had ever signed in from, their editor theme outranked
+  every design they made, for them and only for them ("none of my themes really show on Mission
+  Control, it's just the default dark theme"). A reader's choice made on the public site now lives
+  in `vellum.site-theme`; which key a session reads is decided by the surface it is on
+  (`themeKey()` in `client/state.ts`: the site's for a visitor shell — the served page says so via
+  `client/boot.ts`, which only a session shown the public site is told — and for the owner
+  previewing as one; the editor's otherwise). `loadMe` runs into and out of preview, so one block
+  serves both: entering, the site key is empty and the design's theme applies; leaving, the editor
+  key holds the owner's own room and it comes back. A ☾/☀ press on the public site or in preview
+  writes the site key and never the editor's. One migration cost, accepted: a visitor who chose a
+  theme on the public site before this build chose it into `vellum.theme`, and lands on the site's
+  default once until they choose again.
 - **The ☾/☀ button on a designed site always lands in the design's pair.** `COUNTERPART` is not
   involutive (several dark rooms share one lit partner), so a toggle that only asked for the
   counterpart of the current room left the design in two presses (phosphor → porcelain →

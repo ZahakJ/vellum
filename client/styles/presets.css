@@ -1688,3 +1688,36 @@
     transition: none;
   }
 }
+
+/* The shelf advertises the same opening geometry as the real canvas. */
+.s-dsgt--shell-console .s-dsgt-hero--band {
+  position: relative;
+  padding-inline-end: 38%;
+  border: 1px solid var(--accent);
+  background: var(--bg);
+}
+.s-dsgt--shell-console .s-dsgt-hero--band::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: 4%;
+  inset-block-start: 18%;
+  width: 26%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  background: repeating-radial-gradient(circle, transparent 0 22%, var(--border) 23% 25%, transparent 26%);
+}
+.s-dsgt--shell-dock .s-dsgt-hero--band {
+  background: transparent;
+  align-items: center;
+}
+.s-dsgt--shell-dock .s-dsgt-hero--band::before {
+  content: "";
+  width: 25cqw;
+  aspect-ratio: 1;
+  margin-block-end: 4cqw;
+  border-radius: 50%;
+  background: var(--bg);
+  border-block-start: 1px solid var(--text);
+  box-shadow: 0 -2cqw 6cqw -2cqw var(--accent);
+}

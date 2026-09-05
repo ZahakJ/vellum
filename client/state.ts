@@ -99,6 +99,33 @@ function noteTitle(path: string): string {
 }
 
 const THEME_KEY = "vellum.theme";
+/** A READER'S choice, made on the public site. A second key, and the whole
+ *  reason it exists is the owner: `setTheme` stores the editor's pick in
+ *  THEME_KEY, that key survives signing out, and a stored choice outranks the
+ *  site's theme by a rule that is right for visitors — so in any browser the
+ *  owner had ever signed in from, their EDITOR theme outranked every design
+ *  they made, for them and only for them ("none of my themes really show on
+ *  Mission Control, it's just the default dark theme"). The editor's theme is
+ *  a preference about the editor; a choice a reader makes on the public site
+ *  is a preference about the public site; one key cannot hold both. Which key
+ *  a session reads is decided by the surface it is on (`themeKey`). */
+const SITE_THEME_KEY = "vellum.site-theme";
+
+/** The key in force for this session: the public site's for a visitor shell
+ *  (the served page said so — client/boot.ts — which only a session shown the
+ *  public site is told) and for the owner previewing as one, the editor's
+ *  otherwise. Read live, because preview is entered and left without a
+ *  reload. `useStore` is not yet defined at boot, and does not need to be:
+ *  every boot starts out of preview (clearStoredPreview). */
+function themeKey(): string {
+  if (boot.layout !== undefined) return SITE_THEME_KEY;
+  try {
+    if (useStore.getState().previewVisitor) return SITE_THEME_KEY;
+  } catch {
+    // boot: the store is being created
+  }
+  return THEME_KEY;
+}
 const VIM_KEY = "vellum.vim";
 const READING_KEY = "vellum.reading";
 const TABS_KEY = "vellum.tabs";
@@ -563,7 +590,7 @@ export interface State {
  *  refusing it now would mean every custom-theme user opens on iron-gall for a
  *  beat and then jumps, which is the flash this function exists to avoid. */
 function readTheme(): ThemeChoice {
-  const stored = localStorage.getItem(THEME_KEY);
+  const stored = localStorage.getItem(themeKey());
   if (isTheme(stored)) return stored;
   if (stored !== null && isCustomThemeId(stored)) return stored;
   // No choice of their own: the room the served shell was ALREADY painted in
@@ -1430,12 +1457,23 @@ export const useStore = create<State>()((set, get) => {
         // back to the site default rather than painting its base and claiming
         // to be something else. Boot accepted it on SHAPE; this is where it
         // meets the registry.
-        const stored = localStorage.getItem(THEME_KEY);
+        // THE KEY IN FORCE FOR THIS SURFACE (themeKey): the editor's in the
+        // app, the public site's in a visitor shell and in preview. loadMe
+        // runs on the way into and out of preview, which is what makes one
+        // block serve both: entering, the site key is empty and the design's
+        // theme applies; leaving, the editor key holds the owner's own room
+        // and it comes back — where before the design's theme followed them
+        // out into the editor.
+        const key = themeKey();
+        const stored = localStorage.getItem(key);
         if (stored !== null && !isKnownThemeChoice(stored)) {
-          localStorage.removeItem(THEME_KEY);
+          localStorage.removeItem(key);
           const fallback = isKnownThemeChoice(me.defaultTheme) ? me.defaultTheme : THEMES[0];
           applyTheme(fallback);
           set({ theme: fallback });
+        } else if (stored !== null && stored !== get().theme) {
+          applyTheme(stored);
+          set({ theme: stored });
         }
         // The site's default theme applies only while this reader has made no
         // explicit choice (nothing in localStorage) — and is deliberately NOT
@@ -1447,7 +1485,7 @@ export const useStore = create<State>()((set, get) => {
         // whole "selectable everywhere a built-in is" promise reaching its
         // last surface.
         if (
-          !localStorage.getItem(THEME_KEY) &&
+          !localStorage.getItem(key) &&
           isKnownThemeChoice(me.defaultTheme) &&
           me.defaultTheme !== get().theme
         ) {
@@ -1895,7 +1933,9 @@ export const useStore = create<State>()((set, get) => {
     setView: (view) => set({ view }),
 
     setTheme: (theme) => {
-      localStorage.setItem(THEME_KEY, theme);
+      // The surface's own key: a ☾/☀ press on the public site, or in preview,
+      // never rewrites the editor's theme (themeKey).
+      localStorage.setItem(themeKey(), theme);
       applyTheme(theme);
       set({ theme });
       // An ADMIN's pick is also the public site's default, unless a pin says
