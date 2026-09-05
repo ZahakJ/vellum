@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import type { NavItem, NavStyle } from "../../shared/designChrome.ts";
 import { t } from "../i18n.ts";
 import { topicUrl } from "../blog/nav.ts";
+import { isLabelled as tagIsLabelled, label as tagLabel } from "../tagLabels.ts";
 import { NavLink } from "../blog/util.tsx";
 import { notePathToUrl } from "../router.ts";
 
@@ -72,6 +73,12 @@ function Leaf({ item, pathname }: { item: NavItem; pathname: string }) {
   if (url === null) return null;
   const active = isActive(item, pathname);
   const cls = `s-dsg-nav__link${active ? " s-dsg-nav__link--active" : ""}`;
+  // An authored label is the author's word. A topic item that has none (the
+  // generated collection menu leaves it blank) reads the tag's localised
+  // label, so an Arabic instance's menu says «برمجيات» and not "software".
+  const topic = item.kind === "topic" ? (item.target ?? "") : "";
+  const text = item.label || (topic ? tagLabel(topic) : item.label);
+  const hint = !item.label && topic && tagIsLabelled(topic) ? `#${topic}` : undefined;
   // An external link is a REAL anchor: the client-side router has nothing to
   // say about another origin, and target=_blank carries the noopener pair.
   if (!url.startsWith("/")) {
@@ -82,14 +89,14 @@ function Leaf({ item, pathname }: { item: NavItem; pathname: string }) {
         {...(item.newTab ? { target: "_blank", rel: "noopener noreferrer" } : {})}
         dir="auto"
       >
-        {item.label}
+        {text}
         {item.newTab && <ExternalMark />}
       </a>
     );
   }
   return (
-    <NavLink url={url} className={cls} dir="auto">
-      {item.label}
+    <NavLink url={url} className={cls} dir="auto" title={hint}>
+      {text}
     </NavLink>
   );
 }
@@ -252,8 +259,9 @@ export default function DesignNav({
               url={topicUrl(tag)}
               className={`s-dsg-nav__link${pathname === topicUrl(tag) ? " s-dsg-nav__link--active" : ""}`}
               dir="auto"
+              title={tagIsLabelled(tag) ? `#${tag}` : undefined}
             >
-              {tag}
+              {tagLabel(tag)}
             </NavLink>
           ))}
     </div>

@@ -20,6 +20,7 @@ import { getNote } from "../api.ts";
 import { bannerSrc, bannerFromContent, generatedBannerCss } from "../banner.ts";
 import { formatDate, isRtlText, NavLink } from "../blog/util.tsx";
 import { topicUrl } from "../blog/nav.ts";
+import { isLabelled as tagIsLabelled, label as tagLabel, useTagLabels } from "../tagLabels.ts";
 import { countPhrase, t } from "../i18n.ts";
 import { renderNoteContent } from "../reading/renderNote.ts";
 import { renderMarkdown } from "../reading/render.ts";
@@ -75,6 +76,8 @@ export default function DesignedArticle({
   const host = useRef<HTMLDivElement | null>(null);
   const preview = usePreviewContent();
   const tree = useStore((s) => s.tree);
+  // Repaint the chips when the label map lands after the first paint.
+  useTagLabels();
   const storedFallback = useStore((s) => s.bannerFallback);
   // Generated artwork in every preview, whatever this instance chose for its
   // live site: an author still has to see what a banner does before they turn
@@ -214,8 +217,13 @@ export default function DesignedArticle({
       {options.showTags && meta && meta.tags.length > 0 && (
         <nav className="s-dsn-topics s-dsn-article__tags" aria-label={t("tags")}>
           {meta.tags.map((tag) => (
-            <NavLink key={tag} url={topicUrl(tag)} className="s-dsn-topic">
-              <bdi>#{tag}</bdi>
+            <NavLink
+              key={tag}
+              url={topicUrl(tag)}
+              className="s-dsn-topic"
+              title={tagIsLabelled(tag) ? `#${tag}` : undefined}
+            >
+              <bdi>#{tagLabel(tag)}</bdi>
             </NavLink>
           ))}
         </nav>

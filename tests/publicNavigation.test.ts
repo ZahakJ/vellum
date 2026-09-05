@@ -14,8 +14,7 @@ it("collection navigation respects opt-out and keeps empty collections off the m
   const items = publicNavigation(nav, ["essays"], folders, true);
   assert.equal(items[0].kind, "topic");
   assert.equal(items[0].target, "essays");
-  assert.equal(items[0].label, "essays");
-  assert.equal(items[0].label, "essays");
+  assert.equal(items[0].label, "", "the renderer supplies the localised label");
   assert.equal(items[1].target, "/folder/photos");
   assert.equal(items[1].label, "الصور");
   assert.equal(items.length, 2);

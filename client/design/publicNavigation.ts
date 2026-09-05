@@ -13,7 +13,9 @@ export function publicNavigation(
   const filled = enabled ? folders.filter((folder) => folder.count > 0) : [];
   if (filled.length === 0) return nav.items;
   const items: NavItem[] = nav.items.length > 0 ? [...nav.items] : nav.fallback === "topics"
-    ? topics.map((tag, index) => ({ id: `public-topic-${index}`, kind: "topic", target: tag, label: tag }))
+    // The label stays blank: DesignNav prints the tag's localised label, and
+    // a word baked in here would be the canonical tag in the wrong language.
+    ? topics.map((tag, index) => ({ id: `public-topic-${index}`, kind: "topic", target: tag, label: "" }))
     : [];
   const targets = new Set<string>();
   const visit = (rows: NavItem[]): void => {

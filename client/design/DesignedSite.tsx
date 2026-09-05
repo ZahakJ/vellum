@@ -33,6 +33,7 @@ import BackToTop from "../blog/BackToTop.tsx";
 import { usePostPreviews } from "../blog/usePostPreviews.ts";
 import BlogShell from "../blog/BlogShell.tsx";
 import { go, setNavHandler, topicUrl } from "../blog/nav.ts";
+import { canonical as canonicalTag, isLabelled as tagIsLabelled, label as tagLabel, useTagLabels } from "../tagLabels.ts";
 import { NavLink } from "../blog/util.tsx";
 import LoginModal from "../components/LoginModal.tsx";
 import { t, tf } from "../i18n.ts";
@@ -284,7 +285,7 @@ export default function DesignedSite() {
       const folder = folders.find((f) => f.slug === route.slug);
       document.title = `${folder?.title ?? t("blogNoPage")} · ${siteName}`;
     } else if (route.kind === "topic") {
-      document.title = `${route.tag} · ${siteName}`;
+      document.title = `${tagLabel(canonicalTag(route.tag) ?? route.tag)} · ${siteName}`;
     } else {
       document.title = tagline ? `${siteName} — ${tagline}` : siteName;
     }
@@ -617,14 +618,27 @@ function TopicPage({
   posts: PostMeta[] | null;
   locale: string;
 }) {
-  const wanted = tag.toLowerCase();
+  // The tag this page is about. A reader may arrive on a localised address
+  // copied off a chip; `canonical()` answers for both spellings, and the
+  // address is put right in place, exactly as the stock topic page does it.
+  const labelsVersion = useTagLabels();
+  const resolved = useMemo(() => canonicalTag(tag) ?? tag, [tag, labelsVersion]);
+  useEffect(() => {
+    if (resolved === tag) return;
+    try {
+      history.replaceState(history.state, "", topicUrl(resolved));
+    } catch {
+      // A browser refusing replaceState is not a reason to lose the page.
+    }
+  }, [resolved, tag]);
+  const wanted = resolved.toLowerCase();
   const list = (posts ?? []).filter((post) =>
     post.tags.some((entry) => entry.toLowerCase() === wanted),
   );
   return (
     <section className="s-dsn-block">
-      <h1 className="s-dsn-head">
-        <bdi>#{tag}</bdi>
+      <h1 className="s-dsn-head" title={tagIsLabelled(resolved) ? `#${resolved}` : undefined}>
+        <bdi>#{tagLabel(resolved)}</bdi>
       </h1>
       {list.length === 0 ? (
         <p className="s-dsn-empty">{t("dsnNoPosts")}</p>
@@ -635,7 +649,7 @@ function TopicPage({
             kind: "postList",
             heading: "",
             limit: 200,
-            tag,
+            tag: resolved,
             showExcerpt: true,
             showDate: true,
             // A topic archive is a river and stays one: the page is the

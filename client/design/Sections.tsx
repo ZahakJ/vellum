@@ -30,6 +30,7 @@ import { bannerSrc, generatedBannerCss } from "../banner.ts";
 import { formatDate, NavLink } from "../blog/util.tsx";
 import { siteDate } from "../dates.ts";
 import { topicUrl } from "../blog/nav.ts";
+import { isLabelled as tagIsLabelled, label as tagLabel, useTagLabels } from "../tagLabels.ts";
 import { countPhrase, localeNum, t, tf } from "../i18n.ts";
 import { renderMarkdown } from "../reading/render.ts";
 import { notePathToUrl } from "../router.ts";
@@ -733,6 +734,11 @@ function PostListBlock({ section, posts, locale }: { section: PostListSection } 
 // ── topics ──────────────────────────────────────────────────────────────────
 
 function Topics({ section, posts }: { section: TopicsSection } & SectionProps) {
+  // The chip SAYS the localised label and MEANS the canonical tag: the URL,
+  // the count and the key stay canonical, the word is the reader's. Same
+  // pairing as every chip on the stock blog, and the version hook is what
+  // repaints the chips when the map lands after the first paint.
+  useTagLabels();
   const chips = useMemo(() => {
     const counts = new Map<string, number>();
     for (const post of posts ?? []) {
@@ -748,10 +754,15 @@ function Topics({ section, posts }: { section: TopicsSection } & SectionProps) {
       <Heading text={section.heading} />
       <div className="s-dsn-topics">
         {chips.map(([tag, count]) => (
-          <NavLink key={tag} url={topicUrl(tag)} className="s-dsn-topic">
+          <NavLink
+            key={tag}
+            url={topicUrl(tag)}
+            className="s-dsn-topic"
+            title={tagIsLabelled(tag) ? `#${tag}` : undefined}
+          >
             {/* The chip IS its content, so the isolate goes on the chip — the
                 same rule the editor's #tag pills follow. */}
-            <bdi>#{tag}</bdi>
+            <bdi>#{tagLabel(tag)}</bdi>
             {/* Through localeNum, never a bare {count}: numerals are ONE system
                 per instance, chosen by the date locale, and the date beside
                 this chip on every card is already Arabic-Indic. */}
